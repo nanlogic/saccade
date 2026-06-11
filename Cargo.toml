@@ -8,6 +8,7 @@ members = [
   "crates/saccade_replay",
   "crates/saccade_browser",
   "bins/mousemax",
+  "bins/saccade-shell",
 ]
 default-members = [
   "crates/saccade_core",

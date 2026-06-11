@@ -1,0 +1,11 @@
+[package]
+name = "saccade-shell"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+saccade_browser = { path = "../../crates/saccade_browser" }
+tiny_http.workspace = true
+url.workspace = true

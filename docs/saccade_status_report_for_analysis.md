@@ -139,11 +139,27 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 ## Recommended Next Work
 
 1. Run the M7 gate on Linux/X11.
-2. Add a FORMMAX browser runner that fills the local long-table fixture through Servo input.
-3. Add a user confirmation UI for sensitive fields.
-4. Extend replay events for FORMMAX: field discovered, field filled, scroll checkpoint, submit clicked, validation seen, confirmation required, receipt seen.
-5. Add a public-facing report page that links the M7 artifact, click map, validator output, and caveats.
-6. Decide whether PDF filling should remain a programmatic side path or become browser-surface automation.
+2. Continue N2 login handoff: Human tab logs in, Agent tab inherits the session without seeing passwords or OTP.
+3. Start DEVMAX local agent self-test fixtures.
+4. Add a FORMMAX browser runner that fills the local long-table fixture through Servo input.
+5. Add a user confirmation UI for sensitive fields.
+6. Add a public-facing report page that links the M7 artifact, click map, validator output, and caveats.
+
+## Next Plan v5 Update
+
+The next plan reframes Saccade as an AI-first Playwright alternative:
+
+```text
+Browser truth -> verified actions
+```
+
+MOUSEMAX is now evidence. Product work starts with Trusted Tabs and DEVMAX.
+
+N1 minimal Trusted Tabs runtime now passes:
+
+```text
+TABS PASS webviews=2 cookie_shared=true storage_shared=true input_isolated=true read_policy_enforced=true
+```
 
 ## Useful Commands
 

@@ -61,3 +61,10 @@
 
 - `scripts/formmax_pdf_feasibility.py` generates a fillable AcroForm PDF and a flat PDF, fills only non-sensitive fields, and verifies tax ID, signature, and legal attestation fields stay gated.
 - Browser-surface PDF filling remains reported as unsupported in the current harness; programmatic AcroForm filling is the viable first path.
+
+## N1 - Trusted Tabs runtime
+
+- Imported `SACCADE_NEXT_PLAN_v5.md` and froze MOUSEMAX as evidence. New product work starts with Trusted Tabs and DEVMAX rather than more mouse-game features.
+- Added `saccade-shell` as a new binary. Servo calls remain inside `saccade_browser`; the shell binary calls exported browser-boundary functions.
+- `selftest-tabs` creates two WebViews under one Servo instance. On macOS arm64 with pinned Servo `0.2.0`, same-origin cookies and localStorage are shared between the Human and Agent WebViews.
+- Added core tab policy types: `TabId`, `TabOwner`, `ReadGrant`, `TabInfo`, and `TabVisualMarker`.

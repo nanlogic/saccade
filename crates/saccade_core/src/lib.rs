@@ -11,8 +11,8 @@ pub use geometry::{
 pub use metrics::{BenchmarkResult, Histogram, LatencyPair, LatencySummary};
 pub use model::{
     AccuracySummary, ClickOutcome, ClickReceipt, DetectorUsage, DifficultyConfig, DomRectObs,
-    FrameObservation, GameFrameReport, InputBackendKind, MotorAction, PixelRegion, RenderedTarget,
-    RunCounters, ScoreState, TargetCandidate, TargetEvidence, TargetId, TargetSource, TrackerEvent,
-    VerificationResult,
+    FrameObservation, GameFrameReport, InputBackendKind, MotorAction, PixelRegion, ReadGrant,
+    RenderedTarget, RunCounters, ScoreState, TabId, TabInfo, TabOwner, TabVisualMarker,
+    TargetCandidate, TargetEvidence, TargetId, TargetSource, TrackerEvent, VerificationResult,
 };
 pub use time::{Clock, Ns};

@@ -5437,6 +5437,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "saccade-shell"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "saccade_browser",
+ "tiny_http",
+ "url",
+]
+
+[[package]]
 name = "saccade_browser"
 version = "0.1.0"
 dependencies = [

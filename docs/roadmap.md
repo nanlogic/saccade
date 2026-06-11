@@ -42,3 +42,26 @@ M11: scripts/formmax_pdf_feasibility.py
 ```
 
 FORMMAX planning lives in `docs/formmax_practical_eval_plan.md`.
+
+## Next Plan v5
+
+`docs/SACCADE_NEXT_PLAN_v5.md` reframes the project from MOUSEMAX expansion to an AI-first Playwright alternative:
+
+```text
+MOUSEMAX = trust proof
+Trusted Tabs = safety and login handoff foundation
+DEVMAX = developer usefulness proof
+FORMMAX = practical workflow proof
+```
+
+Current active milestone:
+
+```text
+N1: Trusted Tabs Runtime
+```
+
+N1 minimal selftest now passes:
+
+```text
+cargo run -q -p saccade-shell -- selftest-tabs
+```

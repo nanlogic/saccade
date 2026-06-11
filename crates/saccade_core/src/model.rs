@@ -33,6 +33,50 @@ pub struct DomRectObs {
 pub struct TargetId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TabId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TabOwner {
+    Human,
+    Agent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReadGrant {
+    None,
+    VisibleSummaryOnly,
+    FullTruth,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabVisualMarker {
+    pub border: bool,
+    pub badge: String,
+    pub color_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabInfo {
+    pub tab_id: TabId,
+    pub owner: TabOwner,
+    pub url: String,
+    pub title: Option<String>,
+    pub read_grant: ReadGrant,
+    pub page_revision: u64,
+    pub visual_marker: TabVisualMarker,
+}
+
+impl TabInfo {
+    pub fn agent_input_allowed(&self) -> bool {
+        self.owner == TabOwner::Agent
+    }
+
+    pub fn agent_truth_allowed(&self) -> bool {
+        self.owner == TabOwner::Agent || self.read_grant != ReadGrant::None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TargetSource {
     PixelDetector,
     DomRect,

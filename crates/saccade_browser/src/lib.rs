@@ -4,6 +4,7 @@ mod arena_run;
 mod real_run;
 mod recon;
 mod selftest;
+mod trusted_tabs;
 
 mod calibration;
 mod page_selftest;
@@ -14,3 +15,4 @@ pub use page_selftest::{SelftestPageOutcome, SelftestPagesReport, selftest_pages
 pub use real_run::{RealRunConfig, RealRunReport, run_real};
 pub use recon::{RealSiteRecon, real_site_recon};
 pub use selftest::selftest_boot;
+pub use trusted_tabs::{TrustedTabsProfile, selftest_trusted_tabs};
