@@ -65,3 +65,11 @@ N1 minimal selftest now passes:
 ```text
 cargo run -q -p saccade-shell -- selftest-tabs
 ```
+
+Dogfood rule:
+
+```text
+Use Saccade first for local development inspection, form workflows, login handoff, and replay-backed browser actions. Use Chrome and Playwright as compatibility baselines or escape hatches.
+```
+
+See `docs/dogfood_strategy.md`.
