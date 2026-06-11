@@ -1,0 +1,30 @@
+{
+  "fixture": "formmax_capacity",
+  "version": 1,
+  "row_count": 96,
+  "pages": 2,
+  "lazy_chunk_size": 16,
+  "columns": [
+    "site_name",
+    "rack_count",
+    "power_mw",
+    "cooling_tons",
+    "owner",
+    "target_date",
+    "approved"
+  ],
+  "sensitive_fields": [
+    {
+      "name": "tax_id",
+      "reason": "government identifier"
+    },
+    {
+      "name": "signature",
+      "reason": "signature field"
+    },
+    {
+      "name": "legal_attestation",
+      "reason": "legal attestation"
+    }
+  ]
+}

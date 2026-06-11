@@ -46,3 +46,18 @@
 
 - `mousemax replay --render-summary <png>` renders a replay-derived click map from click receipts and verification outcomes. The renderer does not claim to be a captured browser frame.
 - `mousemax validate-run <run_dir>` checks a result bundle against the MOUSEMAX acceptance invariants and cross-checks replay counters against `result.json`. `--require-click-map` also requires the M8 visualization artifact.
+- `mousemax serve` adds the M8 HTTP shell: `/bench/mouseaccuracy/start`, `/bench/mouseaccuracy/status`, and `/bench/mouseaccuracy/result`. The server starts runs through a child `mousemax run` process so Servo's event loop stays isolated from the HTTP loop.
+
+## M9 - Release validation
+
+- `scripts/validate_m9_release.sh` packages the known M7 artifact checks into one command. It validates code compilation, replay summary regeneration, click-map rendering, artifact presence, and `validate-run`.
+
+## M10 - FORMMAX fixture
+
+- Added a local FORMMAX capacity fixture under `test_pages/formmax/`. It covers two-page long tables, lazy row rendering, mixed field types, receipt JSON, and confirmation-gated sensitive fields.
+- `scripts/formmax_fixture_smoke.js` validates the deterministic fixture oracle and writes `runs/formmax/fixture_smoke/result.json`.
+
+## M11 - PDF and sensitive gate feasibility
+
+- `scripts/formmax_pdf_feasibility.py` generates a fillable AcroForm PDF and a flat PDF, fills only non-sensitive fields, and verifies tax ID, signature, and legal attestation fields stay gated.
+- Browser-surface PDF filling remains reported as unsupported in the current harness; programmatic AcroForm filling is the viable first path.

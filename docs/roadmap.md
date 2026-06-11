@@ -25,18 +25,20 @@ We can keep the M numbers after M8 for project management, but those are extensi
 - M8: finish artifact polish and agent API. Done so far: replay click map and `validate-run`.
 - M9: repeat the headline gate on the target Linux/X11 benchmark machine and package reproducible release commands.
 - M10: build a FORMMAX practical evaluation with scrolling tables, multi-page forms, PDF feasibility checks, and sensitive-field confirmation gates.
+- M11: separate PDF filling feasibility and sensitive-field gates into offline artifacts that can pass without a live website.
 - Phase E: add forked Servo engine taps after the stock-Servo product story is stable.
 
 ## Current Status
 
 M7 passed on macOS arm64 with stock Servo `0.2.0`.
 
-M8 is in progress. The next high-value item is the thin HTTP layer over the existing CLI orchestrator:
+M8 through M11 now have local acceptance commands:
 
 ```text
-/bench/mouseaccuracy/start
-/bench/mouseaccuracy/status
-/bench/mouseaccuracy/result
+M8: mousemax serve --port 0
+M9: scripts/validate_m9_release.sh runs/real/run_1781193985
+M10: scripts/formmax_fixture_smoke.js
+M11: scripts/formmax_pdf_feasibility.py
 ```
 
 FORMMAX planning lives in `docs/formmax_practical_eval_plan.md`.

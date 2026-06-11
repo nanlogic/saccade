@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FORMMAX Capacity Fixture</title>
+  <link rel="stylesheet" href="formmax.css">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div>
+        <h1>Capacity Planning Intake</h1>
+        <p id="page-label">Page 1 of 2</p>
+      </div>
+      <output id="status">Ready</output>
+    </header>
+
+    <section class="panel">
+      <h2 id="section-title">Regional capacity table</h2>
+      <div id="table-scroll" class="table-scroll" tabindex="0" aria-label="Capacity table">
+        <table>
+          <thead>
+            <tr>
+              <th>Row ID</th>
+              <th>Site name</th>
+              <th>Rack count</th>
+              <th>Power MW</th>
+              <th>Cooling tons</th>
+              <th>Owner</th>
+              <th>Target date</th>
+              <th>Approved</th>
+            </tr>
+          </thead>
+          <tbody id="capacity-body"></tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <button id="submit-page" type="button">Submit page</button>
+      </div>
+    </section>
+
+    <section id="sensitive-panel" class="panel hidden">
+      <h2>Confirmation-gated fields</h2>
+      <label>
+        Tax ID
+        <input id="tax-id" name="tax_id" data-sensitive="tax_id" data-sensitive-reason="government identifier" autocomplete="off">
+      </label>
+      <label>
+        Authorized signature
+        <input id="signature" name="signature" data-sensitive="signature" data-sensitive-reason="signature field" autocomplete="off">
+      </label>
+      <label class="check">
+        <input id="legal-attestation" name="legal_attestation" type="checkbox" data-sensitive="legal_attestation" data-sensitive-reason="legal attestation">
+        I attest that the submitted capacity plan is accurate.
+      </label>
+    </section>
+
+    <section id="receipt-panel" class="panel hidden">
+      <h2>Receipt</h2>
+      <pre id="receipt"></pre>
+    </section>
+  </main>
+  <script src="formmax_fixture.js"></script>
+</body>
+</html>

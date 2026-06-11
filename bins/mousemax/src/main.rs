@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,7 +13,7 @@ use saccade_browser::{ArenaRunConfig, RealRunConfig, RealSiteRecon};
 use saccade_core::{BenchmarkResult, ClickOutcome, CssRect, Histogram, InputSpace, LatencyPair};
 use saccade_replay::{ReplayEvent, read_events};
 use serde_json::Value;
-use tiny_http::{Header, Response, Server, StatusCode};
+use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use url::Url;
 
 const FRAME_BUDGET_MS: f32 = 16.667;
@@ -64,6 +66,10 @@ enum Command {
         #[arg(long)]
         require_click_map: bool,
     },
+    Serve {
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+    },
     ReconReal {
         #[arg(long, default_value = "https://mouseaccuracy.com/classic/")]
         url: Url,
@@ -107,6 +113,7 @@ fn main() -> Result<()> {
             run_dir,
             require_click_map,
         } => validate_run(run_dir, require_click_map),
+        Command::Serve { port } => serve_api(port),
         Command::ReconReal { url } => recon_real(url),
     }
 }
@@ -169,8 +176,294 @@ fn content_type(path: &Path) -> &'static str {
         Some("html") => "text/html; charset=utf-8",
         Some("js") => "application/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("png") => "image/png",
+        Some("pdf") => "application/pdf",
         _ => "application/octet-stream",
     }
+}
+
+#[derive(Debug, Clone)]
+struct ApiJob {
+    id: String,
+    phase: String,
+    site: String,
+    started_unix_ms: u64,
+    finished_unix_ms: Option<u64>,
+    run_dir: Option<PathBuf>,
+    exit_code: Option<i32>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct ApiState {
+    current: Option<ApiJob>,
+    last: Option<ApiJob>,
+    last_result: Option<BenchmarkResult>,
+}
+
+fn serve_api(port: u16) -> Result<()> {
+    let workspace = workspace_root()?;
+    let server = Server::http(format!("127.0.0.1:{port}"))
+        .map_err(|error| anyhow!("failed to bind API server: {error}"))?;
+    let addr = server
+        .server_addr()
+        .to_ip()
+        .context("API server did not expose an IP socket address")?;
+    let state = Arc::new(Mutex::new(ApiState::default()));
+
+    println!("SERVE OK url=http://{addr}");
+    println!("MOUSEACCURACY API http://{addr}/bench/mouseaccuracy/status");
+
+    for request in server.incoming_requests() {
+        handle_api_request(request, state.clone(), workspace.clone());
+    }
+    Ok(())
+}
+
+fn handle_api_request(request: Request, state: Arc<Mutex<ApiState>>, workspace: PathBuf) {
+    let method = request.method().clone();
+    let url = request.url().to_string();
+    let (path, query) = split_url_path_query(&url);
+    let result = match (method, path.as_str()) {
+        (Method::Get, "/healthz") => Ok(serde_json::json!({"ok": true})),
+        (Method::Get, "/bench/mouseaccuracy/status") => Ok(api_status_json(&state)),
+        (Method::Get, "/bench/mouseaccuracy/result") => api_result_json(&state),
+        (Method::Post, "/bench/mouseaccuracy/start")
+        | (Method::Get, "/bench/mouseaccuracy/start") => start_api_job(&state, &workspace, &query),
+        _ => Err((StatusCode(404), serde_json::json!({"error": "not_found"}))),
+    };
+
+    match result {
+        Ok(value) => respond_json(request, StatusCode(200), value),
+        Err((status, value)) => respond_json(request, status, value),
+    }
+}
+
+fn split_url_path_query(url: &str) -> (String, String) {
+    match url.split_once('?') {
+        Some((path, query)) => (path.to_string(), query.to_string()),
+        None => (url.to_string(), String::new()),
+    }
+}
+
+fn query_params(query: &str) -> HashMap<String, String> {
+    query
+        .split('&')
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| {
+            let (key, value) = part.split_once('=').unwrap_or((part, ""));
+            (!key.is_empty()).then(|| (key.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+fn start_api_job(
+    state: &Arc<Mutex<ApiState>>,
+    workspace: &Path,
+    query: &str,
+) -> std::result::Result<Value, (StatusCode, Value)> {
+    let params = query_params(query);
+    let site = params
+        .get("site")
+        .cloned()
+        .unwrap_or_else(|| "arena".into());
+    let spawn_speed = params
+        .get("spawn_speed")
+        .cloned()
+        .unwrap_or_else(|| "epic".into());
+    let target_size = params
+        .get("target_size")
+        .cloned()
+        .unwrap_or_else(|| "tiny".into());
+    let duration = params
+        .get("duration")
+        .cloned()
+        .unwrap_or_else(|| "15".into());
+    let window_width = params
+        .get("window_width")
+        .cloned()
+        .unwrap_or_else(|| "1920".into());
+    let window_height = params
+        .get("window_height")
+        .cloned()
+        .unwrap_or_else(|| "1080".into());
+    let seed = params.get("seed").cloned().unwrap_or_else(|| "42".into());
+    let instrumentation = params
+        .get("instrumentation")
+        .cloned()
+        .unwrap_or_else(|| "observe_only".into());
+
+    let mut guard = state.lock().expect("API mutex poisoned");
+    if let Some(current) = &guard.current {
+        return Err((
+            StatusCode(409),
+            serde_json::json!({
+                "error": "job_already_running",
+                "job": api_job_json(current),
+            }),
+        ));
+    }
+
+    let job = ApiJob {
+        id: format!("api_{}", unix_ms()),
+        phase: "running".into(),
+        site: site.clone(),
+        started_unix_ms: unix_ms(),
+        finished_unix_ms: None,
+        run_dir: None,
+        exit_code: None,
+        error: None,
+    };
+    guard.current = Some(job.clone());
+    drop(guard);
+
+    let state_for_thread = state.clone();
+    let workspace_for_thread = workspace.to_path_buf();
+    let args = vec![
+        "run".to_string(),
+        "--site".into(),
+        site,
+        "--spawn-speed".into(),
+        spawn_speed,
+        "--target-size".into(),
+        target_size,
+        "--duration".into(),
+        duration,
+        "--window-width".into(),
+        window_width,
+        "--window-height".into(),
+        window_height,
+        "--seed".into(),
+        seed,
+        "--instrumentation".into(),
+        instrumentation,
+        "--replay".into(),
+    ];
+    thread::spawn(move || {
+        finish_api_job(state_for_thread, workspace_for_thread, job, args);
+    });
+
+    Ok(serde_json::json!({
+        "accepted": true,
+        "job": api_job_json(state.lock().expect("API mutex poisoned").current.as_ref().expect("job just inserted")),
+    }))
+}
+
+fn finish_api_job(
+    state: Arc<Mutex<ApiState>>,
+    workspace: PathBuf,
+    mut job: ApiJob,
+    args: Vec<String>,
+) {
+    let output = std::env::current_exe()
+        .map_err(|error| error.to_string())
+        .and_then(|exe| {
+            ProcessCommand::new(exe)
+                .args(&args)
+                .current_dir(&workspace)
+                .output()
+                .map_err(|error| error.to_string())
+        });
+
+    let mut result = None;
+    match output {
+        Ok(output) => {
+            job.exit_code = output.status.code();
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                match serde_json::from_str::<BenchmarkResult>(stdout.trim()) {
+                    Ok(parsed) => {
+                        job.phase = "passed".into();
+                        job.run_dir = Some(
+                            workspace
+                                .join("runs")
+                                .join(&parsed.site)
+                                .join(&parsed.run_id),
+                        );
+                        result = Some(parsed);
+                    }
+                    Err(error) => {
+                        job.phase = "failed".into();
+                        job.error = Some(format!("failed to parse run result JSON: {error}"));
+                    }
+                }
+            } else {
+                job.phase = "failed".into();
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                job.error = Some(stderr.trim().to_string());
+            }
+        }
+        Err(error) => {
+            job.phase = "failed".into();
+            job.error = Some(error);
+        }
+    }
+    job.finished_unix_ms = Some(unix_ms());
+
+    let mut guard = state.lock().expect("API mutex poisoned");
+    guard.current = None;
+    guard.last = Some(job);
+    guard.last_result = result;
+}
+
+fn api_status_json(state: &Arc<Mutex<ApiState>>) -> Value {
+    let guard = state.lock().expect("API mutex poisoned");
+    serde_json::json!({
+        "service": "mouseaccuracy",
+        "state": if guard.current.is_some() { "running" } else { "idle" },
+        "current": guard.current.as_ref().map(api_job_json),
+        "last": guard.last.as_ref().map(api_job_json),
+    })
+}
+
+fn api_result_json(
+    state: &Arc<Mutex<ApiState>>,
+) -> std::result::Result<Value, (StatusCode, Value)> {
+    let guard = state.lock().expect("API mutex poisoned");
+    match &guard.last_result {
+        Some(result) => Ok(serde_json::json!({
+            "result": result,
+            "job": guard.last.as_ref().map(api_job_json),
+        })),
+        None => Err((
+            StatusCode(404),
+            serde_json::json!({
+                "error": "no_result",
+                "last": guard.last.as_ref().map(api_job_json),
+            }),
+        )),
+    }
+}
+
+fn api_job_json(job: &ApiJob) -> Value {
+    serde_json::json!({
+        "id": job.id,
+        "phase": job.phase,
+        "site": job.site,
+        "started_unix_ms": job.started_unix_ms,
+        "finished_unix_ms": job.finished_unix_ms,
+        "run_dir": job.run_dir.as_ref().map(|path| path.display().to_string()),
+        "exit_code": job.exit_code,
+        "error": job.error,
+    })
+}
+
+fn respond_json(request: Request, status: StatusCode, value: Value) {
+    let body = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".into());
+    let response = Response::from_string(body)
+        .with_status_code(status)
+        .with_header(
+            Header::from_bytes("Content-Type", "application/json; charset=utf-8").unwrap(),
+        );
+    let _ = request.respond(response);
+}
+
+fn unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn calibrate() -> Result<()> {

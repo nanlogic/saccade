@@ -10,6 +10,16 @@ M8 started with replay visualization.
 
 `mousemax validate-run <run_dir>` now validates a run artifact bundle against the MOUSEMAX acceptance checks.
 
+`mousemax serve` now exposes the M8 HTTP shell:
+
+```text
+/bench/mouseaccuracy/start
+/bench/mouseaccuracy/status
+/bench/mouseaccuracy/result
+```
+
+The server starts benchmark runs by spawning a child `mousemax run` process. That keeps Servo's window event loop separate from the HTTP server loop.
+
 ## Artifact
 
 Source replay:
@@ -47,6 +57,8 @@ cargo fmt
 cargo check -p mousemax
 file runs/real/run_1781193985/click_map.png
 cargo run -q -p mousemax -- validate-run runs/real/run_1781193985 --require-click-map
+target/debug/mousemax serve --port 47891
+curl -sS http://127.0.0.1:47891/bench/mouseaccuracy/status
 ```
 
 `cargo check -p mousemax` passed. `file` reports `PNG image data, 1920 x 1080, 8-bit/color RGBA, non-interlaced`.
@@ -64,3 +76,14 @@ Use this map next to `before.png`, `after.png`, and `result.json` in the article
 For a public post, label it as a replay visualization. Do not present it as a captured browser frame.
 
 Use the validator output as the artifact integrity line in launch material.
+
+The HTTP status smoke test returned:
+
+```json
+{
+  "service": "mouseaccuracy",
+  "state": "idle",
+  "current": null,
+  "last": null
+}
+```

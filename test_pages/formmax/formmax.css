@@ -1,0 +1,129 @@
+body {
+  margin: 0;
+  color: #20242a;
+  background: #f6f7f8;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.topbar h1 {
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.topbar p,
+output {
+  color: #5a626d;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #d9dde3;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.hidden {
+  display: none;
+}
+
+.table-scroll {
+  height: 520px;
+  overflow: auto;
+  border: 1px solid #ccd2d9;
+  margin-top: 14px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #e9edf2;
+  border-bottom: 1px solid #c5ccd4;
+}
+
+th,
+td {
+  padding: 8px;
+  border-bottom: 1px solid #e1e5ea;
+  text-align: left;
+  font-size: 13px;
+}
+
+input,
+select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #bac2cb;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+}
+
+input[type="checkbox"] {
+  width: auto;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+button {
+  min-height: 36px;
+  border: 1px solid #2b5f9f;
+  border-radius: 5px;
+  background: #2f6fb8;
+  color: #ffffff;
+  padding: 0 14px;
+  font: inherit;
+}
+
+label {
+  display: block;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+pre {
+  max-height: 420px;
+  overflow: auto;
+  background: #10151c;
+  color: #e8eef7;
+  border-radius: 6px;
+  padding: 14px;
+}
