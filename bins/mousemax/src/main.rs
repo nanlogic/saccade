@@ -8,11 +8,14 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use image::{Rgba, RgbaImage};
 use saccade_browser::{ArenaRunConfig, RealRunConfig, RealSiteRecon};
-use saccade_core::{ClickOutcome, CssRect, Histogram, InputSpace, LatencyPair};
+use saccade_core::{BenchmarkResult, ClickOutcome, CssRect, Histogram, InputSpace, LatencyPair};
 use saccade_replay::{ReplayEvent, read_events};
 use serde_json::Value;
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
+
+const FRAME_BUDGET_MS: f32 = 16.667;
+const INPUT_DISPATCH_P95_LIMIT_MS: f32 = 5.0;
 
 #[derive(Parser)]
 #[command(name = "mousemax")]
@@ -56,6 +59,11 @@ enum Command {
         #[arg(long)]
         render_summary: Option<PathBuf>,
     },
+    ValidateRun {
+        run_dir: PathBuf,
+        #[arg(long)]
+        require_click_map: bool,
+    },
     ReconReal {
         #[arg(long, default_value = "https://mouseaccuracy.com/classic/")]
         url: Url,
@@ -95,6 +103,10 @@ fn main() -> Result<()> {
             show_clicks,
             render_summary,
         } => replay(log, summary, show_clicks, render_summary),
+        Command::ValidateRun {
+            run_dir,
+            require_click_map,
+        } => validate_run(run_dir, require_click_map),
         Command::ReconReal { url } => recon_real(url),
     }
 }
@@ -688,6 +700,206 @@ fn draw_circle_outline(
 fn put_pixel_checked(image: &mut RgbaImage, x: i32, y: i32, color: Rgba<u8>) {
     if x >= 0 && y >= 0 && x < image.width() as i32 && y < image.height() as i32 {
         image.put_pixel(x as u32, y as u32, color);
+    }
+}
+
+fn validate_run(run_dir: PathBuf, require_click_map: bool) -> Result<()> {
+    let result_path = run_dir.join("result.json");
+    let result = read_benchmark_result(&result_path)?;
+    let replay_path = resolve_replay_path(&run_dir, &result);
+    let events = read_events(&replay_path)?;
+    let replay_finished = replay_finished_result(&events);
+
+    let mut failures = Vec::new();
+    validate_result_metrics(&result, &mut failures);
+    validate_replay_consistency(&result, replay_finished.as_ref(), &events, &mut failures);
+    validate_artifacts(&run_dir, &replay_path, require_click_map, &mut failures);
+
+    if !failures.is_empty() {
+        for failure in &failures {
+            println!("VALIDATE FAIL {failure}");
+        }
+        bail!(
+            "run validation failed run={} failures={}",
+            run_dir.display(),
+            failures.len()
+        );
+    }
+
+    println!(
+        "VALIDATE PASS run={} verdict={} site={} instrumentation={} hits={} misses={} targets_seen={} clicks_sent={} detect_to_dispatch_p95_ms={:.3} first_visible_to_dispatch_p95_ms={:.3}",
+        run_dir.display(),
+        result.verdict,
+        result.site,
+        result.instrumentation,
+        result.result.hits,
+        result.result.misses,
+        result.result.targets_seen,
+        result.result.clicks_sent,
+        result.latency_ms.detect_to_dispatch.p95,
+        result.latency_ms.first_visible_to_dispatch.p95,
+    );
+    Ok(())
+}
+
+fn read_benchmark_result(path: &Path) -> Result<BenchmarkResult> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn resolve_replay_path(run_dir: &Path, result: &BenchmarkResult) -> PathBuf {
+    let replay_file = PathBuf::from(&result.replay_file);
+    if replay_file.is_absolute() {
+        replay_file
+    } else {
+        run_dir.join(replay_file)
+    }
+}
+
+fn replay_finished_result(events: &[ReplayEvent]) -> Option<BenchmarkResult> {
+    events.iter().rev().find_map(|event| match event {
+        ReplayEvent::RunFinished { result } => Some(result.clone()),
+        _ => None,
+    })
+}
+
+fn validate_result_metrics(result: &BenchmarkResult, failures: &mut Vec<String>) {
+    if result.verdict != "PASS" {
+        failures.push(format!(
+            "result.verdict expected PASS got {}",
+            result.verdict
+        ));
+    }
+    if result.result.misses != 0 {
+        failures.push(format!("misses expected 0 got {}", result.result.misses));
+    }
+    if result.result.hits != result.result.targets_seen {
+        failures.push(format!(
+            "hits != targets_seen ({} != {})",
+            result.result.hits, result.result.targets_seen
+        ));
+    }
+    if result.result.hits != result.result.clicks_sent {
+        failures.push(format!(
+            "hits != clicks_sent ({} != {})",
+            result.result.hits, result.result.clicks_sent
+        ));
+    }
+    if result.result.false_positive_clicks != 0 {
+        failures.push(format!(
+            "false_positive_clicks expected 0 got {}",
+            result.result.false_positive_clicks
+        ));
+    }
+    if result.result.stale_clicks != 0 {
+        failures.push(format!(
+            "stale_clicks expected 0 got {}",
+            result.result.stale_clicks
+        ));
+    }
+    if result.result.unknown_verifications != 0 {
+        failures.push(format!(
+            "unknown_verifications expected 0 got {}",
+            result.result.unknown_verifications
+        ));
+    }
+    if result.llm_frame_calls != 0 {
+        failures.push(format!(
+            "llm_frame_calls expected 0 got {}",
+            result.llm_frame_calls
+        ));
+    }
+    if result.latency_ms.detect_to_dispatch.p95 > INPUT_DISPATCH_P95_LIMIT_MS {
+        failures.push(format!(
+            "detect_to_dispatch p95 {:.3} ms > {:.3} ms",
+            result.latency_ms.detect_to_dispatch.p95, INPUT_DISPATCH_P95_LIMIT_MS
+        ));
+    }
+    let first_visible_limit = FRAME_BUDGET_MS + INPUT_DISPATCH_P95_LIMIT_MS;
+    if result.latency_ms.first_visible_to_dispatch.p95 > first_visible_limit {
+        failures.push(format!(
+            "first_visible_to_dispatch p95 {:.3} ms > {:.3} ms",
+            result.latency_ms.first_visible_to_dispatch.p95, first_visible_limit
+        ));
+    }
+}
+
+fn validate_replay_consistency(
+    result: &BenchmarkResult,
+    replay_finished: Option<&BenchmarkResult>,
+    events: &[ReplayEvent],
+    failures: &mut Vec<String>,
+) {
+    let click_dispatched = events
+        .iter()
+        .filter(|event| matches!(event, ReplayEvent::ClickDispatched { .. }))
+        .count() as u32;
+    let click_verified_hit = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                ReplayEvent::ClickVerified {
+                    result
+                } if result.outcome == ClickOutcome::Hit
+            )
+        })
+        .count() as u32;
+
+    if click_dispatched != result.result.clicks_sent {
+        failures.push(format!(
+            "replay click_dispatched != result clicks_sent ({} != {})",
+            click_dispatched, result.result.clicks_sent
+        ));
+    }
+    if click_verified_hit != result.result.hits {
+        failures.push(format!(
+            "replay verified hits != result hits ({} != {})",
+            click_verified_hit, result.result.hits
+        ));
+    }
+    let Some(replay_finished) = replay_finished else {
+        failures.push("replay missing run_finished event".into());
+        return;
+    };
+    if replay_finished.run_id != result.run_id {
+        failures.push(format!(
+            "replay run_id != result run_id ({} != {})",
+            replay_finished.run_id, result.run_id
+        ));
+    }
+    if replay_finished.result.hits != result.result.hits
+        || replay_finished.result.misses != result.result.misses
+        || replay_finished.result.targets_seen != result.result.targets_seen
+        || replay_finished.result.clicks_sent != result.result.clicks_sent
+    {
+        failures.push("replay run_finished counters differ from result.json".into());
+    }
+}
+
+fn validate_artifacts(
+    run_dir: &Path,
+    replay_path: &Path,
+    require_click_map: bool,
+    failures: &mut Vec<String>,
+) {
+    for path in [
+        run_dir.join("result.json"),
+        replay_path.to_path_buf(),
+        run_dir.join("before.png"),
+        run_dir.join("after.png"),
+    ] {
+        if !path.is_file() {
+            failures.push(format!("missing artifact {}", path.display()));
+        }
+    }
+
+    if require_click_map {
+        let click_map = run_dir.join("click_map.png");
+        if !click_map.is_file() {
+            failures.push(format!("missing artifact {}", click_map.display()));
+        }
     }
 }
 

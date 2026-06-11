@@ -41,3 +41,8 @@
 - `observe_only` uses live `.target` rectangles from the page as browser-owned layout evidence. `instrumentation=none` disables DOM target data and uses rendered RGBA pixels with a red connected-component detector.
 - M7 passed 5 consecutive real-site observe-only runs and one pure pixel run on macOS arm64. The pure pixel artifact is `runs/real/run_1781193985`: 47 hits, 0 misses, 47 targets seen, 47 clicks sent, p95 detect 6.3 ms, p95 first-visible-to-dispatch 16.0 ms.
 - Each arena and real run now saves `before.png` and `after.png` in the run directory. These screenshots are artifact evidence, not detector inputs.
+
+## M8 - Replay and artifact polish
+
+- `mousemax replay --render-summary <png>` renders a replay-derived click map from click receipts and verification outcomes. The renderer does not claim to be a captured browser frame.
+- `mousemax validate-run <run_dir>` checks a result bundle against the MOUSEMAX acceptance invariants and cross-checks replay counters against `result.json`. `--require-click-map` also requires the M8 visualization artifact.
