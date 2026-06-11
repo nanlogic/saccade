@@ -73,3 +73,5 @@ Use Saccade first for local development inspection, form workflows, login handof
 ```
 
 See `docs/dogfood_strategy.md`.
+
+Because v5 contains a numbering conflict around N2, use `docs/next_plan_v5_tracker.md` as the normalized execution tracker.
