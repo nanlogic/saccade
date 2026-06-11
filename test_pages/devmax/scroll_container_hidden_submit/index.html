@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="devmax:expected" content="scroll_container_hidden_submit">
+  <title>Hidden Submit</title>
+  <style>
+    .grid { height: 120px; overflow: hidden; border: 1px solid #bbb; }
+    .spacer { height: 300px; }
+  </style>
+</head>
+<body>
+  <main data-devmax-scroll-hidden-submit>
+    <h1>Capacity Plan</h1>
+    <div class="grid">
+      <div class="spacer">Rows continue below the clipped area.</div>
+      <button type="submit">Submit</button>
+    </div>
+  </main>
+</body>
+</html>

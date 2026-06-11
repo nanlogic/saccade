@@ -1355,6 +1355,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "devmax"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "tiny_http",
+ "url",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

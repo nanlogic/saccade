@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="devmax:expected" content="css_zindex_overlay_bug">
+  <title>Z Index Overlay Bug</title>
+  <style>
+    .shield { position: fixed; inset: 0; z-index: 999; opacity: 0; }
+  </style>
+</head>
+<body>
+  <main data-devmax-zindex-overlay>
+    <h1>Navigation</h1>
+    <button type="button">Open Menu</button>
+    <div class="shield"></div>
+  </main>
+</body>
+</html>

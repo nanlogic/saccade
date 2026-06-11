@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="devmax:expected" content="overlapping_elements">
+  <title>Overlapping Elements</title>
+  <style>
+    main { position: relative; width: 420px; min-height: 180px; }
+    .promo { position: absolute; inset: 48px 0 auto 0; height: 80px; background: #eee; }
+    .primary { position: absolute; top: 72px; left: 24px; }
+  </style>
+</head>
+<body>
+  <main data-devmax-overlap>
+    <h1>Checkout</h1>
+    <button class="primary" type="submit">Pay</button>
+    <div class="promo">Promo panel covers the primary action.</div>
+  </main>
+</body>
+</html>

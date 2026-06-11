@@ -79,3 +79,10 @@
 - The fixture now has an OTP field and a dashboard `Done` control. The selftest drives the Human tab through login, observes Done, then lets the Agent tab continue from the shared session.
 - The gate requires `human_login=true`, `agent_session=true`, `password_exposed=false`, `otp_exposed=false`, and `agent_input_to_human_tab_blocked=true`.
 - This proves the minimal local contract only. Product UI, replay metadata, and arbitrary third-party sensitive-field masking remain later work.
+
+## N2 - DEVMAX local self-test
+
+- Added `devmax` as the first local development-audit binary. The initial gate is `cargo run -q -p devmax -- selftest-fixtures`.
+- Added 16 deterministic local fixtures for common agent-built UI failures: blank page, console error, hydration error, missing asset, invisible text, overlap, offscreen action, no handler, broken validation, lazy route error, hidden submit, mobile break, blocking modal, blank canvas, z-index overlay, and wrong success state.
+- The first engine is explicitly `static-fixture-v0`. It validates the CLI, report schema, fixture corpus, and replay artifact shape. It is not yet a Servo rendered-truth audit.
+- The N2 gate passed with `total=16 detected=16 false_positives=0`.

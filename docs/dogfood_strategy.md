@@ -97,8 +97,9 @@ A feature counts only when it has:
 
 ```text
 N1: cargo run -q -p saccade-shell -- selftest-tabs
-N2: cargo run -q -p saccade-shell -- selftest-login-handoff
-N3: cargo run -q -p devmax -- selftest-fixtures
+N1B: cargo run -q -p saccade-shell -- selftest-login-handoff
+N2: cargo run -q -p devmax -- selftest-fixtures
+N3: cargo run -q -p saccade-mcp -- selftest
 N4: cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay
 ```
 
@@ -123,13 +124,11 @@ Do not let Playwright locator semantics become the main Saccade API. Saccade's A
 
 ## Immediate Next Step
 
-Build N2 login handoff with a visible Human-to-Agent flow:
+Move DEVMAX from static fixture markers toward browser-backed truth:
 
 ```text
-Human tab opens login page.
-User logs in.
-User clicks Done.
-Shell verifies a safe logged-in marker.
-Agent tab inherits the session.
-Agent never receives password or OTP values.
+Open local app or fixture.
+Collect rendered truth and action map from the browser boundary.
+Detect at least blank, modal-blocked, offscreen-action, and invisible-text cases without fixture markers.
+Keep report JSON and replay artifacts stable.
 ```
