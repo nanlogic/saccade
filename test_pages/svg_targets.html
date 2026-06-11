@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>SVG Targets</title>
+    <link rel="stylesheet" href="selftest.css">
+  </head>
+  <body>
+    <svg id="arena" width="1280" height="800" viewBox="0 0 1280 800"></svg>
+    <pre id="truth">hits=0 misses=0 spawned=0 finished=false</pre>
+    <script src="selftest_targets.js"></script>
+    <script>
+      SaccadeSelftest.svgTargets({count: 3});
+    </script>
+  </body>
+</html>

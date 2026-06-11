@@ -1,0 +1,10 @@
+[package]
+name = "saccade_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,8 @@
+[package]
+name = "saccade_verify"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+saccade_core = { path = "../saccade_core" }
+

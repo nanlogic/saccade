@@ -1,0 +1,17 @@
+[package]
+name = "saccade_browser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+euclid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+saccade_core = { path = "../saccade_core" }
+saccade_detect = { path = "../saccade_detect" }
+saccade_motor = { path = "../saccade_motor" }
+saccade_replay = { path = "../saccade_replay" }
+servo = "=0.2.0"
+url.workspace = true
+winit.workspace = true

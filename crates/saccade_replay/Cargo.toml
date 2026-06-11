@@ -1,0 +1,11 @@
+[package]
+name = "saccade_replay"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+saccade_core = { path = "../saccade_core" }
+serde.workspace = true
+serde_json.workspace = true

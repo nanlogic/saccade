@@ -1,0 +1,11 @@
+[package]
+name = "saccade_detect"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+saccade_core = { path = "../saccade_core" }
+
+[dev-dependencies]
+saccade_motor = { path = "../saccade_motor" }
+saccade_verify = { path = "../saccade_verify" }

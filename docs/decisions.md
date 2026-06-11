@@ -1,0 +1,35 @@
+# Decisions
+
+## M0 - Servo pin and local platform
+
+- Pinned `servo` to `=0.2.0`, the latest crates.io release found by `cargo search servo --limit 5` on 2026-06-11.
+- Pinned Rust to `1.88.0`. `servo 0.2.0` declares `rust-version = "1.86.0"`, but Cargo's current resolution pulled transitive packages (`image 0.25.10`, `time 0.3.47`, `sea-query-derive 1.0.0`, `built 0.8.1`) that reject Rust 1.86. Using Rust 1.88 keeps the Servo pin exact without transitive downgrade churn.
+- M0 is being attempted on macOS arm64 (`Darwin ... RELEASE_ARM64_T8103`) even though the benchmark target remains Linux/X11 per the spec. Any platform-specific gap here is M0 evidence, not a benchmark decision.
+- Matched workspace `euclid = "0.22"`, `image = "0.25"`, and `winit = "0.30.13"` to the `servo 0.2.0` crate metadata.
+- Added a local `[patch.crates-io]` for `servo-fonts 0.2.0` on macOS because the published crate fails Rust 1.88 with `E0716` in `platform/macos/font.rs`. The patch is a one-line-lifetime workaround and should be removed if Servo/servo-fonts publishes a fixed pinned release or if the Linux/X11 benchmark build does not need it.
+- M0 boot uses `WindowRenderingContext` rather than `SoftwareRenderingContext` because the M0 scope explicitly asks for a 1280x800 windowed WebView. `SoftwareRenderingContext` remains visible in the pinned API for later CI/headless exploration.
+
+## M2 - Replay-safe core data model
+
+- `MotorAction::Noop.reason` is stored as `String` rather than the sketch's `&'static str` so replay events can derive both `Serialize` and `Deserialize` and round-trip from JSONL. Hot-loop code can still pass static text with `.into()`.
+
+## M3 - Synthetic detector timing
+
+- Added a 16x16 block-gated prepass for `PixelDetector` after the first full-frame synthetic timing run exceeded the 3 ms M3 budget in debug tests. The prepass samples each block, expands to neighboring blocks, and still computes connected components/centroids at full resolution inside active regions.
+
+## M4 - Calibration input pacing
+
+- `mousemax calibrate` waits 300 ms before the first calibration click after resetting the page. Without this, Servo occasionally reports an empty hit-test result for the first synthetic input event even though subsequent clicks land correctly. The measured coordinate convention remains `InputSpace::CssLogical` with 0.000 px max error.
+
+## M5 - Selftest page evidence mix
+
+- `mousemax selftest-pages` now feeds `.target` DOM bounding boxes into the same `DetectionPipeline` used by pixel evidence. The canvas and WebGL fixtures still draw targets into canvas and validate clicks by page-side coordinates, but they expose a synchronized `.target` proxy so the zero-fork runner can verify the DOM/pixel fusion and motor path deterministically on Servo/macOS.
+- The runner filters candidate clicks to `y >= 100` CSS px during selftests so HUD text such as `#truth` cannot be selected by foreground detection. The overlay page remains the negative control and passes only when no click is sent.
+- Local M5 gate passed at DPR 1 with all 7 fixture pages: DOM, SVG, canvas arc, canvas sprite, overlay, high-DPI grid, and WebGL-style canvas. The explicit DPR 2 high-DPI check is still target-platform work for Linux/X11, where `WINIT_X11_SCALE_FACTOR=2` is meaningful.
+
+## M6 - Arena runner scope
+
+- The local arena uses the M1-observed Epic cadence (`306 ms`) with Tiny radius `7 CSS px`, deterministic xorshift RNG, and a canvas-rendered target layer plus synchronized `.target` DOM proxies for `observe_only` instrumentation. The page's own counters remain authoritative: hit/miss is determined from `mousedown` coordinates against active canvas targets.
+- `run --site arena` writes replay JSONL from inside the Servo hot loop. M6 counts `targets_seen` only for tracker appearances inside the selftest game area (`y >= 100 CSS px`) so HUD foreground components do not inflate the benchmark denominator.
+- M6 passed 5 consecutive local macOS windowed runs with command `cargo run -p mousemax -- run --site arena --spawn-speed epic --target-size tiny --duration 15 --seed 42 --replay`: `run_1781183354`, `run_1781183425`, `run_1781183453`, `run_1781183483`, `run_1781183511`. Results were 44-45 hits, 0 misses, hits == targets_seen, 0 stale/false-positive/unknown clicks, and replay p95 detect-to-dispatch between `0.200` and `0.250 ms`.
+- Added `scripts/e2e_arena.sh` as the repo e2e entrypoint for one arena run plus replay summary. Full 5-run stability remains the M6 release gate command sequence rather than a default `cargo test`, because each run opens a Servo window for 15 seconds.

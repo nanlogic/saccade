@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/saccade_core",
+  "crates/saccade_detect",
+  "crates/saccade_motor",
+  "crates/saccade_verify",
+  "crates/saccade_replay",
+  "crates/saccade_browser",
+  "bins/mousemax",
+]
+default-members = [
+  "crates/saccade_core",
+  "crates/saccade_detect",
+  "crates/saccade_motor",
+  "crates/saccade_verify",
+  "crates/saccade_replay",
+]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+euclid = "0.22"
+anyhow = "1"
+thiserror = "2"
+crossbeam-channel = "0.5"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+image = "0.25"
+tiny_http = "0.12"
+url = "2"
+winit = "0.30.13"
+
+[patch.crates-io]
+servo-fonts = { path = "vendor/servo-fonts-0.2.0" }

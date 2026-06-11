@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Calibration</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #f7f7f2;
+        color: #16181d;
+        font-family: system-ui, sans-serif;
+      }
+
+      #stage {
+        position: relative;
+        width: 1280px;
+        height: 800px;
+      }
+
+      .dot {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        margin-left: -6px;
+        margin-top: -6px;
+        border-radius: 50%;
+        background: #da2f47;
+        box-shadow: 0 0 0 2px #16181d;
+      }
+
+      #status {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="stage" aria-label="calibration stage">
+      <div class="dot" style="left:100px;top:100px" data-x="100" data-y="100"></div>
+      <div class="dot" style="left:1180px;top:100px" data-x="1180" data-y="100"></div>
+      <div class="dot" style="left:100px;top:700px" data-x="100" data-y="700"></div>
+      <div class="dot" style="left:1180px;top:700px" data-x="1180" data-y="700"></div>
+      <div class="dot" style="left:640px;top:400px" data-x="640" data-y="400"></div>
+      <pre id="status">ready</pre>
+    </main>
+    <script>
+      window.__cal = [];
+      window.__resetCal = () => {
+        window.__cal = [];
+        document.getElementById("status").textContent = "ready";
+      };
+
+      document.addEventListener("mousedown", event => {
+        const entry = {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          devicePixelRatio: window.devicePixelRatio
+        };
+        window.__cal.push(entry);
+        document.getElementById("status").textContent =
+          `last: ${entry.clientX.toFixed(2)}, ${entry.clientY.toFixed(2)} dpr=${entry.devicePixelRatio}`;
+      });
+    </script>
+  </body>
+</html>
