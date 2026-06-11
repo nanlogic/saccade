@@ -25,6 +25,7 @@ Strong artifact:
 
 - Result: `/Users/waynema/Documents/GitHub/SACCADE/runs/real/run_1781193985/result.json`
 - Replay: `/Users/waynema/Documents/GitHub/SACCADE/runs/real/run_1781193985/replay.jsonl`
+- Replay click map: `/Users/waynema/Documents/GitHub/SACCADE/runs/real/run_1781193985/click_map.png`
 - Before screenshot: `/Users/waynema/Documents/GitHub/SACCADE/runs/real/run_1781193985/before.png`
 - After screenshot: `/Users/waynema/Documents/GitHub/SACCADE/runs/real/run_1781193985/after.png`
 

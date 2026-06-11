@@ -97,7 +97,7 @@ Shot list:
 1. Terminal: show the command with `--site real --spawn-speed epic --target-size tiny --instrumentation none`.
 2. Browser window: show the 1920x1080 run in progress.
 3. Terminal: show final JSON with `PASS`, hits, misses, and detector counts.
-4. Artifacts: show `before.png`, `after.png`, `result.json`, and `replay.jsonl`.
+4. Artifacts: show `before.png`, `after.png`, `click_map.png`, `result.json`, and `replay.jsonl`.
 5. Optional: show the report table.
 
 Suggested title:

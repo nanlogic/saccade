@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+image.workspace = true
 saccade_browser = { path = "../../crates/saccade_browser" }
 saccade_core = { path = "../../crates/saccade_core" }
 saccade_replay = { path = "../../crates/saccade_replay" }

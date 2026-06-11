@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -5,8 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
+use image::{Rgba, RgbaImage};
 use saccade_browser::{ArenaRunConfig, RealRunConfig, RealSiteRecon};
-use saccade_core::{Histogram, InputSpace, LatencyPair};
+use saccade_core::{ClickOutcome, CssRect, Histogram, InputSpace, LatencyPair};
 use saccade_replay::{ReplayEvent, read_events};
 use serde_json::Value;
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -51,6 +53,8 @@ enum Command {
         summary: bool,
         #[arg(long)]
         show_clicks: bool,
+        #[arg(long)]
+        render_summary: Option<PathBuf>,
     },
     ReconReal {
         #[arg(long, default_value = "https://mouseaccuracy.com/classic/")]
@@ -89,7 +93,8 @@ fn main() -> Result<()> {
             log,
             summary,
             show_clicks,
-        } => replay(log, summary, show_clicks),
+            render_summary,
+        } => replay(log, summary, show_clicks, render_summary),
         Command::ReconReal { url } => recon_real(url),
     }
 }
@@ -359,7 +364,12 @@ fn run(
     }
 }
 
-fn replay(log: PathBuf, summary: bool, show_clicks: bool) -> Result<()> {
+fn replay(
+    log: PathBuf,
+    summary: bool,
+    show_clicks: bool,
+    render_summary: Option<PathBuf>,
+) -> Result<()> {
     let events = read_events(&log)?;
     let mut detect_to_dispatch = Histogram::new();
     let mut first_visible_to_dispatch = Histogram::new();
@@ -425,7 +435,260 @@ fn replay(log: PathBuf, summary: bool, show_clicks: bool) -> Result<()> {
             );
         }
     }
+    if let Some(output) = render_summary {
+        render_replay_summary(&events, &output)?;
+        println!("REPLAY RENDER summary={}", output.display());
+    }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ReplayClickPoint {
+    click_id: u64,
+    x: f32,
+    y: f32,
+    outcome: ClickOutcome,
+}
+
+fn render_replay_summary(events: &[ReplayEvent], output: &Path) -> Result<()> {
+    let (width, height) = replay_canvas_size(events);
+    let game_area = replay_game_area(events);
+    let clicks = replay_click_points(events);
+
+    let mut image = RgbaImage::from_pixel(width, height, Rgba([250, 250, 248, 255]));
+    fill_rect(
+        &mut image,
+        0,
+        0,
+        width as i32,
+        height as i32,
+        Rgba([250, 250, 248, 255]),
+    );
+    draw_grid(&mut image, 120, Rgba([229, 232, 235, 255]));
+
+    if let Some(rect) = game_area {
+        fill_css_rect(&mut image, rect, Rgba([244, 247, 248, 255]));
+        draw_css_rect(&mut image, rect, Rgba([88, 96, 104, 255]));
+        draw_css_rect_inset(&mut image, rect, 1, Rgba([183, 190, 197, 255]));
+    }
+
+    for click in &clicks {
+        let color = match click.outcome {
+            ClickOutcome::Hit => Rgba([19, 142, 81, 255]),
+            ClickOutcome::Miss => Rgba([214, 49, 49, 255]),
+            ClickOutcome::Unknown => Rgba([221, 154, 31, 255]),
+            ClickOutcome::Stale => Rgba([117, 82, 175, 255]),
+        };
+        let x = click.x.round() as i32;
+        let y = click.y.round() as i32;
+        draw_circle(&mut image, x, y, 9, Rgba([255, 255, 255, 255]));
+        draw_circle(&mut image, x, y, 7, color);
+        draw_circle_outline(&mut image, x, y, 9, Rgba([32, 36, 40, 255]));
+        if click.click_id == 1 || click.click_id % 10 == 0 {
+            draw_crosshair(&mut image, x, y, 13, Rgba([32, 36, 40, 255]));
+        }
+    }
+
+    if let Some(parent) = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    image
+        .save(output)
+        .with_context(|| format!("failed to write {}", output.display()))?;
+    Ok(())
+}
+
+fn replay_canvas_size(events: &[ReplayEvent]) -> (u32, u32) {
+    for event in events {
+        if let ReplayEvent::RunStarted { config, .. } = event {
+            let width = config
+                .get("window_width")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(1920)
+                .clamp(320, 4096);
+            let height = config
+                .get("window_height")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(1080)
+                .clamp(240, 4096);
+            return (width, height);
+        }
+    }
+    (1920, 1080)
+}
+
+fn replay_game_area(events: &[ReplayEvent]) -> Option<CssRect> {
+    events.iter().rev().find_map(|event| match event {
+        ReplayEvent::FrameReport { report }
+            if report.game_area_css.w > 0.0 && report.game_area_css.h > 0.0 =>
+        {
+            Some(report.game_area_css)
+        }
+        _ => None,
+    })
+}
+
+fn replay_click_points(events: &[ReplayEvent]) -> Vec<ReplayClickPoint> {
+    let mut outcomes = HashMap::new();
+    for event in events {
+        if let ReplayEvent::ClickVerified { result } = event {
+            outcomes.insert(result.click_id, result.outcome);
+        }
+    }
+
+    let mut clicks = Vec::new();
+    for event in events {
+        if let ReplayEvent::ClickDispatched { receipt } = event {
+            clicks.push(ReplayClickPoint {
+                click_id: receipt.click_id,
+                x: receipt.point_css.x,
+                y: receipt.point_css.y,
+                outcome: outcomes
+                    .get(&receipt.click_id)
+                    .copied()
+                    .unwrap_or(ClickOutcome::Unknown),
+            });
+        }
+    }
+    clicks
+}
+
+fn fill_css_rect(image: &mut RgbaImage, rect: CssRect, color: Rgba<u8>) {
+    fill_rect(
+        image,
+        rect.x.round() as i32,
+        rect.y.round() as i32,
+        rect.w.round() as i32,
+        rect.h.round() as i32,
+        color,
+    );
+}
+
+fn fill_rect(image: &mut RgbaImage, x: i32, y: i32, w: i32, h: i32, color: Rgba<u8>) {
+    for yy in y.max(0)..(y + h).min(image.height() as i32) {
+        for xx in x.max(0)..(x + w).min(image.width() as i32) {
+            image.put_pixel(xx as u32, yy as u32, color);
+        }
+    }
+}
+
+fn draw_css_rect(image: &mut RgbaImage, rect: CssRect, color: Rgba<u8>) {
+    let x = rect.x.round() as i32;
+    let y = rect.y.round() as i32;
+    let w = rect.w.round() as i32;
+    let h = rect.h.round() as i32;
+    draw_rect_outline(image, x, y, w, h, color);
+}
+
+fn draw_css_rect_inset(image: &mut RgbaImage, rect: CssRect, inset: i32, color: Rgba<u8>) {
+    let x = rect.x.round() as i32 + inset;
+    let y = rect.y.round() as i32 + inset;
+    let w = rect.w.round() as i32 - inset * 2;
+    let h = rect.h.round() as i32 - inset * 2;
+    draw_rect_outline(image, x, y, w, h, color);
+}
+
+fn draw_grid(image: &mut RgbaImage, spacing: u32, color: Rgba<u8>) {
+    if spacing == 0 {
+        return;
+    }
+    for x in (0..image.width()).step_by(spacing as usize) {
+        for y in 0..image.height() {
+            image.put_pixel(x, y, color);
+        }
+    }
+    for y in (0..image.height()).step_by(spacing as usize) {
+        for x in 0..image.width() {
+            image.put_pixel(x, y, color);
+        }
+    }
+}
+
+fn draw_rect_outline(image: &mut RgbaImage, x: i32, y: i32, w: i32, h: i32, color: Rgba<u8>) {
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    draw_line(image, x, y, x + w - 1, y, color);
+    draw_line(image, x, y + h - 1, x + w - 1, y + h - 1, color);
+    draw_line(image, x, y, x, y + h - 1, color);
+    draw_line(image, x + w - 1, y, x + w - 1, y + h - 1, color);
+}
+
+fn draw_crosshair(image: &mut RgbaImage, x: i32, y: i32, radius: i32, color: Rgba<u8>) {
+    draw_line(image, x - radius, y, x - 4, y, color);
+    draw_line(image, x + 4, y, x + radius, y, color);
+    draw_line(image, x, y - radius, x, y - 4, color);
+    draw_line(image, x, y + 4, x, y + radius, color);
+}
+
+fn draw_line(image: &mut RgbaImage, mut x0: i32, mut y0: i32, x1: i32, y1: i32, color: Rgba<u8>) {
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    loop {
+        put_pixel_checked(image, x0, y0, color);
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+fn draw_circle(image: &mut RgbaImage, center_x: i32, center_y: i32, radius: i32, color: Rgba<u8>) {
+    let r2 = radius * radius;
+    for y in (center_y - radius)..=(center_y + radius) {
+        for x in (center_x - radius)..=(center_x + radius) {
+            let dx = x - center_x;
+            let dy = y - center_y;
+            if dx * dx + dy * dy <= r2 {
+                put_pixel_checked(image, x, y, color);
+            }
+        }
+    }
+}
+
+fn draw_circle_outline(
+    image: &mut RgbaImage,
+    center_x: i32,
+    center_y: i32,
+    radius: i32,
+    color: Rgba<u8>,
+) {
+    let outer = radius * radius;
+    let inner = (radius - 2).max(0) * (radius - 2).max(0);
+    for y in (center_y - radius)..=(center_y + radius) {
+        for x in (center_x - radius)..=(center_x + radius) {
+            let dx = x - center_x;
+            let dy = y - center_y;
+            let d2 = dx * dx + dy * dy;
+            if d2 <= outer && d2 >= inner {
+                put_pixel_checked(image, x, y, color);
+            }
+        }
+    }
+}
+
+fn put_pixel_checked(image: &mut RgbaImage, x: i32, y: i32, color: Rgba<u8>) {
+    if x >= 0 && y >= 0 && x < image.width() as i32 && y < image.height() as i32 {
+        image.put_pixel(x as u32, y as u32, color);
+    }
 }
 
 fn recon_real(url: Url) -> Result<()> {
