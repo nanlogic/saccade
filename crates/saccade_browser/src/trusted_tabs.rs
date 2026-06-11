@@ -32,14 +32,31 @@ pub struct TrustedTabsProfile {
     pub human_login: bool,
     pub agent_session: bool,
     pub password_exposed: bool,
+    pub otp_exposed: bool,
+    pub agent_input_to_human_tab_blocked: bool,
+    pub done_clicked: bool,
 }
 
 pub fn selftest_trusted_tabs(base_url: Url) -> Result<TrustedTabsProfile> {
+    run_tabs_selftest(base_url, TabsMode::TrustedTabs)
+}
+
+pub fn selftest_login_handoff(base_url: Url) -> Result<TrustedTabsProfile> {
+    run_tabs_selftest(base_url, TabsMode::LoginHandoff)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TabsMode {
+    TrustedTabs,
+    LoginHandoff,
+}
+
+fn run_tabs_selftest(base_url: Url, mode: TabsMode) -> Result<TrustedTabsProfile> {
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
     let result = Rc::new(RefCell::new(None));
-    let mut app = TabsApp::new(&event_loop, base_url, result.clone());
+    let mut app = TabsApp::new(&event_loop, base_url, mode, result.clone());
 
     event_loop
         .run_app(&mut app)
@@ -54,6 +71,8 @@ pub fn selftest_trusted_tabs(base_url: Url) -> Result<TrustedTabsProfile> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
+    WaitHumanLoginPage,
+    SubmitHumanLogin,
     WaitHumanDashboard,
     ProbeHuman,
     WaitAgentDashboard,
@@ -67,6 +86,7 @@ struct TabRuntime {
 }
 
 struct Runtime {
+    mode: TabsMode,
     phase: Phase,
     human_probe_requested: bool,
     agent_probe_requested: bool,
@@ -96,6 +116,7 @@ enum TabsApp {
     Initial {
         waker: Waker,
         base_url: Url,
+        mode: TabsMode,
         result: Rc<RefCell<Option<std::result::Result<TrustedTabsProfile, String>>>>,
     },
     Running {
@@ -108,11 +129,13 @@ impl TabsApp {
     fn new(
         event_loop: &EventLoop<WakerEvent>,
         base_url: Url,
+        mode: TabsMode,
         result: Rc<RefCell<Option<std::result::Result<TrustedTabsProfile, String>>>>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             base_url,
+            mode,
             result,
         }
     }
@@ -135,6 +158,30 @@ impl TabsApp {
 
         let phase = state.runtime.borrow().phase;
         match phase {
+            Phase::WaitHumanLoginPage => {
+                let Some(human) = tab(&state, TabId(1)) else {
+                    return;
+                };
+                if human.webview.load_status() == LoadStatus::Complete
+                    && human.webview.page_title().as_deref() == Some("Login")
+                {
+                    submit_human_login(&human.webview);
+                    state.runtime.borrow_mut().phase = Phase::SubmitHumanLogin;
+                }
+            }
+            Phase::SubmitHumanLogin => {
+                let Some(human) = tab(&state, TabId(1)) else {
+                    return;
+                };
+                if human.webview.load_status() == LoadStatus::Complete
+                    && human.webview.page_title().as_deref() == Some("Dashboard")
+                {
+                    request_handoff_done_probe(&state, &human.webview);
+                    let mut runtime = state.runtime.borrow_mut();
+                    runtime.phase = Phase::ProbeHuman;
+                    runtime.human_probe_requested = true;
+                }
+            }
             Phase::WaitHumanDashboard => {
                 let Some(human) = tab(&state, TabId(1)) else {
                     return;
@@ -162,6 +209,17 @@ impl TabsApp {
                         &state,
                         event_loop,
                         "human tab did not reach logged-in dashboard".into(),
+                    );
+                    *self = Self::Finished;
+                    return;
+                }
+                if state.runtime.borrow().mode == TabsMode::LoginHandoff
+                    && !probe_handoff_done(&probe)
+                {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        "human tab did not click Done for handoff".into(),
                     );
                     *self = Self::Finished;
                     return;
@@ -232,6 +290,7 @@ impl ApplicationHandler<WakerEvent> for TabsApp {
         let Self::Initial {
             waker,
             base_url,
+            mode,
             result,
         } = self
         else {
@@ -304,7 +363,11 @@ impl ApplicationHandler<WakerEvent> for TabsApp {
             started_at: Instant::now(),
             tabs: RefCell::new(Vec::new()),
             runtime: RefCell::new(Runtime {
-                phase: Phase::WaitHumanDashboard,
+                mode: *mode,
+                phase: match *mode {
+                    TabsMode::TrustedTabs => Phase::WaitHumanDashboard,
+                    TabsMode::LoginHandoff => Phase::WaitHumanLoginPage,
+                },
                 human_probe_requested: false,
                 agent_probe_requested: false,
                 human_probe: None,
@@ -314,7 +377,11 @@ impl ApplicationHandler<WakerEvent> for TabsApp {
             result: result.clone(),
         });
 
-        let human_url = match state.base_url.join("login.html?auto=1") {
+        let human_path = match *mode {
+            TabsMode::TrustedTabs => "login.html?auto=1",
+            TabsMode::LoginHandoff => "login.html",
+        };
+        let human_url = match state.base_url.join(human_path) {
             Ok(url) => url,
             Err(error) => {
                 *state.result.borrow_mut() =
@@ -447,6 +514,18 @@ fn request_agent_probe(state: &Rc<TabsState>, webview: &WebView) {
     });
 }
 
+fn request_handoff_done_probe(state: &Rc<TabsState>, webview: &WebView) {
+    *state.pending_human_probe.borrow_mut() = None;
+    let pending = state.pending_human_probe.clone();
+    webview.evaluate_javascript(DONE_PROBE_JS, move |result| {
+        *pending.borrow_mut() = Some(js_result_to_string(result));
+    });
+}
+
+fn submit_human_login(webview: &WebView) {
+    webview.evaluate_javascript(HUMAN_LOGIN_JS, |_| {});
+}
+
 fn js_result_to_string(
     result: std::result::Result<JSValue, servo::JavaScriptEvaluationError>,
 ) -> std::result::Result<String, String> {
@@ -501,6 +580,20 @@ fn probe_password(probe: &Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn probe_otp(probe: &Value) -> Option<String> {
+    probe
+        .get("otp")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn probe_handoff_done(probe: &Value) -> bool {
+    probe
+        .get("handoffDone")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn build_profile(state: &Rc<TabsState>, agent_probe: &Value) -> TrustedTabsProfile {
     let human_probe = state
         .runtime
@@ -517,6 +610,8 @@ fn build_profile(state: &Rc<TabsState>, agent_probe: &Value) -> TrustedTabsProfi
         && agent.is_some_and(|tab| tab.info.agent_truth_allowed());
     let human_password = probe_password(&human_probe).unwrap_or_default();
     let agent_password = probe_password(agent_probe).unwrap_or_default();
+    let human_otp = probe_otp(&human_probe).unwrap_or_default();
+    let agent_otp = probe_otp(agent_probe).unwrap_or_default();
 
     TrustedTabsProfile {
         webviews: tabs.len(),
@@ -527,6 +622,9 @@ fn build_profile(state: &Rc<TabsState>, agent_probe: &Value) -> TrustedTabsProfi
         human_login: probe_text(&human_probe).contains("LOGGED_IN"),
         agent_session: probe_text(agent_probe).contains("LOGGED_IN"),
         password_exposed: !human_password.is_empty() || !agent_password.is_empty(),
+        otp_exposed: !human_otp.is_empty() || !agent_otp.is_empty(),
+        agent_input_to_human_tab_blocked: human.is_some_and(|tab| !tab.info.agent_input_allowed()),
+        done_clicked: probe_handoff_done(&human_probe),
     }
 }
 
@@ -573,6 +671,52 @@ JSON.stringify({
   text: document.body ? document.body.innerText : "",
   cookie: document.cookie,
   storage: localStorage.getItem("saccade_storage") || "",
-  password: (document.querySelector('input[type="password"]') || {}).value || ""
+  password: (document.querySelector('input[type="password"]') || {}).value || "",
+  otp: (document.getElementById("otp") || {}).value || "",
+  handoffDone: localStorage.getItem("saccade_handoff_done") === "true"
 })
+"#;
+
+const DONE_PROBE_JS: &str = r#"
+(() => {
+  const done = document.getElementById("handoff-done");
+  if (done) {
+    done.click();
+  }
+  return JSON.stringify({
+    title: document.title,
+    url: location.href,
+    text: document.body ? document.body.innerText : "",
+    cookie: document.cookie,
+    storage: localStorage.getItem("saccade_storage") || "",
+    password: "",
+    otp: "",
+    handoffDone: localStorage.getItem("saccade_handoff_done") === "true"
+  });
+})()
+"#;
+
+const HUMAN_LOGIN_JS: &str = r#"
+(() => {
+  const username = document.getElementById("username");
+  const password = document.getElementById("password");
+  const otp = document.getElementById("otp");
+  if (username) {
+    username.value = "wayne";
+  }
+  if (password) {
+    password.value = "human-only-password";
+  }
+  if (otp) {
+    otp.value = "123456";
+  }
+  const form = document.getElementById("login-form");
+  if (form) {
+    if (form.requestSubmit) {
+      form.requestSubmit();
+    } else {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+  }
+})()
 "#;

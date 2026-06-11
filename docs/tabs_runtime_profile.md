@@ -66,7 +66,6 @@ Still pending:
 
 - Physical keyboard/mouse focus routing across user-selected tabs.
 - Manual user takeover of an Agent tab.
-- Login handoff UI with a visible Done button.
 - Replay events with `tab_id`, `owner`, `actor`, and `page_revision`.
 - Sensitive-field masking inside live tab truth.
 
@@ -74,7 +73,11 @@ Servo printed transient storage warnings while the test ran, but cookie and loca
 
 ## Next
 
-N2 should build the explicit login handoff flow:
+N1B adds the explicit login handoff fixture and gate in:
+
+`/Users/waynema/Documents/GitHub/SACCADE/docs/login_handoff_profile.md`
+
+The handoff flow is:
 
 ```text
 Human tab opens login page

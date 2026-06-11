@@ -18,12 +18,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     SelftestTabs,
+    SelftestLoginHandoff,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::SelftestTabs => selftest_tabs(),
+        Command::SelftestLoginHandoff => selftest_login_handoff(),
     }
 }
 
@@ -43,6 +45,32 @@ fn selftest_tabs() -> Result<()> {
         profile.storage_shared,
         profile.input_isolated,
         profile.read_policy_enforced,
+    );
+    Ok(())
+}
+
+fn selftest_login_handoff() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("login_handoff"))?;
+    let profile = saccade_browser::selftest_login_handoff(base_url)?;
+
+    if !profile.human_login
+        || !profile.agent_session
+        || profile.password_exposed
+        || profile.otp_exposed
+        || !profile.agent_input_to_human_tab_blocked
+        || !profile.done_clicked
+    {
+        bail!("login handoff selftest failed: {profile:?}");
+    }
+
+    println!(
+        "LOGIN_HANDOFF PASS human_login={} agent_session={} password_exposed={} otp_exposed={} agent_input_to_human_tab_blocked={}",
+        profile.human_login,
+        profile.agent_session,
+        profile.password_exposed,
+        profile.otp_exposed,
+        profile.agent_input_to_human_tab_blocked,
     );
     Ok(())
 }

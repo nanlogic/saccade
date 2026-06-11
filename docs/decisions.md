@@ -72,3 +72,10 @@
 ## Dogfood policy
 
 - Saccade should become the default browser layer for local development inspection, form workflow tests, login handoff, and replay-backed actions. Chrome and Playwright remain compatibility baselines and escape hatches.
+
+## N1B - Login handoff
+
+- Added `selftest-login-handoff` as the local gate for explicit human-to-agent login transfer.
+- The fixture now has an OTP field and a dashboard `Done` control. The selftest drives the Human tab through login, observes Done, then lets the Agent tab continue from the shared session.
+- The gate requires `human_login=true`, `agent_session=true`, `password_exposed=false`, `otp_exposed=false`, and `agent_input_to_human_tab_blocked=true`.
+- This proves the minimal local contract only. Product UI, replay metadata, and arbitrary third-party sensitive-field masking remain later work.

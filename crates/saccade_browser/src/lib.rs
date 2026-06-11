@@ -15,4 +15,4 @@ pub use page_selftest::{SelftestPageOutcome, SelftestPagesReport, selftest_pages
 pub use real_run::{RealRunConfig, RealRunReport, run_real};
 pub use recon::{RealSiteRecon, real_site_recon};
 pub use selftest::selftest_boot;
-pub use trusted_tabs::{TrustedTabsProfile, selftest_trusted_tabs};
+pub use trusted_tabs::{TrustedTabsProfile, selftest_login_handoff, selftest_trusted_tabs};

@@ -2,6 +2,7 @@
   const SESSION_COOKIE = "saccade_session=demo";
   const STORAGE_KEY = "saccade_storage";
   const STORAGE_VALUE = "shared";
+  const HANDOFF_KEY = "saccade_handoff_done";
 
   function setSession() {
     document.cookie = `${SESSION_COOKIE}; path=/; SameSite=Lax`;
@@ -41,4 +42,19 @@
   if (storageState) {
     storageState.textContent = `storage=${localStorage.getItem(STORAGE_KEY) || ""}`;
   }
+
+  const done = document.getElementById("handoff-done");
+  const handoffState = document.getElementById("handoff-state");
+  function refreshHandoff() {
+    if (handoffState) {
+      handoffState.textContent = `handoff_done=${localStorage.getItem(HANDOFF_KEY) === "true"}`;
+    }
+  }
+  if (done) {
+    done.addEventListener("click", () => {
+      localStorage.setItem(HANDOFF_KEY, "true");
+      refreshHandoff();
+    });
+  }
+  refreshHandoff();
 })();
