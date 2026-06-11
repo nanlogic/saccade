@@ -44,6 +44,7 @@ pub struct RealRunConfig {
     pub spawn_speed: String,
     pub target_size: String,
     pub duration_s: u32,
+    pub artifact_dir: PathBuf,
     pub window_width: u32,
     pub window_height: u32,
     pub instrumentation: String,
@@ -293,6 +294,7 @@ impl RealApp {
                 if let Some(obs) = capture(&state, &webview) {
                     let cfg = detect_config(&state);
                     let _ = state.runtime.borrow_mut().pipeline.on_frame(&obs, &cfg);
+                    save_artifact_screenshot(&state, &webview, "before.png");
                     state.runtime.borrow_mut().advance(Phase::ClickStart);
                 }
             }
@@ -332,6 +334,7 @@ impl RealApp {
                         metrics.last_score = Some(score);
                     }
                     if finished {
+                        save_artifact_screenshot(&state, &webview, "after.png");
                         match finish_run(&state) {
                             Ok(report) => {
                                 finish_ok(&state, event_loop, report);
@@ -660,12 +663,30 @@ fn capture(state: &Rc<RealState>, webview: &WebView) -> Option<FrameObservation>
     })
 }
 
+fn save_artifact_screenshot(state: &Rc<RealState>, webview: &WebView, filename: &str) {
+    webview.paint();
+    let rect = DeviceIntRect::from_size(DeviceIntSize::new(
+        state.config.window_width as i32,
+        state.config.window_height as i32,
+    ));
+    let path = state.config.artifact_dir.join(filename);
+    match state.rendering_context.read_to_image(rect) {
+        Some(image) => {
+            if let Err(error) = image.save(&path) {
+                eprintln!("failed to save {}: {error}", path.display());
+            }
+        }
+        None => eprintln!("readback returned no image for {}", path.display()),
+    }
+}
+
 fn detect_config(state: &Rc<RealState>) -> DetectConfig {
     let mut cfg = DetectConfig::default();
     cfg.min_dom_size_css = 1.0;
     cfg.max_dom_size_css = 96.0;
     if state.config.instrumentation == "none" {
         cfg.enable_dom = false;
+        cfg.enable_red_hint = true;
     } else {
         cfg.enable_pixel = false;
     }

@@ -11,6 +11,7 @@ use saccade_core::{
 const CELL: usize = 8;
 const ACTIVE_BLOCK: usize = 16;
 const ACTIVE_SAMPLE_STEP: usize = 4;
+const RED_SAMPLE_STEP: usize = 3;
 
 pub trait TargetDetector {
     fn detect(&mut self, obs: &FrameObservation, cfg: &DetectConfig) -> Vec<TargetCandidate>;
@@ -21,6 +22,7 @@ pub trait TargetDetector {
 pub struct DetectConfig {
     pub enable_pixel: bool,
     pub enable_dom: bool,
+    pub enable_red_hint: bool,
     pub fg_threshold: u8,
     pub min_area_px: u32,
     pub max_radius_css: f32,
@@ -35,6 +37,7 @@ impl Default for DetectConfig {
         Self {
             enable_pixel: true,
             enable_dom: true,
+            enable_red_hint: false,
             fg_threshold: 28,
             min_area_px: 4,
             max_radius_css: 16.0,
@@ -67,6 +70,10 @@ impl PixelDetector {
 
 impl TargetDetector for PixelDetector {
     fn detect(&mut self, obs: &FrameObservation, cfg: &DetectConfig) -> Vec<TargetCandidate> {
+        if cfg.enable_red_hint {
+            return self.detect_red_targets(obs, cfg);
+        }
+
         if self.background.is_none() {
             self.background = Some(build_background(&obs.pixels));
             return Vec::new();
@@ -195,6 +202,92 @@ impl TargetDetector for PixelDetector {
 }
 
 impl PixelDetector {
+    fn detect_red_targets(
+        &mut self,
+        obs: &FrameObservation,
+        cfg: &DetectConfig,
+    ) -> Vec<TargetCandidate> {
+        let w = obs.pixels.w as usize;
+        let h = obs.pixels.h as usize;
+        let rgba = obs.pixels.rgba.as_slice();
+        let mut visited = vec![false; w * h];
+        let mut candidates = Vec::new();
+        let dsf = obs.viewport.device_scale_factor * obs.viewport.page_zoom;
+        let max_area =
+            (std::f32::consts::PI * (cfg.max_radius_css * dsf).powi(2) * 1.3).ceil() as u32;
+
+        for y in (0..h).step_by(RED_SAMPLE_STEP) {
+            for x in (0..w).step_by(RED_SAMPLE_STEP) {
+                let index = y * w + x;
+                if visited[index] || !red_target_pixel(index, rgba) {
+                    continue;
+                }
+
+                let component = collect_red_component(x, y, w, h, rgba, &mut visited);
+                if component.area < cfg.min_area_px || component.area > max_area {
+                    continue;
+                }
+
+                let width = (component.max_x - component.min_x + 1) as f32;
+                let height = (component.max_y - component.min_y + 1) as f32;
+                let aspect = width / height.max(1.0);
+                if !(0.55..=1.8).contains(&aspect) {
+                    continue;
+                }
+
+                let radius_device = width.max(height) / 2.0;
+                let circle_area = std::f32::consts::PI * radius_device.powi(2);
+                let fill_ratio = component.area as f32 / circle_area.max(1.0);
+                if fill_ratio < cfg.min_fill_ratio * 0.65 {
+                    continue;
+                }
+
+                let center_css = CssPoint {
+                    x: obs.game_area_css.x + component.sum_x / component.area as f32 / dsf,
+                    y: obs.game_area_css.y + component.sum_y / component.area as f32 / dsf,
+                };
+                if !obs.game_area_css.contains(center_css) {
+                    continue;
+                }
+
+                let bbox_css = CssRect {
+                    x: obs.game_area_css.x + component.min_x as f32 / dsf,
+                    y: obs.game_area_css.y + component.min_y as f32 / dsf,
+                    w: width / dsf,
+                    h: height / dsf,
+                };
+                let red_score = (component.contrast_sum / component.area as f32 / 180.0).min(1.0);
+                let fill_score = (fill_ratio / 0.85).min(1.0);
+                let mut confidence = (0.55 * red_score + 0.45 * fill_score).clamp(0.0, 1.0);
+                if self.is_static_suspect(center_css) {
+                    confidence *= 0.2;
+                }
+
+                candidates.push(TargetCandidate {
+                    center_css,
+                    bbox_css,
+                    radius_css: radius_device / dsf,
+                    source: TargetSource::PixelDetector,
+                    confidence,
+                    evidence: TargetEvidence::PixelComponent {
+                        area_px: component.area,
+                        fill_ratio,
+                        contrast: component.contrast_sum / component.area as f32,
+                        temporal_delta: component.contrast_sum / component.area as f32,
+                    },
+                });
+            }
+        }
+
+        candidates.sort_by(|a, b| {
+            a.center_css
+                .y
+                .total_cmp(&b.center_css.y)
+                .then(a.center_css.x.total_cmp(&b.center_css.x))
+        });
+        candidates
+    }
+
     fn is_static_suspect(&mut self, center: CssPoint) -> bool {
         for (known, frames) in &mut self.stable_centers {
             if distance(*known, center) <= 1.0 {
@@ -685,6 +778,65 @@ fn collect_component(
     component
 }
 
+fn collect_red_component(
+    start_x: usize,
+    start_y: usize,
+    w: usize,
+    h: usize,
+    rgba: &[u8],
+    visited: &mut [bool],
+) -> Component {
+    let mut queue = VecDeque::new();
+    queue.push_back((start_x, start_y));
+    visited[start_y * w + start_x] = true;
+
+    let mut component = Component {
+        area: 0,
+        min_x: start_x,
+        min_y: start_y,
+        max_x: start_x,
+        max_y: start_y,
+        sum_x: 0.0,
+        sum_y: 0.0,
+        contrast_sum: 0.0,
+    };
+
+    while let Some((x, y)) = queue.pop_front() {
+        let index = y * w + x;
+        component.area += 1;
+        component.min_x = component.min_x.min(x);
+        component.min_y = component.min_y.min(y);
+        component.max_x = component.max_x.max(x);
+        component.max_y = component.max_y.max(y);
+        component.sum_x += x as f32 + 0.5;
+        component.sum_y += y as f32 + 0.5;
+        component.contrast_sum += red_dominance(index, rgba) as f32;
+
+        for (nx, ny) in neighbors(x, y, w, h) {
+            let nindex = ny * w + nx;
+            if !visited[nindex] && red_target_pixel(nindex, rgba) {
+                visited[nindex] = true;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+
+    component
+}
+
+fn red_target_pixel(index: usize, rgba: &[u8]) -> bool {
+    let offset = index * 4;
+    let r = rgba[offset] as i16;
+    let g = rgba[offset + 1] as i16;
+    let b = rgba[offset + 2] as i16;
+    r >= 150 && g <= 120 && b <= 120 && r - g >= 60 && r - b >= 60
+}
+
+fn red_dominance(index: usize, rgba: &[u8]) -> u8 {
+    let offset = index * 4;
+    rgba[offset].saturating_sub(rgba[offset + 1].max(rgba[offset + 2]))
+}
+
 fn neighbors(x: usize, y: usize, w: usize, h: usize) -> impl Iterator<Item = (usize, usize)> {
     let mut out = [(usize::MAX, usize::MAX); 4];
     let mut len = 0;
@@ -791,6 +943,24 @@ mod synthetic {
         let actual = candidates[0].center_css;
         assert!((actual.x - expected.x).abs() <= 0.5, "{actual:?}");
         assert!((actual.y - expected.y).abs() <= 0.5, "{actual:?}");
+    }
+
+    #[test]
+    fn red_hint_detects_target_without_background_frame() {
+        let mut detector = PixelDetector::default();
+        let cfg = DetectConfig {
+            enable_red_hint: true,
+            ..DetectConfig::default()
+        };
+        let expected = CssPoint { x: 320.0, y: 240.0 };
+        let obs = frame(1, &[Disc::new(expected, 6.0)], None, game_area());
+        let candidates = detector.detect(&obs, &cfg);
+
+        assert_eq!(candidates.len(), 1);
+        let actual = candidates[0].center_css;
+        assert!((actual.x - expected.x).abs() <= 0.5, "{actual:?}");
+        assert!((actual.y - expected.y).abs() <= 0.5, "{actual:?}");
+        assert_eq!(candidates[0].source, TargetSource::PixelDetector);
     }
 
     #[test]

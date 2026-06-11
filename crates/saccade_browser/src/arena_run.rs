@@ -42,6 +42,7 @@ pub struct ArenaRunConfig {
     pub spawn_speed: String,
     pub target_size: String,
     pub duration_s: u32,
+    pub artifact_dir: PathBuf,
     pub window_width: u32,
     pub window_height: u32,
     pub seed: u64,
@@ -242,6 +243,7 @@ impl ArenaApp {
                 if let Some(obs) = capture(&state, &webview) {
                     let cfg = DetectConfig::default();
                     let _ = state.runtime.borrow_mut().pipeline.on_frame(&obs, &cfg);
+                    save_artifact_screenshot(&state, &webview, "before.png");
                     start_page(&webview);
                     state.runtime.borrow_mut().advance(Phase::Run);
                 }
@@ -261,6 +263,7 @@ impl ArenaApp {
                     let finished = score.score.finished;
                     state.metrics.borrow_mut().last_score = Some(score);
                     if finished {
+                        save_artifact_screenshot(&state, &webview, "after.png");
                         match finish_run(&state) {
                             Ok(report) => {
                                 finish_ok(&state, event_loop, report);
@@ -569,6 +572,23 @@ fn capture(state: &Rc<ArenaState>, webview: &WebView) -> Option<FrameObservation
         },
         dom_rects: if rects.is_empty() { None } else { Some(rects) },
     })
+}
+
+fn save_artifact_screenshot(state: &Rc<ArenaState>, webview: &WebView, filename: &str) {
+    webview.paint();
+    let rect = DeviceIntRect::from_size(DeviceIntSize::new(
+        state.config.window_width as i32,
+        state.config.window_height as i32,
+    ));
+    let path = state.config.artifact_dir.join(filename);
+    match state.rendering_context.read_to_image(rect) {
+        Some(image) => {
+            if let Err(error) = image.save(&path) {
+                eprintln!("failed to save {}: {error}", path.display());
+            }
+        }
+        None => eprintln!("readback returned no image for {}", path.display()),
+    }
 }
 
 fn click(
