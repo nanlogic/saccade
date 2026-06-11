@@ -84,6 +84,19 @@ DEV reference:
 
 Target length: 60 to 90 seconds.
 
+Before recording, prepare the parity pack:
+
+```bash
+scripts/prepare_mousemax_parity_pack.sh runs/real/run_1781193985
+```
+
+Add Chrome and Safari reference screenshots with the URL bar visible:
+
+```text
+runs/real/run_1781193985/chrome_options_urlbar.png
+runs/real/run_1781193985/safari_options_urlbar.png
+```
+
 Recording command:
 
 ```bash
@@ -94,11 +107,12 @@ If macOS returns no video, grant Screen Recording permission to the terminal or 
 
 Shot list:
 
-1. Terminal: show the command with `--site real --spawn-speed epic --target-size tiny --instrumentation none`.
-2. Browser window: show the 1920x1080 run in progress.
-3. Terminal: show final JSON with `PASS`, hits, misses, and detector counts.
-4. Artifacts: show `before.png`, `after.png`, `click_map.png`, `result.json`, and `replay.jsonl`.
-5. Optional: show the report table.
+1. Parity: show Chrome and Safari at `https://mouseaccuracy.com/classic/` with URL bars visible.
+2. Terminal: show the Saccade command with `--site real --spawn-speed epic --target-size tiny --instrumentation none`.
+3. Browser window: show the 1920x1080 Saccade run in progress.
+4. Terminal: show final JSON with `PASS`, hits, misses, and detector counts.
+5. Artifacts: show `before.png`, `after.png`, `click_map.png`, `result.json`, `replay.jsonl`, and `validator.txt`.
+6. Optional: show `parity_review.html`.
 
 Suggested title:
 
@@ -135,3 +149,7 @@ Page structure:
 - Repo link.
 
 Keep the page technical. Readers should see the run data before any story.
+
+## Visual Parity
+
+Do not publish a demo that relies only on the Servo window. The embedded browser chrome looks different from Chrome and Safari. Include `parity_review.html` so readers can compare the public site in Chrome/Safari against the Saccade artifacts.
