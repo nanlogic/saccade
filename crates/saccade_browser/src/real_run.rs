@@ -30,13 +30,15 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
-const SAFE_TOP_CSS: f32 = 100.0;
+const SAFE_TOP_CSS: f32 = 0.0;
 const BACKGROUND_DELAY: Duration = Duration::from_millis(160);
+const CONTROL_CLICK_GAP: Duration = Duration::from_millis(220);
 const FRAME_INTERVAL: Duration = Duration::from_millis(20);
 const SCORE_INTERVAL: Duration = Duration::from_millis(100);
+const RUN_END_GUARD: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
-pub struct ArenaRunConfig {
+pub struct RealRunConfig {
     pub url: Url,
     pub run_id: String,
     pub spawn_speed: String,
@@ -44,7 +46,6 @@ pub struct ArenaRunConfig {
     pub duration_s: u32,
     pub window_width: u32,
     pub window_height: u32,
-    pub seed: u64,
     pub instrumentation: String,
     pub input_space: InputSpace,
     pub calibration_max_err_css_px: f32,
@@ -52,16 +53,16 @@ pub struct ArenaRunConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct ArenaRunReport {
+pub struct RealRunReport {
     pub result: BenchmarkResult,
 }
 
-pub fn run_arena(config: ArenaRunConfig) -> Result<ArenaRunReport> {
+pub fn run_real(config: RealRunConfig) -> Result<RealRunReport> {
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
     let result = Rc::new(RefCell::new(None));
-    let mut app = ArenaApp::new(&event_loop, config, result.clone());
+    let mut app = RealApp::new(&event_loop, config, result.clone());
 
     event_loop
         .run_app(&mut app)
@@ -70,30 +71,35 @@ pub fn run_arena(config: ArenaRunConfig) -> Result<ArenaRunReport> {
     match result.borrow_mut().take() {
         Some(Ok(report)) => Ok(report),
         Some(Err(message)) => bail!(message),
-        None => bail!("arena run exited without a result"),
+        None => bail!("real run exited without a result"),
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Load,
+    ControlsProbe,
+    ClickSpeed,
+    ClickSize,
     Background,
+    ClickStart,
     Run,
     ProbeScore,
 }
 
-struct ArenaRuntime {
+struct RealRuntime {
     phase: Phase,
     page_started_at: Instant,
     phase_started_at: Instant,
     last_frame_at: Instant,
     last_score_at: Instant,
+    game_started_at: Option<Instant>,
     frame_id: u64,
     pipeline: DetectionPipeline,
     motor: MotorController,
 }
 
-impl ArenaRuntime {
+impl RealRuntime {
     fn new() -> Self {
         let now = Instant::now();
         Self {
@@ -102,6 +108,7 @@ impl ArenaRuntime {
             phase_started_at: now,
             last_frame_at: now - FRAME_INTERVAL,
             last_score_at: now - SCORE_INTERVAL,
+            game_started_at: None,
             frame_id: 0,
             pipeline: DetectionPipeline::default(),
             motor: MotorController::default(),
@@ -122,7 +129,7 @@ struct RunHistograms {
     detect: Histogram,
 }
 
-struct ArenaMetrics {
+struct RealMetrics {
     clicks_sent: u32,
     click_id: u64,
     targets_seen: u32,
@@ -131,10 +138,11 @@ struct ArenaMetrics {
     verified_hits: u32,
     detectors_used: DetectorUsage,
     histograms: RunHistograms,
-    last_score: Option<ArenaScore>,
+    last_score: Option<RealScore>,
+    last_raw_score: Option<String>,
 }
 
-impl Default for ArenaMetrics {
+impl Default for RealMetrics {
     fn default() -> Self {
         Self {
             clicks_sent: 0,
@@ -151,57 +159,59 @@ impl Default for ArenaMetrics {
             },
             histograms: RunHistograms::default(),
             last_score: None,
+            last_raw_score: None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-struct ArenaScore {
+struct RealScore {
     score: ScoreState,
-    spawned: u32,
     expired: u32,
 }
 
-struct ArenaState {
+struct RealState {
     window: Window,
     servo: Servo,
     rendering_context: Rc<WindowRenderingContext>,
     webviews: RefCell<Vec<WebView>>,
-    config: ArenaRunConfig,
+    config: RealRunConfig,
     run_started_at: Instant,
-    runtime: RefCell<ArenaRuntime>,
+    runtime: RefCell<RealRuntime>,
+    pending_controls: Rc<RefCell<Option<std::result::Result<String, String>>>>,
+    controls: RefCell<Option<String>>,
     pending_score: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     pending_rects: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     rects_in_flight: Rc<RefCell<bool>>,
     last_rects: RefCell<Vec<DomRectObs>>,
-    metrics: RefCell<ArenaMetrics>,
+    metrics: RefCell<RealMetrics>,
     logger: RefCell<Option<ReplayLogger>>,
-    result: Rc<RefCell<Option<std::result::Result<ArenaRunReport, String>>>>,
+    result: Rc<RefCell<Option<std::result::Result<RealRunReport, String>>>>,
 }
 
-impl WebViewDelegate for ArenaState {
+impl WebViewDelegate for RealState {
     fn notify_new_frame_ready(&self, _webview: WebView) {
         self.window.request_redraw();
     }
 }
 
-enum ArenaApp {
+enum RealApp {
     Initial {
         waker: Waker,
-        config: ArenaRunConfig,
-        result: Rc<RefCell<Option<std::result::Result<ArenaRunReport, String>>>>,
+        config: RealRunConfig,
+        result: Rc<RefCell<Option<std::result::Result<RealRunReport, String>>>>,
     },
     Running {
-        state: Rc<ArenaState>,
+        state: Rc<RealState>,
     },
     Finished,
 }
 
-impl ArenaApp {
+impl RealApp {
     fn new(
         event_loop: &EventLoop<WakerEvent>,
-        config: ArenaRunConfig,
-        result: Rc<RefCell<Option<std::result::Result<ArenaRunReport, String>>>>,
+        config: RealRunConfig,
+        result: Rc<RefCell<Option<std::result::Result<RealRunReport, String>>>>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
@@ -216,12 +226,12 @@ impl ArenaApp {
             _ => return,
         };
 
-        let timeout = Duration::from_secs(state.config.duration_s as u64 + 8);
+        let timeout = Duration::from_secs(state.config.duration_s as u64 + 35);
         if state.runtime.borrow().page_started_at.elapsed() > timeout {
             finish_err(
                 &state,
                 event_loop,
-                format!("arena run timed out after {timeout:?}"),
+                format!("real run timed out after {timeout:?}"),
             );
             *self = Self::Finished;
             return;
@@ -234,16 +244,73 @@ impl ArenaApp {
         let phase = state.runtime.borrow().phase;
         match phase {
             Phase::Load if webview.load_status() == LoadStatus::Complete => {
-                state.runtime.borrow_mut().advance(Phase::Background);
+                request_controls(&state, &webview);
+                state.runtime.borrow_mut().advance(Phase::ControlsProbe);
+            }
+            Phase::ControlsProbe => {
+                if let Some(controls) = finish_controls_if_ready(&state) {
+                    *state.controls.borrow_mut() = Some(controls);
+                    state.runtime.borrow_mut().advance(Phase::ClickSpeed);
+                }
+            }
+            Phase::ClickSpeed
+                if state.runtime.borrow().phase_started_at.elapsed() >= CONTROL_CLICK_GAP =>
+            {
+                if click_control(
+                    &state,
+                    &webview,
+                    configured_speed(&state.config.spawn_speed),
+                ) {
+                    state.runtime.borrow_mut().advance(Phase::ClickSize);
+                } else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("could not click {} control", state.config.spawn_speed),
+                    );
+                    *self = Self::Finished;
+                    return;
+                }
+            }
+            Phase::ClickSize
+                if state.runtime.borrow().phase_started_at.elapsed() >= CONTROL_CLICK_GAP =>
+            {
+                if click_control(&state, &webview, configured_size(&state.config.target_size)) {
+                    state.runtime.borrow_mut().advance(Phase::Background);
+                } else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("could not click {} control", state.config.target_size),
+                    );
+                    *self = Self::Finished;
+                    return;
+                }
             }
             Phase::Background
                 if state.runtime.borrow().phase_started_at.elapsed() >= BACKGROUND_DELAY =>
             {
                 if let Some(obs) = capture(&state, &webview) {
-                    let cfg = DetectConfig::default();
+                    let cfg = detect_config(&state);
                     let _ = state.runtime.borrow_mut().pipeline.on_frame(&obs, &cfg);
-                    start_page(&webview);
-                    state.runtime.borrow_mut().advance(Phase::Run);
+                    state.runtime.borrow_mut().advance(Phase::ClickStart);
+                }
+            }
+            Phase::ClickStart
+                if state.runtime.borrow().phase_started_at.elapsed() >= CONTROL_CLICK_GAP =>
+            {
+                if click_control(&state, &webview, ControlName::Start) {
+                    {
+                        let mut runtime = state.runtime.borrow_mut();
+                        runtime.game_started_at = Some(Instant::now());
+                        runtime.last_score_at = Instant::now() - SCORE_INTERVAL;
+                        runtime.last_frame_at = Instant::now() - FRAME_INTERVAL;
+                        runtime.advance(Phase::Run);
+                    }
+                } else {
+                    finish_err(&state, event_loop, "could not click Start control".into());
+                    *self = Self::Finished;
+                    return;
                 }
             }
             Phase::Run => {
@@ -255,11 +322,15 @@ impl ArenaApp {
             }
             Phase::ProbeScore => {
                 if let Some(raw_score) = finish_score_if_ready(&state) {
-                    let score = parse_arena_score(&raw_score, elapsed_ns(state.run_started_at));
+                    let score = parse_real_score(&raw_score, elapsed_ns(state.run_started_at));
                     log_score(&state, &score);
                     reconcile_score(&state, &score);
                     let finished = score.score.finished;
-                    state.metrics.borrow_mut().last_score = Some(score);
+                    {
+                        let mut metrics = state.metrics.borrow_mut();
+                        metrics.last_raw_score = Some(raw_score);
+                        metrics.last_score = Some(score);
+                    }
                     if finished {
                         match finish_run(&state) {
                             Ok(report) => {
@@ -284,7 +355,7 @@ impl ArenaApp {
     }
 }
 
-impl ApplicationHandler<WakerEvent> for ArenaApp {
+impl ApplicationHandler<WakerEvent> for RealApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let Self::Initial {
             waker,
@@ -305,7 +376,7 @@ impl ApplicationHandler<WakerEvent> for ArenaApp {
         };
         let window = match event_loop.create_window(
             Window::default_attributes()
-                .with_title("Saccade M6 Arena")
+                .with_title("Saccade M7 Real")
                 .with_inner_size(PhysicalSize::new(config.window_width, config.window_height)),
         ) {
             Ok(window) => window,
@@ -350,19 +421,21 @@ impl ApplicationHandler<WakerEvent> for ArenaApp {
         servo.setup_logging();
 
         let logger = config.replay_path.clone().map(ReplayLogger::spawn);
-        let state = Rc::new(ArenaState {
+        let state = Rc::new(RealState {
             window,
             servo,
             rendering_context,
             webviews: RefCell::new(Vec::new()),
             config: config.clone(),
             run_started_at: Instant::now(),
-            runtime: RefCell::new(ArenaRuntime::new()),
+            runtime: RefCell::new(RealRuntime::new()),
+            pending_controls: Rc::new(RefCell::new(None)),
+            controls: RefCell::new(None),
             pending_score: Rc::new(RefCell::new(None)),
             pending_rects: Rc::new(RefCell::new(None)),
             rects_in_flight: Rc::new(RefCell::new(false)),
             last_rects: RefCell::new(Vec::new()),
-            metrics: RefCell::new(ArenaMetrics::default()),
+            metrics: RefCell::new(RealMetrics::default()),
             logger: RefCell::new(logger),
             result: result.clone(),
         });
@@ -405,7 +478,7 @@ impl ApplicationHandler<WakerEvent> for ArenaApp {
                 finish_err(
                     &state,
                     event_loop,
-                    "window closed before arena finished".into(),
+                    "window closed before real finished".into(),
                 );
                 *self = Self::Finished;
                 return;
@@ -432,8 +505,12 @@ impl ApplicationHandler<WakerEvent> for ArenaApp {
     }
 }
 
-fn maybe_run_frame(state: &Rc<ArenaState>, webview: &WebView) {
+fn maybe_run_frame(state: &Rc<RealState>, webview: &WebView) {
     if state.runtime.borrow().last_frame_at.elapsed() < FRAME_INTERVAL {
+        return;
+    }
+    if target_click_window_closed(state) {
+        state.runtime.borrow_mut().last_frame_at = Instant::now();
         return;
     }
     request_rects_if_idle(state, webview);
@@ -441,7 +518,7 @@ fn maybe_run_frame(state: &Rc<ArenaState>, webview: &WebView) {
         return;
     };
 
-    let cfg = DetectConfig::default();
+    let cfg = detect_config(state);
     let mut report = state.runtime.borrow_mut().pipeline.on_frame(&obs, &cfg);
     let safe_area = CssRect {
         x: 0.0,
@@ -527,7 +604,19 @@ fn maybe_run_frame(state: &Rc<ArenaState>, webview: &WebView) {
     state.runtime.borrow_mut().last_frame_at = Instant::now();
 }
 
-fn capture(state: &Rc<ArenaState>, webview: &WebView) -> Option<FrameObservation> {
+fn target_click_window_closed(state: &Rc<RealState>) -> bool {
+    let runtime = state.runtime.borrow();
+    if runtime.phase != Phase::Run {
+        return false;
+    }
+    let Some(game_started_at) = runtime.game_started_at else {
+        return false;
+    };
+    let duration = Duration::from_secs(state.config.duration_s as u64);
+    game_started_at.elapsed() >= duration.saturating_sub(RUN_END_GUARD)
+}
+
+fn capture(state: &Rc<RealState>, webview: &WebView) -> Option<FrameObservation> {
     finish_rects_if_ready(state);
     let run_started_at = state.run_started_at;
     webview.paint();
@@ -571,8 +660,20 @@ fn capture(state: &Rc<ArenaState>, webview: &WebView) -> Option<FrameObservation
     })
 }
 
+fn detect_config(state: &Rc<RealState>) -> DetectConfig {
+    let mut cfg = DetectConfig::default();
+    cfg.min_dom_size_css = 1.0;
+    cfg.max_dom_size_css = 96.0;
+    if state.config.instrumentation == "none" {
+        cfg.enable_dom = false;
+    } else {
+        cfg.enable_pixel = false;
+    }
+    cfg
+}
+
 fn click(
-    state: &Rc<ArenaState>,
+    state: &Rc<RealState>,
     webview: &WebView,
     click_id: u64,
     target_id: saccade_core::TargetId,
@@ -618,7 +719,7 @@ fn click(
     }
 }
 
-fn request_score(state: &Rc<ArenaState>, webview: &WebView) {
+fn request_score(state: &Rc<RealState>, webview: &WebView) {
     *state.pending_score.borrow_mut() = None;
     let pending = state.pending_score.clone();
     webview.evaluate_javascript(SCORE_JS, move |result| {
@@ -631,7 +732,23 @@ fn request_score(state: &Rc<ArenaState>, webview: &WebView) {
     });
 }
 
-fn request_rects_if_idle(state: &Rc<ArenaState>, webview: &WebView) {
+fn request_controls(state: &Rc<RealState>, webview: &WebView) {
+    *state.pending_controls.borrow_mut() = None;
+    let pending = state.pending_controls.clone();
+    webview.evaluate_javascript(CONTROLS_JS, move |result| {
+        let value = match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        };
+        *pending.borrow_mut() = Some(value);
+    });
+}
+
+fn request_rects_if_idle(state: &Rc<RealState>, webview: &WebView) {
+    if state.config.instrumentation == "none" {
+        return;
+    }
     if *state.rects_in_flight.borrow() {
         return;
     }
@@ -649,11 +766,7 @@ fn request_rects_if_idle(state: &Rc<ArenaState>, webview: &WebView) {
     });
 }
 
-fn start_page(webview: &WebView) {
-    webview.evaluate_javascript(START_JS, |_| {});
-}
-
-fn finish_score_if_ready(state: &Rc<ArenaState>) -> Option<String> {
+fn finish_score_if_ready(state: &Rc<RealState>) -> Option<String> {
     state
         .pending_score
         .borrow_mut()
@@ -661,7 +774,15 @@ fn finish_score_if_ready(state: &Rc<ArenaState>) -> Option<String> {
         .map(|result| result.unwrap_or_else(|error| format!("ERROR {error}")))
 }
 
-fn finish_rects_if_ready(state: &Rc<ArenaState>) {
+fn finish_controls_if_ready(state: &Rc<RealState>) -> Option<String> {
+    state
+        .pending_controls
+        .borrow_mut()
+        .take()
+        .map(|result| result.unwrap_or_else(|error| format!("ERROR {error}")))
+}
+
+fn finish_rects_if_ready(state: &Rc<RealState>) {
     let Some(result) = state.pending_rects.borrow_mut().take() else {
         return;
     };
@@ -691,7 +812,7 @@ fn parse_rects(text: &str, t_obs_ns: u64) -> Vec<DomRectObs> {
         .collect()
 }
 
-fn parse_arena_score(text: &str, t_obs_ns: u64) -> ArenaScore {
+fn parse_real_score(text: &str, t_obs_ns: u64) -> RealScore {
     let values = text
         .split_whitespace()
         .filter_map(|part| part.split_once('='))
@@ -699,7 +820,7 @@ fn parse_arena_score(text: &str, t_obs_ns: u64) -> ArenaScore {
         .collect::<HashMap<_, _>>();
     let hits = parse_u32(&values, "hits");
     let misses = parse_u32(&values, "misses");
-    ArenaScore {
+    RealScore {
         score: ScoreState {
             hits,
             misses,
@@ -709,7 +830,6 @@ fn parse_arena_score(text: &str, t_obs_ns: u64) -> ArenaScore {
             finished: values.get("finished").is_some_and(|value| value == "true"),
             t_obs_ns,
         },
-        spawned: parse_u32(&values, "spawned"),
         expired: parse_u32(&values, "expired"),
     }
 }
@@ -721,11 +841,109 @@ fn parse_u32(values: &HashMap<String, String>, key: &str) -> u32 {
         .unwrap_or(0)
 }
 
-fn reconcile_score(state: &Rc<ArenaState>, arena_score: &ArenaScore) {
+#[derive(Debug, Clone, Copy)]
+enum ControlName {
+    Slow,
+    Normal,
+    Fast,
+    Epic,
+    Tiny,
+    Small,
+    Medium,
+    Large,
+    Start,
+}
+
+fn configured_speed(value: &str) -> ControlName {
+    match value.to_ascii_lowercase().as_str() {
+        "slow" => ControlName::Slow,
+        "normal" => ControlName::Normal,
+        "fast" => ControlName::Fast,
+        "epic" => ControlName::Epic,
+        _ => ControlName::Epic,
+    }
+}
+
+fn configured_size(value: &str) -> ControlName {
+    match value.to_ascii_lowercase().as_str() {
+        "tiny" => ControlName::Tiny,
+        "small" => ControlName::Small,
+        "medium" => ControlName::Medium,
+        "large" => ControlName::Large,
+        _ => ControlName::Tiny,
+    }
+}
+
+fn click_control(state: &Rc<RealState>, webview: &WebView, name: ControlName) -> bool {
+    let Some(controls) = state.controls.borrow().clone() else {
+        return false;
+    };
+    let Some(rect) = parse_control_rect(&controls, name) else {
+        return false;
+    };
+    let point = CssPoint {
+        x: rect.x + rect.w / 2.0,
+        y: rect.y + rect.h / 2.0,
+    };
+    send_click(state, webview, point);
+    true
+}
+
+fn parse_control_rect(text: &str, name: ControlName) -> Option<CssRect> {
+    let wanted = match name {
+        ControlName::Slow => "slow",
+        ControlName::Normal => "normal",
+        ControlName::Fast => "fast",
+        ControlName::Epic => "epic",
+        ControlName::Tiny => "tiny",
+        ControlName::Small => "small",
+        ControlName::Medium => "medium",
+        ControlName::Large => "large",
+        ControlName::Start => "start",
+    };
+    text.lines().find_map(|line| {
+        let mut parts = line.split('|');
+        let label = parts.next()?;
+        if label != wanted {
+            return None;
+        }
+        Some(CssRect {
+            x: parts.next()?.parse::<f32>().ok()?,
+            y: parts.next()?.parse::<f32>().ok()?,
+            w: parts.next()?.parse::<f32>().ok()?,
+            h: parts.next()?.parse::<f32>().ok()?,
+        })
+    })
+}
+
+fn send_click(state: &Rc<RealState>, webview: &WebView, point: CssPoint) {
+    let scale = match state.config.input_space {
+        InputSpace::CssLogical => 1.0,
+        InputSpace::DevicePhysical => 1.0,
+    };
+    let page_point = WebViewPoint::Page(Point2D::<f32, CSSPixel>::new(
+        point.x * scale,
+        point.y * scale,
+    ));
+    webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(page_point)));
+    webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+        MouseButtonAction::Down,
+        MouseButton::Left,
+        page_point,
+    )));
+    webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+        MouseButtonAction::Up,
+        MouseButton::Left,
+        page_point,
+    )));
+    state.window.request_redraw();
+}
+
+fn reconcile_score(state: &Rc<RealState>, real_score: &RealScore) {
     let mut verified = Vec::new();
     {
         let mut metrics = state.metrics.borrow_mut();
-        while metrics.verified_hits < arena_score.score.hits {
+        while metrics.verified_hits < real_score.score.hits {
             let Some(receipt) = metrics.pending_clicks.pop_front() else {
                 break;
             };
@@ -734,8 +952,8 @@ fn reconcile_score(state: &Rc<ArenaState>, arena_score: &ArenaScore) {
                 click_id: receipt.click_id,
                 target_id: receipt.target_id,
                 outcome: ClickOutcome::Hit,
-                t_verified_ns: arena_score.score.t_obs_ns,
-                reason: "arena hit counter advanced".into(),
+                t_verified_ns: real_score.score.t_obs_ns,
+                reason: "real site hit counter advanced".into(),
             });
         }
     }
@@ -744,7 +962,7 @@ fn reconcile_score(state: &Rc<ArenaState>, arena_score: &ArenaScore) {
     }
 }
 
-fn log_run_started(state: &Rc<ArenaState>) {
+fn log_run_started(state: &Rc<RealState>) {
     let wall_clock_unix_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
@@ -755,14 +973,13 @@ fn log_run_started(state: &Rc<ArenaState>) {
             run_id: state.config.run_id.clone(),
             wall_clock_unix_ms,
             config: json!({
-                "site": "arena",
+                "site": "real",
                 "url": state.config.url,
                 "spawn_speed": state.config.spawn_speed,
                 "target_size": state.config.target_size,
                 "duration_s": state.config.duration_s,
                 "window_width": state.config.window_width,
                 "window_height": state.config.window_height,
-                "seed": state.config.seed,
                 "instrumentation": state.config.instrumentation,
             }),
             input_space: state.config.input_space,
@@ -770,28 +987,28 @@ fn log_run_started(state: &Rc<ArenaState>) {
     );
 }
 
-fn log_score(state: &Rc<ArenaState>, arena_score: &ArenaScore) {
+fn log_score(state: &Rc<RealState>, real_score: &RealScore) {
     log_event(
         state,
         ReplayEvent::ScorePoll {
-            score: arena_score.score.clone(),
+            score: real_score.score.clone(),
         },
     );
 }
 
-fn log_event(state: &Rc<ArenaState>, event: ReplayEvent) {
+fn log_event(state: &Rc<RealState>, event: ReplayEvent) {
     if let Some(logger) = state.logger.borrow_mut().as_mut() {
         logger.try_log(event);
     }
 }
 
-fn finish_run(state: &Rc<ArenaState>) -> Result<ArenaRunReport> {
+fn finish_run(state: &Rc<RealState>) -> Result<RealRunReport> {
     let final_score = state
         .metrics
         .borrow()
         .last_score
         .clone()
-        .context("arena finished without a score")?;
+        .context("real finished without a score")?;
     reconcile_score(state, &final_score);
 
     let (counters, latency_ms, detectors_used) = {
@@ -821,7 +1038,6 @@ fn finish_run(state: &Rc<ArenaState>) -> Result<ArenaRunReport> {
 
     let pass = counters.misses == 0
         && counters.hits == counters.targets_seen
-        && counters.hits == final_score.spawned
         && counters.false_positive_clicks == 0
         && counters.stale_clicks == 0
         && counters.unknown_verifications == 0
@@ -829,9 +1045,15 @@ fn finish_run(state: &Rc<ArenaState>) -> Result<ArenaRunReport> {
         && latency_ms.detect_to_dispatch.p95 <= 5.0
         && latency_ms.first_visible_to_dispatch.p95 <= FRAME_INTERVAL.as_secs_f32() * 1000.0 + 5.0;
 
+    if !pass {
+        if let Some(raw_score) = state.metrics.borrow().last_raw_score.as_ref() {
+            eprintln!("real final score raw: {raw_score}");
+        }
+    }
+
     let result = BenchmarkResult {
         run_id: state.config.run_id.clone(),
-        site: "arena".into(),
+        site: "real".into(),
         url: state.config.url.to_string(),
         difficulty: DifficultyConfig {
             spawn_speed: state.config.spawn_speed.clone(),
@@ -874,17 +1096,17 @@ fn finish_run(state: &Rc<ArenaState>) -> Result<ArenaRunReport> {
         }
     }
 
-    Ok(ArenaRunReport { result })
+    Ok(RealRunReport { result })
 }
 
-fn finish_ok(state: &Rc<ArenaState>, event_loop: &ActiveEventLoop, report: ArenaRunReport) {
+fn finish_ok(state: &Rc<RealState>, event_loop: &ActiveEventLoop, report: RealRunReport) {
     if state.result.borrow().is_none() {
         *state.result.borrow_mut() = Some(Ok(report));
     }
     event_loop.exit();
 }
 
-fn finish_err(state: &Rc<ArenaState>, event_loop: &ActiveEventLoop, message: String) {
+fn finish_err(state: &Rc<RealState>, event_loop: &ActiveEventLoop, message: String) {
     if state.result.borrow().is_none() {
         *state.result.borrow_mut() = Some(Err(message));
     }
@@ -919,26 +1141,99 @@ impl servo::EventLoopWaker for Waker {
 
 const SCORE_JS: &str = r#"
 (() => {
-  const truth = document.getElementById('truth');
-  const base = truth ? truth.textContent : 'missing_truth=true';
-  return `${base} target_nodes=${document.querySelectorAll('.target').length}`;
+  const text = document.body ? document.body.innerText : '';
+  const globalNumber = name => {
+    const value = window[name];
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
+  };
+  const nodeNumber = id => {
+    const text = document.getElementById(id)?.textContent?.trim() || '';
+    return /^\d+$/.test(text) ? Number(text) : 0;
+  };
+  const number = (pattern, fallback = 0) => {
+    const match = pattern.exec(text);
+    return match ? Number(match[1]) : fallback;
+  };
+  const scoreVar = globalNumber('score');
+  const clicksVar = globalNumber('clicks');
+  const missedVar = globalNumber('missedTargets');
+  const scoreNode = nodeNumber('score');
+  const missedNode = nodeNumber('missed');
+  const hits = number(/You clicked\s+(\d+)\s+targets?/i, scoreNode || scoreVar);
+  const misses = number(/You misclicked\s+(\d+)\s+times?/i, missedNode || missedVar);
+  const timeMatch = /Time Remaining:\s*([0-9.]+)/i.exec(text);
+  const timeRemaining = timeMatch ? Number(timeMatch[1]) : 0;
+  const finished = /Time is up/i.test(text) || (/You clicked/i.test(text) && /You misclicked/i.test(text));
+  const targetNodes = document.querySelectorAll('.target').length;
+  const active = document.querySelector('.gameArea.active,.gameArea');
+  const activeRect = active ? active.getBoundingClientRect() : null;
+  const activeRectText = activeRect ? `${activeRect.left},${activeRect.top},${activeRect.width},${activeRect.height}` : 'none';
+  return `hits=${hits} misses=${misses} spawned=0 expired=0 finished=${finished} time_remaining_s=${timeRemaining} target_nodes=${targetNodes} score_var=${scoreVar} clicks_var=${clicksVar} missed_var=${missedVar} score_node=${scoreNode} missed_node=${missedNode} scroll_x=${window.scrollX || 0} scroll_y=${window.scrollY || 0} active_rect=${activeRectText}`;
 })()
 "#;
 
 const RECTS_JS: &str = r#"
 (() => {
-  return Array.from(document.querySelectorAll('.target')).map((node, index) => {
+  const visible = node => {
     const rect = node.getBoundingClientRect();
-    const rawLabel = node.getAttribute('aria-label') || node.dataset.targetId || node.tagName || 'target';
+    const style = getComputedStyle(node);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  };
+  return Array.from(document.querySelectorAll('.target')).filter(visible).map((node, index) => {
+    const rect = node.getBoundingClientRect();
+    const rawLabel = node.getAttribute('aria-label') || node.className || node.dataset.targetId || node.tagName || 'target';
     const label = `${rawLabel}:${index}`.replace(/[|\n\r]/g, '_');
     return `${label}|${rect.left}|${rect.top}|${rect.width}|${rect.height}`;
   }).join('\n');
 })()
 "#;
 
-const START_JS: &str = r#"
+const CONTROLS_JS: &str = r#"
 (() => {
-  if (window.__saccadeStart) window.__saccadeStart();
-  return 'ok';
+  const visible = el => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const rectLine = (label, el) => {
+    const r = el.getBoundingClientRect();
+    return `${label}|${r.left}|${r.top}|${r.width}|${r.height}`;
+  };
+  const byText = text => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const out = [];
+    let node;
+    while (node = walker.nextNode()) {
+      if (node.textContent.trim() !== text) continue;
+      let el = node.parentElement;
+      for (let i = 0; i < 5 && el; i += 1) {
+        if (visible(el) && (el.onclick || el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'LABEL' || getComputedStyle(el).cursor === 'pointer')) break;
+        el = el.parentElement;
+      }
+      if (el && visible(el)) out.push(el);
+    }
+    return out;
+  };
+  const first = items => items.find(visible);
+  const slow = first(byText('Slow'));
+  const normal = first(byText('Normal'));
+  const fast = first(byText('Fast'));
+  const epic = first(byText('Epic'));
+  const tiny = first(byText('Tiny'));
+  const small = first(byText('Small'));
+  const medium = first(byText('Medium'));
+  const large = first(byText('Large'));
+  const start = first(byText('Start!').concat(byText('Start')));
+  return [
+    slow ? rectLine('slow', slow) : '',
+    normal ? rectLine('normal', normal) : '',
+    fast ? rectLine('fast', fast) : '',
+    epic ? rectLine('epic', epic) : '',
+    tiny ? rectLine('tiny', tiny) : '',
+    small ? rectLine('small', small) : '',
+    medium ? rectLine('medium', medium) : '',
+    large ? rectLine('large', large) : '',
+    start ? rectLine('start', start) : '',
+  ].filter(Boolean).join('\n');
 })()
 "#;

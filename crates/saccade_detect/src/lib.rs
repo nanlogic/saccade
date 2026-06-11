@@ -19,6 +19,8 @@ pub trait TargetDetector {
 
 #[derive(Debug, Clone)]
 pub struct DetectConfig {
+    pub enable_pixel: bool,
+    pub enable_dom: bool,
     pub fg_threshold: u8,
     pub min_area_px: u32,
     pub max_radius_css: f32,
@@ -31,6 +33,8 @@ pub struct DetectConfig {
 impl Default for DetectConfig {
     fn default() -> Self {
         Self {
+            enable_pixel: true,
+            enable_dom: true,
             fg_threshold: 28,
             min_area_px: 4,
             max_radius_css: 16.0,
@@ -497,8 +501,14 @@ pub struct DetectionPipeline {
 impl DetectionPipeline {
     pub fn on_frame(&mut self, obs: &FrameObservation, cfg: &DetectConfig) -> GameFrameReport {
         let start = std::time::Instant::now();
-        let mut candidates = self.pixel.detect(obs, cfg);
-        candidates.extend(self.dom.detect(obs, cfg));
+        let mut candidates = if cfg.enable_pixel {
+            self.pixel.detect(obs, cfg)
+        } else {
+            Vec::new()
+        };
+        if cfg.enable_dom {
+            candidates.extend(self.dom.detect(obs, cfg));
+        }
         let candidates = self.fusion.fuse(candidates);
         let detector_ms = start.elapsed().as_secs_f32() * 1000.0;
         self.tracker.update(obs, candidates, detector_ms)

@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
-use saccade_browser::{ArenaRunConfig, RealSiteRecon};
+use saccade_browser::{ArenaRunConfig, RealRunConfig, RealSiteRecon};
 use saccade_core::{Histogram, InputSpace, LatencyPair};
 use saccade_replay::{ReplayEvent, read_events};
 use serde_json::Value;
@@ -34,6 +34,10 @@ enum Command {
         target_size: String,
         #[arg(long, default_value_t = 15)]
         duration: u32,
+        #[arg(long, default_value_t = 1920)]
+        window_width: u32,
+        #[arg(long, default_value_t = 1080)]
+        window_height: u32,
         #[arg(long, default_value_t = 42)]
         seed: u64,
         #[arg(long)]
@@ -65,6 +69,8 @@ fn main() -> Result<()> {
             spawn_speed,
             target_size,
             duration,
+            window_width,
+            window_height,
             seed,
             replay,
             instrumentation,
@@ -73,6 +79,8 @@ fn main() -> Result<()> {
             spawn_speed,
             target_size,
             duration,
+            window_width,
+            window_height,
             seed,
             replay,
             instrumentation,
@@ -264,24 +272,17 @@ fn run(
     spawn_speed: String,
     target_size: String,
     duration: u32,
+    window_width: u32,
+    window_height: u32,
     seed: u64,
     replay: bool,
     instrumentation: String,
 ) -> Result<()> {
-    if site.to_lowercase() != "arena" {
-        bail!("only --site arena is implemented before M7");
+    if window_width == 0 || window_height == 0 {
+        bail!("window size must be non-zero");
     }
     let workspace = workspace_root()?;
     let calibration = latest_calibration(&workspace)?;
-    let base_url = start_test_server(workspace.join("test_pages"))?;
-    let mut url = base_url
-        .join("arena/index.html")
-        .context("failed to build arena URL")?;
-    url.query_pairs_mut()
-        .append_pair("speed", &spawn_speed.to_lowercase())
-        .append_pair("size", &target_size.to_lowercase())
-        .append_pair("duration", &duration.to_string())
-        .append_pair("seed", &seed.to_string());
 
     let run_id = format!(
         "run_{}",
@@ -290,30 +291,66 @@ fn run(
             .context("system clock is before UNIX_EPOCH")?
             .as_secs()
     );
-    let output_dir = workspace.join("runs").join("arena").join(&run_id);
+    let site = site.to_lowercase();
+    let output_dir = workspace.join("runs").join(&site).join(&run_id);
     std::fs::create_dir_all(&output_dir)
         .with_context(|| format!("failed to create {}", output_dir.display()))?;
     let replay_path = replay.then(|| output_dir.join("replay.jsonl"));
 
-    let report = saccade_browser::run_arena(ArenaRunConfig {
-        url,
-        run_id,
-        spawn_speed,
-        target_size,
-        duration_s: duration,
-        seed,
-        instrumentation,
-        input_space: calibration.input_space,
-        calibration_max_err_css_px: calibration.max_err_css_px,
-        replay_path,
-    })?;
+    let result = match site.as_str() {
+        "arena" => {
+            let base_url = start_test_server(workspace.join("test_pages"))?;
+            let mut url = base_url
+                .join("arena/index.html")
+                .context("failed to build arena URL")?;
+            url.query_pairs_mut()
+                .append_pair("speed", &spawn_speed.to_lowercase())
+                .append_pair("size", &target_size.to_lowercase())
+                .append_pair("duration", &duration.to_string())
+                .append_pair("seed", &seed.to_string());
+            saccade_browser::run_arena(ArenaRunConfig {
+                url,
+                run_id,
+                spawn_speed,
+                target_size,
+                duration_s: duration,
+                window_width,
+                window_height,
+                seed,
+                instrumentation,
+                input_space: calibration.input_space,
+                calibration_max_err_css_px: calibration.max_err_css_px,
+                replay_path,
+            })?
+            .result
+        }
+        "real" => {
+            let url = Url::parse("https://mouseaccuracy.com/classic/")
+                .context("failed to parse real site URL")?;
+            saccade_browser::run_real(RealRunConfig {
+                url,
+                run_id,
+                spawn_speed,
+                target_size,
+                duration_s: duration,
+                window_width,
+                window_height,
+                instrumentation,
+                input_space: calibration.input_space,
+                calibration_max_err_css_px: calibration.max_err_css_px,
+                replay_path,
+            })?
+            .result
+        }
+        other => bail!("unknown --site {other:?}; expected arena or real"),
+    };
     let result_path = output_dir.join("result.json");
-    let pretty = serde_json::to_string_pretty(&report.result)?;
+    let pretty = serde_json::to_string_pretty(&result)?;
     std::fs::write(&result_path, &pretty)
         .with_context(|| format!("failed to write {}", result_path.display()))?;
     println!("{pretty}");
 
-    if report.result.verdict == "PASS" {
+    if result.verdict == "PASS" {
         Ok(())
     } else {
         bail!("RUN FAIL result={}", result_path.display())
