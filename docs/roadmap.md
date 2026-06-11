@@ -24,7 +24,7 @@ We can keep the M numbers after M8 for project management, but those are extensi
 
 - M8: finish artifact polish and agent API. Done so far: replay click map and `validate-run`.
 - M9: repeat the headline gate on the target Linux/X11 benchmark machine and package reproducible release commands.
-- M10: build a small FORMMAX proof that reuses the same browser truth layer for dynamic forms.
+- M10: build a FORMMAX practical evaluation with scrolling tables, multi-page forms, PDF feasibility checks, and sensitive-field confirmation gates.
 - Phase E: add forked Servo engine taps after the stock-Servo product story is stable.
 
 ## Current Status
@@ -38,3 +38,5 @@ M8 is in progress. The next high-value item is the thin HTTP layer over the exis
 /bench/mouseaccuracy/status
 /bench/mouseaccuracy/result
 ```
+
+FORMMAX planning lives in `docs/formmax_practical_eval_plan.md`.
