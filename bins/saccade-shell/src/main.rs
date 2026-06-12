@@ -33,6 +33,10 @@ enum Command {
     SelftestSafety,
     SelftestNativeInput,
     SelftestBrowserSession,
+    BrowserSessionWorker {
+        #[arg(long)]
+        url: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -49,6 +53,9 @@ fn main() -> Result<()> {
         Command::SelftestSafety => selftest_safety(),
         Command::SelftestNativeInput => selftest_native_input(),
         Command::SelftestBrowserSession => selftest_browser_session(),
+        Command::BrowserSessionWorker { url } => {
+            saccade_browser::run_browser_session_worker(parse_user_url(&url)?)
+        }
     }
 }
 

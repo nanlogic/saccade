@@ -3,7 +3,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::Command as ProcessCommand;
+use std::process::{Child, ChildStdin, ChildStdout, Command as ProcessCommand, Stdio};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -94,6 +94,7 @@ struct SelftestEvidence {
     stdio_tools_list: bool,
     stdio_tool_call: bool,
     persistent_tabs: bool,
+    browser_backed_tabs: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -215,6 +216,7 @@ fn selftest() -> Result<()> {
         && external_dev_url_rejected
         && stdio_evidence.tool_call
         && stdio_evidence.persistent_tabs
+        && stdio_evidence.browser_backed_tabs
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
         && stdio_evidence.web_act
@@ -235,6 +237,7 @@ fn selftest() -> Result<()> {
         stdio_tools_list: stdio_evidence.tools_list,
         stdio_tool_call: stdio_evidence.tool_call,
         persistent_tabs: stdio_evidence.persistent_tabs,
+        browser_backed_tabs: stdio_evidence.browser_backed_tabs,
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
@@ -481,6 +484,7 @@ struct ToolCallParams {
 struct McpSessionState {
     next_tab_id: u64,
     tabs: Vec<SessionTab>,
+    browser_workers: BTreeMap<u64, BrowserWorkerClient>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -516,6 +520,7 @@ struct JsonRpcEvidence {
     tools_list: bool,
     tool_call: bool,
     persistent_tabs: bool,
+    browser_backed_tabs: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -525,6 +530,114 @@ struct JsonRpcEvidence {
     report_validate_run: bool,
     report_replay_summary: bool,
     audit_report: String,
+}
+
+struct BrowserWorkerClient {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+    next_request_id: u64,
+}
+
+impl std::fmt::Debug for BrowserWorkerClient {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BrowserWorkerClient")
+            .field("pid", &self.child.id())
+            .field("next_request_id", &self.next_request_id)
+            .finish()
+    }
+}
+
+impl BrowserWorkerClient {
+    fn spawn(url: &Url) -> Result<Self> {
+        let workspace = workspace_root()?;
+        let mut child = ProcessCommand::new("cargo")
+            .current_dir(&workspace)
+            .env("RUST_LOG", "error")
+            .args(["run", "-q", "-p", "saccade-shell", "--"])
+            .arg("browser-session-worker")
+            .arg("--url")
+            .arg(url.as_str())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .context("failed to spawn browser session worker")?;
+        let stdin = child
+            .stdin
+            .take()
+            .context("browser session worker stdin unavailable")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("browser session worker stdout unavailable")?;
+        Ok(Self {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout),
+            next_request_id: 0,
+        })
+    }
+
+    fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+        self.next_request_id += 1;
+        let id = self.next_request_id;
+        writeln!(
+            self.stdin,
+            "{}",
+            json!({
+                "id": id,
+                "method": method,
+                "params": params,
+            })
+        )
+        .context("failed to write browser worker request")?;
+        self.stdin
+            .flush()
+            .context("failed to flush browser worker request")?;
+
+        loop {
+            let mut line = String::new();
+            let read = self
+                .stdout
+                .read_line(&mut line)
+                .context("failed to read browser worker response")?;
+            if read == 0 {
+                bail!("browser session worker exited before responding to {method}");
+            }
+            if line.trim().is_empty() {
+                continue;
+            }
+            let response: Value = match serde_json::from_str(&line) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            if response.get("id").and_then(Value::as_u64) != Some(id) {
+                continue;
+            }
+            if response.get("ok").and_then(Value::as_bool) == Some(true) {
+                return Ok(response.get("result").cloned().unwrap_or(Value::Null));
+            }
+            let error = response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("browser session worker error");
+            bail!("{error}");
+        }
+    }
+
+    fn close(&mut self) {
+        let _ = self.call("close", json!({}));
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for BrowserWorkerClient {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 fn handle_json_rpc(state: &mut McpSessionState, request: JsonRpcRequest) -> Option<Value> {
@@ -787,7 +900,7 @@ fn open_local_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
         url.as_str(),
         "Saccade Local Dev",
     );
-    let tab = SessionTab {
+    let mut tab = SessionTab {
         info,
         paused: false,
         last_engine: None,
@@ -797,13 +910,34 @@ fn open_local_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
         last_actions: Vec::new(),
         last_findings: Vec::new(),
     };
+    let mut worker = if owner == TabOwner::Agent {
+        Some(BrowserWorkerClient::spawn(&url)?)
+    } else {
+        None
+    };
+    if let Some(worker) = worker.as_mut() {
+        let live_truth = worker.call("truth", json!({}))?;
+        update_session_tab_from_browser_result(&mut tab, &live_truth);
+    }
     state.tabs.push(tab.clone());
+    if let Some(worker) = worker {
+        state.browser_workers.insert(tab_id.0, worker);
+    }
 
     Ok(json!({
         "status": "ok",
-        "summary": "local URL opened in persistent Saccade MCP session state",
-        "runtime": "mcp_session_state_v0",
+        "summary": if owner == TabOwner::Agent {
+            "local URL opened in live Saccade browser session"
+        } else {
+            "local URL registered in Saccade MCP session state"
+        },
+        "runtime": if owner == TabOwner::Agent {
+            "browser_session_worker_v0"
+        } else {
+            "mcp_session_state_v0"
+        },
         "tab": tab.info,
+        "actions": tab.last_actions,
     }))
 }
 
@@ -1059,6 +1193,9 @@ fn tabs_request_user_login_tool(state: &mut McpSessionState, arguments: Value) -
 
 fn tabs_takeover_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
+    if let Some(mut worker) = state.browser_workers.remove(&tab_id.0) {
+        worker.close();
+    }
     let tab = state
         .find_tab_mut(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
@@ -1086,6 +1223,9 @@ fn tabs_pause_agent_tool(state: &mut McpSessionState, arguments: Value) -> Resul
 
 fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
+    if let Some(mut worker) = state.browser_workers.remove(&tab_id.0) {
+        worker.close();
+    }
     let before = state.tabs.len();
     state.tabs.retain(|tab| tab.info.tab_id != tab_id);
     if state.tabs.len() == before {
@@ -1101,7 +1241,14 @@ fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
 fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
-    ensure_tab_report(state, tab_id, engine_arg(&arguments)?)?;
+    if state.browser_workers.contains_key(&tab_id.0) {
+        let live_truth = call_browser_worker(state, tab_id, "truth", json!({}))?;
+        if let Some(tab) = state.find_tab_mut(tab_id) {
+            update_session_tab_from_browser_result(tab, &live_truth);
+        }
+    } else {
+        ensure_tab_report(state, tab_id, engine_arg(&arguments)?)?;
+    }
     let tab = state
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
@@ -1122,6 +1269,7 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
             "actions_count": tab.last_actions.len(),
             "findings": if summary_only { Value::Array(Vec::new()) } else { Value::Array(tab.last_findings.clone()) },
         },
+        "runtime": if state.browser_workers.contains_key(&tab_id.0) { "browser_session_worker_v0" } else { "mcp_report_backed_v0" },
         "artifacts": {
             "report": tab.last_report_path,
             "replay": tab.last_replay_path,
@@ -1132,7 +1280,14 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
 fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
-    ensure_tab_report(state, tab_id, engine_arg(&arguments)?)?;
+    if state.browser_workers.contains_key(&tab_id.0) {
+        let live_actions = call_browser_worker(state, tab_id, "actions", json!({}))?;
+        if let Some(tab) = state.find_tab_mut(tab_id) {
+            update_session_tab_from_browser_result(tab, &live_actions);
+        }
+    } else {
+        ensure_tab_report(state, tab_id, engine_arg(&arguments)?)?;
+    }
     let tab = state
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
@@ -1142,6 +1297,7 @@ fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Val
         "tab_id": tab_id.0,
         "page_revision": tab.info.page_revision,
         "actions": tab.last_actions,
+        "runtime": if state.browser_workers.contains_key(&tab_id.0) { "browser_session_worker_v0" } else { "mcp_report_backed_v0" },
         "artifacts": {
             "report": tab.last_report_path,
             "replay": tab.last_replay_path,
@@ -1161,6 +1317,37 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         .and_then(Value::as_u64)
         .context("tool arguments must include integer field basis_page_revision")?;
     ensure_agent_input_allowed(state, tab_id)?;
+    if state.browser_workers.contains_key(&tab_id.0) {
+        let live_act = call_browser_worker(
+            state,
+            tab_id,
+            "act",
+            json!({
+                "action_id": action_id.clone(),
+                "basis_page_revision": basis_page_revision,
+            }),
+        )?;
+        if let Some(tab) = state.find_tab_mut(tab_id) {
+            update_session_tab_from_browser_result(tab, &live_act);
+        }
+        let tab = state
+            .find_tab(tab_id)
+            .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        return Ok(json!({
+            "status": "ok",
+            "summary": "action dispatched through live Saccade browser session",
+            "runtime": "browser_session_worker_v0",
+            "tab_id": tab_id.0,
+            "action_id": action_id,
+            "basis_page_revision": basis_page_revision,
+            "new_page_revision": tab.info.page_revision,
+            "verification": live_act.get("verification").cloned().unwrap_or(Value::Null),
+            "artifacts": {
+                "report": tab.last_report_path,
+                "replay": tab.last_replay_path,
+            },
+        }));
+    }
     ensure_tab_report(state, tab_id, "servo")?;
 
     let tab = state
@@ -1548,6 +1735,60 @@ fn update_tab_from_devmax(
     Ok(())
 }
 
+fn call_browser_worker(
+    state: &mut McpSessionState,
+    tab_id: TabId,
+    method: &str,
+    params: Value,
+) -> Result<Value> {
+    let worker = state
+        .browser_workers
+        .get_mut(&tab_id.0)
+        .with_context(|| format!("tab_id {} has no browser worker", tab_id.0))?;
+    worker.call(method, params)
+}
+
+fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) {
+    tab.info.title = result
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|title| !title.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| tab.info.title.clone());
+    if let Some(url) = result.get("url").and_then(Value::as_str) {
+        tab.info.url = url.to_string();
+    }
+    if let Some(page_revision) = result.get("page_revision").and_then(Value::as_u64) {
+        tab.info.page_revision = page_revision;
+    }
+    tab.last_engine = result
+        .get("engine")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    tab.last_summary = result
+        .get("summary")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    tab.last_actions = result
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    tab.last_findings = result
+        .pointer("/truth/findings")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    tab.last_report_path = result
+        .pointer("/artifacts/report")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    tab.last_replay_path = result
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+}
+
 fn ensure_tab_report(state: &mut McpSessionState, tab_id: TabId, engine: &str) -> Result<()> {
     let needs_report = state
         .find_tab(tab_id)
@@ -1739,6 +1980,17 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 .and_then(Value::as_u64)
         })
         .context("open_local selftest did not return tab_id")?;
+    let browser_backed_tabs = open_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("runtime"))
+                .and_then(Value::as_str)
+                .map(|runtime| runtime == "browser_session_worker_v0")
+        })
+        .unwrap_or(false);
     let persistent_tabs = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -2040,6 +2292,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         tools_list,
         tool_call,
         persistent_tabs,
+        browser_backed_tabs,
         web_truth,
         web_actions,
         web_act,

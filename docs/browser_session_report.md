@@ -8,6 +8,8 @@ Date: 2026-06-12
 
 It opens a local page in Servo, collects browser truth and an action map, dispatches one native Servo mouse click, then collects post-action truth from the same WebView path. The fixture advances `data-session-revision` from `0` to `1`, so the gate verifies a visible page-state change rather than only an input event.
 
+The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, and `saccade.tabs.close` talk to that worker over JSONL.
+
 ## Evidence
 
 Command:
@@ -32,10 +34,11 @@ runs/browser_session/session_*/replay.jsonl
 ## Current Scope
 
 - Proves `open -> truth -> actions -> act -> truth_after_act` on a Servo-backed WebView.
+- Proves the MCP stdio path can keep a browser worker alive across `tabs.open -> web.actions -> web.act -> tabs.close`.
 - Produces compact report/replay artifacts without echoing full page text.
-- Uses the existing DEVMAX probe path, so no new Servo API surface was introduced.
+- Uses the existing Servo event-loop/input/evaluate APIs already recorded in `docs/servo_api_map.md`.
 
 ## Still Pending
 
-- MCP tabs are still in-memory/report-backed v0.
-- The next step is a long-lived browser session actor that MCP can send tab commands to without recreating a WebView per action.
+- MCP still uses DEVMAX/FORMMAX child tools for dedicated audit and form workflows.
+- The worker is one Agent tab per child process; multi-tab shared browser process, screenshots, replay artifacts, and sensitive-value redaction inside arbitrary pages remain next hardening steps.

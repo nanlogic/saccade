@@ -172,4 +172,6 @@
 - Added `saccade-shell selftest-browser-session` as the first browser-backed session gate.
 - The gate uses one Servo WebView path to open a local fixture, collect truth/actions, dispatch a native mouse click, and collect post-action truth.
 - The local fixture advances `data-session-revision` from `0` to `1`; the report/replay gate requires the revision to advance and the click verification to be non-no-op.
-- This is a stepping stone, not the final MCP runtime. MCP tabs remain report-backed until a long-lived browser session actor can accept repeated MCP commands without rebuilding the WebView.
+- Added `saccade-shell browser-session-worker --url ...` as a long-lived JSONL worker. MCP Agent-owned local tabs now spawn one worker process per tab and route `truth`, `actions`, and `act` to the live Servo WebView.
+- Human takeover closes the worker before changing ownership, so the agent does not retain an input channel after handoff.
+- This is still v0: one child process per Agent tab, no shared browser process yet, and dedicated DEVMAX/FORMMAX tools still run as child workflows.

@@ -12,6 +12,8 @@ Implemented v0 tools:
 
 - `saccade.dev.open_local`
 - `saccade.dev.audit_page`
+- `saccade.dev.click_all_primary_actions`
+- `saccade.dev.fill_smoke_form`
 - `saccade.dev.get_report`
 - `saccade.tabs.list`
 - `saccade.tabs.open`
@@ -69,9 +71,9 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Verifies local dev audit rejects public web URLs.
 - Verifies `initialize`, `tools/list`, and `tools/call` over the JSON-RPC handler.
 - Routes `saccade.dev.audit_page` to DEVMAX and records the DEVMAX report path.
-- Maintains persistent in-memory tabs across stdio requests.
-- Exposes `saccade.web.truth` and `saccade.web.actions` from DEVMAX report state.
-- Runs `saccade.web.act` v0 through a Servo-backed DEVMAX verification pass for the first enabled action in the current action map.
+- Maintains persistent tab state across stdio requests.
+- Exposes `saccade.web.truth` and `saccade.web.actions` from the live browser worker when available, with DEVMAX report state as fallback.
+- Runs `saccade.web.act` v0 through the live browser worker when available, with Servo-backed DEVMAX verification as fallback.
 - Runs `saccade.web.fill_form` v0 against the local FORMMAX fixture, blocks sensitive fields, validates the result, and returns result/replay/screenshot artifact paths.
 - Runs `saccade.dev.click_all_primary_actions` v0 through Servo-backed DEVMAX verification when the local page has at most one primary action.
 - Routes `saccade.dev.fill_smoke_form` to the same FORMMAX local fixture workflow.
@@ -81,8 +83,10 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Summarizes replay JSONL through `saccade.report.replay_summary`, including event counts and value-like field detection.
 - Appends generated DEVMAX/FORMMAX artifact paths to `runs/mcp/artifacts.jsonl` so later agents can find evidence without relying on chat history.
 - Verifies normal fields are agent-fillable while sensitive payment fields require user input.
-- Browser-session smoke now exists outside MCP: `saccade-shell selftest-browser-session` proves open, truth, action map, native act, and truth-after-act on one Servo WebView path.
+- Agent-owned local tabs now spawn a live `browser_session_worker_v0` child process. `saccade.web.truth`, `saccade.web.actions`, and `saccade.web.act` use that worker before falling back to report-backed DEVMAX.
+- Human takeover closes the live worker before changing ownership.
+- Browser-session smoke remains available outside MCP: `saccade-shell selftest-browser-session` proves open, truth, action map, native act, and truth-after-act on one Servo WebView path.
 
 ## Next
 
-Move MCP tab state from in-memory/report-backed v0 to a long-lived browser-backed tab session actor.
+Harden the browser worker with screenshots/replay artifacts, arbitrary-page sensitive-value redaction, and live-tab integration for DEVMAX/FORMMAX workflows.

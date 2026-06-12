@@ -2,6 +2,7 @@
 
 mod arena_run;
 mod browser_session;
+mod browser_session_worker;
 mod devmax_probe;
 mod dogfood;
 mod formmax_run;
@@ -16,6 +17,7 @@ mod page_selftest;
 
 pub use arena_run::{ArenaRunConfig, ArenaRunReport, run_arena};
 pub use browser_session::{BrowserSessionProfile, selftest_browser_session};
+pub use browser_session_worker::run_browser_session_worker;
 pub use calibration::{CalibrationAttempt, CalibrationClick, CalibrationReport, calibrate_input};
 pub use devmax_probe::devmax_probe;
 pub use dogfood::{DogfoodBrowserConfig, run_dogfood_browser};
