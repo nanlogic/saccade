@@ -29,6 +29,8 @@ enum Command {
         input: Option<PathBuf>,
         #[arg(long)]
         replay: bool,
+        #[arg(long)]
+        rendering_profile: Option<String>,
     },
     ValidateRun {
         run_dir: PathBuf,
@@ -50,12 +52,18 @@ fn main() -> Result<()> {
             fixture,
             input,
             replay,
-        } => run(fixture, input, replay),
+            rendering_profile,
+        } => run(fixture, input, replay, rendering_profile),
         Command::ValidateRun { run_dir } => validate_run(run_dir),
     }
 }
 
-fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
+fn run(
+    fixture: PathBuf,
+    input: Option<PathBuf>,
+    replay: bool,
+    rendering_profile: Option<String>,
+) -> Result<()> {
     let workspace = workspace_root()?;
     let fixture = absolutize(&workspace, &fixture);
     let fixture_dir = fixture
@@ -85,6 +93,7 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
         saccade_browser::run_formmax_fixture_with_config(saccade_browser::FormmaxRunConfig {
             url: url.clone(),
             artifact_dir: Some(output_dir.clone()),
+            rendering_profile: parse_rendering_profile(rendering_profile)?,
         })?;
 
     let expected_filled = manifest.row_count * manifest.columns.len();
@@ -146,6 +155,15 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
         }
     );
     Ok(())
+}
+
+fn parse_rendering_profile(
+    value: Option<String>,
+) -> Result<Option<saccade_browser::RenderingProfile>> {
+    value
+        .map(|value| value.parse())
+        .transpose()
+        .context("invalid --rendering-profile")
 }
 
 fn validate_run(run_dir: PathBuf) -> Result<()> {

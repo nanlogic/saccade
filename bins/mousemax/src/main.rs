@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use image::{Rgba, RgbaImage};
-use saccade_browser::{ArenaRunConfig, RealRunConfig, RealSiteRecon};
+use saccade_browser::{ArenaRunConfig, RealRunConfig, RealSiteRecon, RenderingProfile};
 use saccade_core::{BenchmarkResult, ClickOutcome, CssRect, Histogram, InputSpace, LatencyPair};
 use saccade_replay::{ReplayEvent, read_events};
 use serde_json::Value;
@@ -51,6 +51,8 @@ enum Command {
         replay: bool,
         #[arg(long, default_value = "observe_only")]
         instrumentation: String,
+        #[arg(long)]
+        rendering_profile: Option<String>,
     },
     Replay {
         log: PathBuf,
@@ -92,6 +94,7 @@ fn main() -> Result<()> {
             seed,
             replay,
             instrumentation,
+            rendering_profile,
         } => run(
             site,
             spawn_speed,
@@ -102,6 +105,7 @@ fn main() -> Result<()> {
             seed,
             replay,
             instrumentation,
+            rendering_profile,
         ),
         Command::Replay {
             log,
@@ -587,12 +591,14 @@ fn run(
     seed: u64,
     replay: bool,
     instrumentation: String,
+    rendering_profile: Option<String>,
 ) -> Result<()> {
     if window_width == 0 || window_height == 0 {
         bail!("window size must be non-zero");
     }
     let workspace = workspace_root()?;
     let calibration = latest_calibration(&workspace)?;
+    let rendering_profile = parse_rendering_profile(rendering_profile)?;
 
     let run_id = format!(
         "run_{}",
@@ -632,6 +638,7 @@ fn run(
                 input_space: calibration.input_space,
                 calibration_max_err_css_px: calibration.max_err_css_px,
                 replay_path,
+                rendering_profile,
             })?
             .result
         }
@@ -651,6 +658,7 @@ fn run(
                 input_space: calibration.input_space,
                 calibration_max_err_css_px: calibration.max_err_css_px,
                 replay_path,
+                rendering_profile,
             })?
             .result
         }
@@ -667,6 +675,13 @@ fn run(
     } else {
         bail!("RUN FAIL result={}", result_path.display())
     }
+}
+
+fn parse_rendering_profile(value: Option<String>) -> Result<Option<RenderingProfile>> {
+    value
+        .map(|value| value.parse())
+        .transpose()
+        .context("invalid --rendering-profile")
 }
 
 fn replay(

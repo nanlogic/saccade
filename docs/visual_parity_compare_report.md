@@ -8,6 +8,7 @@ Added a local visual parity gauntlet under `test_pages/visual_parity/` and a com
 
 ```bash
 scripts/visual_parity_compare.py --timeout-sec 60
+scripts/visual_parity_compare.py --timeout-sec 60 --rendering-profile servo-modern
 scripts/selftest_visual_parity.sh
 ```
 
@@ -20,6 +21,7 @@ It writes Chrome, Saccade, and diff screenshots plus `visual_parity_manifest.jso
 
 ## Fixture Coverage
 
+- `layout_probe`: CSS Grid/Flex/layout probe with computed-style and rect metrics.
 - `dashboard`: grid, sidebar, table, bars, action buttons.
 - `form_controls`: inputs, select, number/date, checkbox/radio, textarea.
 - `modal_overlay`: sticky toolbar, fixed overlay, dialog geometry.
@@ -32,16 +34,33 @@ It writes Chrome, Saccade, and diff screenshots plus `visual_parity_manifest.jso
 Latest full run:
 
 ```text
-runs/visual_parity/parity_1781288579228/index.html
+runs/visual_parity/parity_1781290368953/index.html
 ```
 
 Result:
 
 ```text
-VISUAL PARITY PASS fixtures=6 report=/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781288579228/index.html
+VISUAL PARITY PASS fixtures=7 report=/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781290368953/index.html
 ```
 
-The run found that dimensions and action counts match across all six fixtures, but visual differences are still material. Dashboard is the clearest example: Chrome keeps a two-column dashboard layout, while Saccade currently flows the sidebar and cards differently. This confirms visual parity is a real product gap, not just a demo concern.
+Grid validation found the main "mobile-looking" layout root cause:
+
+- With Servo Grid off, `layout_probe` showed CSS Grid computed as block flow in Saccade. Max probe rect delta was `1126px`, with `3` display mismatches and `17` grid-template mismatches.
+- With `servo-modern`, `layout_probe` matched Chrome Grid computed styles. Max probe rect delta fell to `4px`, with `0` display mismatches and `0` grid-template mismatches.
+- Dashboard diff improved from `0.172743` to `0.031496`.
+
+Shared-fixture diff ratio changes after enabling Grid:
+
+```text
+dashboard        0.172743 -> 0.031496
+form_controls    0.032255 -> 0.027271
+modal_overlay    0.163102 -> 0.024039
+scroll_sticky    0.069547 -> 0.053494
+canvas_svg       0.123413 -> 0.108889
+responsive_cards 0.039516 -> 0.015893
+```
+
+This confirms the dashboard issue was not a mobile viewport. The latest worker truth still reports a `1280x800` viewport.
 
 ## Worker Fix
 
@@ -52,4 +71,5 @@ The first parity run exposed blank Saccade screenshots for complex pages even th
 - Chrome-side click verification.
 - Browser URL-bar parity artifacts for public demos.
 - Firefox reference capture.
-- Root-cause fixes for Servo/Chrome layout differences.
+- Run MOUSEMAX and FORMMAX gates before making `servo-modern` the dogfood default.
+- Root-cause remaining Servo/Chrome differences: font metrics, canvas/SVG, sticky/scroll, media-query coverage, and DPR/window chrome.

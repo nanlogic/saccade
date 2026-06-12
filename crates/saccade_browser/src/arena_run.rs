@@ -30,6 +30,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
+use crate::{RenderingProfile, RenderingProfileSettings};
+
 const SAFE_TOP_CSS: f32 = 100.0;
 const BACKGROUND_DELAY: Duration = Duration::from_millis(160);
 const FRAME_INTERVAL: Duration = Duration::from_millis(20);
@@ -50,6 +52,7 @@ pub struct ArenaRunConfig {
     pub input_space: InputSpace,
     pub calibration_max_err_css_px: f32,
     pub replay_path: Option<PathBuf>,
+    pub rendering_profile: Option<RenderingProfile>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,11 +61,15 @@ pub struct ArenaRunReport {
 }
 
 pub fn run_arena(config: ArenaRunConfig) -> Result<ArenaRunReport> {
+    let rendering_settings = RenderingProfile::resolve(config.rendering_profile)?;
+    if rendering_settings.profile == RenderingProfile::ChromeReference {
+        bail!("chrome-reference is not supported by the Servo arena runner");
+    }
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
     let result = Rc::new(RefCell::new(None));
-    let mut app = ArenaApp::new(&event_loop, config, result.clone());
+    let mut app = ArenaApp::new(&event_loop, config, rendering_settings, result.clone());
 
     event_loop
         .run_app(&mut app)
@@ -169,6 +176,7 @@ struct ArenaState {
     rendering_context: Rc<WindowRenderingContext>,
     webviews: RefCell<Vec<WebView>>,
     config: ArenaRunConfig,
+    rendering_settings: RenderingProfileSettings,
     run_started_at: Instant,
     runtime: RefCell<ArenaRuntime>,
     pending_score: Rc<RefCell<Option<std::result::Result<String, String>>>>,
@@ -190,6 +198,7 @@ enum ArenaApp {
     Initial {
         waker: Waker,
         config: ArenaRunConfig,
+        rendering_settings: RenderingProfileSettings,
         result: Rc<RefCell<Option<std::result::Result<ArenaRunReport, String>>>>,
     },
     Running {
@@ -202,11 +211,13 @@ impl ArenaApp {
     fn new(
         event_loop: &EventLoop<WakerEvent>,
         config: ArenaRunConfig,
+        rendering_settings: RenderingProfileSettings,
         result: Rc<RefCell<Option<std::result::Result<ArenaRunReport, String>>>>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             config,
+            rendering_settings,
             result,
         }
     }
@@ -292,6 +303,7 @@ impl ApplicationHandler<WakerEvent> for ArenaApp {
         let Self::Initial {
             waker,
             config,
+            rendering_settings,
             result,
         } = self
         else {
@@ -348,6 +360,7 @@ impl ApplicationHandler<WakerEvent> for ArenaApp {
         }
 
         let servo = ServoBuilder::default()
+            .preferences(rendering_settings.servo_preferences())
             .event_loop_waker(Box::new(waker.clone()))
             .build();
         servo.setup_logging();
@@ -359,6 +372,7 @@ impl ApplicationHandler<WakerEvent> for ArenaApp {
             rendering_context,
             webviews: RefCell::new(Vec::new()),
             config: config.clone(),
+            rendering_settings: rendering_settings.clone(),
             run_started_at: Instant::now(),
             runtime: RefCell::new(ArenaRuntime::new()),
             pending_score: Rc::new(RefCell::new(None)),
@@ -784,6 +798,11 @@ fn log_run_started(state: &Rc<ArenaState>) {
                 "window_height": state.config.window_height,
                 "seed": state.config.seed,
                 "instrumentation": state.config.instrumentation,
+                "rendering_profile": state.rendering_settings.profile.name(),
+                "renderer_engine": state.rendering_settings.profile.engine(),
+                "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
+                "legacy_grid_override": state.rendering_settings.legacy_grid_override,
+                "experimental_prefs": state.rendering_settings.experimental_prefs(),
             }),
             input_space: state.config.input_space,
         },

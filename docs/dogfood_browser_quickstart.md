@@ -10,7 +10,7 @@ Saccade now has a macOS-friendly dogfood browser shell:
 RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://example.com
 ```
 
-It opens one Servo-backed Saccade window at `1440x1000` by default. You can click, scroll, type into ordinary fields, and use basic `<select>` controls. Close the window to exit.
+It opens one Servo-backed Saccade window at `1440x1000` by default. Dogfood uses the `servo-modern` rendering profile, which currently enables Servo's measured CSS Grid pref. You can click, scroll, type into ordinary fields, and use basic `<select>` controls. Close the window to exit.
 
 ## Easy mac launcher
 
@@ -42,6 +42,12 @@ Open a larger window:
 RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://example.com --width 1920 --height 1080
 ```
 
+Open the pinned-default baseline profile:
+
+```bash
+RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://example.com --rendering-profile servo-safe
+```
+
 Compile/smoke check without leaving a window open:
 
 ```bash
@@ -63,3 +69,4 @@ RUST_LOG=error cargo run -q -p saccade-shell -- browse --url about:blank --smoke
 - There is no address bar or tabs yet; launch with a URL.
 - File picker, native context menu, clipboard, downloads, and password-manager UX are not implemented.
 - Visual parity with Chrome/Safari is still tracked separately. Use this shell for dogfood, and use Chrome reference captures when exact mainstream rendering matters.
+- `servo-modern` improves action/layout correctness for current local gates, but it is not a claim that Servo renders like Chrome.

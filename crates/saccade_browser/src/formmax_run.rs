@@ -21,6 +21,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
+use crate::{RenderingProfile, RenderingProfileSettings};
+
 const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 900;
 const FORMMAX_TIMEOUT: Duration = Duration::from_secs(25);
@@ -28,6 +30,10 @@ const FORMMAX_TIMEOUT: Duration = Duration::from_secs(25);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormmaxRunReport {
     pub engine: String,
+    #[serde(default)]
+    pub rendering_profile: String,
+    #[serde(default)]
+    pub servo_grid_enabled: bool,
     pub rows: usize,
     pub pages: usize,
     pub filled: usize,
@@ -47,21 +53,27 @@ pub struct FormmaxRunReport {
 pub struct FormmaxRunConfig {
     pub url: Url,
     pub artifact_dir: Option<PathBuf>,
+    pub rendering_profile: Option<RenderingProfile>,
 }
 
 pub fn run_formmax_fixture(url: Url) -> Result<FormmaxRunReport> {
     run_formmax_fixture_with_config(FormmaxRunConfig {
         url,
         artifact_dir: None,
+        rendering_profile: None,
     })
 }
 
 pub fn run_formmax_fixture_with_config(config: FormmaxRunConfig) -> Result<FormmaxRunReport> {
+    let rendering_settings = RenderingProfile::resolve(config.rendering_profile)?;
+    if rendering_settings.profile == RenderingProfile::ChromeReference {
+        bail!("chrome-reference is not supported by the Servo FORMMAX runner");
+    }
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
     let result = Rc::new(RefCell::new(None));
-    let mut app = FormmaxApp::new(&event_loop, config, result.clone());
+    let mut app = FormmaxApp::new(&event_loop, config, rendering_settings, result.clone());
 
     event_loop
         .run_app(&mut app)
@@ -107,6 +119,7 @@ struct FormmaxState {
     started_at: Instant,
     phase: Cell<Phase>,
     phase_started_at: RefCell<Instant>,
+    rendering_settings: RenderingProfileSettings,
     pending_native: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     pending_drive: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     pending_report: RefCell<Option<FormmaxRunReport>>,
@@ -146,6 +159,7 @@ enum FormmaxApp {
     Initial {
         waker: Waker,
         config: FormmaxRunConfig,
+        rendering_settings: RenderingProfileSettings,
         result: Rc<RefCell<Option<std::result::Result<FormmaxRunReport, String>>>>,
     },
     Running {
@@ -158,11 +172,13 @@ impl FormmaxApp {
     fn new(
         event_loop: &EventLoop<WakerEvent>,
         config: FormmaxRunConfig,
+        rendering_settings: RenderingProfileSettings,
         result: Rc<RefCell<Option<std::result::Result<FormmaxRunReport, String>>>>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             config,
+            rendering_settings,
             result,
         }
     }
@@ -329,6 +345,7 @@ impl ApplicationHandler<WakerEvent> for FormmaxApp {
         let Self::Initial {
             waker,
             config,
+            rendering_settings,
             result,
         } = self
         else {
@@ -389,6 +406,7 @@ impl ApplicationHandler<WakerEvent> for FormmaxApp {
         }
 
         let servo = ServoBuilder::default()
+            .preferences(rendering_settings.servo_preferences())
             .event_loop_waker(Box::new(waker.clone()))
             .build();
         servo.setup_logging();
@@ -402,6 +420,7 @@ impl ApplicationHandler<WakerEvent> for FormmaxApp {
             started_at: Instant::now(),
             phase: Cell::new(Phase::Load),
             phase_started_at: RefCell::new(Instant::now()),
+            rendering_settings: rendering_settings.clone(),
             pending_native: Rc::new(RefCell::new(None)),
             pending_drive: Rc::new(RefCell::new(None)),
             pending_report: RefCell::new(None),
@@ -639,6 +658,8 @@ fn report_with_native_input(
         }));
         report.replay_events = report.events.len();
     }
+    report.rendering_profile = state.rendering_settings.profile.name().to_string();
+    report.servo_grid_enabled = state.rendering_settings.layout_grid_enabled;
     report.native_input = native_input;
     report
 }

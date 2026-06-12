@@ -9,6 +9,7 @@ mod formmax_run;
 mod native_input;
 mod real_run;
 mod recon;
+mod rendering_profile;
 mod selftest;
 mod trusted_tabs;
 
@@ -28,6 +29,7 @@ pub use native_input::{NativeInputProfile, selftest_native_input};
 pub use page_selftest::{SelftestPageOutcome, SelftestPagesReport, selftest_pages};
 pub use real_run::{RealRunConfig, RealRunReport, run_real};
 pub use recon::{RealSiteRecon, real_site_recon};
+pub use rendering_profile::{RenderingProfile, RenderingProfileSettings};
 pub use selftest::selftest_boot;
 pub use trusted_tabs::{
     TrustedTabsProfile, selftest_login_handoff, selftest_safety, selftest_trusted_tabs,

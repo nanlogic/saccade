@@ -27,6 +27,8 @@ enum Command {
         height: u32,
         #[arg(long)]
         smoke_seconds: Option<u64>,
+        #[arg(long)]
+        rendering_profile: Option<String>,
     },
     SelftestTabs,
     SelftestLoginHandoff,
@@ -36,6 +38,8 @@ enum Command {
     BrowserSessionWorker {
         #[arg(long)]
         url: String,
+        #[arg(long)]
+        rendering_profile: Option<String>,
     },
 }
 
@@ -47,24 +51,45 @@ fn main() -> Result<()> {
             width,
             height,
             smoke_seconds,
-        } => browse(url, width, height, smoke_seconds),
+            rendering_profile,
+        } => browse(url, width, height, smoke_seconds, rendering_profile),
         Command::SelftestTabs => selftest_tabs(),
         Command::SelftestLoginHandoff => selftest_login_handoff(),
         Command::SelftestSafety => selftest_safety(),
         Command::SelftestNativeInput => selftest_native_input(),
         Command::SelftestBrowserSession => selftest_browser_session(),
-        Command::BrowserSessionWorker { url } => {
-            saccade_browser::run_browser_session_worker(parse_user_url(&url)?)
-        }
+        Command::BrowserSessionWorker {
+            url,
+            rendering_profile,
+        } => saccade_browser::run_browser_session_worker(
+            parse_user_url(&url)?,
+            parse_rendering_profile(rendering_profile)?,
+        ),
     }
 }
 
-fn browse(url: String, width: u32, height: u32, smoke_seconds: Option<u64>) -> Result<()> {
+fn browse(
+    url: String,
+    width: u32,
+    height: u32,
+    smoke_seconds: Option<u64>,
+    rendering_profile: Option<String>,
+) -> Result<()> {
     let mut config = saccade_browser::DogfoodBrowserConfig::new(parse_user_url(&url)?);
     config.width = width;
     config.height = height;
     config.auto_close_after = smoke_seconds.map(Duration::from_secs);
+    config.rendering_profile = parse_rendering_profile(rendering_profile)?;
     saccade_browser::run_dogfood_browser(config)
+}
+
+fn parse_rendering_profile(
+    value: Option<String>,
+) -> Result<Option<saccade_browser::RenderingProfile>> {
+    value
+        .map(|value| value.parse())
+        .transpose()
+        .context("invalid --rendering-profile")
 }
 
 fn selftest_tabs() -> Result<()> {

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Layout Probe</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .page {
+      padding: 24px 32px;
+    }
+
+    .layout-proof {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .rail {
+      padding: 16px;
+      min-height: 280px;
+    }
+
+    .content {
+      min-width: 0;
+    }
+
+    .grid-proof {
+      display: grid;
+      grid-template-columns: 120px 1fr 90px;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .grid-proof > div,
+    .flex-proof > div,
+    .auto-grid > div {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .flex-proof {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .flex-proof > div {
+      flex: 1;
+    }
+
+    .auto-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    .probe-note {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 760px) {
+      .layout-proof,
+      .grid-proof {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Layout Probe</h1>
+    <button class="primary">Refresh</button>
+  </header>
+  <main class="page">
+    <section class="layout-proof" data-saccade-probe="layout_grid">
+      <aside class="panel rail" data-saccade-probe="layout_rail">
+        <strong>Rail</strong>
+        <p class="muted">This column should stay 220px wide at a 1280px viewport.</p>
+      </aside>
+      <div class="content" data-saccade-probe="layout_content">
+        <section class="grid-proof" data-saccade-probe="inner_grid">
+          <div data-saccade-probe="inner_grid_a">Fixed</div>
+          <div data-saccade-probe="inner_grid_b">Fluid center column</div>
+          <div data-saccade-probe="inner_grid_c">Tight</div>
+        </section>
+        <section class="flex-proof" data-saccade-probe="flex_row">
+          <div data-saccade-probe="flex_a">Flex A</div>
+          <div data-saccade-probe="flex_b">Flex B</div>
+          <div data-saccade-probe="flex_c">Flex C</div>
+        </section>
+        <section class="auto-grid" data-saccade-probe="auto_grid">
+          <div data-saccade-probe="auto_card_1">Card 1</div>
+          <div data-saccade-probe="auto_card_2">Card 2</div>
+          <div data-saccade-probe="auto_card_3">Card 3</div>
+          <div data-saccade-probe="auto_card_4">Card 4</div>
+        </section>
+      </div>
+    </section>
+    <p class="probe-note" data-saccade-probe="media_note">Viewport breakpoint probe: desktop layout expected above 760px.</p>
+  </main>
+</body>
+</html>

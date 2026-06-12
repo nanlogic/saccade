@@ -16,6 +16,7 @@ import zlib
 WORKSPACE = pathlib.Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = WORKSPACE / "test_pages" / "visual_parity"
 DEFAULT_FIXTURES = [
+    "layout_probe",
     "dashboard",
     "form_controls",
     "modal_overlay",
@@ -48,6 +49,8 @@ def main():
         "engine": "saccade-visual-parity-v0",
         "created_at_unix_ms": unix_ms(),
         "viewport": {"width": args.width, "height": args.height, "device_scale_factor": 1},
+        "rendering_profile": resolved_rendering_profile(args),
+        "saccade_grid": args.saccade_grid,
         "fixtures": results,
     }
     (run_dir / "visual_parity_manifest.json").write_text(
@@ -76,7 +79,27 @@ def parse_args():
         default=24,
         help="Per-channel pixel threshold for diff ratio.",
     )
+    parser.add_argument(
+        "--rendering-profile",
+        choices=("servo-safe", "servo-modern", "chrome-reference"),
+        default=None,
+        help="Saccade rendering profile for the worker.",
+    )
+    parser.add_argument(
+        "--saccade-grid",
+        choices=("default", "off", "on"),
+        default="default",
+        help="Legacy Grid override for the Saccade worker.",
+    )
     return parser.parse_args()
+
+
+def resolved_rendering_profile(args):
+    if args.rendering_profile:
+        return args.rendering_profile
+    if args.saccade_grid == "on":
+        return "servo-modern"
+    return "servo-safe"
 
 
 def run_case(fixture, url, case_dir, args):
@@ -96,7 +119,13 @@ def run_case(fixture, url, case_dir, args):
     chrome_png = case_dir / "chrome_page.png"
     shutil.copy2(chrome_src, chrome_png)
 
-    saccade = capture_saccade(url, case_dir, args.timeout_sec)
+    saccade = capture_saccade(
+        url,
+        case_dir,
+        args.timeout_sec,
+        resolved_rendering_profile(args),
+        args.saccade_grid,
+    )
     saccade_src = pathlib.Path(saccade["screenshot"])
     if not saccade_src.is_absolute():
         saccade_src = WORKSPACE / saccade_src
@@ -109,6 +138,7 @@ def run_case(fixture, url, case_dir, args):
 
     chrome_truth = json.loads((chrome_dir / "chrome_truth.json").read_text())
     saccade_truth = saccade.get("result", {})
+    layout_probe_metrics = compare_layout_probes(chrome_truth, saccade_truth)
     (case_dir / "saccade_worker_result.json").write_text(
         json.dumps(saccade_truth, indent=2, sort_keys=True) + "\n"
     )
@@ -128,6 +158,7 @@ def run_case(fixture, url, case_dir, args):
         "chrome_title": chrome_truth.get("title", ""),
         "saccade_title": saccade_truth.get("title", ""),
         "metrics": metrics,
+        "layout_probe_metrics": layout_probe_metrics,
         "artifacts": {
             "chrome_manifest": str(chrome_dir / "chrome_reference_manifest.json"),
             "chrome_truth": str(chrome_dir / "chrome_truth.json"),
@@ -139,7 +170,7 @@ def run_case(fixture, url, case_dir, args):
     return result
 
 
-def capture_saccade(url, case_dir, timeout):
+def capture_saccade(url, case_dir, timeout, rendering_profile, saccade_grid):
     cmd = [
         "cargo",
         "run",
@@ -150,9 +181,15 @@ def capture_saccade(url, case_dir, timeout):
         "browser-session-worker",
         "--url",
         url,
+        "--rendering-profile",
+        rendering_profile,
     ]
     env = os.environ.copy()
     env["RUST_LOG"] = "error"
+    if saccade_grid == "on":
+        env["SACCADE_SERVO_GRID"] = "1"
+    elif saccade_grid == "off":
+        env["SACCADE_SERVO_GRID"] = "0"
     input_text = '{"id":1,"method":"audit"}\n{"id":2,"method":"close"}\n'
     proc = subprocess.Popen(
         cmd,
@@ -192,6 +229,71 @@ def capture_saccade(url, case_dir, timeout):
     if not screenshot:
         raise RuntimeError(f"Saccade audit did not produce a screenshot for {url}")
     return {"screenshot": screenshot, "result": result}
+
+
+def compare_layout_probes(chrome_truth, saccade_truth):
+    chrome = {probe.get("name", ""): probe for probe in extract_layout_probes(chrome_truth)}
+    saccade = {probe.get("name", ""): probe for probe in extract_layout_probes(saccade_truth)}
+    names = sorted(name for name in set(chrome) | set(saccade) if name)
+    items = []
+    max_rect_delta = 0.0
+    display_mismatches = 0
+    grid_template_mismatches = 0
+    missing = 0
+    for name in names:
+        c = chrome.get(name)
+        s = saccade.get(name)
+        if not c or not s:
+            missing += 1
+            items.append({"name": name, "missing": "chrome" if not c else "saccade"})
+            continue
+        rect_delta = rect_max_delta(c.get("rect", {}), s.get("rect", {}))
+        max_rect_delta = max(max_rect_delta, rect_delta)
+        display_match = c.get("display") == s.get("display")
+        grid_match = c.get("gridTemplateColumns") == s.get("gridTemplateColumns")
+        if not display_match:
+            display_mismatches += 1
+        if not grid_match:
+            grid_template_mismatches += 1
+        items.append(
+            {
+                "name": name,
+                "rect_max_delta": round(rect_delta, 3),
+                "chrome_display": c.get("display", ""),
+                "saccade_display": s.get("display", ""),
+                "chrome_grid_template_columns": c.get("gridTemplateColumns", ""),
+                "saccade_grid_template_columns": s.get("gridTemplateColumns", ""),
+                "chrome_rect": c.get("rect", {}),
+                "saccade_rect": s.get("rect", {}),
+            }
+        )
+    return {
+        "probe_count": len(names),
+        "missing": missing,
+        "max_rect_delta": round(max_rect_delta, 3),
+        "display_mismatches": display_mismatches,
+        "grid_template_mismatches": grid_template_mismatches,
+        "items": items,
+    }
+
+
+def extract_layout_probes(truth):
+    if not isinstance(truth, dict):
+        return []
+    direct = truth.get("layoutProbes")
+    if isinstance(direct, list):
+        return direct
+    nested = truth.get("truth", {}).get("layout_probes")
+    if isinstance(nested, list):
+        return nested
+    return []
+
+
+def rect_max_delta(a, b):
+    return max(
+        abs(float(a.get(key, 0) or 0) - float(b.get(key, 0) or 0))
+        for key in ("left", "top", "width", "height")
+    )
 
 
 def compare_pngs(chrome_path, saccade_path, threshold):
@@ -359,6 +461,12 @@ def write_html(run_dir, results, args):
     figures = []
     for result in results:
         m = result["metrics"]
+        lp = result.get("layout_probe_metrics", {})
+        layout_summary = (
+            f"max rect {lp.get('max_rect_delta', 0):.1f}px, "
+            f"display {lp.get('display_mismatches', 0)}, "
+            f"grid {lp.get('grid_template_mismatches', 0)}"
+        )
         rows.append(
             "<tr>"
             f"<td>{esc(result['fixture'])}</td>"
@@ -366,13 +474,14 @@ def write_html(run_dir, results, args):
             f"<td>{m['diff_ratio']:.3%}</td>"
             f"<td>{m['mean_abs_channel_delta']}</td>"
             f"<td>{result['chrome_actions']} / {result['saccade_actions']}</td>"
+            f"<td>{esc(layout_summary)}</td>"
             "</tr>"
         )
         figures.append(
             f"""
             <section class="case">
               <h2>{esc(result['fixture'])}</h2>
-              <p class="muted">diff_ratio={m['diff_ratio']:.3%}, mean_abs={m['mean_abs_channel_delta']}, rms={m['rms_channel_delta']}, actions Chrome/Saccade={result['chrome_actions']}/{result['saccade_actions']}</p>
+              <p class="muted">diff_ratio={m['diff_ratio']:.3%}, mean_abs={m['mean_abs_channel_delta']}, rms={m['rms_channel_delta']}, actions Chrome/Saccade={result['chrome_actions']}/{result['saccade_actions']}, layout {esc(layout_summary)}</p>
               <div class="compare">
                 <figure><figcaption>Chrome</figcaption><img src="{esc(result['chrome_screenshot'])}"></figure>
                 <figure><figcaption>Saccade</figcaption><img src="{esc(result['saccade_screenshot'])}"></figure>
@@ -403,11 +512,11 @@ def write_html(run_dir, results, args):
 <body>
   <header>
     <h1>Saccade Visual Parity Report</h1>
-    <p class="muted">Viewport {args.width}x{args.height}. Chrome CDP screenshots compared against Saccade live worker screenshots.</p>
+    <p class="muted">Viewport {args.width}x{args.height}. Chrome CDP screenshots compared against Saccade live worker screenshots. Rendering profile: {esc(resolved_rendering_profile(args))}. Legacy Grid override: {esc(args.saccade_grid)}.</p>
   </header>
   <main>
     <table>
-      <thead><tr><th>Fixture</th><th>Dimensions</th><th>Diff ratio</th><th>Mean abs</th><th>Actions C/S</th></tr></thead>
+      <thead><tr><th>Fixture</th><th>Dimensions</th><th>Diff ratio</th><th>Mean abs</th><th>Actions C/S</th><th>Layout probes</th></tr></thead>
       <tbody>{''.join(rows)}</tbody>
     </table>
     {''.join(figures)}

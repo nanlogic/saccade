@@ -185,3 +185,49 @@
 - Added `saccade.report.validate_run` kind `browser_session_worker` to validate worker report/replay, screenshot references, and replay raw-value leak checks.
 - Added a live `audit` method to the browser worker. `saccade.dev.audit_page(engine=servo)` now uses the live Agent tab when present, producing compact findings and worker artifacts from the same WebView instead of spawning a separate DEVMAX audit.
 - This is still v0: one child process per Agent tab, no shared browser process yet, and static audit fallback, click-all verification, and FORMMAX tools still run as child workflows.
+
+## N6B - Servo Grid parity probe
+
+- Added a dedicated `layout_probe` visual fixture and layout-probe truth fields for Chrome/Saccade comparison.
+- Added `--saccade-grid on|off|default` to `scripts/visual_parity_compare.py`. The Saccade worker reads `SACCADE_SERVO_GRID=1` and enables pinned Servo's `Preferences::layout_grid_enabled`.
+- Measurement resolved the "Saccade looks mobile" dashboard issue: viewport stayed `1280x800`; with Grid off, CSS Grid fell back to block flow; with Grid on, computed Grid styles matched Chrome.
+- Evidence runs:
+  - Grid off: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781290226025/index.html`
+  - Grid on focused: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781290279853/index.html`
+  - Grid on full gauntlet: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781290368953/index.html`
+- Grid on reduced dashboard diff from `0.172743` to `0.031496` and reduced modal overlay diff from `0.163102` to `0.024039`. It does not claim full Chrome parity; remaining work is font metrics, canvas/SVG, sticky/scroll, media-query coverage, DPR/window chrome, and Chrome/Firefox reference modes.
+
+## DECISION_RENDERING_001 - Rendering profiles, not Servo/Chrome parity claims
+
+- Saccade will not promise Servo/Chrome pixel parity.
+- Added explicit rendering profiles:
+  - `servo-safe`: pinned Servo defaults and baseline regression control.
+  - `servo-modern`: pinned Servo plus measured experimental prefs; currently `layout.grid.enabled`.
+  - `chrome-reference`: Chrome-rendered visual reference path for UI parity and public demos.
+- `SACCADE_SERVO_GRID=1` remains a legacy override, but profile selection is now the preferred interface.
+- `saccade-shell browse` and `saccade-shell browser-session-worker` can opt into profiles with `--rendering-profile`.
+- `chrome-reference` in the live worker path is a structured stub until the Chrome adapter exists; it reports `renderer_crash` with `fallback_recommended=chrome-reference`.
+- Focused gate: `scripts/validate_rendering_profiles.sh`.
+
+## DECISION_RENDERING_002 - Servo-modern Grid regression gates passed
+
+- Added `--rendering-profile` to `mousemax run` and `formmax run`.
+- `mousemax` arena replay metadata now records the resolved rendering profile and Servo Grid state.
+- `formmax` result JSON now records the resolved rendering profile and Servo Grid state.
+- R2 MOUSEMAX gate passed with `servo-modern`:
+  - Command: `RUST_LOG=error cargo run -q -p mousemax -- run --site arena --spawn-speed Epic --target-size Tiny --duration 15 --seed 42 --replay --rendering-profile servo-modern`
+  - Result: `/Users/waynema/Documents/GitHub/SACCADE/runs/arena/run_1781294025/result.json`
+  - Summary: `PASS`, `hits=45`, `misses=0`, `targets_seen=45`, `false_positive_clicks=0`, `stale_clicks=0`, `detect_to_dispatch.p95=0.2ms`.
+- R2 FORMMAX gate passed with `servo-modern`:
+  - Command: `RUST_LOG=error cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay --rendering-profile servo-modern`
+  - Result: `/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781294062952/result.json`
+  - Validation: `cargo run -q -p formmax -- validate-run runs/formmax/run_1781294062952`
+  - Summary: `rows=96`, `pages=2`, `filled=672`, `native_typed=1`, `blocked_sensitive=3`, `receipt_verified=true`, `validation_errors=0`, `replay_value_leaks=0`.
+- These gates prove enabling Grid in `servo-modern` did not break the current MOUSEMAX arena or local FORMMAX workflow. Defaulting dogfood to `servo-modern` remains a separate product decision.
+
+## DECISION_RENDERING_003 - Dogfood/session default is servo-modern
+
+- After the focused rendering profile gate and the MOUSEMAX/FORMMAX gates passed, dogfood and browser-session workers now default to `servo-modern`.
+- `servo-safe` remains available as an explicit baseline via `--rendering-profile servo-safe`.
+- MOUSEMAX/FORMMAX runner defaults remain conservative; they use `servo-safe` unless a profile is explicitly requested or `SACCADE_RENDERING_PROFILE` is set.
+- `scripts/validate_rendering_profiles.sh` now verifies the default browser-session worker profile and prints `default_worker_profile=servo-modern`.

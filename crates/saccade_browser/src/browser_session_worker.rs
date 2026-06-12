@@ -25,12 +25,23 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
+use crate::{RenderingProfile, RenderingProfileSettings};
+
 const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 800;
 const LOAD_SETTLE_DELAY: Duration = Duration::from_millis(300);
 const ACT_VERIFY_DELAY: Duration = Duration::from_millis(160);
 
-pub fn run_browser_session_worker(url: Url) -> Result<()> {
+pub fn run_browser_session_worker(
+    url: Url,
+    rendering_profile: Option<RenderingProfile>,
+) -> Result<()> {
+    let rendering_settings =
+        RenderingProfile::resolve_with_default(rendering_profile, RenderingProfile::ServoModern)?;
+    if rendering_settings.profile == RenderingProfile::ChromeReference {
+        return run_unsupported_worker(url, rendering_settings);
+    }
+
     let artifacts = WorkerArtifacts::new()?;
     let event_loop = EventLoop::with_user_event()
         .build()
@@ -39,7 +50,7 @@ pub fn run_browser_session_worker(url: Url) -> Result<()> {
     let reader_proxy = event_loop.create_proxy();
     thread::spawn(move || read_commands(tx, reader_proxy));
 
-    let mut app = WorkerApp::new(&event_loop, url, rx, artifacts);
+    let mut app = WorkerApp::new(&event_loop, url, rx, artifacts, rendering_settings);
     event_loop
         .run_app(&mut app)
         .context("winit event loop failed")?;
@@ -132,6 +143,7 @@ struct WorkerState {
     current: RefCell<Option<ActiveRequest>>,
     screenshots: RefCell<Vec<String>>,
     screenshot_skipped_sensitive: Cell<u64>,
+    rendering_settings: RenderingProfileSettings,
     stdout: RefCell<io::Stdout>,
 }
 
@@ -147,6 +159,7 @@ enum WorkerApp {
         target_url: Url,
         command_rx: Option<Receiver<WorkerInput>>,
         artifacts: Option<WorkerArtifacts>,
+        rendering_settings: RenderingProfileSettings,
     },
     Running {
         state: Rc<WorkerState>,
@@ -160,12 +173,14 @@ impl WorkerApp {
         target_url: Url,
         command_rx: Receiver<WorkerInput>,
         artifacts: WorkerArtifacts,
+        rendering_settings: RenderingProfileSettings,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             target_url,
             command_rx: Some(command_rx),
             artifacts: Some(artifacts),
+            rendering_settings,
         }
     }
 
@@ -218,6 +233,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             target_url,
             command_rx,
             artifacts,
+            rendering_settings,
         } = self
         else {
             return;
@@ -226,6 +242,12 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
         let display_handle = match event_loop.display_handle() {
             Ok(handle) => handle,
             Err(error) => {
+                emit_renderer_crash(
+                    rendering_settings,
+                    target_url,
+                    "display_handle",
+                    &error.to_string(),
+                );
                 eprintln!("browser session worker display handle error: {error}");
                 event_loop.exit();
                 return;
@@ -238,6 +260,12 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
         ) {
             Ok(window) => window,
             Err(error) => {
+                emit_renderer_crash(
+                    rendering_settings,
+                    target_url,
+                    "window_create",
+                    &error.to_string(),
+                );
                 eprintln!("browser session worker window error: {error}");
                 event_loop.exit();
                 return;
@@ -246,6 +274,12 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
         let window_handle = match window.window_handle() {
             Ok(handle) => handle,
             Err(error) => {
+                emit_renderer_crash(
+                    rendering_settings,
+                    target_url,
+                    "window_handle",
+                    &error.to_string(),
+                );
                 eprintln!("browser session worker window handle error: {error}");
                 event_loop.exit();
                 return;
@@ -258,18 +292,31 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
         ) {
             Ok(context) => Rc::new(context),
             Err(error) => {
+                emit_renderer_crash(
+                    rendering_settings,
+                    target_url,
+                    "rendering_context",
+                    &format!("{error:?}"),
+                );
                 eprintln!("browser session worker rendering context error: {error:?}");
                 event_loop.exit();
                 return;
             }
         };
         if let Err(error) = rendering_context.make_current() {
+            emit_renderer_crash(
+                rendering_settings,
+                target_url,
+                "gl_make_current",
+                &format!("{error:?}"),
+            );
             eprintln!("browser session worker GL context error: {error:?}");
             event_loop.exit();
             return;
         }
 
         let servo = ServoBuilder::default()
+            .preferences(rendering_settings.servo_preferences())
             .event_loop_waker(Box::new(waker.clone()))
             .build();
         servo.setup_logging();
@@ -312,6 +359,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             current: RefCell::new(None),
             screenshots: RefCell::new(Vec::new()),
             screenshot_skipped_sensitive: Cell::new(0),
+            rendering_settings: rendering_settings.clone(),
             stdout: RefCell::new(io::stdout()),
         });
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
@@ -327,6 +375,11 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                 "run_id": state.run_id.as_str(),
                 "url": state.target_url.as_str(),
                 "page_revision": state.page_revision.get(),
+                "rendering_profile": state.rendering_settings.profile.name(),
+                "engine": state.rendering_settings.profile.engine(),
+                "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
+                "legacy_grid_override": state.rendering_settings.legacy_grid_override,
+                "experimental_prefs": state.rendering_settings.experimental_prefs(),
             }),
         );
         write_report(
@@ -402,6 +455,95 @@ fn read_commands(tx: mpsc::Sender<WorkerInput>, proxy: EventLoopProxy<WakerEvent
     let _ = proxy.send_event(WakerEvent);
 }
 
+fn run_unsupported_worker(url: Url, rendering_settings: RenderingProfileSettings) -> Result<()> {
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let request = serde_json::from_str::<WorkerRequest>(&line);
+        let (id, method) = match request {
+            Ok(request) => (request.id.unwrap_or(Value::Null), request.method),
+            Err(error) => {
+                let response = json!({
+                    "id": Value::Null,
+                    "ok": false,
+                    "error": format!("invalid worker request: {error}"),
+                });
+                writeln!(stdout, "{response}")?;
+                stdout.flush()?;
+                continue;
+            }
+        };
+        if method == "close" {
+            let response = json!({
+                "id": id,
+                "ok": true,
+                "result": {
+                    "status": "ok",
+                    "summary": "unsupported rendering-profile worker closing",
+                    "rendering_profile": rendering_settings.profile.name(),
+                },
+            });
+            writeln!(stdout, "{response}")?;
+            stdout.flush()?;
+            break;
+        }
+        let response = json!({
+            "id": id,
+            "ok": true,
+            "result": renderer_crash_result(
+                &rendering_settings,
+                &url,
+                "unsupported_profile",
+                "chrome-reference is a configuration stub; no Chrome worker is implemented in R1",
+            ),
+        });
+        writeln!(stdout, "{response}")?;
+        stdout.flush()?;
+    }
+    Ok(())
+}
+
+fn emit_renderer_crash(
+    rendering_settings: &RenderingProfileSettings,
+    url: &Url,
+    stage: &str,
+    message: &str,
+) {
+    let response = json!({
+        "id": Value::Null,
+        "ok": true,
+        "result": renderer_crash_result(rendering_settings, url, stage, message),
+    });
+    println!("{response}");
+}
+
+fn renderer_crash_result(
+    rendering_settings: &RenderingProfileSettings,
+    url: &Url,
+    stage: &str,
+    message: &str,
+) -> Value {
+    json!({
+        "status": "renderer_crash",
+        "runtime": "browser_session_worker_v0",
+        "rendering_profile": rendering_settings.profile.name(),
+        "fixture": url.as_str(),
+        "engine": rendering_settings.profile.engine(),
+        "pref": if rendering_settings.layout_grid_enabled {
+            Value::String("layout.grid.enabled".to_string())
+        } else {
+            Value::Null
+        },
+        "stage": stage,
+        "message": message,
+        "fallback_recommended": rendering_settings.fallback_recommended(),
+    })
+}
+
 fn drain_commands(state: &Rc<WorkerState>) {
     while let Ok(input) = state.command_rx.try_recv() {
         match input {
@@ -432,6 +574,9 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
             json!({
                 "status": "ok",
                 "runtime": "browser_session_worker_v0",
+                "rendering_profile": state.rendering_settings.profile.name(),
+                "renderer_engine": state.rendering_settings.profile.engine(),
+                "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
                 "url": state.target_url.as_str(),
                 "page_revision": state.page_revision.get(),
             }),
@@ -692,6 +837,11 @@ fn probe_response(
         "runtime": "browser_session_worker_v0",
         "engine": engine,
         "summary": summary,
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "renderer_engine": state.rendering_settings.profile.engine(),
+        "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
+        "legacy_grid_override": state.rendering_settings.legacy_grid_override,
+        "experimental_prefs": state.rendering_settings.experimental_prefs(),
         "url": probe.get("url").cloned().unwrap_or_else(|| json!(state.target_url.as_str())),
         "title": probe.get("title").cloned().unwrap_or(Value::Null),
         "page_revision": state.page_revision.get(),
@@ -706,6 +856,7 @@ fn probe_response(
             "body_text_length": body_text_length,
             "body_child_count": body_child_count,
             "viewport": probe.get("viewport").cloned().unwrap_or(Value::Null),
+            "layout_probes": probe.get("layoutProbes").cloned().unwrap_or(Value::Null),
             "sensitive_fields": sensitive_count,
             "findings": findings,
         },
@@ -751,6 +902,11 @@ fn act_response(
         "runtime": "browser_session_worker_v0",
         "engine": "saccade-browser-session-worker-v0",
         "summary": "action dispatched through live Servo browser session",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "renderer_engine": state.rendering_settings.profile.engine(),
+        "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
+        "legacy_grid_override": state.rendering_settings.legacy_grid_override,
+        "experimental_prefs": state.rendering_settings.experimental_prefs(),
         "url": after_probe.get("url").cloned().unwrap_or_else(|| json!(state.target_url.as_str())),
         "title": after_probe.get("title").cloned().unwrap_or(Value::Null),
         "page_revision": after_revision,
@@ -1039,6 +1195,11 @@ fn write_report(state: &Rc<WorkerState>, latest: &Value) {
         "run_id": state.run_id.as_str(),
         "engine": "saccade-browser-session-worker-v0",
         "url": state.target_url.as_str(),
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "renderer_engine": state.rendering_settings.profile.engine(),
+        "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
+        "legacy_grid_override": state.rendering_settings.legacy_grid_override,
+        "experimental_prefs": state.rendering_settings.experimental_prefs(),
         "page_revision": state.page_revision.get(),
         "latest": latest,
         "artifacts": artifact_paths(state),
@@ -1251,6 +1412,25 @@ const PROBE_JS: &str = r##"
     return hasEntry ? "completed_without_value" : "requires_user_input";
   }
 
+  function layoutProbeOf(el) {
+    const style = getComputedStyle(el);
+    return {
+      name: el.getAttribute("data-saccade-probe") || "",
+      tag: el.tagName.toLowerCase(),
+      rect: rectOf(el),
+      display: style.display || "",
+      position: style.position || "",
+      gridTemplateColumns: style.gridTemplateColumns || "",
+      gridTemplateRows: style.gridTemplateRows || "",
+      columnGap: style.columnGap || "",
+      rowGap: style.rowGap || "",
+      flexDirection: style.flexDirection || "",
+      width: style.width || "",
+      height: style.height || "",
+      maxWidth760: window.matchMedia ? window.matchMedia("(max-width: 760px)").matches : null
+    };
+  }
+
   const elements = Array.from(document.querySelectorAll("body *"));
   const blockers = elements.map((el, index) => {
     const style = getComputedStyle(el);
@@ -1303,6 +1483,7 @@ const PROBE_JS: &str = r##"
     bodyTextLength,
     bodyChildCount: body ? body.children.length : 0,
     pageRevision,
+    layoutProbes: Array.from(document.querySelectorAll("[data-saccade-probe]")).map(layoutProbeOf),
     actions
   });
 })()

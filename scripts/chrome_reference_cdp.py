@@ -136,6 +136,25 @@ JSON.stringify((() => {
     return hasEntry ? "completed_without_value" : "requires_user_input";
   }
 
+  function layoutProbeOf(el) {
+    const style = getComputedStyle(el);
+    return {
+      name: el.getAttribute("data-saccade-probe") || "",
+      tag: el.tagName.toLowerCase(),
+      rect: rectOf(el),
+      display: style.display || "",
+      position: style.position || "",
+      gridTemplateColumns: style.gridTemplateColumns || "",
+      gridTemplateRows: style.gridTemplateRows || "",
+      columnGap: style.columnGap || "",
+      rowGap: style.rowGap || "",
+      flexDirection: style.flexDirection || "",
+      width: style.width || "",
+      height: style.height || "",
+      maxWidth760: window.matchMedia ? window.matchMedia("(max-width: 760px)").matches : null
+    };
+  }
+
   const elements = Array.from(document.querySelectorAll("body *"));
   const blockers = elements.map((el, index) => {
     const style = getComputedStyle(el);
@@ -196,6 +215,7 @@ JSON.stringify((() => {
       width: Math.max(document.documentElement.scrollWidth || 0, body ? body.scrollWidth || 0 : 0),
       height: Math.max(document.documentElement.scrollHeight || 0, body ? body.scrollHeight || 0 : 0)
     },
+    layoutProbes: Array.from(document.querySelectorAll("[data-saccade-probe]")).map(layoutProbeOf),
     actions
   };
 })())

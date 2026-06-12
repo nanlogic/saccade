@@ -22,6 +22,8 @@ use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
+use crate::{RenderingProfile, RenderingProfileSettings};
+
 const DEFAULT_WIDTH: u32 = 1440;
 const DEFAULT_HEIGHT: u32 = 1000;
 
@@ -31,6 +33,7 @@ pub struct DogfoodBrowserConfig {
     pub width: u32,
     pub height: u32,
     pub auto_close_after: Option<Duration>,
+    pub rendering_profile: Option<RenderingProfile>,
 }
 
 impl DogfoodBrowserConfig {
@@ -40,15 +43,25 @@ impl DogfoodBrowserConfig {
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
             auto_close_after: None,
+            rendering_profile: None,
         }
     }
 }
 
 pub fn run_dogfood_browser(config: DogfoodBrowserConfig) -> Result<()> {
+    let rendering_settings = RenderingProfile::resolve_with_default(
+        config.rendering_profile,
+        RenderingProfile::ServoModern,
+    )?;
+    if rendering_settings.profile == RenderingProfile::ChromeReference {
+        anyhow::bail!(
+            "chrome-reference is a configuration stub; use the Chrome reference capture path for UI parity"
+        );
+    }
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
-    let mut app = DogfoodBrowserApp::new(&event_loop, config);
+    let mut app = DogfoodBrowserApp::new(&event_loop, config, rendering_settings);
 
     event_loop
         .run_app(&mut app)
@@ -81,6 +94,7 @@ struct DogfoodBrowserState {
     active_select: RefCell<Option<ActiveSelect>>,
     started_at: Instant,
     auto_close_after: Option<Duration>,
+    rendering_settings: RenderingProfileSettings,
 }
 
 impl DogfoodBrowserState {
@@ -109,7 +123,10 @@ impl DogfoodBrowserState {
             .clone()
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| self.url.to_string());
-        self.window.set_title(&format!("Saccade - {title}"));
+        self.window.set_title(&format!(
+            "Saccade [{}] - {title}",
+            self.rendering_settings.profile.name()
+        ));
     }
 
     fn handle_browser_shortcut(&self, event: &KeyEvent) -> bool {
@@ -253,6 +270,7 @@ enum DogfoodBrowserApp {
     Initial {
         waker: Waker,
         config: DogfoodBrowserConfig,
+        rendering_settings: RenderingProfileSettings,
     },
     Running {
         state: Rc<DogfoodBrowserState>,
@@ -261,10 +279,15 @@ enum DogfoodBrowserApp {
 }
 
 impl DogfoodBrowserApp {
-    fn new(event_loop: &EventLoop<WakerEvent>, config: DogfoodBrowserConfig) -> Self {
+    fn new(
+        event_loop: &EventLoop<WakerEvent>,
+        config: DogfoodBrowserConfig,
+        rendering_settings: RenderingProfileSettings,
+    ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             config,
+            rendering_settings,
         }
     }
 
@@ -285,7 +308,12 @@ impl DogfoodBrowserApp {
 
 impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let Self::Initial { waker, config } = self else {
+        let Self::Initial {
+            waker,
+            config,
+            rendering_settings,
+        } = self
+        else {
             return;
         };
 
@@ -340,6 +368,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
         }
 
         let servo = ServoBuilder::default()
+            .preferences(rendering_settings.servo_preferences())
             .event_loop_waker(Box::new(waker.clone()))
             .build();
         servo.setup_logging();
@@ -357,6 +386,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             active_select: RefCell::new(None),
             started_at: Instant::now(),
             auto_close_after: config.auto_close_after,
+            rendering_settings: rendering_settings.clone(),
         });
 
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
