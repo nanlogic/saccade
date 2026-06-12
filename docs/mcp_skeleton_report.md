@@ -6,7 +6,21 @@ Date: 2026-06-12
 
 `saccade-mcp` is the first agent-facing Saccade tool surface.
 
-It now has a minimal stdio JSON-RPC server for MCP-style clients. It locks down the tool names, namespaces, compact JSON return policy, tab-scoping expectations, and sensitive-field policy gate. The implemented tools are still narrow: `saccade.dev.open_local`, `saccade.dev.audit_page`, and `saccade.tabs.list`.
+It now has a minimal stdio JSON-RPC server for MCP-style clients. It locks down the tool names, namespaces, compact JSON return policy, tab-scoping expectations, and sensitive-field policy gate.
+
+Implemented v0 tools:
+
+- `saccade.dev.open_local`
+- `saccade.dev.audit_page`
+- `saccade.tabs.list`
+- `saccade.tabs.open`
+- `saccade.tabs.request_user_login`
+- `saccade.tabs.takeover`
+- `saccade.tabs.pause_agent`
+- `saccade.tabs.close`
+- `saccade.web.truth`
+- `saccade.web.actions`
+- `saccade.web.act`
 
 ## Commands
 
@@ -51,8 +65,12 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Verifies local dev audit rejects public web URLs.
 - Verifies `initialize`, `tools/list`, and `tools/call` over the JSON-RPC handler.
 - Routes `saccade.dev.audit_page` to DEVMAX and records the DEVMAX report path.
+- Maintains persistent in-memory tabs across stdio requests.
+- Exposes `saccade.web.truth` and `saccade.web.actions` from DEVMAX report state.
+- Runs `saccade.web.act` v0 through a Servo-backed DEVMAX verification pass for the first enabled action in the current action map.
+- Creates Human-owned login tabs through `saccade.tabs.request_user_login` without exposing credentials to agent truth.
 - Verifies normal fields are agent-fillable while sensitive payment fields require user input.
 
 ## Next
 
-Complete MCP protocol polish, add persistent tab state, and route the remaining web/form tools through Trusted Tabs, safety truth, replay, and policy gates.
+Complete MCP protocol polish, move tab state from in-memory v0 to a browser-backed tab session, and route the remaining form/report tools through Trusted Tabs, safety truth, replay, and policy gates.

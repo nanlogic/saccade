@@ -92,6 +92,10 @@ struct SelftestEvidence {
     stdio_initialize: bool,
     stdio_tools_list: bool,
     stdio_tool_call: bool,
+    persistent_tabs: bool,
+    web_truth: bool,
+    web_actions: bool,
+    web_act: bool,
     normal_field_decision: PolicyDecision,
     sensitive_field_decision: PolicyDecision,
 }
@@ -141,6 +145,7 @@ fn main() -> Result<()> {
 fn serve_stdio() -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+    let mut state = McpSessionState::default();
     for line in stdin.lock().lines() {
         let line = line.context("failed to read JSON-RPC line")?;
         if line.trim().is_empty() {
@@ -148,7 +153,7 @@ fn serve_stdio() -> Result<()> {
         }
 
         let response = match serde_json::from_str::<JsonRpcRequest>(&line) {
-            Ok(request) => handle_json_rpc(request),
+            Ok(request) => handle_json_rpc(&mut state, request),
             Err(error) => Some(rpc_error(
                 Value::Null,
                 -32700,
@@ -193,7 +198,11 @@ fn selftest() -> Result<()> {
     let local_dev_audit = local_audit.findings.len() == 1
         && local_audit.actions.len() == 1
         && external_dev_url_rejected
-        && stdio_evidence.tool_call;
+        && stdio_evidence.tool_call
+        && stdio_evidence.persistent_tabs
+        && stdio_evidence.web_truth
+        && stdio_evidence.web_actions
+        && stdio_evidence.web_act;
     let evidence = SelftestEvidence {
         denied_human_input: tab_evidence.denied_human_input,
         denied_human_truth_without_grant: tab_evidence.denied_human_truth_without_grant,
@@ -205,6 +214,10 @@ fn selftest() -> Result<()> {
         stdio_initialize: stdio_evidence.initialize,
         stdio_tools_list: stdio_evidence.tools_list,
         stdio_tool_call: stdio_evidence.tool_call,
+        persistent_tabs: stdio_evidence.persistent_tabs,
+        web_truth: stdio_evidence.web_truth,
+        web_actions: stdio_evidence.web_actions,
+        web_act: stdio_evidence.web_act,
         normal_field_decision,
         sensitive_field_decision,
     };
@@ -306,7 +319,7 @@ fn registry() -> ToolRegistry {
                 "Open a URL in a Human or Agent tab under explicit ownership.",
                 true,
                 false,
-                false,
+                true,
             ),
             tool(
                 "saccade.tabs.request_user_login",
@@ -315,7 +328,7 @@ fn registry() -> ToolRegistry {
                 "Ask the user to log in in a Human tab, then expose only safe session status to Agent tabs.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.tabs.takeover",
@@ -324,7 +337,7 @@ fn registry() -> ToolRegistry {
                 "Transfer an Agent tab to human control and pause agent actions.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.tabs.pause_agent",
@@ -333,7 +346,7 @@ fn registry() -> ToolRegistry {
                 "Pause pending agent actions for a tab.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.tabs.close",
@@ -342,7 +355,7 @@ fn registry() -> ToolRegistry {
                 "Close a tab only after ownership and policy checks.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.web.truth",
@@ -351,7 +364,7 @@ fn registry() -> ToolRegistry {
                 "Return redacted browser truth for a tab and page revision.",
                 true,
                 false,
-                false,
+                true,
             ),
             tool(
                 "saccade.web.actions",
@@ -360,7 +373,7 @@ fn registry() -> ToolRegistry {
                 "Return an action map with stable action IDs and page revision basis.",
                 true,
                 false,
-                false,
+                true,
             ),
             tool(
                 "saccade.web.act",
@@ -369,7 +382,7 @@ fn registry() -> ToolRegistry {
                 "Perform one verified action by action ID and page revision basis.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.web.fill_form",
@@ -439,15 +452,52 @@ struct ToolCallParams {
     arguments: Value,
 }
 
+#[derive(Debug, Default)]
+struct McpSessionState {
+    next_tab_id: u64,
+    tabs: Vec<SessionTab>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SessionTab {
+    info: TabInfo,
+    paused: bool,
+    last_engine: Option<String>,
+    last_summary: Option<String>,
+    last_report_path: Option<String>,
+    last_replay_path: Option<String>,
+    last_actions: Vec<Value>,
+    last_findings: Vec<Value>,
+}
+
+impl McpSessionState {
+    fn allocate_tab_id(&mut self) -> TabId {
+        self.next_tab_id += 1;
+        TabId(self.next_tab_id)
+    }
+
+    fn find_tab(&self, tab_id: TabId) -> Option<&SessionTab> {
+        self.tabs.iter().find(|tab| tab.info.tab_id == tab_id)
+    }
+
+    fn find_tab_mut(&mut self, tab_id: TabId) -> Option<&mut SessionTab> {
+        self.tabs.iter_mut().find(|tab| tab.info.tab_id == tab_id)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct JsonRpcEvidence {
     initialize: bool,
     tools_list: bool,
     tool_call: bool,
+    persistent_tabs: bool,
+    web_truth: bool,
+    web_actions: bool,
+    web_act: bool,
     audit_report: String,
 }
 
-fn handle_json_rpc(request: JsonRpcRequest) -> Option<Value> {
+fn handle_json_rpc(state: &mut McpSessionState, request: JsonRpcRequest) -> Option<Value> {
     let id = request.id.clone();
     if request.method.starts_with("notifications/") {
         return None;
@@ -478,7 +528,7 @@ fn handle_json_rpc(request: JsonRpcRequest) -> Option<Value> {
             let params = serde_json::from_value::<ToolCallParams>(request.params)
                 .map_err(|error| anyhow!("invalid tools/call params: {error}"));
             params.and_then(|params| {
-                invoke_tool(&params.name, params.arguments).map(|structured| {
+                invoke_tool(state, &params.name, params.arguments).map(|structured| {
                     json!({
                         "content": [{
                             "type": "text",
@@ -539,10 +589,57 @@ fn input_schema(name: &str) -> Value {
             "type": "object",
             "properties": {
                 "url": {"type": "string"},
+                "tab_id": {"type": "integer"},
                 "engine": {"type": "string", "enum": ["servo", "static"], "default": "servo"},
                 "replay": {"type": "boolean", "default": true}
             },
+            "additionalProperties": false
+        }),
+        "saccade.tabs.open" => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "owner": {"type": "string", "enum": ["agent", "human"], "default": "agent"},
+                "read_grant": {"type": "string", "enum": ["none", "visible_summary_only", "full_truth"], "default": "none"}
+            },
             "required": ["url"],
+            "additionalProperties": false
+        }),
+        "saccade.tabs.request_user_login" => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "reason": {"type": "string"}
+            },
+            "required": ["url", "reason"],
+            "additionalProperties": false
+        }),
+        "saccade.tabs.takeover" | "saccade.tabs.pause_agent" | "saccade.tabs.close" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"}
+            },
+            "required": ["tab_id"],
+            "additionalProperties": false
+        }),
+        "saccade.web.truth" | "saccade.web.actions" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "engine": {"type": "string", "enum": ["servo", "static"], "default": "servo"}
+            },
+            "required": ["tab_id"],
+            "additionalProperties": false
+        }),
+        "saccade.web.act" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "action_id": {"type": "string"},
+                "basis_page_revision": {"type": "integer"},
+                "engine": {"type": "string", "enum": ["servo"], "default": "servo"}
+            },
+            "required": ["tab_id", "action_id", "basis_page_revision"],
             "additionalProperties": false
         }),
         _ => json!({
@@ -553,52 +650,60 @@ fn input_schema(name: &str) -> Value {
     }
 }
 
-fn invoke_tool(name: &str, arguments: Value) -> Result<Value> {
+fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Result<Value> {
     match name {
-        "saccade.dev.open_local" => open_local_tool(arguments),
-        "saccade.dev.audit_page" => audit_page_tool(arguments),
-        "saccade.tabs.list" => Ok(json!({
-            "status": "ok",
-            "summary": "stateless skeleton has no persistent tabs yet",
-            "tabs": [],
-        })),
+        "saccade.dev.open_local" => open_local_tool(state, arguments),
+        "saccade.dev.audit_page" => audit_page_tool(state, arguments),
+        "saccade.tabs.list" => tabs_list_tool(state),
+        "saccade.tabs.open" => tabs_open_tool(state, arguments),
+        "saccade.tabs.request_user_login" => tabs_request_user_login_tool(state, arguments),
+        "saccade.tabs.takeover" => tabs_takeover_tool(state, arguments),
+        "saccade.tabs.pause_agent" => tabs_pause_agent_tool(state, arguments),
+        "saccade.tabs.close" => tabs_close_tool(state, arguments),
+        "saccade.web.truth" => web_truth_tool(state, arguments),
+        "saccade.web.actions" => web_actions_tool(state, arguments),
+        "saccade.web.act" => web_act_tool(state, arguments),
         _ => bail!("tool {name:?} is registered but not implemented in mcp-stdio-v0"),
     }
 }
 
-fn open_local_tool(arguments: Value) -> Result<Value> {
+fn open_local_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let url = required_url_arg(&arguments)?;
     if !is_local_dev_url(&url) {
         bail!("saccade.dev.open_local only accepts localhost, loopback, or file URLs: {url}");
     }
 
-    let owner = arguments
-        .get("owner")
-        .and_then(Value::as_str)
-        .unwrap_or("agent");
-    let owner = match owner {
-        "agent" => TabOwner::Agent,
-        "human" => TabOwner::Human,
-        other => bail!("unsupported owner {other:?}; expected agent or human"),
-    };
-    let tab = tab(
-        (unix_ms()? % u64::MAX as u128) as u64,
+    let owner = owner_from_args(&arguments)?;
+    let tab_id = state.allocate_tab_id();
+    let info = tab(
+        tab_id.0,
         owner,
-        ReadGrant::None,
+        read_grant_from_args(&arguments)?,
         url.as_str(),
         "Saccade Local Dev",
     );
+    let tab = SessionTab {
+        info,
+        paused: false,
+        last_engine: None,
+        last_summary: None,
+        last_report_path: None,
+        last_replay_path: None,
+        last_actions: Vec::new(),
+        last_findings: Vec::new(),
+    };
+    state.tabs.push(tab.clone());
 
     Ok(json!({
         "status": "ok",
-        "summary": "local URL accepted by Saccade MCP skeleton",
-        "runtime": "stateless_mcp_skeleton",
-        "tab": tab,
+        "summary": "local URL opened in persistent Saccade MCP session state",
+        "runtime": "mcp_session_state_v0",
+        "tab": tab.info,
     }))
 }
 
-fn audit_page_tool(arguments: Value) -> Result<Value> {
-    let url = required_url_arg(&arguments)?;
+fn audit_page_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let (tab_id, url) = resolve_tab_or_url(state, &arguments)?;
     if !is_local_dev_url(&url) {
         bail!("saccade.dev.audit_page only accepts localhost, loopback, or file URLs: {url}");
     }
@@ -616,14 +721,21 @@ fn audit_page_tool(arguments: Value) -> Result<Value> {
         .unwrap_or(true);
 
     let devmax = run_devmax_audit(&url, engine, replay)?;
+    if let Some(tab_id) = tab_id {
+        update_tab_from_devmax(state, tab_id, &devmax)?;
+    }
     Ok(json!({
         "status": "ok",
         "summary": devmax.summary,
         "tool": "saccade.dev.audit_page",
         "engine": devmax.engine,
         "url": url.as_str(),
+        "tab_id": tab_id.map(|id| id.0),
+        "page_revision": devmax.page_revision,
+        "title": devmax.title,
         "findings": devmax.findings,
         "actions": devmax.actions,
+        "action_map": devmax.action_map,
         "artifacts": {
             "report": devmax.report_path,
             "replay": devmax.replay_path,
@@ -635,8 +747,12 @@ fn audit_page_tool(arguments: Value) -> Result<Value> {
 struct DevmaxToolResult {
     engine: String,
     summary: String,
+    title: String,
+    page_revision: u64,
     findings: usize,
     actions: usize,
+    action_map: Vec<Value>,
+    finding_list: Vec<Value>,
     report_path: String,
     replay_path: Option<String>,
 }
@@ -684,6 +800,15 @@ fn run_devmax_audit(url: &Url, engine: &str, replay: bool) -> Result<DevmaxToolR
             .and_then(Value::as_str)
             .unwrap_or("DEVMAX audit complete")
             .to_string(),
+        title: report
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        page_revision: report
+            .get("page_revision")
+            .and_then(Value::as_u64)
+            .unwrap_or(1),
         findings: report
             .get("findings")
             .and_then(Value::as_array)
@@ -692,9 +817,296 @@ fn run_devmax_audit(url: &Url, engine: &str, replay: bool) -> Result<DevmaxToolR
             .get("actions")
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
+        action_map: report
+            .get("actions")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        finding_list: report
+            .get("findings")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         report_path,
         replay_path,
     })
+}
+
+fn tabs_list_tool(state: &McpSessionState) -> Result<Value> {
+    Ok(json!({
+        "status": "ok",
+        "summary": format!("{} tab(s) in Saccade MCP session state", state.tabs.len()),
+        "tabs": state.tabs,
+    }))
+}
+
+fn tabs_open_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    open_local_tool(state, arguments)
+}
+
+fn tabs_request_user_login_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let url = required_url_arg(&arguments)?;
+    if !is_local_dev_url(&url) {
+        bail!("request_user_login v0 only accepts localhost, loopback, or file URLs: {url}");
+    }
+    let reason = arguments
+        .get("reason")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field reason")?;
+    let tab_id = state.allocate_tab_id();
+    let info = tab(
+        tab_id.0,
+        TabOwner::Human,
+        ReadGrant::None,
+        url.as_str(),
+        "Human Login Requested",
+    );
+    let tab = SessionTab {
+        info,
+        paused: true,
+        last_engine: None,
+        last_summary: Some(format!("user login requested: {reason}")),
+        last_report_path: None,
+        last_replay_path: None,
+        last_actions: Vec::new(),
+        last_findings: Vec::new(),
+    };
+    state.tabs.push(tab.clone());
+    Ok(json!({
+        "status": "requires_user",
+        "summary": "human login tab created; credentials remain human-only",
+        "reason": reason,
+        "tab": tab.info,
+        "agent_truth": {
+            "login_status": "pending_user",
+            "credentials_exposed": false
+        }
+    }))
+}
+
+fn tabs_takeover_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let tab = state
+        .find_tab_mut(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    tab.info.owner = TabOwner::Human;
+    tab.paused = true;
+    Ok(json!({
+        "status": "ok",
+        "summary": "tab transferred to human owner and agent paused",
+        "tab": tab,
+    }))
+}
+
+fn tabs_pause_agent_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let tab = state
+        .find_tab_mut(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    tab.paused = true;
+    Ok(json!({
+        "status": "ok",
+        "summary": "agent paused for tab",
+        "tab": tab,
+    }))
+}
+
+fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let before = state.tabs.len();
+    state.tabs.retain(|tab| tab.info.tab_id != tab_id);
+    if state.tabs.len() == before {
+        bail!("unknown tab_id {}", tab_id.0);
+    }
+    Ok(json!({
+        "status": "ok",
+        "summary": "tab closed in Saccade MCP session state",
+        "tab_id": tab_id.0,
+    }))
+}
+
+fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_truth_allowed(state, tab_id)?;
+    ensure_tab_report(state, tab_id, engine_arg(&arguments)?)?;
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+
+    let summary_only =
+        tab.info.owner == TabOwner::Human && tab.info.read_grant == ReadGrant::VisibleSummaryOnly;
+    Ok(json!({
+        "status": "ok",
+        "summary": tab.last_summary.clone().unwrap_or_else(|| "browser truth available".into()),
+        "tab_id": tab_id.0,
+        "url": tab.info.url,
+        "title": tab.info.title,
+        "page_revision": tab.info.page_revision,
+        "read_grant": tab.info.read_grant,
+        "truth": {
+            "engine": tab.last_engine,
+            "findings_count": tab.last_findings.len(),
+            "actions_count": tab.last_actions.len(),
+            "findings": if summary_only { Value::Array(Vec::new()) } else { Value::Array(tab.last_findings.clone()) },
+        },
+        "artifacts": {
+            "report": tab.last_report_path,
+            "replay": tab.last_replay_path,
+        }
+    }))
+}
+
+fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_truth_allowed(state, tab_id)?;
+    ensure_tab_report(state, tab_id, engine_arg(&arguments)?)?;
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    Ok(json!({
+        "status": "ok",
+        "summary": format!("{} action(s) in current action map", tab.last_actions.len()),
+        "tab_id": tab_id.0,
+        "page_revision": tab.info.page_revision,
+        "actions": tab.last_actions,
+        "artifacts": {
+            "report": tab.last_report_path,
+            "replay": tab.last_replay_path,
+        }
+    }))
+}
+
+fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let action_id = arguments
+        .get("action_id")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field action_id")?
+        .to_string();
+    let basis_page_revision = arguments
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("tool arguments must include integer field basis_page_revision")?;
+    ensure_agent_input_allowed(state, tab_id)?;
+    ensure_tab_report(state, tab_id, "servo")?;
+
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    if tab.info.page_revision != basis_page_revision {
+        bail!(
+            "stale action basis: requested {}, current {}",
+            basis_page_revision,
+            tab.info.page_revision
+        );
+    }
+    let first_action = tab
+        .last_actions
+        .iter()
+        .find(|action| action.get("enabled").and_then(Value::as_bool) == Some(true))
+        .cloned()
+        .context("no enabled action in current action map")?;
+    let first_action_id = first_action
+        .get("action_id")
+        .and_then(Value::as_str)
+        .context("enabled action is missing action_id")?;
+    if first_action_id != action_id {
+        bail!(
+            "web.act v0 can only verify the first enabled action {:?}; requested {:?}",
+            first_action_id,
+            action_id
+        );
+    }
+
+    let url = Url::parse(&tab.info.url).context("tab URL should parse")?;
+    let devmax = run_devmax_audit(&url, "servo", true)?;
+    update_tab_from_devmax(state, tab_id, &devmax)?;
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    Ok(json!({
+        "status": "ok",
+        "summary": "action verified through Servo-backed DEVMAX audit",
+        "tab_id": tab_id.0,
+        "action_id": action_id,
+        "basis_page_revision": basis_page_revision,
+        "new_page_revision": tab.info.page_revision,
+        "verification": {
+            "mode": "devmax_servo_first_enabled_action_v0",
+            "action_sent": true,
+            "report": tab.last_report_path,
+            "replay": tab.last_replay_path,
+        }
+    }))
+}
+
+fn update_tab_from_devmax(
+    state: &mut McpSessionState,
+    tab_id: TabId,
+    devmax: &DevmaxToolResult,
+) -> Result<()> {
+    let tab = state
+        .find_tab_mut(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    tab.info.title = if devmax.title.is_empty() {
+        tab.info.title.clone()
+    } else {
+        Some(devmax.title.clone())
+    };
+    tab.info.page_revision += 1;
+    tab.last_engine = Some(devmax.engine.clone());
+    tab.last_summary = Some(devmax.summary.clone());
+    tab.last_report_path = Some(devmax.report_path.clone());
+    tab.last_replay_path = devmax.replay_path.clone();
+    tab.last_actions = devmax.action_map.clone();
+    tab.last_findings = devmax.finding_list.clone();
+    Ok(())
+}
+
+fn ensure_tab_report(state: &mut McpSessionState, tab_id: TabId, engine: &str) -> Result<()> {
+    let needs_report = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .last_report_path
+        .is_none();
+    if !needs_report {
+        return Ok(());
+    }
+
+    let url = {
+        let tab = state
+            .find_tab(tab_id)
+            .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        Url::parse(&tab.info.url).context("tab URL should parse")?
+    };
+    if !is_local_dev_url(&url) {
+        bail!("web truth/action v0 only supports local dev URLs: {url}");
+    }
+    let devmax = run_devmax_audit(&url, engine, true)?;
+    update_tab_from_devmax(state, tab_id, &devmax)
+}
+
+fn ensure_truth_allowed(state: &McpSessionState, tab_id: TabId) -> Result<()> {
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    if !tab.info.agent_truth_allowed() {
+        bail!("agent truth is denied for tab_id {}", tab_id.0);
+    }
+    Ok(())
+}
+
+fn ensure_agent_input_allowed(state: &McpSessionState, tab_id: TabId) -> Result<()> {
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    if tab.paused {
+        bail!("agent is paused for tab_id {}", tab_id.0);
+    }
+    if !tab.info.agent_input_allowed() {
+        bail!("agent input is denied for tab_id {}", tab_id.0);
+    }
+    Ok(())
 }
 
 fn parse_output_value(output: &str, prefix: &str) -> Option<String> {
@@ -712,6 +1124,62 @@ fn required_url_arg(arguments: &Value) -> Result<Url> {
     Url::parse(url).with_context(|| format!("invalid URL argument: {url}"))
 }
 
+fn required_tab_id_arg(arguments: &Value) -> Result<TabId> {
+    let id = arguments
+        .get("tab_id")
+        .and_then(Value::as_u64)
+        .context("tool arguments must include integer field tab_id")?;
+    Ok(TabId(id))
+}
+
+fn owner_from_args(arguments: &Value) -> Result<TabOwner> {
+    let owner = arguments
+        .get("owner")
+        .and_then(Value::as_str)
+        .unwrap_or("agent");
+    match owner {
+        "agent" => Ok(TabOwner::Agent),
+        "human" => Ok(TabOwner::Human),
+        other => bail!("unsupported owner {other:?}; expected agent or human"),
+    }
+}
+
+fn read_grant_from_args(arguments: &Value) -> Result<ReadGrant> {
+    let read_grant = arguments
+        .get("read_grant")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+    match read_grant {
+        "none" => Ok(ReadGrant::None),
+        "visible_summary_only" => Ok(ReadGrant::VisibleSummaryOnly),
+        "full_truth" => Ok(ReadGrant::FullTruth),
+        other => bail!("unsupported read_grant {other:?}"),
+    }
+}
+
+fn engine_arg(arguments: &Value) -> Result<&str> {
+    let engine = arguments
+        .get("engine")
+        .and_then(Value::as_str)
+        .unwrap_or("servo");
+    if !matches!(engine, "servo" | "static") {
+        bail!("unsupported engine {engine:?}; expected servo or static");
+    }
+    Ok(engine)
+}
+
+fn resolve_tab_or_url(state: &McpSessionState, arguments: &Value) -> Result<(Option<TabId>, Url)> {
+    if let Some(tab_id) = arguments.get("tab_id").and_then(Value::as_u64).map(TabId) {
+        let tab = state
+            .find_tab(tab_id)
+            .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        let url = Url::parse(&tab.info.url).context("tab URL should parse")?;
+        return Ok((Some(tab_id), url));
+    }
+
+    Ok((None, required_url_arg(arguments)?))
+}
+
 fn tool_text_summary(structured: &Value) -> String {
     structured
         .get("summary")
@@ -721,11 +1189,15 @@ fn tool_text_summary(structured: &Value) -> String {
 }
 
 fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
-    let initialize = handle_json_rpc(JsonRpcRequest {
-        id: Some(json!(1)),
-        method: "initialize".into(),
-        params: json!({}),
-    })
+    let mut state = McpSessionState::default();
+    let initialize = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(1)),
+            method: "initialize".into(),
+            params: json!({}),
+        },
+    )
     .and_then(|response| {
         response
             .get("result")
@@ -734,11 +1206,14 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
     })
     .is_some();
 
-    let tools_list = handle_json_rpc(JsonRpcRequest {
-        id: Some(json!(2)),
-        method: "tools/list".into(),
-        params: json!({}),
-    })
+    let tools_list = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(2)),
+            method: "tools/list".into(),
+            params: json!({}),
+        },
+    )
     .and_then(|response| {
         response
             .get("result")
@@ -752,20 +1227,69 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         workspace_root()?
             .join("test_pages")
             .join("devmax")
-            .join("blank_page"),
+            .join("button_no_handler"),
     )?;
-    let tool_call_response = handle_json_rpc(JsonRpcRequest {
-        id: Some(json!(3)),
-        method: "tools/call".into(),
-        params: json!({
-            "name": "saccade.dev.audit_page",
-            "arguments": {
-                "url": local_url.as_str(),
-                "engine": "static",
-                "replay": true
-            }
-        }),
-    });
+    let open_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(3)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.dev.open_local",
+                "arguments": {
+                    "url": local_url.as_str(),
+                    "owner": "agent"
+                }
+            }),
+        },
+    );
+    let tab_id = open_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("tab"))
+                .and_then(|tab| tab.get("tab_id"))
+                .and_then(Value::as_u64)
+        })
+        .context("open_local selftest did not return tab_id")?;
+    let persistent_tabs = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(4)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.tabs.list",
+                "arguments": {}
+            }),
+        },
+    )
+    .and_then(|response| {
+        response
+            .get("result")
+            .and_then(|result| result.get("structuredContent"))
+            .and_then(|content| content.get("tabs"))
+            .and_then(Value::as_array)
+            .map(|tabs| tabs.len() == 1)
+    })
+    .unwrap_or(false);
+
+    let tool_call_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(5)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.dev.audit_page",
+                "arguments": {
+                    "tab_id": tab_id,
+                    "engine": "static",
+                    "replay": true
+                }
+            }),
+        },
+    );
     let tool_call = tool_call_response
         .as_ref()
         .and_then(|response| {
@@ -789,11 +1313,116 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         })
         .unwrap_or("")
         .to_string();
+    let web_truth = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(6)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.truth",
+                "arguments": {
+                    "tab_id": tab_id,
+                    "engine": "static"
+                }
+            }),
+        },
+    )
+    .and_then(|response| {
+        response
+            .get("result")
+            .and_then(|result| result.get("structuredContent"))
+            .and_then(|content| content.get("truth"))
+            .and_then(|truth| truth.get("actions_count"))
+            .and_then(Value::as_u64)
+            .map(|count| count >= 1)
+    })
+    .unwrap_or(false);
+
+    let actions_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(7)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.actions",
+                "arguments": {
+                    "tab_id": tab_id,
+                    "engine": "static"
+                }
+            }),
+        },
+    );
+    let web_actions = actions_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("actions"))
+                .and_then(Value::as_array)
+                .map(|actions| !actions.is_empty())
+        })
+        .unwrap_or(false);
+    let action_id = actions_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("actions"))
+                .and_then(Value::as_array)
+                .and_then(|actions| actions.first())
+                .and_then(|action| action.get("action_id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("")
+        .to_string();
+    let basis_page_revision = actions_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("page_revision"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(0);
+    let web_act = !action_id.is_empty()
+        && basis_page_revision > 0
+        && handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(8)),
+                method: "tools/call".into(),
+                params: json!({
+                    "name": "saccade.web.act",
+                    "arguments": {
+                        "tab_id": tab_id,
+                        "action_id": action_id,
+                        "basis_page_revision": basis_page_revision,
+                        "engine": "servo"
+                    }
+                }),
+            },
+        )
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("status"))
+                .and_then(Value::as_str)
+                .map(|status| status == "ok")
+        })
+        .unwrap_or(false);
 
     Ok(JsonRpcEvidence {
         initialize,
         tools_list,
         tool_call,
+        persistent_tabs,
+        web_truth,
+        web_actions,
+        web_act,
         audit_report,
     })
 }
