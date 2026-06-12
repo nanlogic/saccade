@@ -151,3 +151,10 @@
 - `console_error` is now covered by the Servo gate from a real delegate console error.
 - `missing_asset` is now covered by the Servo gate from a non-main-frame image resource request. This captures request metadata, not final HTTP status code yet.
 - `devmax selftest-servo-fixtures` passed with `total=8 detected=8 false_positives=0`.
+
+## N3 - MCP skeleton
+
+- Added `saccade-mcp` as the first agent-facing tool surface.
+- The skeleton registers `saccade.dev.*`, `saccade.tabs.*`, `saccade.web.*`, and `saccade.report.*` tool names with compact JSON/artifact-path return policy.
+- `saccade-mcp selftest` verifies tool count, tab scoping, loopback-only local dev audit acceptance, and sensitive-field policy gating.
+- This is not yet a full MCP transport server. The next step is wiring the registered tools to stdio/HTTP transport and routing `saccade.dev.audit_page` through DEVMAX.

@@ -11,6 +11,7 @@ members = [
   "bins/saccade-shell",
   "bins/devmax",
   "bins/formmax",
+  "bins/saccade-mcp",
 ]
 default-members = [
   "crates/saccade_core",

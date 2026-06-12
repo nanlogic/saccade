@@ -5463,6 +5463,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "saccade-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "saccade_core",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "saccade-shell"
 version = "0.1.0"
 dependencies = [
