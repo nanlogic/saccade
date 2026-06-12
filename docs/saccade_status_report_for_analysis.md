@@ -147,7 +147,7 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 ## What Is Not Proven Yet
 
 - Linux/X11 has not yet repeated the M7 real-site gate.
-- FORMMAX still uses fixture-side DOM writes for most table fields. Native keyboard input is integrated for one text field, not yet for number/date/select/checkbox coverage.
+- FORMMAX still uses fixture-side DOM writes for most table fields. Native keyboard input is integrated for one text field. Native select/dropdown handoff is proven separately, but not yet integrated into the FORMMAX `owner` field; number/date/checkbox coverage is still pending.
 - M11 does not yet fill PDFs through the browser PDF viewer. It uses a programmatic AcroForm path.
 - Sensitive-field confirmation is represented by policy and offline tests. It does not yet have a live user confirmation UI.
 - Replay timestamps measure when Servo input dispatch returned, not when page JavaScript processed the event.
@@ -157,7 +157,7 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 1. Run the M7 gate on Linux/X11.
 2. Continue N2 login handoff: Human tab logs in, Agent tab inherits the session without seeing passwords or OTP.
 3. Start DEVMAX local agent self-test fixtures.
-4. Expand native input-event typing across FORMMAX control types and add comparison baselines.
+4. Integrate proven native select/dropdown handling into FORMMAX, then expand number/date/checkbox coverage and add comparison baselines.
 5. Add a user confirmation UI for sensitive fields.
 6. Add a public-facing report page that links the M7 artifact, click map, validator output, and caveats.
 

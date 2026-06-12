@@ -6,9 +6,9 @@ use anyhow::{Context, Result, bail};
 use euclid::{Point2D, Scale};
 use serde_json::Value;
 use servo::{
-    CSSPixel, InputEvent, InputEventId, InputEventResult, JSValue, Key, KeyState, KeyboardEvent,
-    LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext,
-    Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate, WebViewPoint,
+    CSSPixel, EmbedderControl, InputEvent, InputEventId, InputEventResult, JSValue, Key, KeyState,
+    KeyboardEvent, LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent,
+    RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate, WebViewPoint,
     WindowRenderingContext,
 };
 use url::Url;
@@ -22,6 +22,8 @@ use winit::window::Window;
 const WINDOW_WIDTH: u32 = 800;
 const WINDOW_HEIGHT: u32 = 500;
 const EXPECTED_TEXT: &str = "saccade42";
+const EXPECTED_SELECT_VALUE: &str = "gamma";
+const EXPECTED_SELECT_INDEX: usize = 2;
 const INPUT_TIMEOUT: Duration = Duration::from_secs(20);
 const FOCUS_SETTLE: Duration = Duration::from_millis(140);
 const VALUE_SETTLE: Duration = Duration::from_millis(180);
@@ -40,6 +42,14 @@ pub struct NativeInputProfile {
     pub handled_keyboard_events: usize,
     pub consumed_keyboard_events: usize,
     pub dispatch_failed_keyboard_events: usize,
+    pub select_focused: bool,
+    pub select_value: String,
+    pub expected_select_value: String,
+    pub select_input_events: usize,
+    pub select_change_events: usize,
+    pub select_controls_shown: usize,
+    pub select_options_seen: usize,
+    pub select_requested_index: usize,
 }
 
 pub fn selftest_native_input(url: Url) -> Result<NativeInputProfile> {
@@ -66,6 +76,8 @@ enum Phase {
     WaitReadyProbe,
     WaitFocus,
     WaitValue,
+    WaitSelectReadyProbe,
+    WaitSelectValue,
     Done,
 }
 
@@ -94,6 +106,10 @@ struct NativeInputState {
     probe_requested: Cell<bool>,
     sent_inputs: RefCell<Vec<SentInput>>,
     handled_inputs: RefCell<Vec<HandledInput>>,
+    text_profile: RefCell<Option<NativeInputProfile>>,
+    select_controls_shown: Cell<usize>,
+    select_options_seen: Cell<usize>,
+    select_requested_index: Cell<usize>,
     pending_probe: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     result: Rc<RefCell<Option<std::result::Result<NativeInputProfile, String>>>>,
 }
@@ -121,6 +137,17 @@ impl WebViewDelegate for NativeInputState {
             consumed: result.contains(InputEventResult::Consumed),
             dispatch_failed: result.contains(InputEventResult::DispatchFailed),
         });
+    }
+
+    fn show_embedder_control(&self, _webview: WebView, embedder_control: EmbedderControl) {
+        if let EmbedderControl::SelectElement(mut select) = embedder_control {
+            self.select_controls_shown
+                .set(self.select_controls_shown.get() + 1);
+            self.select_options_seen.set(select.options().len());
+            self.select_requested_index.set(EXPECTED_SELECT_INDEX);
+            select.select(vec![EXPECTED_SELECT_INDEX]);
+            select.submit();
+        }
     }
 }
 
@@ -174,7 +201,7 @@ impl NativeInputApp {
                 if webview.load_status() == LoadStatus::Complete
                     && webview.page_title().as_deref() == Some("Native Input")
                 {
-                    request_probe(&state, &webview);
+                    request_text_probe(&state, &webview);
                     set_phase(&state, Phase::WaitReadyProbe);
                 }
             }
@@ -203,7 +230,7 @@ impl NativeInputApp {
                 }
 
                 if !state.probe_requested.get() {
-                    request_probe(&state, &webview);
+                    request_text_probe(&state, &webview);
                     return;
                 }
 
@@ -241,7 +268,7 @@ impl NativeInputApp {
                 }
 
                 if !state.probe_requested.get() {
-                    request_probe(&state, &webview);
+                    request_text_probe(&state, &webview);
                     return;
                 }
 
@@ -262,6 +289,79 @@ impl NativeInputApp {
                     && profile.keyup_events >= EXPECTED_TEXT.len()
                     && profile.dispatch_failed_keyboard_events == 0
                 {
+                    *state.text_profile.borrow_mut() = Some(profile);
+                    request_select_probe(&state, &webview);
+                    set_phase(&state, Phase::WaitSelectReadyProbe);
+                    return;
+                }
+
+                if state.phase_started_at.borrow().elapsed() > Duration::from_secs(3) {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("native keyboard input did not settle: {profile:?}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                }
+
+                state.probe_requested.set(false);
+                *state.phase_started_at.borrow_mut() = Instant::now() - VALUE_SETTLE + RETRY_SETTLE;
+            }
+            Phase::WaitSelectReadyProbe => {
+                let Some(text) = finish_probe(&state.pending_probe) else {
+                    return;
+                };
+                let Ok(probe) = parse_probe(&text) else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("invalid select ready probe: {text}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                };
+
+                let Some((x, y)) = probe_input_center(&probe) else {
+                    finish_err(&state, event_loop, format!("missing select rect: {probe}"));
+                    *self = Self::Finished;
+                    return;
+                };
+
+                click_probe_input(&state, &webview, x, y);
+                set_phase(&state, Phase::WaitSelectValue);
+            }
+            Phase::WaitSelectValue => {
+                if state.phase_started_at.borrow().elapsed() < VALUE_SETTLE {
+                    return;
+                }
+
+                if !state.probe_requested.get() {
+                    request_select_probe(&state, &webview);
+                    return;
+                }
+
+                let Some(text) = finish_probe(&state.pending_probe) else {
+                    return;
+                };
+                let Ok(probe) = parse_probe(&text) else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("invalid select value probe: {text}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                };
+
+                let profile = profile_with_select_probe(&state, &probe);
+                if profile.select_value == EXPECTED_SELECT_VALUE
+                    && profile.select_focused
+                    && profile.select_controls_shown >= 1
+                    && profile.select_options_seen >= 3
+                    && profile.select_input_events >= 1
+                    && profile.select_change_events >= 1
+                {
                     finish_ok(&state, event_loop, profile);
                     state.phase.set(Phase::Done);
                     *self = Self::Finished;
@@ -272,7 +372,7 @@ impl NativeInputApp {
                     finish_err(
                         &state,
                         event_loop,
-                        format!("native keyboard input did not settle: {profile:?}"),
+                        format!("native select input did not settle: {profile:?}"),
                     );
                     *self = Self::Finished;
                     return;
@@ -362,6 +462,10 @@ impl ApplicationHandler<WakerEvent> for NativeInputApp {
             probe_requested: Cell::new(false),
             sent_inputs: RefCell::new(Vec::new()),
             handled_inputs: RefCell::new(Vec::new()),
+            text_profile: RefCell::new(None),
+            select_controls_shown: Cell::new(0),
+            select_options_seen: Cell::new(0),
+            select_requested_index: Cell::new(usize::MAX),
             pending_probe: Rc::new(RefCell::new(None)),
             result: result.clone(),
         });
@@ -475,11 +579,20 @@ fn record_sent(state: &Rc<NativeInputState>, id: InputEventId, label: &'static s
     state.sent_inputs.borrow_mut().push(SentInput { id, label });
 }
 
-fn request_probe(state: &Rc<NativeInputState>, webview: &WebView) {
+fn request_text_probe(state: &Rc<NativeInputState>, webview: &WebView) {
     *state.pending_probe.borrow_mut() = None;
     state.probe_requested.set(true);
     let pending = state.pending_probe.clone();
-    webview.evaluate_javascript(PROBE_JS, move |result| {
+    webview.evaluate_javascript(TEXT_PROBE_JS, move |result| {
+        *pending.borrow_mut() = Some(js_result_to_string(result));
+    });
+}
+
+fn request_select_probe(state: &Rc<NativeInputState>, webview: &WebView) {
+    *state.pending_probe.borrow_mut() = None;
+    state.probe_requested.set(true);
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(SELECT_PROBE_JS, move |result| {
         *pending.borrow_mut() = Some(js_result_to_string(result));
     });
 }
@@ -540,7 +653,39 @@ fn profile_from_probe(state: &Rc<NativeInputState>, probe: &Value) -> NativeInpu
             .iter()
             .filter(|event| event.dispatch_failed)
             .count(),
+        select_focused: false,
+        select_value: String::new(),
+        expected_select_value: EXPECTED_SELECT_VALUE.to_string(),
+        select_input_events: 0,
+        select_change_events: 0,
+        select_controls_shown: state.select_controls_shown.get(),
+        select_options_seen: state.select_options_seen.get(),
+        select_requested_index: state.select_requested_index.get(),
     }
+}
+
+fn profile_with_select_probe(state: &Rc<NativeInputState>, probe: &Value) -> NativeInputProfile {
+    let mut profile = state
+        .text_profile
+        .borrow()
+        .clone()
+        .unwrap_or_else(|| profile_from_probe(state, probe));
+    profile.select_focused = probe
+        .get("focused")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    profile.select_value = probe
+        .get("value")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    profile.expected_select_value = EXPECTED_SELECT_VALUE.to_string();
+    profile.select_input_events = count_probe_event(probe, "input");
+    profile.select_change_events = count_probe_event(probe, "change");
+    profile.select_controls_shown = state.select_controls_shown.get();
+    profile.select_options_seen = state.select_options_seen.get();
+    profile.select_requested_index = state.select_requested_index.get();
+    profile
 }
 
 fn count_probe_event(probe: &Value, name: &str) -> usize {
@@ -591,12 +736,21 @@ fn set_phase(state: &Rc<NativeInputState>, phase: Phase) {
     state.probe_requested.set(false);
 }
 
-const PROBE_JS: &str = r#"
+const TEXT_PROBE_JS: &str = r#"
 (() => {
   if (!window.__NATIVE_INPUT_PROBE) {
     return JSON.stringify({ ready: false });
   }
   return window.__NATIVE_INPUT_PROBE();
+})()
+"#;
+
+const SELECT_PROBE_JS: &str = r#"
+(() => {
+  if (!window.__NATIVE_SELECT_PROBE) {
+    return JSON.stringify({ ready: false });
+  }
+  return window.__NATIVE_SELECT_PROBE();
 })()
 "#;
 

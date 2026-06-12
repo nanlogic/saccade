@@ -133,12 +133,17 @@ fn selftest_native_input() -> Result<()> {
         || profile.input_events < profile.expected_value.len()
         || profile.keyup_events < profile.expected_value.len()
         || profile.dispatch_failed_keyboard_events != 0
+        || profile.select_value != profile.expected_select_value
+        || !profile.select_focused
+        || profile.select_controls_shown < 1
+        || profile.select_input_events < 1
+        || profile.select_change_events < 1
     {
         bail!("native input selftest failed: {profile:?}");
     }
 
     println!(
-        "NATIVE_INPUT PASS focused={} value_len={} keydown={} keypress={} beforeinput={} input={} keyup={} handled_keyboard={} consumed_keyboard={} dispatch_failed={}",
+        "NATIVE_INPUT PASS focused={} value_len={} keydown={} keypress={} beforeinput={} input={} keyup={} handled_keyboard={} consumed_keyboard={} dispatch_failed={} select_value={} select_input={} select_change={} select_controls={}",
         profile.focused,
         profile.value.len(),
         profile.keydown_events,
@@ -149,6 +154,10 @@ fn selftest_native_input() -> Result<()> {
         profile.handled_keyboard_events,
         profile.consumed_keyboard_events,
         profile.dispatch_failed_keyboard_events,
+        profile.select_value,
+        profile.select_input_events,
+        profile.select_change_events,
+        profile.select_controls_shown,
     );
     Ok(())
 }

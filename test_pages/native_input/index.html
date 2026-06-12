@@ -28,7 +28,8 @@
         font-weight: 650;
       }
 
-      input {
+      input,
+      select {
         box-sizing: border-box;
         width: 360px;
         height: 48px;
@@ -40,7 +41,8 @@
         font-size: 20px;
       }
 
-      input:focus {
+      input:focus,
+      select:focus {
         border-color: #1668e3;
         outline: 3px solid rgba(22, 104, 227, 0.25);
       }
@@ -62,14 +64,22 @@
     <main>
       <label for="probe">Native keyboard probe</label>
       <input id="probe" name="probe" autocomplete="off" spellcheck="false">
+      <label for="choice">Native dropdown probe</label>
+      <select id="choice" name="choice">
+        <option value="alpha">Alpha</option>
+        <option value="beta">Beta</option>
+        <option value="gamma">Gamma</option>
+      </select>
       <pre id="log">[]</pre>
     </main>
     <script>
       (() => {
         const input = document.getElementById("probe");
+        const select = document.getElementById("choice");
         const log = document.getElementById("log");
         const state = {
           events: [],
+          selectEvents: [],
         };
 
         function record(event) {
@@ -81,6 +91,20 @@
             valueLength: input.value.length,
           });
           log.textContent = JSON.stringify(state.events, null, 2);
+        }
+
+        function recordSelect(event) {
+          state.selectEvents.push({
+            type: event.type,
+            key: event.key || null,
+            target: event.target ? event.target.id : null,
+            value: select.value,
+            selectedIndex: select.selectedIndex,
+          });
+          log.textContent = JSON.stringify({
+            text: state.events,
+            select: state.selectEvents,
+          }, null, 2);
         }
 
         [
@@ -95,6 +119,14 @@
           "keyup",
           "change",
         ].forEach((type) => input.addEventListener(type, record));
+        [
+          "mousedown",
+          "mouseup",
+          "click",
+          "focus",
+          "input",
+          "change",
+        ].forEach((type) => select.addEventListener(type, recordSelect));
 
         window.__NATIVE_INPUT = state;
         window.__NATIVE_INPUT_PROBE = () => {
@@ -118,6 +150,28 @@
             events: state.events,
             selectionStart: input.selectionStart,
             selectionEnd: input.selectionEnd,
+          });
+        };
+        window.__NATIVE_SELECT_PROBE = () => {
+          const counts = {};
+          for (const event of state.selectEvents) {
+            counts[event.type] = (counts[event.type] || 0) + 1;
+          }
+          const rect = select.getBoundingClientRect();
+          return JSON.stringify({
+            ready: true,
+            activeId: document.activeElement ? document.activeElement.id : null,
+            focused: document.activeElement === select,
+            value: select.value,
+            selectedIndex: select.selectedIndex,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            },
+            counts,
+            events: state.selectEvents,
           });
         };
       })();

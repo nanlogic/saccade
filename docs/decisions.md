@@ -71,8 +71,9 @@
 
 - Added `test_pages/native_input/` and `saccade-shell selftest-native-input`.
 - The selftest measures a real `<input>` rect, clicks its center through Saccade's native mouse path, types `saccade42` with `InputEvent::Keyboard`, then verifies focus, DOM value, keyboard/input event counts, and zero keyboard dispatch failures.
+- The same selftest now measures and clicks a real `<select>`. Servo raises `EmbedderControl::SelectElement`; Saccade selects option index `2`, submits it back to Servo, and verifies `select_value=gamma`, `input=1`, and `change=1`.
 - Pinned Servo `0.2.0` emits `keydown`, `keypress`, `input`, and `keyup` for this path, but not `beforeinput`. `InputEventResult::Consumed` stays false despite successful DOM input, so verification should rely on DOM state, replay evidence, and dispatch-failure checks.
-- The gate passed three consecutive local runs. This proves native keyboard text entry is available; FORMMAX now uses it for one real text field and still needs broader control coverage.
+- The gate passed three consecutive local runs. This proves native keyboard text entry and native select/dropdown handoff are available; FORMMAX now uses text entry for one real text field and still needs select/dropdown integration for the `owner` field.
 
 ## M11 - PDF and sensitive gate feasibility
 

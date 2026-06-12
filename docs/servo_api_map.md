@@ -24,6 +24,7 @@ Dependency alignment from `cargo tree -p saccade_browser`:
 - Input: `InputEvent::MouseMove(MouseMoveEvent::new(point: WebViewPoint))`; `InputEvent::MouseButton(MouseButtonEvent::new(action: MouseButtonAction, button: MouseButton, point: WebViewPoint))`.
 - Keyboard input: `InputEvent::Keyboard(KeyboardEvent::from_state_and_key(KeyState::Down, Key::Character(text)))` and the matching `KeyState::Up` event inserted ASCII text into a focused `<input>` in the native input selftest.
 - Input handling callback: `WebViewDelegate::notify_input_event_handled(&self, WebView, InputEventId, InputEventResult)` is delivered after `WebView::notify_input_event(...)`; `InputEventResult::DispatchFailed` is the failure flag to gate on. In the native input selftest, `Consumed` remained false even though the DOM value updated.
+- Select/dropdown control: a trusted click on `<select>` causes `WebViewDelegate::show_embedder_control(&self, WebView, EmbedderControl::SelectElement(...))`; Saccade can call `select.select(vec![index])` and `select.submit()` to send the chosen option back to Servo.
 - Input point unit: `WebViewPoint`, which is either `WebViewPoint::Device(DevicePoint)` or `WebViewPoint::Page(Point2D<f32, CSSPixel>)`. Servo's own tests pass `DevicePoint` converted with `.into()`.
 - JS probe: `WebView::evaluate_javascript(script, callback)` where callback is `FnOnce(Result<JSValue, JavaScriptEvaluationError>) + 'static`.
 - Screenshot: `WebView::take_screenshot(rect: Option<WebViewRect>, callback: FnOnce(Result<RgbaImage, ScreenshotCaptureError>) + 'static)`.
@@ -41,8 +42,8 @@ BOOT OK title="Calibration"
 
 ## Native keyboard input result
 
-`cargo run -q -p saccade-shell -- selftest-native-input` opened `test_pages/native_input/index.html`, clicked the input using native mouse events, typed `saccade42` with native keyboard events, and printed:
+`cargo run -q -p saccade-shell -- selftest-native-input` opened `test_pages/native_input/index.html`, clicked the input using native mouse events, typed `saccade42` with native keyboard events, clicked a select, handled `EmbedderControl::SelectElement`, selected `gamma`, and printed:
 
 ```text
-NATIVE_INPUT PASS focused=true value_len=9 keydown=9 keypress=9 beforeinput=0 input=9 keyup=9 handled_keyboard=18 consumed_keyboard=0 dispatch_failed=0
+NATIVE_INPUT PASS focused=true value_len=9 keydown=9 keypress=9 beforeinput=0 input=9 keyup=9 handled_keyboard=18 consumed_keyboard=0 dispatch_failed=0 select_value=gamma select_input=1 select_change=1 select_controls=1
 ```
