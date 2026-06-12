@@ -86,3 +86,10 @@
 - Added 16 deterministic local fixtures for common agent-built UI failures: blank page, console error, hydration error, missing asset, invisible text, overlap, offscreen action, no handler, broken validation, lazy route error, hidden submit, mobile break, blocking modal, blank canvas, z-index overlay, and wrong success state.
 - The first engine is explicitly `static-fixture-v0`. It validates the CLI, report schema, fixture corpus, and replay artifact shape. It is not yet a Servo rendered-truth audit.
 - The N2 gate passed with `total=16 detected=16 false_positives=0`.
+
+## N2B - DEVMAX Servo rendered probe
+
+- Added `saccade_browser::devmax_probe` as the first DEVMAX browser-truth boundary. It opens a URL in Servo and returns compact JSON for title, URL, viewport, body content, interactive element rectangles, offscreen controls, computed text colors, and overlay blockers.
+- Added `devmax audit --engine servo --url <http://...> --replay`.
+- Added `devmax selftest-servo-fixtures`; because pinned Servo/winit cannot recreate an event loop in one process, this selftest runs each Servo audit in a child process.
+- The Servo probe gate passed with `total=4 detected=4 false_positives=0` for blank page, invisible text, offscreen button, and modal-blocked action.

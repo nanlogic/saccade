@@ -15,7 +15,7 @@ cargo run -q -p devmax -- selftest-fixtures
 Observed output:
 
 ```text
-DEVMAX FIXTURES PASS total=16 detected=16 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/selftest_1781221142060
+DEVMAX FIXTURES PASS total=16 detected=16 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/selftest_1781223226289
 ```
 
 The live audit command also passed against a local fixture server:
@@ -28,6 +28,18 @@ Observed output:
 
 ```text
 DEVMAX AUDIT PASS report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/audit_1781221056481/report.json replay=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/audit_1781221056481/replay.jsonl findings=1
+```
+
+Servo-backed probe gate now also passes:
+
+```bash
+cargo run -q -p devmax -- selftest-servo-fixtures
+```
+
+Observed output:
+
+```text
+DEVMAX SERVO FIXTURES PASS total=4 detected=4 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781223226303
 ```
 
 ## What Was Built
@@ -80,12 +92,12 @@ Each fixture also writes a replay JSONL with run-start, finding, and run-finishe
 
 ## Scope
 
-This is `engine=static-fixture-v0`.
+The first gate is `engine=static-fixture-v0`; the new browser-backed path is `engine=servo-rendered-probe-v0`.
 
-It proves the DEVMAX CLI/report contract and fixture gate. It does not yet claim full rendered truth, screenshots, computed layout, browser console capture, or click verification through Servo.
+Together they prove the DEVMAX CLI/report contract, fixture corpus, replay artifact shape, and first browser-computed layout/style truth path. DEVMAX still does not yet claim screenshot pixels, browser console/network capture, or click verification through Servo.
 
 Next DEVMAX step:
 
 ```text
-Replace static fixture markers with Servo-backed rendered truth and actionability checks.
+Expand Servo-backed truth to more fixtures, then add screenshot pixels and browser-side console/network capture.
 ```

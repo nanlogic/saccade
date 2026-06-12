@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,6 +17,13 @@ const ENGINE: &str = "static-fixture-v0";
 const REQUIRED_FIXTURE_TOTAL: usize = 16;
 const MIN_DETECTED: usize = 14;
 const MAX_FALSE_POSITIVES: usize = 1;
+const SERVO_ENGINE: &str = "servo-rendered-probe-v0";
+const SERVO_FIXTURES: &[&str] = &[
+    "blank_page",
+    "invisible_text",
+    "offscreen_button",
+    "modal_blocks_page",
+];
 
 const FIXTURES: &[&str] = &[
     "blank_page",
@@ -49,10 +57,13 @@ enum Command {
     Audit {
         #[arg(long)]
         url: Url,
+        #[arg(long, default_value = "static")]
+        engine: String,
         #[arg(long)]
         replay: bool,
     },
     SelftestFixtures,
+    SelftestServoFixtures,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,19 +166,33 @@ struct SelftestSummary {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Audit { url, replay } => audit(url, replay),
+        Command::Audit {
+            url,
+            engine,
+            replay,
+        } => audit(url, engine, replay),
         Command::SelftestFixtures => selftest_fixtures(),
+        Command::SelftestServoFixtures => selftest_servo_fixtures(),
     }
 }
 
-fn audit(url: Url, replay: bool) -> Result<()> {
+fn audit(url: Url, engine: String, replay: bool) -> Result<()> {
     let run_id = format!("audit_{}", unix_ms()?);
     let output_dir = workspace_root()?.join("runs").join("devmax").join(&run_id);
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("failed to create {}", output_dir.display()))?;
 
-    let html = fetch_http_body(&url).with_context(|| format!("failed to fetch {url}"))?;
-    let mut report = analyze_html(run_id.clone(), url.clone(), &html, None)?;
+    let mut report = match engine.as_str() {
+        "static" => {
+            let html = fetch_http_body(&url).with_context(|| format!("failed to fetch {url}"))?;
+            analyze_html(run_id.clone(), url.clone(), &html, None)?
+        }
+        "servo" => {
+            let probe = saccade_browser::devmax_probe(url.clone())?;
+            analyze_servo_probe(run_id.clone(), url.clone(), probe)?
+        }
+        other => bail!("unsupported DEVMAX engine {other:?}; expected static or servo"),
+    };
     let report_path = output_dir.join("report.json");
     let replay_path = output_dir.join("replay.jsonl");
     report.artifacts.report = Some(report_path.display().to_string());
@@ -176,13 +201,7 @@ fn audit(url: Url, replay: bool) -> Result<()> {
     }
     write_report(&report_path, &report)?;
     if replay {
-        write_replay(
-            &replay_path,
-            &run_id,
-            &url,
-            &expected_from_html(&html).unwrap_or_else(|| "unknown".into()),
-            &report,
-        )?;
+        write_replay(&replay_path, &run_id, &url, "unknown", &report)?;
     }
 
     println!(
@@ -291,6 +310,126 @@ fn selftest_fixtures() -> Result<()> {
         output_dir.display(),
     );
     Ok(())
+}
+
+fn selftest_servo_fixtures() -> Result<()> {
+    let workspace = workspace_root()?;
+    let fixture_root = workspace.join("test_pages").join("devmax");
+    let base_url = start_test_server(fixture_root)?;
+    let run_id = format!("servo_selftest_{}", unix_ms()?);
+    let output_dir = workspace.join("runs").join("devmax").join(&run_id);
+    fs::create_dir_all(&output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+
+    let mut cases = Vec::new();
+    let mut detected = 0;
+    let mut false_positives = 0;
+
+    for fixture in SERVO_FIXTURES {
+        let url = base_url
+            .join(&format!("{fixture}/index.html"))
+            .with_context(|| format!("failed to build URL for fixture {fixture}"))?;
+        let html = fetch_http_body(&url).with_context(|| format!("failed to fetch {url}"))?;
+        let expected = expected_from_html(&html)
+            .with_context(|| format!("fixture {fixture} is missing devmax expected metadata"))?;
+        let (report_path, replay_path) =
+            run_servo_audit_child(&url).with_context(|| format!("Servo audit failed for {url}"))?;
+        let report: DevmaxReport = serde_json::from_str(
+            &fs::read_to_string(&report_path)
+                .with_context(|| format!("failed to read {}", report_path.display()))?,
+        )
+        .with_context(|| format!("failed to parse {}", report_path.display()))?;
+
+        let expected_detected = report
+            .findings
+            .iter()
+            .any(|finding| finding.kind == expected);
+        let case_false_positives = report
+            .findings
+            .iter()
+            .filter(|finding| finding.kind != expected)
+            .count();
+        detected += usize::from(expected_detected);
+        false_positives += case_false_positives;
+        cases.push(SelftestCaseResult {
+            fixture: fixture.to_string(),
+            url: url.to_string(),
+            expected,
+            detected: expected_detected,
+            false_positives: case_false_positives,
+            report: report_path.display().to_string(),
+            replay: replay_path.display().to_string(),
+        });
+    }
+
+    let summary = SelftestSummary {
+        run_id,
+        total: cases.len(),
+        detected,
+        false_positives,
+        output_dir: output_dir.display().to_string(),
+        cases,
+    };
+    write_report(&output_dir.join("summary.json"), &summary)?;
+
+    if summary.total != SERVO_FIXTURES.len()
+        || summary.detected != SERVO_FIXTURES.len()
+        || summary.false_positives > MAX_FALSE_POSITIVES
+    {
+        bail!(
+            "DEVMAX SERVO FIXTURES FAIL total={} detected={} false_positives={} report={}",
+            summary.total,
+            summary.detected,
+            summary.false_positives,
+            output_dir.display(),
+        );
+    }
+
+    println!(
+        "DEVMAX SERVO FIXTURES PASS total={} detected={} false_positives={} report={}",
+        summary.total,
+        summary.detected,
+        summary.false_positives,
+        output_dir.display(),
+    );
+    Ok(())
+}
+
+fn run_servo_audit_child(url: &Url) -> Result<(PathBuf, PathBuf)> {
+    let exe = std::env::current_exe().context("failed to locate current devmax executable")?;
+    let output = ProcessCommand::new(exe)
+        .arg("audit")
+        .arg("--url")
+        .arg(url.as_str())
+        .arg("--engine")
+        .arg("servo")
+        .arg("--replay")
+        .env("RUST_LOG", "error")
+        .output()
+        .context("failed to run child devmax Servo audit")?;
+
+    if !output.status.success() {
+        bail!(
+            "child devmax Servo audit failed: status={} stdout={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let report = parse_output_path(&stdout, "report=")
+        .with_context(|| format!("child output missing report path: {stdout}"))?;
+    let replay = parse_output_path(&stdout, "replay=")
+        .with_context(|| format!("child output missing replay path: {stdout}"))?;
+    Ok((report, replay))
+}
+
+fn parse_output_path(stdout: &str, field: &str) -> Option<PathBuf> {
+    let start = stdout.find(field)? + field.len();
+    let rest = &stdout[start..];
+    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    Some(PathBuf::from(rest[..end].trim()))
 }
 
 fn analyze_html(
@@ -543,6 +682,191 @@ fn analyze_html(
     })
 }
 
+fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxReport> {
+    let title = probe
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Untitled")
+        .to_string();
+    let mut findings = Vec::new();
+    let mut visual_health = VisualHealth::default();
+    let runtime_health = RuntimeHealth::default();
+    let mut actions = collect_probe_actions(&probe);
+
+    if probe
+        .get("blankPage")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        visual_health.blank_page = true;
+        findings.push(finding(
+            "blank_page",
+            "critical",
+            Some("body"),
+            "Browser-rendered page has no visible application content.",
+            json!({
+                "engine": SERVO_ENGINE,
+                "body_text_length": probe.get("bodyTextLength").cloned().unwrap_or(Value::Null),
+                "body_child_count": probe.get("bodyChildCount").cloned().unwrap_or(Value::Null),
+            }),
+        ));
+    }
+
+    for issue in probe
+        .get("invisibleText")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let text = issue
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        visual_health.invisible_text.push(VisualIssue {
+            text: text.clone(),
+            reason: "computed foreground and background colors match".into(),
+        });
+        let selector = issue
+            .get("selector")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        findings.push(finding(
+            "invisible_text",
+            "medium",
+            selector.as_deref(),
+            "Browser computed styles indicate text is visually invisible.",
+            issue,
+        ));
+    }
+
+    for action in probe
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if action
+            .get("offscreen")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            let action_info = action_info_from_probe(&action);
+            visual_health
+                .offscreen_interactive
+                .push(action_info.clone());
+            findings.push(finding(
+                "offscreen_button",
+                "medium",
+                Some("button, a, input, select, textarea, [role=button]"),
+                "Browser layout places an interactive control outside the viewport.",
+                json!({ "action": action_info, "probe": action }),
+            ));
+        }
+
+        if let Some(blocker) = action.get("blockedBy").and_then(Value::as_str)
+            && !blocker.is_empty()
+        {
+            for report_action in actions.iter_mut() {
+                if report_action.label == probe_action_label(&action) {
+                    report_action.blocked_by = Some(blocker.into());
+                }
+            }
+            visual_health.overlaps.push(OverlapIssue {
+                front: blocker.into(),
+                back: probe_action_label(&action),
+                severity: "blocking".into(),
+            });
+            findings.push(finding(
+                "modal_blocks_page",
+                "high",
+                Some("button, a, input, select, textarea, [role=button]"),
+                "Browser hit-test geometry shows an overlay blocking a page action.",
+                json!({ "blocked_by": blocker, "action": action }),
+            ));
+        }
+    }
+
+    let summary = if findings.is_empty() {
+        "No DEVMAX findings from Servo rendered probe.".into()
+    } else {
+        format!(
+            "Detected {} Servo-backed issue(s); highest severity: {}.",
+            findings.len(),
+            highest_severity(&findings)
+        )
+    };
+    let recommendations = findings
+        .iter()
+        .map(|finding| Recommendation {
+            kind: "fix".into(),
+            message: fix_hint(&finding.kind).into(),
+        })
+        .collect();
+
+    Ok(DevmaxReport {
+        run_id,
+        engine: SERVO_ENGINE.into(),
+        page_revision: 1,
+        url: url.to_string(),
+        title,
+        summary,
+        visual_health,
+        runtime_health,
+        actions,
+        findings,
+        recommendations,
+        artifacts: ReportArtifacts::default(),
+    })
+}
+
+fn collect_probe_actions(probe: &Value) -> Vec<ActionInfo> {
+    probe
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(action_info_from_probe)
+        .collect()
+}
+
+fn action_info_from_probe(action: &Value) -> ActionInfo {
+    let label = probe_action_label(action);
+    ActionInfo {
+        action_id: if label.eq_ignore_ascii_case("submit") {
+            "act_submit".into()
+        } else if label.eq_ignore_ascii_case("export") {
+            "act_export".into()
+        } else {
+            format!(
+                "act_{}",
+                action.get("index").and_then(Value::as_u64).unwrap_or(0)
+            )
+        },
+        label,
+        kind: "click".into(),
+        enabled: !action
+            .get("disabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        blocked_by: action
+            .get("blockedBy")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+    }
+}
+
+fn probe_action_label(action: &Value) -> String {
+    action
+        .get("label")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("Action")
+        .trim()
+        .to_string()
+}
+
 fn collect_actions(html: &str) -> Vec<ActionInfo> {
     let mut actions = Vec::new();
     if html.contains("<button") {
@@ -730,7 +1054,7 @@ fn write_replay(
         json!({
             "kind": "devmax_run_started",
             "run_id": run_id,
-            "engine": ENGINE,
+            "engine": report.engine,
             "url": url.to_string(),
             "expected": expected,
         })

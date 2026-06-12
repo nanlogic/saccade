@@ -129,6 +129,7 @@ Move DEVMAX from static fixture markers toward browser-backed truth:
 ```text
 Open local app or fixture.
 Collect rendered truth and action map from the browser boundary.
-Detect at least blank, modal-blocked, offscreen-action, and invisible-text cases without fixture markers.
+Add browser-side console/network capture.
+Add screenshot pixel checks for blank canvas and large empty regions.
 Keep report JSON and replay artifacts stable.
 ```
