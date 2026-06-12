@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Browser Session Sensitive Fixture</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 48px;
+      color: #20242c;
+      background: #ffffff;
+    }
+
+    label {
+      display: block;
+      margin: 14px 0;
+    }
+
+    input {
+      display: block;
+      width: 320px;
+      min-height: 36px;
+      margin-top: 4px;
+    }
+
+    button {
+      min-width: 140px;
+      min-height: 44px;
+      margin-top: 18px;
+    }
+  </style>
+</head>
+<body data-session-revision="0">
+  <main>
+    <h1>Sensitive Fixture</h1>
+    <label>
+      Legal name
+      <input id="legal-name" name="legal_name" autocomplete="name" value="Ada Lovelace">
+    </label>
+    <label>
+      SSN
+      <input id="ssn" name="ssn" data-sensitive="ssn" autocomplete="off" value="123-45-6789">
+    </label>
+    <label>
+      Card
+      <input id="card-number" name="credit_card" data-sensitive="credit_card" autocomplete="cc-number" value="4111111111111111">
+    </label>
+    <label>
+      Password
+      <input id="account-password" name="password" type="password" value="correct-horse-battery">
+    </label>
+    <button id="done" type="button">Done</button>
+  </main>
+  <script>
+    document.querySelector("#done").addEventListener("click", () => {
+      document.body.dataset.sessionRevision = "1";
+    });
+  </script>
+</body>
+</html>

@@ -85,8 +85,10 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Verifies normal fields are agent-fillable while sensitive payment fields require user input.
 - Agent-owned local tabs now spawn a live `browser_session_worker_v0` child process. `saccade.web.truth`, `saccade.web.actions`, and `saccade.web.act` use that worker before falling back to report-backed DEVMAX.
 - Human takeover closes the live worker before changing ownership.
+- The live worker returns artifact paths and writes compact `report.json` plus `replay.jsonl` under `runs/browser_session_worker/worker_*/`.
+- The live worker redacts form values before truth/actions leave the browser process. Sensitive controls expose kind and completion status only.
 - Browser-session smoke remains available outside MCP: `saccade-shell selftest-browser-session` proves open, truth, action map, native act, and truth-after-act on one Servo WebView path.
 
 ## Next
 
-Harden the browser worker with screenshots/replay artifacts, arbitrary-page sensitive-value redaction, and live-tab integration for DEVMAX/FORMMAX workflows.
+Harden the browser worker with screenshot artifacts, a shared multi-tab process, and live-tab integration for DEVMAX/FORMMAX workflows.

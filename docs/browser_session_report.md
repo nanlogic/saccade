@@ -10,6 +10,8 @@ It opens a local page in Servo, collects browser truth and an action map, dispat
 
 The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, and `saccade.tabs.close` talk to that worker over JSONL.
 
+The worker now writes compact artifacts under `runs/browser_session_worker/worker_*/` and redacts field values before data leaves the browser process. Sensitive fields expose type and completion status, not raw values.
+
 ## Evidence
 
 Command:
@@ -29,6 +31,8 @@ Artifacts are written under:
 ```text
 runs/browser_session/session_*/report.json
 runs/browser_session/session_*/replay.jsonl
+runs/browser_session_worker/worker_*/report.json
+runs/browser_session_worker/worker_*/replay.jsonl
 ```
 
 ## Current Scope
@@ -36,9 +40,10 @@ runs/browser_session/session_*/replay.jsonl
 - Proves `open -> truth -> actions -> act -> truth_after_act` on a Servo-backed WebView.
 - Proves the MCP stdio path can keep a browser worker alive across `tabs.open -> web.actions -> web.act -> tabs.close`.
 - Produces compact report/replay artifacts without echoing full page text.
+- Redacts arbitrary page form values from worker truth/actions. Sensitive fields expose `sensitivity.kind` and `completion_state`.
 - Uses the existing Servo event-loop/input/evaluate APIs already recorded in `docs/servo_api_map.md`.
 
 ## Still Pending
 
 - MCP still uses DEVMAX/FORMMAX child tools for dedicated audit and form workflows.
-- The worker is one Agent tab per child process; multi-tab shared browser process, screenshots, replay artifacts, and sensitive-value redaction inside arbitrary pages remain next hardening steps.
+- The worker is one Agent tab per child process; multi-tab shared browser process, screenshot artifacts, and FORMMAX/DEVMAX live-tab integration remain next hardening steps.

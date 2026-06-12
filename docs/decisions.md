@@ -174,4 +174,6 @@
 - The local fixture advances `data-session-revision` from `0` to `1`; the report/replay gate requires the revision to advance and the click verification to be non-no-op.
 - Added `saccade-shell browser-session-worker --url ...` as a long-lived JSONL worker. MCP Agent-owned local tabs now spawn one worker process per tab and route `truth`, `actions`, and `act` to the live Servo WebView.
 - Human takeover closes the worker before changing ownership, so the agent does not retain an input channel after handoff.
+- The worker now writes `report.json` and `replay.jsonl` under `runs/browser_session_worker/worker_*/`.
+- Worker truth/action maps redact form values before they leave the browser process. Sensitive fields expose kind and completion status, not raw values. Local redaction fixture passed with SSN, credit-card, password, and ordinary name values absent from stdout/report/replay.
 - This is still v0: one child process per Agent tab, no shared browser process yet, and dedicated DEVMAX/FORMMAX tools still run as child workflows.

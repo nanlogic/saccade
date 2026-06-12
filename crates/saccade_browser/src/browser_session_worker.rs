@@ -1,10 +1,12 @@
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use euclid::{Point2D, Scale};
@@ -28,6 +30,7 @@ const WINDOW_HEIGHT: u32 = 800;
 const ACT_VERIFY_DELAY: Duration = Duration::from_millis(160);
 
 pub fn run_browser_session_worker(url: Url) -> Result<()> {
+    let artifacts = WorkerArtifacts::new()?;
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
@@ -35,11 +38,35 @@ pub fn run_browser_session_worker(url: Url) -> Result<()> {
     let reader_proxy = event_loop.create_proxy();
     thread::spawn(move || read_commands(tx, reader_proxy));
 
-    let mut app = WorkerApp::new(&event_loop, url, rx);
+    let mut app = WorkerApp::new(&event_loop, url, rx, artifacts);
     event_loop
         .run_app(&mut app)
         .context("winit event loop failed")?;
     Ok(())
+}
+
+struct WorkerArtifacts {
+    run_id: String,
+    output_dir: PathBuf,
+    report_path: PathBuf,
+    replay_path: PathBuf,
+}
+
+impl WorkerArtifacts {
+    fn new() -> Result<Self> {
+        let run_id = format!("worker_{}", unix_ms()?);
+        let output_dir = PathBuf::from("runs")
+            .join("browser_session_worker")
+            .join(&run_id);
+        fs::create_dir_all(&output_dir)
+            .with_context(|| format!("failed to create {}", output_dir.display()))?;
+        Ok(Self {
+            run_id,
+            report_path: output_dir.join("report.json"),
+            replay_path: output_dir.join("replay.jsonl"),
+            output_dir,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -88,6 +115,10 @@ struct WorkerState {
     rendering_context: Rc<WindowRenderingContext>,
     webview: RefCell<Option<WebView>>,
     target_url: Url,
+    run_id: String,
+    output_dir: PathBuf,
+    report_path: PathBuf,
+    replay_path: PathBuf,
     command_rx: Receiver<WorkerInput>,
     queue: RefCell<VecDeque<WorkerRequest>>,
     eof_requested: Cell<bool>,
@@ -110,6 +141,7 @@ enum WorkerApp {
         waker: Waker,
         target_url: Url,
         command_rx: Option<Receiver<WorkerInput>>,
+        artifacts: Option<WorkerArtifacts>,
     },
     Running {
         state: Rc<WorkerState>,
@@ -122,11 +154,13 @@ impl WorkerApp {
         event_loop: &EventLoop<WakerEvent>,
         target_url: Url,
         command_rx: Receiver<WorkerInput>,
+        artifacts: WorkerArtifacts,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             target_url,
             command_rx: Some(command_rx),
+            artifacts: Some(artifacts),
         }
     }
 
@@ -169,6 +203,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             waker,
             target_url,
             command_rx,
+            artifacts,
         } = self
         else {
             return;
@@ -231,6 +266,25 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             rendering_context,
             webview: RefCell::new(None),
             target_url: target_url.clone(),
+            run_id: artifacts
+                .as_ref()
+                .expect("browser session artifacts should exist")
+                .run_id
+                .clone(),
+            output_dir: artifacts
+                .as_ref()
+                .expect("browser session artifacts should exist")
+                .output_dir
+                .clone(),
+            report_path: artifacts
+                .as_ref()
+                .expect("browser session artifacts should exist")
+                .report_path
+                .clone(),
+            replay_path: artifacts
+                .take()
+                .expect("browser session artifacts should exist")
+                .replay_path,
             command_rx: command_rx
                 .take()
                 .expect("browser session command_rx should exist"),
@@ -249,6 +303,22 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             .delegate(state.clone())
             .build();
         *state.webview.borrow_mut() = Some(webview);
+        log_replay(
+            &state,
+            json!({
+                "kind": "browser_worker_started",
+                "run_id": state.run_id.as_str(),
+                "url": state.target_url.as_str(),
+                "page_revision": state.page_revision.get(),
+            }),
+        );
+        write_report(
+            &state,
+            &json!({
+                "status": "starting",
+                "summary": "browser session worker started",
+            }),
+        );
 
         *self = Self::Running { state };
     }
@@ -535,7 +605,22 @@ fn finish_probe(
 
 fn probe_response(state: &Rc<WorkerState>, probe: &Value, method: ProbeMethod) -> Value {
     let actions = action_map(probe);
-    let common = json!({
+    let kind = match method {
+        ProbeMethod::Truth => "truth_collected",
+        ProbeMethod::Actions => "actions_collected",
+    };
+    log_replay(
+        state,
+        json!({
+            "kind": kind,
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "actions_seen": actions.len(),
+            "sensitive_fields": sensitive_action_count(&actions),
+            "body_text_length": probe.get("bodyTextLength").and_then(Value::as_u64).unwrap_or(0),
+        }),
+    );
+    json!({
         "status": "ok",
         "runtime": "browser_session_worker_v0",
         "engine": "saccade-browser-session-worker-v0",
@@ -552,13 +637,10 @@ fn probe_response(state: &Rc<WorkerState>, probe: &Value, method: ProbeMethod) -
             "body_text_length": probe.get("bodyTextLength").cloned().unwrap_or(Value::Null),
             "body_child_count": probe.get("bodyChildCount").cloned().unwrap_or(Value::Null),
             "viewport": probe.get("viewport").cloned().unwrap_or(Value::Null),
+            "sensitive_fields": sensitive_action_count(&actions),
         },
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        }
-    });
-    common
+        "artifacts": artifact_paths(state),
+    })
 }
 
 fn act_response(
@@ -570,6 +652,19 @@ fn act_response(
     after_probe: &Value,
 ) -> Value {
     let changed = probe_changed(before_probe, after_probe);
+    log_replay(
+        state,
+        json!({
+            "kind": "action_verified",
+            "run_id": state.run_id.as_str(),
+            "action_id": action_id.as_str(),
+            "basis_page_revision": before_revision,
+            "new_page_revision": after_revision,
+            "changed": changed,
+            "dom_page_revision_before": before_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
+            "dom_page_revision_after": after_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
+        }),
+    );
     json!({
         "status": "ok",
         "runtime": "browser_session_worker_v0",
@@ -592,10 +687,7 @@ fn act_response(
             "dom_page_revision_before": before_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
             "dom_page_revision_after": after_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
         },
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        }
+        "artifacts": artifact_paths(state),
     })
 }
 
@@ -625,6 +717,7 @@ fn action_map(probe: &Value) -> Vec<Value> {
                 "label": probe_action_label(action),
                 "kind": "click",
                 "enabled": action_enabled(action),
+                "sensitivity": action.get("sensitivity").cloned().unwrap_or_else(|| json!({"kind": "none"})),
                 "blocked_by": action
                     .get("blockedBy")
                     .and_then(Value::as_str)
@@ -633,6 +726,18 @@ fn action_map(probe: &Value) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn sensitive_action_count(actions: &[Value]) -> usize {
+    actions
+        .iter()
+        .filter(|action| {
+            action
+                .pointer("/sensitivity/kind")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind != "none")
+        })
+        .count()
 }
 
 fn action_labels(actions: &[Value]) -> Vec<String> {
@@ -699,6 +804,7 @@ fn click_action(state: &Rc<WorkerState>, webview: &WebView, action: &Value) {
 }
 
 fn respond_ok(state: &Rc<WorkerState>, id: Value, result: Value) {
+    write_report(state, &result);
     write_response(
         state,
         json!({
@@ -728,6 +834,45 @@ fn write_response(state: &Rc<WorkerState>, response: Value) {
 
 fn value_f64(value: &Value, key: &str) -> f64 {
     value.get(key).and_then(Value::as_f64).unwrap_or(0.0)
+}
+
+fn artifact_paths(state: &Rc<WorkerState>) -> Value {
+    json!({
+        "run_dir": state.output_dir.display().to_string(),
+        "report": state.report_path.display().to_string(),
+        "replay": state.replay_path.display().to_string(),
+    })
+}
+
+fn write_report(state: &Rc<WorkerState>, latest: &Value) {
+    let report = json!({
+        "run_id": state.run_id.as_str(),
+        "engine": "saccade-browser-session-worker-v0",
+        "url": state.target_url.as_str(),
+        "page_revision": state.page_revision.get(),
+        "latest": latest,
+        "artifacts": artifact_paths(state),
+    });
+    if let Ok(bytes) = serde_json::to_vec_pretty(&report) {
+        let _ = fs::write(&state.report_path, bytes);
+    }
+}
+
+fn log_replay(state: &Rc<WorkerState>, event: Value) {
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&state.replay_path)
+    {
+        let _ = writeln!(file, "{event}");
+    }
+}
+
+fn unix_ms() -> Result<u128> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system time is before UNIX_EPOCH")?
+        .as_millis())
 }
 
 #[derive(Clone)]
@@ -793,6 +938,48 @@ const PROBE_JS: &str = r##"
     return el.tagName.toLowerCase() + (text ? ":" + text : "");
   }
 
+  function fieldToken(el) {
+    return [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("type") || ""
+    ].join(" ").toLowerCase();
+  }
+
+  function sensitivityOf(el) {
+    const token = fieldToken(el);
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
+    if (/\b(passport|driver|license|national id|government)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  function safeLabel(el, sensitivity) {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    const role = el.getAttribute("role") || "";
+    const isCommandInput = tag === "input" && ["button", "submit", "reset"].includes(type);
+    if (tag === "button" || tag === "a" || role === "button" || isCommandInput) {
+      return (el.innerText || el.textContent || el.getAttribute("aria-label") || el.value || el.getAttribute("href") || el.tagName).trim();
+    }
+    const descriptor = (el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.getAttribute("name") || el.id || el.tagName).trim();
+    return sensitivity === "none" ? descriptor : `${descriptor || tag} (${sensitivity})`;
+  }
+
+  function completionState(el, sensitivity) {
+    if (sensitivity === "none") return "not_sensitive";
+    const hasEntry = el.type === "checkbox" || el.type === "radio" ? !!el.checked : !!String(el.value || "");
+    return hasEntry ? "completed_without_value" : "requires_user_input";
+  }
+
   const elements = Array.from(document.querySelectorAll("body *"));
   const blockers = elements.map((el, index) => {
     const style = getComputedStyle(el);
@@ -811,15 +998,20 @@ const PROBE_JS: &str = r##"
     const rect = rectOf(el);
     const center = centerOf(rect);
     const style = getComputedStyle(el);
+    const sensitivity = sensitivityOf(el);
     const action = {
       index,
-      label: (el.innerText || el.value || el.getAttribute("aria-label") || el.getAttribute("href") || el.tagName).trim(),
+      label: safeLabel(el, sensitivity),
       tag: el.tagName.toLowerCase(),
       disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
       rect,
       offscreen: offscreen(rect),
       visible: visibleRect(rect) && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0",
-      blockedBy: null
+      blockedBy: null,
+      sensitivity: {
+        kind: sensitivity,
+        completion_state: completionState(el, sensitivity)
+      }
     };
     for (const blocker of blockers) {
       if (blocker.el === el || el.contains(blocker.el) || blocker.el.contains(el)) continue;

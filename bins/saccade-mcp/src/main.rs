@@ -1949,12 +1949,8 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
     })
     .unwrap_or(false);
 
-    let local_url = start_test_server(
-        workspace_root()?
-            .join("test_pages")
-            .join("devmax")
-            .join("button_no_handler"),
-    )?;
+    let local_url =
+        start_test_server(workspace_root()?.join("test_pages").join("browser_session"))?;
     let open_response = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -2158,9 +2154,15 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
             response
                 .get("result")
                 .and_then(|result| result.get("structuredContent"))
-                .and_then(|content| content.get("status"))
-                .and_then(Value::as_str)
-                .map(|status| status == "ok")
+                .map(|content| {
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && content
+                            .pointer("/verification/changed")
+                            .and_then(Value::as_bool)
+                            == Some(true)
+                })
         })
         .unwrap_or(false);
     let dev_click_all_primary_actions = handle_json_rpc(
