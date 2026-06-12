@@ -100,12 +100,14 @@ Browser runner:
 
 ```bash
 cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay
+cargo run -q -p formmax -- validate-run runs/formmax/run_1781233667392
 ```
 
 Observed result:
 
 ```text
 FORMMAX RUNNER PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true
+FORMMAX VALIDATION PASS run=runs/formmax/run_1781233667392 rows=96 pages=2 filled=672 blocked_sensitive=3 events=2711 replay_value_leaks=0
 ```
 
 ### M11: PDF And Sensitive Field Feasibility
@@ -154,7 +156,7 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 1. Run the M7 gate on Linux/X11.
 2. Continue N2 login handoff: Human tab logs in, Agent tab inherits the session without seeing passwords or OTP.
 3. Start DEVMAX local agent self-test fixtures.
-4. Harden FORMMAX with screenshots, `validate-run`, native input-event typing where Servo supports it, and comparison baselines.
+4. Harden FORMMAX with screenshots, native input-event typing where Servo supports it, and comparison baselines.
 5. Add a user confirmation UI for sensitive fields.
 6. Add a public-facing report page that links the M7 artifact, click map, validator output, and caveats.
 

@@ -30,6 +30,9 @@ enum Command {
         #[arg(long)]
         replay: bool,
     },
+    ValidateRun {
+        run_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +51,7 @@ fn main() -> Result<()> {
             input,
             replay,
         } => run(fixture, input, replay),
+        Command::ValidateRun { run_dir } => validate_run(run_dir),
     }
 }
 
@@ -132,6 +136,87 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
     Ok(())
 }
 
+fn validate_run(run_dir: PathBuf) -> Result<()> {
+    let workspace = workspace_root()?;
+    let display_run_dir = run_dir.display().to_string();
+    let run_dir = absolutize(&workspace, &run_dir);
+    let result_path = run_dir.join("result.json");
+    let report: Value = serde_json::from_slice(
+        &fs::read(&result_path)
+            .with_context(|| format!("failed to read {}", result_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", result_path.display()))?;
+    let replay_path = replay_path_from_report(&run_dir, &report);
+    let replay_text = fs::read_to_string(&replay_path)
+        .with_context(|| format!("failed to read {}", replay_path.display()))?;
+    let events = parse_replay(&replay_text)?;
+
+    let rows = required_usize(&report, "rows")?;
+    let pages = required_usize(&report, "pages")?;
+    let filled = required_usize(&report, "filled")?;
+    let blocked_sensitive = required_usize(&report, "blocked_sensitive")?;
+    let validation_errors = required_usize(&report, "validation_errors")?;
+    let receipt_verified = report
+        .get("receipt_verified")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let receipt_rows = report
+        .pointer("/receipt/rows")
+        .and_then(Value::as_array)
+        .context("result receipt rows missing")?;
+    let receipt_validation_passed = report
+        .pointer("/receipt/validation/passed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let failures = validate_replay(
+        &events,
+        &replay_text,
+        rows,
+        pages,
+        filled,
+        blocked_sensitive,
+        receipt_rows,
+    );
+    if !receipt_verified {
+        bail!("FORMMAX validation failed: receipt_verified=false");
+    }
+    if !receipt_validation_passed {
+        bail!("FORMMAX validation failed: receipt.validation.passed=false");
+    }
+    if validation_errors != 0 {
+        bail!("FORMMAX validation failed: validation_errors={validation_errors}");
+    }
+    if receipt_rows.len() != rows {
+        bail!(
+            "FORMMAX validation failed: receipt row count {} != {rows}",
+            receipt_rows.len()
+        );
+    }
+    if !failures.is_empty() {
+        bail!(
+            "FORMMAX validation failed: {}",
+            failures
+                .iter()
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+    }
+
+    println!(
+        "FORMMAX VALIDATION PASS run={} rows={} pages={} filled={} blocked_sensitive={} events={} replay_value_leaks=0",
+        display_run_dir,
+        rows,
+        pages,
+        filled,
+        blocked_sensitive,
+        events.len()
+    );
+    Ok(())
+}
+
 fn write_replay(path: &Path, report: &mut saccade_browser::FormmaxRunReport) -> Result<()> {
     let mut file =
         File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
@@ -139,6 +224,145 @@ fn write_replay(path: &Path, report: &mut saccade_browser::FormmaxRunReport) -> 
         writeln!(file, "{}", event)?;
     }
     Ok(())
+}
+
+fn replay_path_from_report(run_dir: &Path, report: &Value) -> PathBuf {
+    report
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| run_dir.join("replay.jsonl"))
+}
+
+fn parse_replay(replay_text: &str) -> Result<Vec<Value>> {
+    replay_text
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(index, line)| {
+            serde_json::from_str::<Value>(line)
+                .with_context(|| format!("failed to parse replay line {}", index + 1))
+        })
+        .collect()
+}
+
+fn validate_replay(
+    events: &[Value],
+    replay_text: &str,
+    rows: usize,
+    pages: usize,
+    filled: usize,
+    blocked_sensitive: usize,
+    receipt_rows: &[Value],
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    let count = |kind: &str| -> usize {
+        events
+            .iter()
+            .filter(|event| event.get("kind").and_then(Value::as_str) == Some(kind))
+            .count()
+    };
+
+    require_equal(&mut failures, "page_started", count("page_started"), pages);
+    require_equal(
+        &mut failures,
+        "field_focused",
+        count("field_focused"),
+        filled,
+    );
+    require_equal(&mut failures, "field_filled", count("field_filled"), filled);
+    require_equal(
+        &mut failures,
+        "field_verified",
+        count("field_verified"),
+        filled,
+    );
+    require_equal(
+        &mut failures,
+        "confirmation_required",
+        count("confirmation_required"),
+        blocked_sensitive,
+    );
+    require_equal(
+        &mut failures,
+        "field_blocked_sensitive",
+        count("field_blocked_sensitive"),
+        blocked_sensitive,
+    );
+    require_at_least(
+        &mut failures,
+        "field_discovered",
+        count("field_discovered"),
+        filled + blocked_sensitive,
+    );
+    require_at_least(
+        &mut failures,
+        "scroll_checkpoint",
+        count("scroll_checkpoint"),
+        pages,
+    );
+    require_equal(&mut failures, "receipt_seen", count("receipt_seen"), 1);
+    require_equal(
+        &mut failures,
+        "form_transaction_finished",
+        count("form_transaction_finished"),
+        1,
+    );
+
+    for event in events {
+        if event.get("echo_values").and_then(Value::as_bool) != Some(false) {
+            failures.push(format!("event echo_values was not false: {event}"));
+        }
+        if event.get("value").is_some() {
+            failures.push(format!("event contained raw value key: {event}"));
+        }
+    }
+
+    for event in events.iter().filter(|event| {
+        event.get("kind").and_then(Value::as_str) == Some("field_blocked_sensitive")
+    }) {
+        if event.get("value_present").and_then(Value::as_bool) != Some(false) {
+            failures.push(format!("sensitive field had value_present=true: {event}"));
+        }
+    }
+
+    for row in receipt_rows {
+        for key in ["site_name", "owner", "target_date"] {
+            let Some(value) = row.get(key).and_then(Value::as_str) else {
+                continue;
+            };
+            if !value.is_empty() && replay_text.contains(value) {
+                let id = row.get("id").and_then(Value::as_str).unwrap_or("unknown");
+                failures.push(format!("replay echoed {id}.{key}"));
+            }
+        }
+    }
+
+    if rows == 0 {
+        failures.push("rows was zero".to_string());
+    }
+    failures
+}
+
+fn require_equal(failures: &mut Vec<String>, label: &str, actual: usize, expected: usize) {
+    if actual != expected {
+        failures.push(format!("{label} count {actual} != {expected}"));
+    }
+}
+
+fn require_at_least(failures: &mut Vec<String>, label: &str, actual: usize, expected: usize) {
+    if actual < expected {
+        failures.push(format!("{label} count {actual} < {expected}"));
+    }
+}
+
+fn required_usize(value: &Value, key: &str) -> Result<usize> {
+    value
+        .get(key)
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .with_context(|| format!("result field {key:?} missing or not an integer"))
 }
 
 fn start_test_server(root: PathBuf) -> Result<Url> {

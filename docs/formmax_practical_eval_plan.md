@@ -229,7 +229,7 @@ M10 passes when all local tracks pass three consecutive runs with deterministic 
 5. Add sensitive-field classifier and confirmation gate. Done locally with `requires_user_input` events.
 6. Add PDF AcroForm feasibility test.
 7. Add browser PDF viewer feasibility test.
-8. Add `formmax validate-run <run_dir>`.
+8. Add `formmax validate-run <run_dir>`. Done for runner artifacts.
 
 ## Open Decisions
 
@@ -239,4 +239,4 @@ M10 passes when all local tracks pass three consecutive runs with deterministic 
 
 ## Next Step
 
-Harden the local runner: add screenshots, `formmax validate-run`, native input-event typing where Servo supports it, and a Playwright/Chrome comparison baseline.
+Harden the local runner: add screenshots, native input-event typing where Servo supports it, and a Playwright/Chrome comparison baseline.

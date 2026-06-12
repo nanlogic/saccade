@@ -52,8 +52,20 @@ legal_attestation: requires_user_input, value_present=false
 
 Replay does not echo table values. A local leak check over 288 deterministic text/date/owner values found `replay_value_leaks=0`.
 
+Artifact validation command:
+
+```bash
+cargo run -q -p formmax -- validate-run runs/formmax/run_1781233667392
+```
+
+Observed result:
+
+```text
+FORMMAX VALIDATION PASS run=runs/formmax/run_1781233667392 rows=96 pages=2 filled=672 blocked_sensitive=3 events=2711 replay_value_leaks=0
+```
+
 ## Current Limit
 
 The v0 runner drives trusted fixture DOM controls from the Servo page context. It proves rendered-page transaction behavior, scroll/page coverage, receipt validation, replay shape, and sensitive-field policy. It is not yet native keyboard text entry.
 
-Next hardening: screenshots, `formmax validate-run`, native input-event typing where Servo supports it, and Chrome/Playwright comparison baselines.
+Next hardening: screenshots, native input-event typing where Servo supports it, and Chrome/Playwright comparison baselines.
