@@ -239,4 +239,4 @@ M10 passes when all local tracks pass three consecutive runs with deterministic 
 
 ## Next Step
 
-Harden the local runner: add screenshots, native input-event typing where Servo supports it, and a Playwright/Chrome comparison baseline.
+Harden the local runner: add native input-event typing where Servo supports it and a Playwright/Chrome comparison baseline.

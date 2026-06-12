@@ -56,11 +56,15 @@ Observed three consecutive local passes:
 FORMMAX RUNNER PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true
 ```
 
-The first pass wrote:
+Current evidence run:
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781233667392/result.json`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/result.json`
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781233667392/replay.jsonl`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/replay.jsonl`
+
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/before.png`
+
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/after.png`
 
 Replay event counts from that run:
 

@@ -14,7 +14,9 @@ mod page_selftest;
 pub use arena_run::{ArenaRunConfig, ArenaRunReport, run_arena};
 pub use calibration::{CalibrationAttempt, CalibrationClick, CalibrationReport, calibrate_input};
 pub use devmax_probe::devmax_probe;
-pub use formmax_run::{FormmaxRunReport, run_formmax_fixture};
+pub use formmax_run::{
+    FormmaxRunConfig, FormmaxRunReport, run_formmax_fixture, run_formmax_fixture_with_config,
+};
 pub use page_selftest::{SelftestPageOutcome, SelftestPagesReport, selftest_pages};
 pub use real_run::{RealRunConfig, RealRunReport, run_real};
 pub use recon::{RealSiteRecon, real_site_recon};

@@ -72,12 +72,20 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
         &fs::read(&input).with_context(|| format!("failed to read {}", input.display()))?,
     )
     .with_context(|| format!("failed to parse {}", input.display()))?;
+    let run_id = format!("run_{}", unix_ms()?);
+    let output_dir = workspace.join("runs").join("formmax").join(&run_id);
+    fs::create_dir_all(&output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
 
     let base_url = start_test_server(fixture_dir)?;
     let url = base_url
         .join(fixture_file)
         .with_context(|| format!("failed to build fixture URL from {fixture_file}"))?;
-    let mut report = saccade_browser::run_formmax_fixture(url.clone())?;
+    let mut report =
+        saccade_browser::run_formmax_fixture_with_config(saccade_browser::FormmaxRunConfig {
+            url: url.clone(),
+            artifact_dir: Some(output_dir.clone()),
+        })?;
 
     let expected_filled = manifest.row_count * manifest.columns.len();
     if report.rows != manifest.row_count
@@ -100,10 +108,6 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
         );
     }
 
-    let run_id = format!("run_{}", unix_ms()?);
-    let output_dir = workspace.join("runs").join("formmax").join(&run_id);
-    fs::create_dir_all(&output_dir)
-        .with_context(|| format!("failed to create {}", output_dir.display()))?;
     let result_path = output_dir.join("result.json");
     let replay_path = output_dir.join("replay.jsonl");
 
@@ -113,6 +117,7 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
     report_value["artifacts"] = json!({
         "result": result_path.display().to_string(),
         "replay": if replay { Value::String(replay_path.display().to_string()) } else { Value::Null },
+        "screenshots": report.screenshots.clone(),
     });
     fs::write(&result_path, serde_json::to_string_pretty(&report_value)?)
         .with_context(|| format!("failed to write {}", result_path.display()))?;
@@ -168,6 +173,11 @@ fn validate_run(run_dir: PathBuf) -> Result<()> {
         .pointer("/receipt/validation/passed")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let screenshots = report
+        .get("screenshots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
 
     let failures = validate_replay(
         &events,
@@ -193,6 +203,20 @@ fn validate_run(run_dir: PathBuf) -> Result<()> {
             receipt_rows.len()
         );
     }
+    if screenshots.len() < 2 {
+        bail!(
+            "FORMMAX validation failed: expected at least 2 screenshots, got {}",
+            screenshots.len()
+        );
+    }
+    for screenshot in &screenshots {
+        let Some(path) = screenshot.as_str() else {
+            bail!("FORMMAX validation failed: screenshot path was not a string");
+        };
+        if !Path::new(path).exists() {
+            bail!("FORMMAX validation failed: missing screenshot {path}");
+        }
+    }
     if !failures.is_empty() {
         bail!(
             "FORMMAX validation failed: {}",
@@ -206,13 +230,14 @@ fn validate_run(run_dir: PathBuf) -> Result<()> {
     }
 
     println!(
-        "FORMMAX VALIDATION PASS run={} rows={} pages={} filled={} blocked_sensitive={} events={} replay_value_leaks=0",
+        "FORMMAX VALIDATION PASS run={} rows={} pages={} filled={} blocked_sensitive={} events={} screenshots={} replay_value_leaks=0",
         display_run_dir,
         rows,
         pages,
         filled,
         blocked_sensitive,
-        events.len()
+        events.len(),
+        screenshots.len()
     );
     Ok(())
 }

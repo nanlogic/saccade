@@ -64,7 +64,7 @@
 - Added `formmax run --fixture ... --replay` as the local practical form workflow gate.
 - The runner opens the fixture in Servo, scrolls both lazy-rendered pages, fills 672 non-sensitive fields, blocks the three sensitive fields as `requires_user_input`, submits the local fixture, verifies the receipt, and writes replay JSONL.
 - The v0 runner drives trusted fixture DOM controls from the Servo page context. It proves rendered-page state, transaction replay, scroll/page coverage, receipt validation, and safety policy. It is not yet native keyboard text entry.
-- Local verification passed three consecutive runs. The first run wrote `runs/formmax/run_1781233667392/` with 2711 replay events and no table-value echo in replay.
+- Local verification passed three consecutive runs. Current evidence run `runs/formmax/run_1781234358800/` has 2711 replay events, `before.png`, `after.png`, and no table-value echo in replay.
 - Added `formmax validate-run <run_dir>` to re-check result/replay artifacts, required event counts, sensitive field blocking, receipt validation, and replay value-leak policy.
 
 ## M11 - PDF and sensitive gate feasibility

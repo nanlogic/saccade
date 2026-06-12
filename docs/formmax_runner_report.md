@@ -20,11 +20,15 @@ FORMMAX RUNNER PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verif
 
 ## Evidence
 
-First run artifacts:
+Current evidence run artifacts:
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781233667392/result.json`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/result.json`
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781233667392/replay.jsonl`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/replay.jsonl`
+
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/before.png`
+
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/after.png`
 
 Replay summary from the first run:
 
@@ -55,17 +59,17 @@ Replay does not echo table values. A local leak check over 288 deterministic tex
 Artifact validation command:
 
 ```bash
-cargo run -q -p formmax -- validate-run runs/formmax/run_1781233667392
+cargo run -q -p formmax -- validate-run runs/formmax/run_1781234358800
 ```
 
 Observed result:
 
 ```text
-FORMMAX VALIDATION PASS run=runs/formmax/run_1781233667392 rows=96 pages=2 filled=672 blocked_sensitive=3 events=2711 replay_value_leaks=0
+FORMMAX VALIDATION PASS run=runs/formmax/run_1781234358800 rows=96 pages=2 filled=672 blocked_sensitive=3 events=2711 screenshots=2 replay_value_leaks=0
 ```
 
 ## Current Limit
 
-The v0 runner drives trusted fixture DOM controls from the Servo page context. It proves rendered-page transaction behavior, scroll/page coverage, receipt validation, replay shape, and sensitive-field policy. It is not yet native keyboard text entry.
+The v0 runner drives trusted fixture DOM controls from the Servo page context. It proves rendered-page transaction behavior, scroll/page coverage, receipt validation, screenshot artifacts, replay shape, and sensitive-field policy. It is not yet native keyboard text entry.
 
-Next hardening: screenshots, native input-event typing where Servo supports it, and Chrome/Playwright comparison baselines.
+Next hardening: native input-event typing where Servo supports it, and Chrome/Playwright comparison baselines.

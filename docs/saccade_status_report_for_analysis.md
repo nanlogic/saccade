@@ -100,14 +100,14 @@ Browser runner:
 
 ```bash
 cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay
-cargo run -q -p formmax -- validate-run runs/formmax/run_1781233667392
+cargo run -q -p formmax -- validate-run runs/formmax/run_1781234358800
 ```
 
 Observed result:
 
 ```text
 FORMMAX RUNNER PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true
-FORMMAX VALIDATION PASS run=runs/formmax/run_1781233667392 rows=96 pages=2 filled=672 blocked_sensitive=3 events=2711 replay_value_leaks=0
+FORMMAX VALIDATION PASS run=runs/formmax/run_1781234358800 rows=96 pages=2 filled=672 blocked_sensitive=3 events=2711 screenshots=2 replay_value_leaks=0
 ```
 
 ### M11: PDF And Sensitive Field Feasibility
@@ -140,7 +140,7 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 - Replay logs can reproduce the run summary and generate a click map.
 - A local HTTP shell can expose benchmark start/status/result for an agent.
 - The project now has a local practical-form fixture and browser runner for long scrolling forms and multi-page submission.
-- The FORMMAX runner can fill non-sensitive table fields, block sensitive fields, verify the receipt, and produce replay JSONL without echoing table values.
+- The FORMMAX runner can fill non-sensitive table fields, block sensitive fields, verify the receipt, and produce replay JSONL plus before/after screenshots without echoing table values in replay.
 - The project can detect sensitive PDF/form fields and keep them gated in offline tests.
 
 ## What Is Not Proven Yet
@@ -156,7 +156,7 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 1. Run the M7 gate on Linux/X11.
 2. Continue N2 login handoff: Human tab logs in, Agent tab inherits the session without seeing passwords or OTP.
 3. Start DEVMAX local agent self-test fixtures.
-4. Harden FORMMAX with screenshots, native input-event typing where Servo supports it, and comparison baselines.
+4. Harden FORMMAX with native input-event typing where Servo supports it and comparison baselines.
 5. Add a user confirmation UI for sensitive fields.
 6. Add a public-facing report page that links the M7 artifact, click map, validator output, and caveats.
 

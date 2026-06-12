@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -7,8 +8,8 @@ use euclid::Scale;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use servo::{
-    JSValue, LoadStatus, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder,
-    WebViewDelegate, WindowRenderingContext,
+    DeviceIntRect, DeviceIntSize, JSValue, LoadStatus, RenderingContext, Servo, ServoBuilder,
+    WebView, WebViewBuilder, WebViewDelegate, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -34,14 +35,29 @@ pub struct FormmaxRunReport {
     pub replay_events: usize,
     pub events: Vec<Value>,
     pub receipt: Value,
+    #[serde(default)]
+    pub screenshots: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FormmaxRunConfig {
+    pub url: Url,
+    pub artifact_dir: Option<PathBuf>,
 }
 
 pub fn run_formmax_fixture(url: Url) -> Result<FormmaxRunReport> {
+    run_formmax_fixture_with_config(FormmaxRunConfig {
+        url,
+        artifact_dir: None,
+    })
+}
+
+pub fn run_formmax_fixture_with_config(config: FormmaxRunConfig) -> Result<FormmaxRunReport> {
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
     let result = Rc::new(RefCell::new(None));
-    let mut app = FormmaxApp::new(&event_loop, url, result.clone());
+    let mut app = FormmaxApp::new(&event_loop, config, result.clone());
 
     event_loop
         .run_app(&mut app)
@@ -57,7 +73,9 @@ pub fn run_formmax_fixture(url: Url) -> Result<FormmaxRunReport> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Load,
+    BeforeScreenshot,
     DriveRequested,
+    AfterScreenshot,
     Done,
 }
 
@@ -66,10 +84,13 @@ struct FormmaxState {
     servo: Servo,
     rendering_context: Rc<WindowRenderingContext>,
     webview: RefCell<Option<WebView>>,
-    target_url: Url,
+    config: FormmaxRunConfig,
     started_at: Instant,
     phase: Cell<Phase>,
+    phase_started_at: RefCell<Instant>,
     pending_drive: Rc<RefCell<Option<std::result::Result<String, String>>>>,
+    pending_report: RefCell<Option<FormmaxRunReport>>,
+    screenshots: RefCell<Vec<String>>,
     result: Rc<RefCell<Option<std::result::Result<FormmaxRunReport, String>>>>,
 }
 
@@ -82,7 +103,7 @@ impl WebViewDelegate for FormmaxState {
 enum FormmaxApp {
     Initial {
         waker: Waker,
-        target_url: Url,
+        config: FormmaxRunConfig,
         result: Rc<RefCell<Option<std::result::Result<FormmaxRunReport, String>>>>,
     },
     Running {
@@ -94,12 +115,12 @@ enum FormmaxApp {
 impl FormmaxApp {
     fn new(
         event_loop: &EventLoop<WakerEvent>,
-        target_url: Url,
+        config: FormmaxRunConfig,
         result: Rc<RefCell<Option<std::result::Result<FormmaxRunReport, String>>>>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
-            target_url,
+            config,
             result,
         }
     }
@@ -126,8 +147,14 @@ impl FormmaxApp {
 
         match state.phase.get() {
             Phase::Load if webview.load_status() == LoadStatus::Complete => {
+                set_phase(&state, Phase::BeforeScreenshot);
+            }
+            Phase::BeforeScreenshot
+                if state.phase_started_at.borrow().elapsed() >= Duration::from_millis(220) =>
+            {
+                save_artifact_screenshot(&state, &webview, "before.png");
                 request_drive(&state, &webview);
-                state.phase.set(Phase::DriveRequested);
+                set_phase(&state, Phase::DriveRequested);
             }
             Phase::DriveRequested => {
                 let Some(raw) = finish_drive(&state.pending_drive) else {
@@ -135,15 +162,35 @@ impl FormmaxApp {
                 };
                 match serde_json::from_str::<FormmaxRunReport>(&raw) {
                     Ok(report) => {
-                        finish_ok(&state, event_loop, report);
-                        state.phase.set(Phase::Done);
-                        *self = Self::Finished;
+                        *state.pending_report.borrow_mut() = Some(report);
+                        set_phase(&state, Phase::AfterScreenshot);
                     }
                     Err(error) => {
                         finish_err(
                             &state,
                             event_loop,
                             format!("failed to parse FORMMAX report JSON: {error}; raw={raw:?}"),
+                        );
+                        *self = Self::Finished;
+                    }
+                }
+            }
+            Phase::AfterScreenshot
+                if state.phase_started_at.borrow().elapsed() >= Duration::from_millis(220) =>
+            {
+                save_artifact_screenshot(&state, &webview, "after.png");
+                match state.pending_report.borrow_mut().take() {
+                    Some(mut report) => {
+                        report.screenshots = state.screenshots.borrow().clone();
+                        finish_ok(&state, event_loop, report);
+                        set_phase(&state, Phase::Done);
+                        *self = Self::Finished;
+                    }
+                    None => {
+                        finish_err(
+                            &state,
+                            event_loop,
+                            "FORMMAX runner reached screenshot phase without a report",
                         );
                         *self = Self::Finished;
                     }
@@ -161,7 +208,7 @@ impl ApplicationHandler<WakerEvent> for FormmaxApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let Self::Initial {
             waker,
-            target_url,
+            config,
             result,
         } = self
         else {
@@ -231,15 +278,18 @@ impl ApplicationHandler<WakerEvent> for FormmaxApp {
             servo,
             rendering_context,
             webview: RefCell::new(None),
-            target_url: target_url.clone(),
+            config: config.clone(),
             started_at: Instant::now(),
             phase: Cell::new(Phase::Load),
+            phase_started_at: RefCell::new(Instant::now()),
             pending_drive: Rc::new(RefCell::new(None)),
+            pending_report: RefCell::new(None),
+            screenshots: RefCell::new(Vec::new()),
             result: result.clone(),
         });
 
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
-            .url(state.target_url.clone())
+            .url(state.config.url.clone())
             .hidpi_scale_factor(Scale::new(1.0))
             .delegate(state.clone())
             .build();
@@ -328,6 +378,36 @@ fn finish_err(state: &Rc<FormmaxState>, event_loop: &ActiveEventLoop, message: i
         *state.result.borrow_mut() = Some(Err(message.into()));
     }
     event_loop.exit();
+}
+
+fn set_phase(state: &Rc<FormmaxState>, phase: Phase) {
+    state.phase.set(phase);
+    *state.phase_started_at.borrow_mut() = Instant::now();
+}
+
+fn save_artifact_screenshot(state: &Rc<FormmaxState>, webview: &WebView, filename: &str) {
+    let Some(artifact_dir) = state.config.artifact_dir.as_ref() else {
+        return;
+    };
+    webview.paint();
+    let rect = DeviceIntRect::from_size(DeviceIntSize::new(
+        WINDOW_WIDTH as i32,
+        WINDOW_HEIGHT as i32,
+    ));
+    let path = artifact_dir.join(filename);
+    match state.rendering_context.read_to_image(rect) {
+        Some(image) => {
+            if let Err(error) = image.save(&path) {
+                eprintln!("failed to save {}: {error}", path.display());
+            } else {
+                state
+                    .screenshots
+                    .borrow_mut()
+                    .push(path.display().to_string());
+            }
+        }
+        None => eprintln!("failed to capture {}", path.display()),
+    }
 }
 
 #[derive(Clone)]
@@ -528,6 +608,8 @@ const DRIVE_JS: &str = r##"
   const receipt = JSON.parse(receiptText);
   const validation = receipt.validation || module.validateReceipt(rows, receipt);
   const validationErrors = (validation.failures || []).length;
+  const receiptPanel = document.getElementById("receipt-panel");
+  if (receiptPanel) receiptPanel.scrollIntoView({ block: "start" });
   emit("receipt_seen", {
     row_count: receipt.row_count,
     receipt_verified: Boolean(validation.passed),
