@@ -231,3 +231,17 @@
 - `servo-safe` remains available as an explicit baseline via `--rendering-profile servo-safe`.
 - MOUSEMAX/FORMMAX runner defaults remain conservative; they use `servo-safe` unless a profile is explicitly requested or `SACCADE_RENDERING_PROFILE` is set.
 - `scripts/validate_rendering_profiles.sh` now verifies the default browser-session worker profile and prints `default_worker_profile=servo-modern`.
+
+## DECISION_RENDERING_004 - Visual parity classifier separates action safety from pixel parity
+
+- Added a first-pass diff classifier to `scripts/visual_parity_compare.py`.
+- Verdicts are intentionally product-facing:
+  - `PASS_ACTION_GREEN`: action map and layout are acceptable for agent action.
+  - `PASS_ACTION_YELLOW_VISUAL`: action is acceptable, but Chrome is still required for polished visual review.
+  - `PASS_ACTION_YELLOW_RASTER`: action is acceptable, but Chrome is required for raster/canvas/pixel judgement.
+  - `FAIL_LAYOUT`: layout differs enough to threaten coordinates.
+  - `FAIL_ACTION_MAP`: viewport or action map differs enough to block agent action.
+- The classifier compares action count, labels, Saccade click-point escape distance against the Chrome reference rect, action rect geometry, layout probes, screenshot dimensions, and raster/text diff ratios.
+- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781298297898/index.html`.
+- Result: no red verdicts across the current seven local visual fixtures. `form_controls` stays yellow because Servo reports narrower native control rects, but the Saccade click points remain within tolerance.
+- This is a routing gate, not a pixel-parity claim: public demos and UI design review still route to `chrome-reference`.

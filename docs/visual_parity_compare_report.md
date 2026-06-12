@@ -19,6 +19,16 @@ The runner opens each fixture twice:
 
 It writes Chrome, Saccade, and diff screenshots plus `visual_parity_manifest.json` and an HTML report.
 
+The manifest now includes a first-pass diff classifier:
+
+- `PASS_ACTION_GREEN`: action map and layout are acceptable for agent action.
+- `PASS_ACTION_YELLOW_VISUAL`: action map/layout are acceptable, but use Chrome for polished visual review.
+- `PASS_ACTION_YELLOW_RASTER`: action map/layout are acceptable, but use Chrome for raster/canvas/pixel judgement.
+- `FAIL_LAYOUT`: layout differs enough to threaten coordinates.
+- `FAIL_ACTION_MAP`: viewport or action map differs enough to block agent action.
+
+The action-map part compares action count, labels, Saccade click-point escape distance against the Chrome reference rect, and action rect geometry. A large rect geometry delta can be a yellow visual warning when the click point remains within tolerance.
+
 ## Fixture Coverage
 
 - `layout_probe`: CSS Grid/Flex/layout probe with computed-style and rect metrics.
@@ -34,13 +44,13 @@ It writes Chrome, Saccade, and diff screenshots plus `visual_parity_manifest.jso
 Latest full run:
 
 ```text
-runs/visual_parity/parity_1781290368953/index.html
+runs/visual_parity/parity_1781298297898/index.html
 ```
 
 Result:
 
 ```text
-VISUAL PARITY PASS fixtures=7 report=/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781290368953/index.html
+VISUAL PARITY PASS fixtures=7 report=/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781298297898/index.html
 ```
 
 Grid validation found the main "mobile-looking" layout root cause:
@@ -62,6 +72,22 @@ responsive_cards 0.039516 -> 0.015893
 
 This confirms the dashboard issue was not a mobile viewport. The latest worker truth still reports a `1280x800` viewport.
 
+Latest classifier verdicts under `servo-modern`:
+
+```text
+layout_probe     PASS_ACTION_GREEN          diff=0.022229 actions=1/1  escape=0.0px rect=0.3px
+dashboard        PASS_ACTION_YELLOW_VISUAL  diff=0.031496 actions=5/5  escape=0.0px rect=6.0px
+form_controls    PASS_ACTION_YELLOW_VISUAL  diff=0.027271 actions=10/10 escape=5.2px rect=662.0px
+modal_overlay    PASS_ACTION_YELLOW_VISUAL  diff=0.024039 actions=6/6  escape=0.0px rect=4.0px
+scroll_sticky    PASS_ACTION_YELLOW_VISUAL  diff=0.053494 actions=11/11 escape=0.0px rect=1.7px
+canvas_svg       PASS_ACTION_YELLOW_RASTER  diff=0.108889 actions=1/1  escape=0.0px rect=1.1px
+responsive_cards PASS_ACTION_GREEN          diff=0.015893 actions=5/5  escape=0.0px rect=0.5px
+```
+
+Interpretation: current `servo-modern` is acceptable for local agent-action dogfood on these fixtures, while Chrome remains the correct reference for polished UI, raster/canvas, and public visual parity.
+
+`form_controls` intentionally stays yellow: Servo reports much narrower rects for several native form controls, but the Saccade click points remain within the reference tolerance. That is acceptable for agent action and still not acceptable as a polished Chrome-lookalike claim.
+
 ## Worker Fix
 
 The first parity run exposed blank Saccade screenshots for complex pages even though DOM truth/action maps were correct. The worker now waits briefly after load completion and retries screenshot capture when the readback is nearly all white. This turns invalid blank artifacts into usable visual evidence.
@@ -71,5 +97,5 @@ The first parity run exposed blank Saccade screenshots for complex pages even th
 - Chrome-side click verification.
 - Browser URL-bar parity artifacts for public demos.
 - Firefox reference capture.
-- Run MOUSEMAX and FORMMAX gates before making `servo-modern` the dogfood default.
 - Root-cause remaining Servo/Chrome differences: font metrics, canvas/SVG, sticky/scroll, media-query coverage, and DPR/window chrome.
+- Broaden classifier fixtures for media queries, transforms, container queries, overlays, and generated agent-built pages.

@@ -24,6 +24,9 @@ DEFAULT_FIXTURES = [
     "canvas_svg",
     "responsive_cards",
 ]
+ACTION_CLICK_ESCAPE_FAIL_PX = 8
+ACTION_RECT_WARNING_PX = 24
+LAYOUT_RECT_FAIL_PX = 8
 
 
 def main():
@@ -139,6 +142,7 @@ def run_case(fixture, url, case_dir, args):
     chrome_truth = json.loads((chrome_dir / "chrome_truth.json").read_text())
     saccade_truth = saccade.get("result", {})
     layout_probe_metrics = compare_layout_probes(chrome_truth, saccade_truth)
+    action_map_metrics = compare_action_maps(chrome_truth, saccade_truth)
     (case_dir / "saccade_worker_result.json").write_text(
         json.dumps(saccade_truth, indent=2, sort_keys=True) + "\n"
     )
@@ -159,6 +163,7 @@ def run_case(fixture, url, case_dir, args):
         "saccade_title": saccade_truth.get("title", ""),
         "metrics": metrics,
         "layout_probe_metrics": layout_probe_metrics,
+        "action_map_metrics": action_map_metrics,
         "artifacts": {
             "chrome_manifest": str(chrome_dir / "chrome_reference_manifest.json"),
             "chrome_truth": str(chrome_dir / "chrome_truth.json"),
@@ -166,6 +171,7 @@ def run_case(fixture, url, case_dir, args):
             "saccade_worker_result": str(case_dir / "saccade_worker_result.json"),
         },
     }
+    result["diff_classification"] = classify_diff(result)
     (case_dir / "case_result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
 
@@ -294,6 +300,198 @@ def rect_max_delta(a, b):
         abs(float(a.get(key, 0) or 0) - float(b.get(key, 0) or 0))
         for key in ("left", "top", "width", "height")
     )
+
+
+def compare_action_maps(chrome_truth, saccade_truth):
+    chrome_actions = chrome_truth.get("actions", [])
+    saccade_actions = saccade_truth.get("actions", [])
+    chrome_sorted = sorted(chrome_actions, key=action_sort_key)
+    saccade_sorted = sorted(saccade_actions, key=action_sort_key)
+    chrome_labels = [action_label(action) for action in chrome_sorted]
+    saccade_labels = [action_label(action) for action in saccade_sorted]
+    max_rect_delta = 0.0
+    max_center_delta = 0.0
+    max_click_escape_delta = 0.0
+    matched_items = []
+    if chrome_labels == saccade_labels:
+        for chrome_action, saccade_action in zip(chrome_sorted, saccade_sorted):
+            rect_delta = rect_max_delta(
+                chrome_action.get("rect", {}),
+                saccade_action.get("rect", {}),
+            )
+            center_delta = center_distance(
+                chrome_action.get("rect", {}),
+                saccade_action.get("rect", {}),
+            )
+            click_escape_delta = point_escape_distance(
+                rect_center(saccade_action.get("rect", {})),
+                chrome_action.get("rect", {}),
+            )
+            max_rect_delta = max(max_rect_delta, rect_delta)
+            max_center_delta = max(max_center_delta, center_delta)
+            max_click_escape_delta = max(max_click_escape_delta, click_escape_delta)
+            matched_items.append(
+                {
+                    "label": action_label(chrome_action),
+                    "rect_max_delta": round(rect_delta, 3),
+                    "center_delta": round(center_delta, 3),
+                    "click_escape_delta": round(click_escape_delta, 3),
+                    "chrome_rect": chrome_action.get("rect", {}),
+                    "saccade_rect": saccade_action.get("rect", {}),
+                }
+            )
+    return {
+        "chrome_actions": len(chrome_actions),
+        "saccade_actions": len(saccade_actions),
+        "count_delta": abs(len(chrome_actions) - len(saccade_actions)),
+        "labels_match": chrome_labels == saccade_labels,
+        "missing_in_saccade": sorted(set(chrome_labels) - set(saccade_labels)),
+        "extra_in_saccade": sorted(set(saccade_labels) - set(chrome_labels)),
+        "max_rect_delta": round(max_rect_delta, 3),
+        "max_center_delta": round(max_center_delta, 3),
+        "max_click_escape_delta": round(max_click_escape_delta, 3),
+        "matched_items": matched_items,
+    }
+
+
+def action_sort_key(action):
+    rect = action.get("rect", {})
+    return (
+        action_label(action),
+        str(action.get("kind", "")),
+        str(action.get("tag", "")),
+        round(float(rect.get("top", 0) or 0), 1),
+        round(float(rect.get("left", 0) or 0), 1),
+    )
+
+
+def action_label(action):
+    label = action.get("label") or action.get("action_id") or action.get("tag") or ""
+    return " ".join(str(label).strip().lower().split())
+
+
+def center_distance(a, b):
+    ax, ay = rect_center(a)
+    bx, by = rect_center(b)
+    return math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
+
+
+def rect_center(rect):
+    return (
+        float(rect.get("left", 0) or 0) + float(rect.get("width", 0) or 0) / 2,
+        float(rect.get("top", 0) or 0) + float(rect.get("height", 0) or 0) / 2,
+    )
+
+
+def point_escape_distance(point, rect):
+    x, y = point
+    left = float(rect.get("left", 0) or 0)
+    top = float(rect.get("top", 0) or 0)
+    right = float(rect.get("right", left + float(rect.get("width", 0) or 0)) or 0)
+    bottom = float(rect.get("bottom", top + float(rect.get("height", 0) or 0)) or 0)
+    dx = max(left - x, 0, x - right)
+    dy = max(top - y, 0, y - bottom)
+    return math.sqrt(dx * dx + dy * dy)
+
+
+def classify_diff(result):
+    metrics = result["metrics"]
+    layout = result.get("layout_probe_metrics", {})
+    actions = result.get("action_map_metrics", {})
+    diff_classes = {
+        "layout_rect_style_diff": [],
+        "text_font_diff": [],
+        "raster_canvas_diff": [],
+        "action_map_diff": [],
+        "action_geometry_warning": [],
+        "viewport_dpr_diff": [],
+        "policy_diff": [],
+    }
+
+    if not metrics.get("dimension_match"):
+        diff_classes["viewport_dpr_diff"].append(
+            f"Screenshot dimensions differ: Chrome {metrics.get('chrome_width')}x{metrics.get('chrome_height')} vs Saccade {metrics.get('saccade_width')}x{metrics.get('saccade_height')}"
+        )
+
+    if actions.get("count_delta", 0) != 0:
+        diff_classes["action_map_diff"].append(
+            f"Action count differs: Chrome {actions.get('chrome_actions')} vs Saccade {actions.get('saccade_actions')}"
+        )
+    if actions.get("labels_match") is False:
+        missing = actions.get("missing_in_saccade", [])[:5]
+        extra = actions.get("extra_in_saccade", [])[:5]
+        diff_classes["action_map_diff"].append(
+            f"Action labels differ; missing={missing}, extra={extra}"
+        )
+    if actions.get("max_click_escape_delta", 0) > ACTION_CLICK_ESCAPE_FAIL_PX:
+        diff_classes["action_map_diff"].append(
+            f"Saccade click point escapes Chrome action rect by {actions.get('max_click_escape_delta')}px"
+        )
+    elif actions.get("max_rect_delta", 0) > ACTION_RECT_WARNING_PX:
+        diff_classes["action_geometry_warning"].append(
+            f"Action rect geometry delta {actions.get('max_rect_delta')}px; click point remains within tolerance"
+        )
+
+    if layout.get("missing", 0):
+        diff_classes["layout_rect_style_diff"].append(
+            f"{layout.get('missing')} layout probe(s) missing"
+        )
+    if layout.get("display_mismatches", 0):
+        diff_classes["layout_rect_style_diff"].append(
+            f"{layout.get('display_mismatches')} display mismatch(es)"
+        )
+    if layout.get("grid_template_mismatches", 0):
+        diff_classes["layout_rect_style_diff"].append(
+            f"{layout.get('grid_template_mismatches')} grid-template mismatch(es)"
+        )
+    if layout.get("max_rect_delta", 0) > LAYOUT_RECT_FAIL_PX:
+        diff_classes["layout_rect_style_diff"].append(
+            f"Max layout probe rect delta {layout.get('max_rect_delta')}px"
+        )
+
+    diff_ratio = metrics.get("diff_ratio", 0)
+    mean_abs = metrics.get("mean_abs_channel_delta", 0)
+    if diff_ratio > 0.08:
+        diff_classes["raster_canvas_diff"].append(
+            f"High pixel diff ratio {diff_ratio:.3%}; inspect raster/canvas/SVG/font rendering"
+        )
+    elif diff_ratio > 0.03:
+        diff_classes["text_font_diff"].append(
+            f"Moderate visual diff ratio {diff_ratio:.3%}; likely text/font/spacing/raster delta"
+        )
+    elif mean_abs > 2.5:
+        diff_classes["text_font_diff"].append(
+            f"Low-area visual delta with mean_abs_channel_delta={mean_abs}"
+        )
+
+    has_action_diff = bool(diff_classes["action_map_diff"])
+    has_viewport_diff = bool(diff_classes["viewport_dpr_diff"])
+    has_layout_diff = bool(diff_classes["layout_rect_style_diff"])
+    has_raster_diff = bool(diff_classes["raster_canvas_diff"])
+    has_text_diff = bool(diff_classes["text_font_diff"])
+    has_action_geometry_warning = bool(diff_classes["action_geometry_warning"])
+
+    if has_action_diff or has_viewport_diff:
+        verdict = "FAIL_ACTION_MAP"
+        recommendation = "Do not trust this run for agent action without investigation; use chrome-reference for user-visible review."
+    elif has_layout_diff:
+        verdict = "FAIL_LAYOUT"
+        recommendation = "Layout differs enough to affect coordinates; use chrome-reference or fix the Servo profile before agent action."
+    elif has_raster_diff:
+        verdict = "PASS_ACTION_YELLOW_RASTER"
+        recommendation = "Action map and layout are acceptable; use chrome-reference for pixel UI review or raster/canvas judgement."
+    elif has_text_diff or has_action_geometry_warning:
+        verdict = "PASS_ACTION_YELLOW_VISUAL"
+        recommendation = "Agent action is acceptable; use chrome-reference for polished visual review."
+    else:
+        verdict = "PASS_ACTION_GREEN"
+        recommendation = "Servo profile is acceptable for agent action on this fixture; keep chrome-reference for public pixel parity."
+
+    return {
+        "verdict": verdict,
+        "recommendation": recommendation,
+        "diff_classes": diff_classes,
+    }
 
 
 def compare_pngs(chrome_path, saccade_path, threshold):
@@ -462,10 +660,17 @@ def write_html(run_dir, results, args):
     for result in results:
         m = result["metrics"]
         lp = result.get("layout_probe_metrics", {})
+        am = result.get("action_map_metrics", {})
+        classification = result.get("diff_classification", {})
         layout_summary = (
             f"max rect {lp.get('max_rect_delta', 0):.1f}px, "
             f"display {lp.get('display_mismatches', 0)}, "
             f"grid {lp.get('grid_template_mismatches', 0)}"
+        )
+        action_summary = (
+            f"{result['chrome_actions']} / {result['saccade_actions']}, "
+            f"escape {am.get('max_click_escape_delta', 0):.1f}px, "
+            f"rect {am.get('max_rect_delta', 0):.1f}px"
         )
         rows.append(
             "<tr>"
@@ -473,15 +678,18 @@ def write_html(run_dir, results, args):
             f"<td>{m['dimension_match']}</td>"
             f"<td>{m['diff_ratio']:.3%}</td>"
             f"<td>{m['mean_abs_channel_delta']}</td>"
-            f"<td>{result['chrome_actions']} / {result['saccade_actions']}</td>"
+            f"<td>{esc(action_summary)}</td>"
             f"<td>{esc(layout_summary)}</td>"
+            f"<td>{esc(classification.get('verdict', ''))}</td>"
             "</tr>"
         )
+        recommendation = classification.get("recommendation", "")
         figures.append(
             f"""
             <section class="case">
               <h2>{esc(result['fixture'])}</h2>
-              <p class="muted">diff_ratio={m['diff_ratio']:.3%}, mean_abs={m['mean_abs_channel_delta']}, rms={m['rms_channel_delta']}, actions Chrome/Saccade={result['chrome_actions']}/{result['saccade_actions']}, layout {esc(layout_summary)}</p>
+              <p class="muted">diff_ratio={m['diff_ratio']:.3%}, mean_abs={m['mean_abs_channel_delta']}, rms={m['rms_channel_delta']}, actions {esc(action_summary)}, layout {esc(layout_summary)}</p>
+              <p><strong>{esc(classification.get('verdict', ''))}</strong> · {esc(recommendation)}</p>
               <div class="compare">
                 <figure><figcaption>Chrome</figcaption><img src="{esc(result['chrome_screenshot'])}"></figure>
                 <figure><figcaption>Saccade</figcaption><img src="{esc(result['saccade_screenshot'])}"></figure>
@@ -516,7 +724,7 @@ def write_html(run_dir, results, args):
   </header>
   <main>
     <table>
-      <thead><tr><th>Fixture</th><th>Dimensions</th><th>Diff ratio</th><th>Mean abs</th><th>Actions C/S</th><th>Layout probes</th></tr></thead>
+      <thead><tr><th>Fixture</th><th>Dimensions</th><th>Diff ratio</th><th>Mean abs</th><th>Actions C/S</th><th>Layout probes</th><th>Verdict</th></tr></thead>
       <tbody>{''.join(rows)}</tbody>
     </table>
     {''.join(figures)}
