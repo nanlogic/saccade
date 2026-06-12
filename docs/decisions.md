@@ -261,3 +261,11 @@
 - These previews expose URL context and make public/demo review easier for non-engineering readers.
 - They are explicitly labeled report wrappers, not native Chrome/Saccade browser UI screenshots.
 - Native browser UI capture with real Chrome/Safari window chrome remains pending for public launch polish.
+
+## DECISION_DEMO_001 - Demo comparison pack records native browser UI capture status
+
+- Added `scripts/capture_native_browser_ui.py` for macOS native Chrome/Safari window capture attempts through AppleScript plus `screencapture`.
+- Added `scripts/build_demo_comparison_pack.py` to combine native browser UI capture attempts, Saccade visual parity evidence, and Chrome hit-test summaries into `demo_review.html`.
+- Native browser UI screenshots are public-demo artifacts only; browser truth, safety policy, replay, and hit-test verification remain separate evidence.
+- Latest pack: `/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781301123504/demo_review.html`.
+- Current Codex host cannot create native screenshots because macOS Screen Recording is unavailable. The pack records `capture_unavailable` for Chrome/Safari instead of pretending success.

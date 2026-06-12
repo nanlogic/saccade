@@ -19,6 +19,7 @@ scripts/visual_parity_compare.py --timeout-sec 60
 scripts/visual_parity_compare.py --timeout-sec 60 --rendering-profile servo-modern
 scripts/selftest_visual_parity.sh
 cargo run -q -p devmax -- audit --engine chrome --url <local-url> --replay
+scripts/build_demo_comparison_pack.py --fixtures dashboard --timeout-sec 60
 ```
 
 It uses an installed Chrome-family browser through the Chrome DevTools Protocol to render page content at a fixed viewport and writes:
@@ -39,6 +40,8 @@ The runner can select Saccade profiles with `--rendering-profile servo-safe|serv
 
 The browser-frame previews are report wrappers around page-content screenshots. They make URL context visible for public/demo review, but they are not native Chrome/Saccade browser-UI screenshots.
 
+`scripts/build_demo_comparison_pack.py` now combines native Chrome/Safari browser UI capture attempts, visual parity evidence, and Chrome hit-test summaries into `demo_review.html`. On macOS hosts without Screen Recording permission it still produces the pack and records native screenshots as `capture_unavailable`.
+
 Privacy note: page screenshots capture visible page values. Use this script on local fixtures or non-sensitive pages only until redacted artifact capture exists.
 
 ## What This Is Not
@@ -47,7 +50,7 @@ This is not the final Chrome adapter.
 
 It does not yet provide:
 
-- native browser UI / URL bar screenshots,
+- native browser UI / URL bar screenshots require macOS Screen Recording permission,
 - human-profile Chrome session reuse,
 - Firefox reference capture.
 
@@ -64,7 +67,7 @@ Replay: records actions, statuses, and masked boundaries without secrets
 
 ## Next
 
-1. Use Chrome reference screenshots in MOUSEMAX and DEVMAX parity pages.
-2. Add native Chrome/Safari browser-UI screenshots for public demos.
+1. Grant Screen Recording permission and rerun the demo pack to produce native Chrome/Safari screenshots.
+2. Use Chrome reference screenshots in MOUSEMAX and DEVMAX parity pages.
 3. Add user-profile/session handoff only behind explicit permission.
 4. Keep Servo as a controlled evidence engine until Chrome adapter coverage is strong enough.
