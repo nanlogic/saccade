@@ -23,25 +23,27 @@ scripts/build_demo_comparison_pack.py --fixtures dashboard --timeout-sec 60
 ## Latest Evidence
 
 ```text
-/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781301123504/demo_review.html
+/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781302180551/demo_review.html
 ```
 
 Current machine result:
 
 ```text
-chrome native UI: capture_unavailable
-safari native UI: capture_unavailable
+chrome native UI: captured
+safari native UI: captured
 dashboard visual parity: PASS_ACTION_YELLOW_VISUAL
 Chrome hit-test: 5/5
 ```
 
-The native capture failure is expected in the current Codex host because macOS screen capture is unavailable:
+The demo pack serves the default local fixture over `127.0.0.1` for native browser UI capture. This avoids Safari's `file://` load confirmation dialog while keeping the visual parity runner's normal fixture flow unchanged.
+
+If native capture fails, it usually means macOS Screen Recording permission is missing:
 
 ```text
 macOS screen capture is unavailable; grant Screen Recording permission to the terminal/Codex app
 ```
 
-The pack still succeeds because this is a public-demo artifact path. It records the missing native screenshots as structured evidence instead of pretending they exist.
+The pack still succeeds in that case because this is a public-demo artifact path. It records missing native screenshots as structured evidence instead of pretending they exist.
 
 ## How To Rerun With Native Screenshots
 

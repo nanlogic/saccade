@@ -4,9 +4,11 @@ import html
 import json
 import os
 import pathlib
+import socket
 import subprocess
 import sys
 import time
+import urllib.request
 
 
 WORKSPACE = pathlib.Path(__file__).resolve().parents[1]
@@ -18,27 +20,42 @@ def main():
     run_dir = pathlib.Path(args.output_dir).resolve() if args.output_dir else default_run_dir()
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    target_url = args.url or DEFAULT_FIXTURE.resolve().as_uri()
-    visual = run_visual_parity(args, run_dir)
-    native = run_native_captures(args, run_dir, target_url)
-    manifest = {
-        "engine": "saccade-demo-comparison-pack-v0",
-        "created_at_unix_ms": unix_ms(),
-        "target_url": target_url,
-        "fixtures": args.fixtures,
-        "rendering_profile": args.rendering_profile,
-        "visual_parity": visual,
-        "native_browser_ui": native,
-        "artifacts": {
-            "demo_review": "demo_review.html",
-            "manifest": "demo_comparison_manifest.json",
-        },
-        "note": "Native browser UI screenshots are public-demo artifacts. Browser truth, safety, and replay evidence remain separate Saccade artifacts.",
-    }
-    manifest_path = run_dir / "demo_comparison_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    write_demo_html(run_dir, manifest)
-    print(f"DEMO COMPARISON PACK READY report={run_dir / 'demo_review.html'}")
+    local_server = None
+    try:
+        if args.url:
+            target_url = args.url
+            native_url_source = "user_url"
+        else:
+            local_server, target_url = start_local_http_server(DEFAULT_FIXTURE)
+            native_url_source = "local_http_fixture"
+        visual = run_visual_parity(args, run_dir)
+        native = run_native_captures(args, run_dir, target_url)
+        manifest = {
+            "engine": "saccade-demo-comparison-pack-v0",
+            "created_at_unix_ms": unix_ms(),
+            "target_url": target_url,
+            "target_url_source": native_url_source,
+            "fixtures": args.fixtures,
+            "rendering_profile": args.rendering_profile,
+            "visual_parity": visual,
+            "native_browser_ui": native,
+            "artifacts": {
+                "demo_review": "demo_review.html",
+                "manifest": "demo_comparison_manifest.json",
+            },
+            "note": "Native browser UI screenshots are public-demo artifacts. Browser truth, safety, and replay evidence remain separate Saccade artifacts.",
+        }
+        manifest_path = run_dir / "demo_comparison_manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        write_demo_html(run_dir, manifest)
+        print(f"DEMO COMPARISON PACK READY report={run_dir / 'demo_review.html'}")
+    finally:
+        if local_server:
+            local_server.terminate()
+            try:
+                local_server.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                local_server.kill()
 
 
 def parse_args():
@@ -73,6 +90,51 @@ def parse_args():
 
 def default_run_dir():
     return WORKSPACE / "runs" / "demo_pack" / f"demo_{unix_ms()}"
+
+
+def start_local_http_server(target_file):
+    port = free_port()
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "http.server",
+            str(port),
+            "--bind",
+            "127.0.0.1",
+            "--directory",
+            str(WORKSPACE),
+        ],
+        cwd=WORKSPACE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    rel_path = target_file.resolve().relative_to(WORKSPACE.resolve()).as_posix()
+    url = f"http://127.0.0.1:{port}/{rel_path}"
+    wait_for_http_server(process, url)
+    return process, url
+
+
+def free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def wait_for_http_server(process, url):
+    deadline = time.monotonic() + 8
+    last_error = None
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError("local HTTP server exited before demo capture")
+        try:
+            with urllib.request.urlopen(url, timeout=1) as response:
+                if response.status < 500:
+                    return
+        except Exception as error:
+            last_error = error
+            time.sleep(0.1)
+    raise RuntimeError(f"local HTTP server did not become ready: {last_error}")
 
 
 def run_visual_parity(args, run_dir):
