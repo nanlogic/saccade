@@ -266,7 +266,8 @@
 
 - Added `scripts/capture_native_browser_ui.py` for macOS native Chrome/Safari window capture attempts through AppleScript plus `screencapture`.
 - Added `scripts/build_demo_comparison_pack.py` to combine native browser UI capture attempts, Saccade visual parity evidence, and Chrome hit-test summaries into `demo_review.html`.
+- `demo_review.html` now embeds the Saccade worker screenshot directly next to Chrome page-content and pixel-diff thumbnails, so reviewers do not have to open the nested visual parity report to find Saccade evidence.
 - Native browser UI screenshots are public-demo artifacts only; browser truth, safety policy, replay, and hit-test verification remain separate evidence.
-- Latest pack: `/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781302180551/demo_review.html`.
+- Latest pack: `/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781304174442/demo_review.html`.
 - Current result captures real Chrome and Safari native browser UI screenshots for the dashboard fixture.
 - The pack serves the default native-capture fixture over `127.0.0.1` to avoid Safari's `file://` load confirmation dialog.

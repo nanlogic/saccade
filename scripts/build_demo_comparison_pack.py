@@ -170,7 +170,7 @@ def run_visual_parity(args, run_dir):
         "stdout_log": "visual_parity_stdout.log",
         "report": str(report_path),
         "manifest": str(manifest_path),
-        "summary": summarize_visual_manifest(manifest),
+        "summary": summarize_visual_manifest(manifest, manifest_path.parent),
     }
 
 
@@ -181,7 +181,7 @@ def parse_report_path(stdout):
     raise RuntimeError(f"could not find visual parity report path in output:\n{stdout}")
 
 
-def summarize_visual_manifest(manifest):
+def summarize_visual_manifest(manifest, visual_run_dir):
     rows = []
     for fixture in manifest.get("fixtures", []):
         clicks = fixture.get("chrome_click_verification", {})
@@ -194,6 +194,9 @@ def summarize_visual_manifest(manifest):
                 "hit_total": clicks.get("total", 0),
                 "hit_skipped": policy.get("saccade_actions_skipped", 0),
                 "diff_ratio": fixture.get("metrics", {}).get("diff_ratio", 0),
+                "chrome_screenshot": str((visual_run_dir / fixture.get("chrome_screenshot", "")).resolve()),
+                "saccade_screenshot": str((visual_run_dir / fixture.get("saccade_screenshot", "")).resolve()),
+                "diff_image": str((visual_run_dir / fixture.get("diff_image", "")).resolve()),
             }
         )
     return rows
@@ -257,6 +260,7 @@ def run_native_captures(args, run_dir, target_url):
 def write_demo_html(run_dir, manifest):
     native_cards = "\n".join(native_card(run_dir, item) for item in manifest["native_browser_ui"])
     visual_rows = "\n".join(visual_row(row) for row in manifest["visual_parity"]["summary"])
+    saccade_cards = "\n".join(saccade_evidence_card(run_dir, row) for row in manifest["visual_parity"]["summary"])
     visual_report = rel(run_dir, pathlib.Path(manifest["visual_parity"]["report"]))
     page = f"""<!doctype html>
 <html lang="en">
@@ -274,11 +278,15 @@ def write_demo_html(run_dir, manifest):
     .card h3 {{ margin: 0; padding: 12px 14px; border-bottom: 1px solid #d8dee8; }}
     .card p {{ padding: 0 14px; }}
     .card img {{ display: block; width: 100%; height: auto; border-top: 1px solid #d8dee8; }}
+    .evidence-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 14px 14px; }}
+    .evidence-grid figure {{ margin: 0; border: 1px solid #d8dee8; border-radius: 6px; overflow: hidden; background: #ffffff; }}
+    .evidence-grid figcaption {{ padding: 8px 10px; border-bottom: 1px solid #d8dee8; font-weight: 700; font-size: 13px; }}
+    .evidence-grid img {{ display: block; width: 100%; height: auto; }}
     table {{ width: 100%; border-collapse: collapse; background: #ffffff; border: 1px solid #d8dee8; }}
     th, td {{ text-align: left; padding: 10px 12px; border-bottom: 1px solid #d8dee8; }}
     code {{ background: #eef2f7; padding: 2px 5px; border-radius: 4px; }}
     .warning {{ color: #92400e; }}
-    @media (max-width: 900px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+    @media (max-width: 900px) {{ .grid, .evidence-grid {{ grid-template-columns: 1fr; }} }}
   </style>
 </head>
 <body>
@@ -293,6 +301,7 @@ def write_demo_html(run_dir, manifest):
 
     <h2>Verified Saccade Evidence</h2>
     <p>Visual parity report: <a href="{esc(visual_report)}">{esc(visual_report)}</a></p>
+    {saccade_cards}
     <table>
       <thead><tr><th>Fixture</th><th>Verdict</th><th>Chrome Hit-Test</th><th>Diff Ratio</th></tr></thead>
       <tbody>{visual_rows}</tbody>
@@ -319,6 +328,29 @@ def native_card(run_dir, item):
             "<p class=\"muted\">Grant macOS Screen Recording permission to the terminal/Codex app, then rerun the pack.</p>"
         )
     return f'<section class="card"><h3>{esc(title)}</h3>{body}</section>'
+
+
+def saccade_evidence_card(run_dir, row):
+    return f"""
+    <section class="card">
+      <h3>{esc(row['fixture'])}: Saccade Worker Evidence</h3>
+      <p class="muted">This is the Saccade page-content screenshot from the live worker, next to Chrome page-content and diff evidence. Native browser UI screenshots above are separate public-demo artifacts.</p>
+      <div class="evidence-grid">
+        {evidence_figure(run_dir, 'Chrome page-content', row['chrome_screenshot'])}
+        {evidence_figure(run_dir, 'Saccade worker', row['saccade_screenshot'])}
+        {evidence_figure(run_dir, 'Pixel diff', row['diff_image'])}
+      </div>
+    </section>
+    """
+
+
+def evidence_figure(run_dir, label, path):
+    return (
+        "<figure>"
+        f"<figcaption>{esc(label)}</figcaption>"
+        f'<img src="{esc(rel(run_dir, pathlib.Path(path)))}" alt="{esc(label)} screenshot">'
+        "</figure>"
+    )
 
 
 def visual_row(row):

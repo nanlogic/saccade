@@ -40,7 +40,7 @@ The runner can select Saccade profiles with `--rendering-profile servo-safe|serv
 
 The browser-frame previews are report wrappers around page-content screenshots. They make URL context visible for public/demo review, but they are not native Chrome/Saccade browser-UI screenshots.
 
-`scripts/build_demo_comparison_pack.py` now combines native Chrome/Safari browser UI capture attempts, visual parity evidence, and Chrome hit-test summaries into `demo_review.html`. On macOS hosts without Screen Recording permission it still produces the pack and records native screenshots as `capture_unavailable`.
+`scripts/build_demo_comparison_pack.py` now combines native Chrome/Safari browser UI capture attempts, visual parity evidence, and Chrome hit-test summaries into `demo_review.html`. The report embeds Saccade worker screenshots directly next to Chrome page-content and pixel-diff thumbnails. On macOS hosts without Screen Recording permission it still produces the pack and records native screenshots as `capture_unavailable`.
 
 Privacy note: page screenshots capture visible page values. Use this script on local fixtures or non-sensitive pages only until redacted artifact capture exists.
 

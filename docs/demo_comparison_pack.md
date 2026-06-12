@@ -16,14 +16,15 @@ scripts/build_demo_comparison_pack.py --fixtures dashboard --timeout-sec 60
 `build_demo_comparison_pack.py` combines:
 
 - native Chrome/Safari browser UI capture attempts,
-- Saccade visual parity report links,
+- direct Saccade worker screenshot evidence from the visual parity run,
+- Chrome page-content and pixel-diff thumbnails for comparison,
 - Chrome hit-test verification summary,
 - a single `demo_review.html` for public review.
 
 ## Latest Evidence
 
 ```text
-/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781302180551/demo_review.html
+/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781304174442/demo_review.html
 ```
 
 Current machine result:
@@ -33,6 +34,7 @@ chrome native UI: captured
 safari native UI: captured
 dashboard visual parity: PASS_ACTION_YELLOW_VISUAL
 Chrome hit-test: 5/5
+Saccade worker screenshot: embedded in demo_review.html
 ```
 
 The demo pack serves the default local fixture over `127.0.0.1` for native browser UI capture. This avoids Safari's `file://` load confirmation dialog while keeping the visual parity runner's normal fixture flow unchanged.
