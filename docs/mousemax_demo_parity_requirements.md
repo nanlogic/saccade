@@ -27,8 +27,29 @@ Required reference artifacts:
 - Safari screenshot of `https://mouseaccuracy.com/classic/` with the URL bar visible.
 - The screenshots must show the same visible page controls: spawn speed options, target size options, and Start button.
 - If possible, capture Chrome and Safari at 1920x1080.
+- Optional Chrome result screenshot after a manual or baseline run.
+- Optional Chrome click-run video.
 
 Do not crop out the browser URL bar in Chrome/Safari reference screenshots. The URL bar is part of the trust evidence.
+
+## Click Comparison Status
+
+The existing Saccade artifact is a replay-derived click map:
+
+```text
+runs/real/run_1781193985/click_map.png
+```
+
+That file shows the circles Saccade clicked. It is the current target-click evidence.
+
+The Chrome/Safari artifacts are currently page references unless a Chrome result screenshot or video is added. Do not describe them as automated Chrome click baselines until the Chrome adapter produces a `run.json` or equivalent replay artifact.
+
+Use this wording until Chrome adapter v0 exists:
+
+```text
+This comparison shows Saccade's verified click run next to Chrome/Safari references for the same public page.
+The full Chrome-engine automated click comparison is a later adapter gate.
+```
 
 ## Demo Framing
 
@@ -49,6 +70,7 @@ Show:
 4. Saccade after screenshot.
 5. Saccade click map.
 6. Validator output.
+7. Optional Chrome result screenshot or video if captured.
 
 The viewer should see:
 
@@ -79,6 +101,13 @@ Optional result screenshots:
 ```text
 runs/real/run_1781193985/chrome_result_urlbar.png
 runs/real/run_1781193985/safari_result_urlbar.png
+```
+
+Optional video/reference artifacts:
+
+```text
+runs/real/run_1781193985/chrome_click_video.mp4
+runs/real/run_1781193985/saccade_replay_video.mp4
 ```
 
 ## Minimum Bar For HN/YouTube

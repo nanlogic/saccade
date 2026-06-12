@@ -1,6 +1,7 @@
 # Saccade Next Plan v5 Tracker
 
 Date: 2026-06-11
+Updated: 2026-06-12
 
 ## Note
 
@@ -42,21 +43,30 @@ The big buckets from v5 are all represented:
 - Playwright alternative comparison.
 - Public release package.
 
+The new gauntlet file is now the product scoreboard:
+
+- Canonical copy: `docs/SACCADE_EVALUATION_GAUNTLET_v1.md`
+- Execution plan: `docs/evaluation_gauntlet_execution_plan.md`
+- Eval entry point: `eval/README.md`
+
 ## Immediate Queue
 
 Do these in order:
 
-1. Finish MOUSEMAX parity screenshots: add Chrome and Safari URL-bar references.
-2. Expand DEVMAX click verification from one action to multi-action smoke flows.
-3. Add MCP skeleton after DEVMAX has one useful report shape.
-4. Build FORMMAX Servo input runner.
-5. Add replay metadata for Trusted Tabs and Login Handoff actions.
+1. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: add Chrome and Safari URL-bar screenshots, then regenerate `parity_review.html`.
+2. Expand DEVMAX to the gauntlet bar: at least 20 fixtures, screenshot crop/evidence per finding, and replay.
+3. Build FORMMAX Servo input runner for the local two-page scrolling table fixture.
+4. Add safety selftest for sensitive-field confirmation and trusted-tab policy.
+5. Add MCP skeleton after DEVMAX and FORMMAX have useful report shapes.
+6. Add replay metadata for Trusted Tabs and Login Handoff actions.
+7. Build Chrome adapter v0 for true Chrome-engine comparison runs.
 
 ## Parking Lot
 
-Do not start these until N1B through N4 are green:
+Do not start these until DEVMAX gauntlet bar, FORMMAX runner, and safety selftest are green:
 
 - real third-party website automation,
-- Chrome adapter as primary runtime,
 - Playwright comparison benchmark,
 - public release push.
+
+Chrome adapter work is allowed as a comparison/runtime gate, but not as a replacement for the Servo evidence layer.

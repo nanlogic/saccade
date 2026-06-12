@@ -43,13 +43,21 @@ cat > "$ABS_RUN_DIR/demo_parity_manifest.json" <<EOF
     "validator": "validator.txt",
     "replay_summary": "replay_summary.txt"
   },
+  "comparison_status": {
+    "saccade_verified_click_run": "complete",
+    "chrome_urlbar_reference": "pending until chrome_options_urlbar.png is added",
+    "safari_urlbar_reference": "pending until safari_options_urlbar.png is added",
+    "chrome_automated_click_run": "deferred_until_chrome_adapter_v0"
+  },
   "reference_artifacts_expected": {
     "chrome_options_urlbar": "chrome_options_urlbar.png",
     "safari_options_urlbar": "safari_options_urlbar.png",
     "chrome_result_urlbar_optional": "chrome_result_urlbar.png",
-    "safari_result_urlbar_optional": "safari_result_urlbar.png"
+    "safari_result_urlbar_optional": "safari_result_urlbar.png",
+    "chrome_click_video_optional": "chrome_click_video.mp4",
+    "saccade_replay_video_optional": "saccade_replay_video.mp4"
   },
-  "note": "Chrome/Safari screenshots should include the browser URL bar. Saccade screenshots are embedded Servo content screenshots without browser chrome."
+  "note": "Chrome/Safari screenshots should include the browser URL bar. Saccade screenshots are embedded Servo content screenshots without browser chrome. Full automated Chrome click comparison is deferred until the Chrome adapter gate."
 }
 EOF
 
@@ -67,6 +75,7 @@ chrome_options="$(image_or_placeholder chrome_options_urlbar.png "Chrome options
 safari_options="$(image_or_placeholder safari_options_urlbar.png "Safari options reference")"
 chrome_result="$(image_or_placeholder chrome_result_urlbar.png "Chrome result reference")"
 safari_result="$(image_or_placeholder safari_result_urlbar.png "Safari result reference")"
+chrome_click_reference="$(image_or_placeholder chrome_result_urlbar.png "Chrome click/reference result")"
 
 cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
 <!doctype html>
@@ -90,6 +99,10 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
     pre { white-space: pre-wrap; background: #111821; color: #e6edf7; border-radius: 8px; padding: 14px; overflow: auto; }
     .placeholder { min-height: 220px; display: grid; place-items: center; text-align: center; background: #fff7e6; border: 1px dashed #b88322; color: #5d3d00; border-radius: 6px; padding: 16px; }
     .note { background: #fff; border: 1px solid #d7dce3; border-radius: 8px; padding: 14px; margin-top: 14px; }
+    .status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0 6px; }
+    .status div { background: #fff; border: 1px solid #d7dce3; border-radius: 8px; padding: 10px; font-size: 13px; }
+    .status strong { display: block; color: #20252c; margin-bottom: 3px; }
+    .wide img { max-height: 620px; object-fit: contain; }
   </style>
 </head>
 <body>
@@ -98,6 +111,21 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
   <p>URL under test: <code>https://mouseaccuracy.com/classic/</code></p>
   <div class="note">
     <p>Saccade uses an embedded Servo window, so it does not look like Chrome or Safari. This review proves page and artifact parity: same public URL, same visible controls, same result wording, replay log, click map, and validator output.</p>
+  </div>
+  <section class="status">
+    <div><strong>Saccade click run</strong>Complete: replay + click map + validator.</div>
+    <div><strong>Chrome URL reference</strong>Pending until <code>chrome_options_urlbar.png</code> is added.</div>
+    <div><strong>Safari URL reference</strong>Pending until <code>safari_options_urlbar.png</code> is added.</div>
+    <div><strong>Chrome click baseline</strong>Deferred until Chrome adapter v0.</div>
+  </section>
+
+  <h2>Target Click Evidence</h2>
+  <section class="grid two">
+    <figure class="wide"><figcaption>Saccade replay-derived click map</figcaption><img src="click_map.png" alt="Saccade click map"></figure>
+    <figure class="wide"><figcaption>Chrome result/reference, optional</figcaption>$chrome_click_reference</figure>
+  </section>
+  <div class="note">
+    <p>The current comparison shows Saccade's verified click run next to Chrome/Safari references for the same public page. It is not yet a Chrome automated click-run baseline.</p>
   </div>
 
   <h2>Options Page Reference</h2>
