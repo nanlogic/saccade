@@ -27,4 +27,4 @@ The gate passed three consecutive local runs after switching the click target fr
 
 - Pinned Servo `0.2.0` did not emit `beforeinput` for this path.
 - `InputEventResult::Consumed` stayed false even though DOM value and input events updated, so Saccade should verify input by page state and DOM/user-visible evidence rather than that flag alone.
-- FORMMAX still uses the trusted fixture DOM transaction runner. The next hardening step is to replace or supplement field writes with this native keyboard path.
+- FORMMAX now uses the native keyboard path for one real text field before the full fixture DOM transaction. The next hardening step is to expand coverage beyond that single text field.

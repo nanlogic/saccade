@@ -100,14 +100,14 @@ Browser runner:
 
 ```bash
 cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay
-cargo run -q -p formmax -- validate-run runs/formmax/run_1781234358800
+cargo run -q -p formmax -- validate-run runs/formmax/run_1781266239027
 ```
 
 Observed result:
 
 ```text
-FORMMAX RUNNER PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true
-FORMMAX VALIDATION PASS run=runs/formmax/run_1781234358800 rows=96 pages=2 filled=672 blocked_sensitive=3 events=2711 screenshots=2 replay_value_leaks=0
+FORMMAX RUNNER PASS rows=96 pages=2 filled=672 native_typed=1 blocked_sensitive=3 receipt_verified=true
+FORMMAX VALIDATION PASS run=runs/formmax/run_1781266239027 rows=96 pages=2 filled=672 native_typed=1 blocked_sensitive=3 events=2712 screenshots=2 replay_value_leaks=0
 ```
 
 ### M11: PDF And Sensitive Field Feasibility
@@ -140,14 +140,14 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 - Replay logs can reproduce the run summary and generate a click map.
 - A local HTTP shell can expose benchmark start/status/result for an agent.
 - The project now has a local practical-form fixture and browser runner for long scrolling forms and multi-page submission.
-- The FORMMAX runner can fill non-sensitive table fields, block sensitive fields, verify the receipt, and produce replay JSONL plus before/after screenshots without echoing table values in replay.
+- The FORMMAX runner can native-type one real text field, fill all non-sensitive table fields, block sensitive fields, verify the receipt, and produce replay JSONL plus before/after screenshots without echoing table values in replay.
 - Servo native keyboard input is proven locally: `saccade-shell selftest-native-input` clicks an input, types `saccade42`, and verifies key/input events plus DOM value.
 - The project can detect sensitive PDF/form fields and keep them gated in offline tests.
 
 ## What Is Not Proven Yet
 
 - Linux/X11 has not yet repeated the M7 real-site gate.
-- FORMMAX v0 drives trusted fixture DOM controls inside a Servo-loaded page; native keyboard input is proven separately but not yet integrated into the full FORMMAX runner.
+- FORMMAX still uses fixture-side DOM writes for most table fields. Native keyboard input is integrated for one text field, not yet for number/date/select/checkbox coverage.
 - M11 does not yet fill PDFs through the browser PDF viewer. It uses a programmatic AcroForm path.
 - Sensitive-field confirmation is represented by policy and offline tests. It does not yet have a live user confirmation UI.
 - Replay timestamps measure when Servo input dispatch returned, not when page JavaScript processed the event.
@@ -157,7 +157,7 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 1. Run the M7 gate on Linux/X11.
 2. Continue N2 login handoff: Human tab logs in, Agent tab inherits the session without seeing passwords or OTP.
 3. Start DEVMAX local agent self-test fixtures.
-4. Integrate the proven native input-event typing path into FORMMAX ordinary text fields and add comparison baselines.
+4. Expand native input-event typing across FORMMAX control types and add comparison baselines.
 5. Add a user confirmation UI for sensitive fields.
 6. Add a public-facing report page that links the M7 artifact, click map, validator output, and caveats.
 

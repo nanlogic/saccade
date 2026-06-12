@@ -63,8 +63,8 @@
 
 - Added `formmax run --fixture ... --replay` as the local practical form workflow gate.
 - The runner opens the fixture in Servo, scrolls both lazy-rendered pages, fills 672 non-sensitive fields, blocks the three sensitive fields as `requires_user_input`, submits the local fixture, verifies the receipt, and writes replay JSONL.
-- The v0 runner drives trusted fixture DOM controls from the Servo page context. It proves rendered-page state, transaction replay, scroll/page coverage, receipt validation, and safety policy. It is not yet native keyboard text entry.
-- Local verification passed three consecutive runs. Current evidence run `runs/formmax/run_1781234358800/` has 2711 replay events, `before.png`, `after.png`, and no table-value echo in replay.
+- The runner native-types one real text field (`CAP-001.site_name`) before the full fixture transaction, then drives the remaining trusted fixture DOM controls from the Servo page context. It proves rendered-page state, transaction replay, scroll/page coverage, receipt validation, sensitive policy, and a small native input bridge.
+- Local verification passed with native typing. Current evidence run `runs/formmax/run_1781266239027/` has 2712 replay events, `before.png`, `after.png`, `native_input_verified=1`, and no table-value echo in replay.
 - Added `formmax validate-run <run_dir>` to re-check result/replay artifacts, required event counts, sensitive field blocking, receipt validation, and replay value-leak policy.
 
 ## N4A - Servo native input probe
@@ -72,7 +72,7 @@
 - Added `test_pages/native_input/` and `saccade-shell selftest-native-input`.
 - The selftest measures a real `<input>` rect, clicks its center through Saccade's native mouse path, types `saccade42` with `InputEvent::Keyboard`, then verifies focus, DOM value, keyboard/input event counts, and zero keyboard dispatch failures.
 - Pinned Servo `0.2.0` emits `keydown`, `keypress`, `input`, and `keyup` for this path, but not `beforeinput`. `InputEventResult::Consumed` stays false despite successful DOM input, so verification should rely on DOM state, replay evidence, and dispatch-failure checks.
-- The gate passed three consecutive local runs. This proves native keyboard text entry is available for the next FORMMAX hardening pass; the FORMMAX runner has not yet been migrated to it.
+- The gate passed three consecutive local runs. This proves native keyboard text entry is available; FORMMAX now uses it for one real text field and still needs broader control coverage.
 
 ## M11 - PDF and sensitive gate feasibility
 

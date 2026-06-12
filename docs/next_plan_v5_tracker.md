@@ -22,7 +22,7 @@ Use this tracker as the normalized execution map.
 | N1B Login handoff protocol | Minimal pass | `cargo run -q -p saccade-shell -- selftest-login-handoff` | PASS: `human_login=true agent_session=true password_exposed=false otp_exposed=false agent_input_to_human_tab_blocked=true` |
 | N2 DEVMAX local self-test | Gauntlet corpus minimum + Servo truth pass | `cargo run -q -p devmax -- selftest-fixtures`; `cargo run -q -p devmax -- selftest-servo-fixtures` | PASS: static `total=20 detected=20 false_positives=0`; Servo `total=8 detected=8 false_positives=0` |
 | N3 MCP skeleton | Pending | `cargo run -q -p saccade-mcp -- selftest` | Not started |
-| N4 FORMMAX Servo input runner | Local pass | `cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay`; `cargo run -q -p formmax -- validate-run runs/formmax/run_1781234358800` | PASS x3: rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true; replay has 2711 events, screenshots=2, and no table-value echo; artifact validator passes |
+| N4 FORMMAX Servo input runner | Local pass | `cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay`; `cargo run -q -p formmax -- validate-run runs/formmax/run_1781266239027` | PASS: rows=96 pages=2 filled=672 native_typed=1 blocked_sensitive=3 receipt_verified=true; replay has 2712 events, screenshots=2, and no table-value echo; artifact validator passes |
 | N4A Servo native keyboard probe | Local pass | `RUST_LOG=error cargo run -q -p saccade-shell -- selftest-native-input` | PASS x3: focused=true, value_len=9, keydown=9, input=9, keyup=9, dispatch_failed=0; Servo does not emit beforeinput on this path |
 | N5 Safety truth v1 | Local pass | `cargo run -q -p saccade-shell -- selftest-safety` | PASS: agent sees agent-filled values; human can see all; agent truth masks sensitive values while preserving completed/requires-user status |
 | N6 Chrome adapter v0 | Started | `scripts/capture_chrome_reference.sh <url> <output-dir>`; later `cargo run -q -p devmax -- audit --engine chrome --url ... --replay` | Chrome reference capture script exists; CDP action/truth adapter not started |
@@ -56,7 +56,7 @@ The new gauntlet file is now the product scoreboard:
 Do these in order:
 
 1. Move Chrome/Firefox visual parity earlier: Chrome reference capture now exists; next is Chrome adapter v0 or visual parity layer for UI review credibility.
-2. Harden FORMMAX runner v1: add native input-event typing where Servo supports it and a comparison baseline.
+2. Harden FORMMAX runner v1: expand native input-event typing to more controls and add a comparison baseline.
 3. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: add Chrome and Safari URL-bar screenshots, then regenerate `parity_review.html`.
 4. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, and HTTP status awareness for resource loads.
 5. Add replay metadata for masked status and user action boundaries without sensitive values.

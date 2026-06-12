@@ -94,9 +94,10 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
         || report.blocked_sensitive != manifest.sensitive_fields.len()
         || !report.receipt_verified
         || report.validation_errors != 0
+        || !native_input_verified(&report.native_input)
     {
         bail!(
-            "FORMMAX runner failed: rows={} pages={} filled={} expected_filled={} blocked_sensitive={} expected_sensitive={} receipt_verified={} validation_errors={}",
+            "FORMMAX runner failed: rows={} pages={} filled={} expected_filled={} blocked_sensitive={} expected_sensitive={} receipt_verified={} validation_errors={} native_input={}",
             report.rows,
             report.pages,
             report.filled,
@@ -105,6 +106,7 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
             manifest.sensitive_fields.len(),
             report.receipt_verified,
             report.validation_errors,
+            report.native_input,
         );
     }
 
@@ -126,10 +128,15 @@ fn run(fixture: PathBuf, input: Option<PathBuf>, replay: bool) -> Result<()> {
     }
 
     println!(
-        "FORMMAX RUNNER PASS rows={} pages={} filled={} blocked_sensitive={} receipt_verified={} replay={}",
+        "FORMMAX RUNNER PASS rows={} pages={} filled={} native_typed={} blocked_sensitive={} receipt_verified={} replay={}",
         report.rows,
         report.pages,
         report.filled,
+        report
+            .native_input
+            .get("fields_typed")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
         report.blocked_sensitive,
         report.receipt_verified,
         if replay {
@@ -178,6 +185,9 @@ fn validate_run(run_dir: PathBuf) -> Result<()> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let native_input = report
+        .get("native_input")
+        .context("result native_input missing")?;
 
     let failures = validate_replay(
         &events,
@@ -209,6 +219,9 @@ fn validate_run(run_dir: PathBuf) -> Result<()> {
             screenshots.len()
         );
     }
+    if !native_input_verified(native_input) {
+        bail!("FORMMAX validation failed: native_input not verified: {native_input}");
+    }
     for screenshot in &screenshots {
         let Some(path) = screenshot.as_str() else {
             bail!("FORMMAX validation failed: screenshot path was not a string");
@@ -230,11 +243,15 @@ fn validate_run(run_dir: PathBuf) -> Result<()> {
     }
 
     println!(
-        "FORMMAX VALIDATION PASS run={} rows={} pages={} filled={} blocked_sensitive={} events={} screenshots={} replay_value_leaks=0",
+        "FORMMAX VALIDATION PASS run={} rows={} pages={} filled={} native_typed={} blocked_sensitive={} events={} screenshots={} replay_value_leaks=0",
         display_run_dir,
         rows,
         pages,
         filled,
+        native_input
+            .get("fields_typed")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
         blocked_sensitive,
         events.len(),
         screenshots.len()
@@ -334,6 +351,12 @@ fn validate_replay(
         count("form_transaction_finished"),
         1,
     );
+    require_equal(
+        &mut failures,
+        "native_input_verified",
+        count("native_input_verified"),
+        1,
+    );
 
     for event in events {
         if event.get("echo_values").and_then(Value::as_bool) != Some(false) {
@@ -380,6 +403,36 @@ fn require_at_least(failures: &mut Vec<String>, label: &str, actual: usize, expe
     if actual < expected {
         failures.push(format!("{label} count {actual} < {expected}"));
     }
+}
+
+fn native_input_verified(native_input: &Value) -> bool {
+    native_input.get("enabled").and_then(Value::as_bool) == Some(true)
+        && native_input
+            .get("fields_typed")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            >= 1
+        && native_input.get("value_matches").and_then(Value::as_bool) == Some(true)
+        && native_input
+            .get("keydown_events")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            > 0
+        && native_input
+            .get("input_events")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            > 0
+        && native_input
+            .get("keyup_events")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            > 0
+        && native_input
+            .get("dispatch_failed_keyboard_events")
+            .and_then(Value::as_u64)
+            .unwrap_or(1)
+            == 0
 }
 
 fn required_usize(value: &Value, key: &str) -> Result<usize> {

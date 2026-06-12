@@ -53,18 +53,18 @@ cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay
 Observed three consecutive local passes:
 
 ```text
-FORMMAX RUNNER PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true
+FORMMAX RUNNER PASS rows=96 pages=2 filled=672 native_typed=1 blocked_sensitive=3 receipt_verified=true
 ```
 
 Current evidence run:
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/result.json`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781266239027/result.json`
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/replay.jsonl`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781266239027/replay.jsonl`
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/before.png`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781266239027/before.png`
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781234358800/after.png`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/run_1781266239027/after.png`
 
 Replay event counts from that run:
 
@@ -76,7 +76,8 @@ field_verified=672
 scroll_checkpoint=6
 confirmation_required=3
 field_blocked_sensitive=3
+native_input_verified=1
 receipt_seen=1
 ```
 
-Replay does not echo table values. A local leak check over 288 deterministic text/date/owner values found `replay_value_leaks=0`.
+Replay does not echo table values. A local leak check over 288 deterministic text/date/owner values found `replay_value_leaks=0`. The latest run also native-typed `CAP-001.site_name` and verified `keydown=19`, `input=19`, `keyup=19`, and `dispatch_failed=0` without echoing the field value in replay.

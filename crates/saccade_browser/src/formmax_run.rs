@@ -4,12 +4,14 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use euclid::Scale;
+use euclid::{Point2D, Scale};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use servo::{
-    DeviceIntRect, DeviceIntSize, JSValue, LoadStatus, RenderingContext, Servo, ServoBuilder,
-    WebView, WebViewBuilder, WebViewDelegate, WindowRenderingContext,
+    CSSPixel, DeviceIntRect, DeviceIntSize, InputEvent, InputEventId, InputEventResult, JSValue,
+    Key, KeyState, KeyboardEvent, LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent,
+    MouseMoveEvent, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder,
+    WebViewDelegate, WebViewPoint, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -37,6 +39,8 @@ pub struct FormmaxRunReport {
     pub receipt: Value,
     #[serde(default)]
     pub screenshots: Vec<String>,
+    #[serde(default)]
+    pub native_input: Value,
 }
 
 #[derive(Debug, Clone)]
@@ -74,9 +78,24 @@ pub fn run_formmax_fixture_with_config(config: FormmaxRunConfig) -> Result<Formm
 enum Phase {
     Load,
     BeforeScreenshot,
+    NativePlanRequested,
+    NativeVerifyReady,
+    NativeVerifyRequested,
     DriveRequested,
     AfterScreenshot,
     Done,
+}
+
+#[derive(Debug, Clone)]
+struct SentInput {
+    id: InputEventId,
+    label: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct HandledInput {
+    label: &'static str,
+    dispatch_failed: bool,
 }
 
 struct FormmaxState {
@@ -88,8 +107,12 @@ struct FormmaxState {
     started_at: Instant,
     phase: Cell<Phase>,
     phase_started_at: RefCell<Instant>,
+    pending_native: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     pending_drive: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     pending_report: RefCell<Option<FormmaxRunReport>>,
+    native_input: RefCell<Option<Value>>,
+    sent_inputs: RefCell<Vec<SentInput>>,
+    handled_inputs: RefCell<Vec<HandledInput>>,
     screenshots: RefCell<Vec<String>>,
     result: Rc<RefCell<Option<std::result::Result<FormmaxRunReport, String>>>>,
 }
@@ -97,6 +120,25 @@ struct FormmaxState {
 impl WebViewDelegate for FormmaxState {
     fn notify_new_frame_ready(&self, _webview: WebView) {
         self.window.request_redraw();
+    }
+
+    fn notify_input_event_handled(
+        &self,
+        _webview: WebView,
+        event_id: InputEventId,
+        result: InputEventResult,
+    ) {
+        let label = self
+            .sent_inputs
+            .borrow()
+            .iter()
+            .find(|input| input.id == event_id)
+            .map(|input| input.label)
+            .unwrap_or("unknown");
+        self.handled_inputs.borrow_mut().push(HandledInput {
+            label,
+            dispatch_failed: result.contains(InputEventResult::DispatchFailed),
+        });
     }
 }
 
@@ -135,7 +177,10 @@ impl FormmaxApp {
             finish_err(
                 &state,
                 event_loop,
-                format!("FORMMAX runner timed out after {FORMMAX_TIMEOUT:?}"),
+                format!(
+                    "FORMMAX runner timed out after {FORMMAX_TIMEOUT:?} in phase {:?}",
+                    state.phase.get()
+                ),
             );
             *self = Self::Finished;
             return;
@@ -153,6 +198,80 @@ impl FormmaxApp {
                 if state.phase_started_at.borrow().elapsed() >= Duration::from_millis(220) =>
             {
                 save_artifact_screenshot(&state, &webview, "before.png");
+                request_native_plan(&state, &webview);
+                set_phase(&state, Phase::NativePlanRequested);
+            }
+            Phase::NativePlanRequested => {
+                let Some(raw) = finish_probe(&state.pending_native) else {
+                    return;
+                };
+                let Ok(plan) = serde_json::from_str::<Value>(&raw) else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("failed to parse FORMMAX native input plan: {raw:?}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                };
+                let Some((x, y)) = probe_input_center(&plan) else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("FORMMAX native input plan missing rect: {plan}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                };
+                let Some(text) = plan.get("text").and_then(Value::as_str) else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("FORMMAX native input plan missing text: {plan}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                };
+                click_page_point(&state, &webview, x, y);
+                type_text(&state, &webview, text);
+                set_phase(&state, Phase::NativeVerifyReady);
+            }
+            Phase::NativeVerifyReady
+                if state.phase_started_at.borrow().elapsed() >= Duration::from_millis(220) =>
+            {
+                request_native_verify(&state, &webview);
+                set_phase(&state, Phase::NativeVerifyRequested);
+            }
+            Phase::NativeVerifyRequested => {
+                let Some(raw) = finish_probe(&state.pending_native) else {
+                    return;
+                };
+                let Ok(mut native_input) = serde_json::from_str::<Value>(&raw) else {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("failed to parse FORMMAX native input verification: {raw:?}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                };
+                append_native_input_outcomes(&state, &mut native_input);
+                if native_input.get("value_matches").and_then(Value::as_bool) != Some(true)
+                    || native_input
+                        .get("dispatch_failed_keyboard_events")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(1)
+                        != 0
+                {
+                    finish_err(
+                        &state,
+                        event_loop,
+                        format!("FORMMAX native input verification failed: {native_input}"),
+                    );
+                    *self = Self::Finished;
+                    return;
+                }
+                *state.native_input.borrow_mut() = Some(native_input);
                 request_drive(&state, &webview);
                 set_phase(&state, Phase::DriveRequested);
             }
@@ -162,7 +281,8 @@ impl FormmaxApp {
                 };
                 match serde_json::from_str::<FormmaxRunReport>(&raw) {
                     Ok(report) => {
-                        *state.pending_report.borrow_mut() = Some(report);
+                        *state.pending_report.borrow_mut() =
+                            Some(report_with_native_input(&state, report));
                         set_phase(&state, Phase::AfterScreenshot);
                     }
                     Err(error) => {
@@ -282,8 +402,12 @@ impl ApplicationHandler<WakerEvent> for FormmaxApp {
             started_at: Instant::now(),
             phase: Cell::new(Phase::Load),
             phase_started_at: RefCell::new(Instant::now()),
+            pending_native: Rc::new(RefCell::new(None)),
             pending_drive: Rc::new(RefCell::new(None)),
             pending_report: RefCell::new(None),
+            native_input: RefCell::new(None),
+            sent_inputs: RefCell::new(Vec::new()),
+            handled_inputs: RefCell::new(Vec::new()),
             screenshots: RefCell::new(Vec::new()),
             result: result.clone(),
         });
@@ -357,6 +481,32 @@ fn request_drive(state: &Rc<FormmaxState>, webview: &WebView) {
     });
 }
 
+fn request_native_plan(state: &Rc<FormmaxState>, webview: &WebView) {
+    *state.pending_native.borrow_mut() = None;
+    let pending = state.pending_native.clone();
+    webview.evaluate_javascript(NATIVE_PLAN_JS, move |result| {
+        *pending.borrow_mut() = Some(js_result_to_string(result));
+    });
+}
+
+fn request_native_verify(state: &Rc<FormmaxState>, webview: &WebView) {
+    *state.pending_native.borrow_mut() = None;
+    let pending = state.pending_native.clone();
+    webview.evaluate_javascript(NATIVE_VERIFY_JS, move |result| {
+        *pending.borrow_mut() = Some(js_result_to_string(result));
+    });
+}
+
+fn js_result_to_string(
+    result: std::result::Result<JSValue, servo::JavaScriptEvaluationError>,
+) -> std::result::Result<String, String> {
+    match result {
+        Ok(JSValue::String(value)) => Ok(value),
+        Ok(value) => Ok(format!("{value:?}")),
+        Err(error) => Err(format!("{error:?}")),
+    }
+}
+
 fn finish_drive(
     pending: &Rc<RefCell<Option<std::result::Result<String, String>>>>,
 ) -> Option<String> {
@@ -364,6 +514,133 @@ fn finish_drive(
         .borrow_mut()
         .take()
         .map(|result| result.unwrap_or_else(|error| format!("ERROR {error}")))
+}
+
+fn finish_probe(
+    pending: &Rc<RefCell<Option<std::result::Result<String, String>>>>,
+) -> Option<String> {
+    pending
+        .borrow_mut()
+        .take()
+        .map(|result| result.unwrap_or_else(|error| format!("ERROR {error}")))
+}
+
+fn click_page_point(state: &Rc<FormmaxState>, webview: &WebView, x: f32, y: f32) {
+    let page_point = WebViewPoint::Page(Point2D::<f32, CSSPixel>::new(x, y));
+    record_sent(
+        state,
+        webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(page_point))),
+        "mousemove",
+    );
+    record_sent(
+        state,
+        webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+            MouseButtonAction::Down,
+            MouseButton::Left,
+            page_point,
+        ))),
+        "mousedown",
+    );
+    record_sent(
+        state,
+        webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+            MouseButtonAction::Up,
+            MouseButton::Left,
+            page_point,
+        ))),
+        "mouseup",
+    );
+    state.window.request_redraw();
+}
+
+fn type_text(state: &Rc<FormmaxState>, webview: &WebView, text: &str) {
+    for character in text.chars() {
+        let key = Key::Character(character.to_string());
+        record_sent(
+            state,
+            webview.notify_input_event(InputEvent::Keyboard(KeyboardEvent::from_state_and_key(
+                KeyState::Down,
+                key.clone(),
+            ))),
+            "keydown",
+        );
+        record_sent(
+            state,
+            webview.notify_input_event(InputEvent::Keyboard(KeyboardEvent::from_state_and_key(
+                KeyState::Up,
+                key,
+            ))),
+            "keyup",
+        );
+    }
+    state.window.request_redraw();
+}
+
+fn record_sent(state: &Rc<FormmaxState>, id: InputEventId, label: &'static str) {
+    state.sent_inputs.borrow_mut().push(SentInput { id, label });
+}
+
+fn probe_input_center(probe: &Value) -> Option<(f32, f32)> {
+    let rect = probe.get("rect")?;
+    let left = rect.get("left")?.as_f64()? as f32;
+    let top = rect.get("top")?.as_f64()? as f32;
+    let width = rect.get("width")?.as_f64()? as f32;
+    let height = rect.get("height")?.as_f64()? as f32;
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+    Some((left + width / 2.0, top + height / 2.0))
+}
+
+fn append_native_input_outcomes(state: &Rc<FormmaxState>, native_input: &mut Value) {
+    let keyboard_outcomes: Vec<HandledInput> = state
+        .handled_inputs
+        .borrow()
+        .iter()
+        .filter(|event| matches!(event.label, "keydown" | "keyup"))
+        .cloned()
+        .collect();
+    native_input["fields_typed"] = json!(1);
+    native_input["handled_keyboard_events"] = json!(keyboard_outcomes.len());
+    native_input["dispatch_failed_keyboard_events"] = json!(
+        keyboard_outcomes
+            .iter()
+            .filter(|event| event.dispatch_failed)
+            .count()
+    );
+}
+
+fn report_with_native_input(
+    state: &Rc<FormmaxState>,
+    mut report: FormmaxRunReport,
+) -> FormmaxRunReport {
+    let native_input = state
+        .native_input
+        .borrow()
+        .clone()
+        .unwrap_or_else(|| json!({ "enabled": false }));
+    if native_input.get("enabled").and_then(Value::as_bool) == Some(true) {
+        report.events.push(json!({
+            "kind": "native_input_verified",
+            "ts_ms": 0,
+            "echo_values": false,
+            "value_echoed": false,
+            "row_id": native_input.get("row_id").cloned().unwrap_or(Value::Null),
+            "field": native_input.get("field").cloned().unwrap_or(Value::Null),
+            "fields_typed": native_input.get("fields_typed").cloned().unwrap_or(Value::Null),
+            "value_matches": native_input.get("value_matches").cloned().unwrap_or(Value::Null),
+            "keydown_events": native_input.get("keydown_events").cloned().unwrap_or(Value::Null),
+            "input_events": native_input.get("input_events").cloned().unwrap_or(Value::Null),
+            "keyup_events": native_input.get("keyup_events").cloned().unwrap_or(Value::Null),
+            "dispatch_failed_keyboard_events": native_input
+                .get("dispatch_failed_keyboard_events")
+                .cloned()
+                .unwrap_or(Value::Null)
+        }));
+        report.replay_events = report.events.len();
+    }
+    report.native_input = native_input;
+    report
 }
 
 fn finish_ok(state: &Rc<FormmaxState>, event_loop: &ActiveEventLoop, report: FormmaxRunReport) {
@@ -431,6 +708,94 @@ impl servo::EventLoopWaker for Waker {
         let _ = self.0.send_event(WakerEvent);
     }
 }
+
+const NATIVE_PLAN_JS: &str = r##"
+(() => {
+  const fixture = window.__FORMMAX_FIXTURE;
+  if (!fixture) throw new Error("FORMMAX fixture API is missing");
+
+  const row = (fixture.pages && fixture.pages[0] && fixture.pages[0][0]) || null;
+  if (!row) throw new Error("FORMMAX native input row is missing");
+
+  const field = "site_name";
+  const control = document.getElementsByName(row.id + "_" + field)[0] || null;
+  if (!control) throw new Error("FORMMAX native input control is missing");
+
+  const state = {
+    row_id: row.id,
+    field,
+    expected: String(row[field]),
+    events: []
+  };
+
+  function record(event) {
+    state.events.push({
+      type: event.type,
+      key: event.key || null,
+      inputType: event.inputType || null,
+      valueLength: control.value.length
+    });
+  }
+
+  [
+    "mousedown",
+    "mouseup",
+    "click",
+    "focus",
+    "keydown",
+    "keypress",
+    "beforeinput",
+    "input",
+    "keyup",
+    "change"
+  ].forEach((type) => control.addEventListener(type, record));
+
+  window.__FORMMAX_NATIVE_INPUT = state;
+
+  const rect = control.getBoundingClientRect();
+  return JSON.stringify({
+    ready: true,
+    row_id: row.id,
+    field,
+    text: state.expected,
+    rect: {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height
+    }
+  });
+})()
+"##;
+
+const NATIVE_VERIFY_JS: &str = r##"
+(() => {
+  const native = window.__FORMMAX_NATIVE_INPUT;
+  if (!native) throw new Error("FORMMAX native input state is missing");
+
+  const control = document.getElementsByName(native.row_id + "_" + native.field)[0] || null;
+  if (!control) throw new Error("FORMMAX native input control disappeared");
+
+  const counts = {};
+  for (const event of native.events) {
+    counts[event.type] = (counts[event.type] || 0) + 1;
+  }
+
+  return JSON.stringify({
+    enabled: true,
+    row_id: native.row_id,
+    field: native.field,
+    focused: document.activeElement === control,
+    value_matches: control.value === native.expected,
+    value_length: control.value.length,
+    keydown_events: counts.keydown || 0,
+    keypress_events: counts.keypress || 0,
+    beforeinput_events: counts.beforeinput || 0,
+    input_events: counts.input || 0,
+    keyup_events: counts.keyup || 0
+  });
+})()
+"##;
 
 const DRIVE_JS: &str = r##"
 (() => {
