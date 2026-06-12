@@ -93,3 +93,10 @@
 - Added `devmax audit --engine servo --url <http://...> --replay`.
 - Added `devmax selftest-servo-fixtures`; because pinned Servo/winit cannot recreate an event loop in one process, this selftest runs each Servo audit in a child process.
 - The Servo probe gate passed with `total=4 detected=4 false_positives=0` for blank page, invisible text, offscreen button, and modal-blocked action.
+
+## N2C - DEVMAX screenshot pixel checks
+
+- Extended `devmax_probe` to read back the Servo window with `RenderingContext::read_to_image` after browser truth collection.
+- The probe now combines browser-reported canvas rectangles with screenshot RGBA sampling to detect blank canvas regions.
+- `devmax selftest-servo-fixtures` now includes `canvas_chart_blank` and passed with `total=5 detected=5 false_positives=0`.
+- Browser console and network capture remain pending; the current Servo probe does not claim those yet.

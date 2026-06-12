@@ -4,10 +4,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use euclid::Scale;
-use serde_json::Value;
+use serde_json::{Value, json};
 use servo::{
-    JSValue, LoadStatus, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder,
-    WebViewDelegate, WindowRenderingContext,
+    DeviceIntRect, DeviceIntSize, JSValue, LoadStatus, RenderingContext, Servo, ServoBuilder,
+    WebView, WebViewBuilder, WebViewDelegate, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -119,7 +119,13 @@ impl ProbeApp {
                     return;
                 };
                 match serde_json::from_str(&probe) {
-                    Ok(value) => finish_ok(&state, event_loop, value),
+                    Ok(mut value) => {
+                        webview.paint();
+                        if let Some(screenshot) = screenshot_summary(&state, &value) {
+                            value["screenshot"] = screenshot;
+                        }
+                        finish_ok(&state, event_loop, value);
+                    }
                     Err(error) => finish_err(
                         &state,
                         event_loop,
@@ -310,6 +316,124 @@ fn finish_err(state: &Rc<ProbeState>, event_loop: &ActiveEventLoop, message: imp
     event_loop.exit();
 }
 
+fn screenshot_summary(state: &Rc<ProbeState>, probe: &Value) -> Option<Value> {
+    let rect = DeviceIntRect::from_size(DeviceIntSize::new(
+        WINDOW_WIDTH as i32,
+        WINDOW_HEIGHT as i32,
+    ));
+    let image = state.rendering_context.read_to_image(rect)?;
+    let width = image.width();
+    let height = image.height();
+    let mut sampled = 0u64;
+    let mut non_white = 0u64;
+    let mut dark = 0u64;
+    let mut transparent = 0u64;
+
+    for pixel in image.pixels().step_by(16) {
+        sampled += 1;
+        let [r, g, b, a] = pixel.0;
+        if a < 8 {
+            transparent += 1;
+        }
+        if r < 245 || g < 245 || b < 245 {
+            non_white += 1;
+        }
+        if r < 32 && g < 32 && b < 32 && a > 0 {
+            dark += 1;
+        }
+    }
+
+    let canvas_checks = probe
+        .get("canvases")
+        .and_then(Value::as_array)
+        .map(|canvases| {
+            canvases
+                .iter()
+                .map(|canvas| canvas_pixel_check(&image, canvas))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Some(json!({
+        "width": width,
+        "height": height,
+        "sampled_pixels": sampled,
+        "non_white_pixels": non_white,
+        "non_white_ratio": ratio(non_white, sampled),
+        "dark_pixels": dark,
+        "transparent_pixels": transparent,
+        "canvas_checks": canvas_checks,
+    }))
+}
+
+fn canvas_pixel_check(image: &image::RgbaImage, canvas: &Value) -> Value {
+    let rect = canvas.get("rect").unwrap_or(&Value::Null);
+    let left = value_f64(rect, "left").max(0.0).floor() as u32;
+    let top = value_f64(rect, "top").max(0.0).floor() as u32;
+    let right = value_f64(rect, "right").min(image.width() as f64).ceil() as u32;
+    let bottom = value_f64(rect, "bottom").min(image.height() as f64).ceil() as u32;
+    let mut sampled = 0u64;
+    let mut non_white = 0u64;
+    let mut dark = 0u64;
+    let mut min_r = u8::MAX;
+    let mut min_g = u8::MAX;
+    let mut min_b = u8::MAX;
+    let mut max_r = u8::MIN;
+    let mut max_g = u8::MIN;
+    let mut max_b = u8::MIN;
+
+    if right > left && bottom > top {
+        let step_x = (((right - left) / 64).max(1)) as usize;
+        let step_y = (((bottom - top) / 64).max(1)) as usize;
+        for y in (top..bottom).step_by(step_y) {
+            for x in (left..right).step_by(step_x) {
+                sampled += 1;
+                let [r, g, b, a] = image.get_pixel(x, y).0;
+                if r < 245 || g < 245 || b < 245 {
+                    non_white += 1;
+                }
+                if r < 32 && g < 32 && b < 32 && a > 0 {
+                    dark += 1;
+                }
+                min_r = min_r.min(r);
+                min_g = min_g.min(g);
+                min_b = min_b.min(b);
+                max_r = max_r.max(r);
+                max_g = max_g.max(g);
+                max_b = max_b.max(b);
+            }
+        }
+    }
+
+    let channel_range = (max_r.saturating_sub(min_r) as u16)
+        + (max_g.saturating_sub(min_g) as u16)
+        + (max_b.saturating_sub(min_b) as u16);
+    let blank = sampled == 0 || (ratio(non_white, sampled) < 0.01 && channel_range < 12);
+
+    json!({
+        "selector": canvas.get("selector").and_then(Value::as_str).unwrap_or("canvas"),
+        "rect": rect,
+        "sampled_pixels": sampled,
+        "non_white_pixels": non_white,
+        "non_white_ratio": ratio(non_white, sampled),
+        "dark_pixels": dark,
+        "channel_range": channel_range,
+        "blank": blank,
+    })
+}
+
+fn value_f64(value: &Value, key: &str) -> f64 {
+    value.get(key).and_then(Value::as_f64).unwrap_or(0.0)
+}
+
+fn ratio(numerator: u64, denominator: u64) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 / denominator as f64
+    }
+}
+
 #[derive(Clone)]
 struct Waker(EventLoopProxy<WakerEvent>);
 
@@ -433,6 +557,14 @@ const PROBE_JS: &str = r##"
     }
   }
 
+  const canvases = Array.from(document.querySelectorAll("canvas")).map((el, index) => ({
+    index,
+    selector: el.id ? "#" + el.id : "canvas",
+    width: el.width || 0,
+    height: el.height || 0,
+    rect: rectOf(el)
+  }));
+
   return JSON.stringify({
     engine: "servo-rendered-probe-v0",
     title: document.title || "",
@@ -442,7 +574,8 @@ const PROBE_JS: &str = r##"
     bodyChildCount: body ? body.children.length : 0,
     blankPage: bodyText.length === 0 && (!body || body.children.length === 0),
     actions,
-    invisibleText
+    invisibleText,
+    canvases
   });
 })()
 "##;

@@ -130,6 +130,6 @@ Move DEVMAX from static fixture markers toward browser-backed truth:
 Open local app or fixture.
 Collect rendered truth and action map from the browser boundary.
 Add browser-side console/network capture.
-Add screenshot pixel checks for blank canvas and large empty regions.
+Add click verification for primary actions.
 Keep report JSON and replay artifacts stable.
 ```

@@ -23,6 +23,7 @@ const SERVO_FIXTURES: &[&str] = &[
     "invisible_text",
     "offscreen_button",
     "modal_blocks_page",
+    "canvas_chart_blank",
 ];
 
 const FIXTURES: &[&str] = &[
@@ -783,6 +784,31 @@ fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxR
                 Some("button, a, input, select, textarea, [role=button]"),
                 "Browser hit-test geometry shows an overlay blocking a page action.",
                 json!({ "blocked_by": blocker, "action": action }),
+            ));
+        }
+    }
+
+    for canvas in probe
+        .pointer("/screenshot/canvas_checks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if canvas
+            .get("blank")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            let selector = canvas
+                .get("selector")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            findings.push(finding(
+                "canvas_chart_blank",
+                "medium",
+                selector.as_deref(),
+                "Screenshot pixel check shows a canvas region with no rendered chart content.",
+                canvas,
             ));
         }
     }
