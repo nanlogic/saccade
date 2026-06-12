@@ -1,12 +1,17 @@
 use std::fs;
+use std::io::{self, BufRead, Write};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use saccade_core::{ReadGrant, TabId, TabInfo, TabOwner, TabVisualMarker};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
 const REQUIRED_TOOL_COUNT: usize = 12;
@@ -21,6 +26,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    ServeStdio,
     Selftest,
     Tools,
 }
@@ -52,6 +58,7 @@ struct ToolSpec {
     artifact_paths_only: bool,
     tab_scoped: bool,
     policy_gated: bool,
+    implemented: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,6 +88,10 @@ struct SelftestEvidence {
     allowed_human_truth_with_grant: bool,
     external_dev_url_rejected: bool,
     local_audit_summary: String,
+    local_audit_report: String,
+    stdio_initialize: bool,
+    stdio_tools_list: bool,
+    stdio_tool_call: bool,
     normal_field_decision: PolicyDecision,
     sensitive_field_decision: PolicyDecision,
 }
@@ -121,9 +132,37 @@ enum PolicyDecision {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Command::ServeStdio => serve_stdio(),
         Command::Selftest => selftest(),
         Command::Tools => print_tools(),
     }
+}
+
+fn serve_stdio() -> Result<()> {
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+    for line in stdin.lock().lines() {
+        let line = line.context("failed to read JSON-RPC line")?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let response = match serde_json::from_str::<JsonRpcRequest>(&line) {
+            Ok(request) => handle_json_rpc(request),
+            Err(error) => Some(rpc_error(
+                Value::Null,
+                -32700,
+                "Parse error",
+                error.to_string(),
+            )),
+        };
+
+        if let Some(response) = response {
+            writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
+            stdout.flush()?;
+        }
+    }
+    Ok(())
 }
 
 fn print_tools() -> Result<()> {
@@ -141,6 +180,7 @@ fn selftest() -> Result<()> {
     let registry = registry();
     let (tab_scoping, tab_evidence) = verify_tab_scoping();
     let (local_audit, external_dev_url_rejected) = verify_local_dev_audit()?;
+    let stdio_evidence = verify_json_rpc_surface()?;
     let normal_field_decision = field_policy_decision(FieldSensitivity::Normal);
     let sensitive_field_decision = field_policy_decision(FieldSensitivity::CreditCard);
     let policy_gate = normal_field_decision == PolicyDecision::AllowAgent
@@ -152,7 +192,8 @@ fn selftest() -> Result<()> {
     let tools_registered = registry.tools.len();
     let local_dev_audit = local_audit.findings.len() == 1
         && local_audit.actions.len() == 1
-        && external_dev_url_rejected;
+        && external_dev_url_rejected
+        && stdio_evidence.tool_call;
     let evidence = SelftestEvidence {
         denied_human_input: tab_evidence.denied_human_input,
         denied_human_truth_without_grant: tab_evidence.denied_human_truth_without_grant,
@@ -160,6 +201,10 @@ fn selftest() -> Result<()> {
         allowed_human_truth_with_grant: tab_evidence.allowed_human_truth_with_grant,
         external_dev_url_rejected,
         local_audit_summary: local_audit.summary.clone(),
+        local_audit_report: stdio_evidence.audit_report,
+        stdio_initialize: stdio_evidence.initialize,
+        stdio_tools_list: stdio_evidence.tools_list,
+        stdio_tool_call: stdio_evidence.tool_call,
         normal_field_decision,
         sensitive_field_decision,
     };
@@ -207,6 +252,7 @@ fn registry() -> ToolRegistry {
                 "Open a localhost, loopback, or file URL in an Agent-owned tab.",
                 true,
                 false,
+                true,
             ),
             tool(
                 "saccade.dev.audit_page",
@@ -215,6 +261,7 @@ fn registry() -> ToolRegistry {
                 "Return compact rendered truth, action map summary, findings, and artifact paths for a local dev page.",
                 true,
                 false,
+                true,
             ),
             tool(
                 "saccade.dev.click_all_primary_actions",
@@ -223,6 +270,7 @@ fn registry() -> ToolRegistry {
                 "Verify primary local-dev actions through Saccade action IDs and policy.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.dev.fill_smoke_form",
@@ -231,6 +279,7 @@ fn registry() -> ToolRegistry {
                 "Fill non-sensitive smoke-test fields on a local form and return replay paths.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.dev.get_report",
@@ -238,6 +287,7 @@ fn registry() -> ToolRegistry {
                 ToolRisk::ReportOnly,
                 "Fetch a compact development audit report by run ID.",
                 true,
+                false,
                 false,
             ),
             tool(
@@ -247,6 +297,7 @@ fn registry() -> ToolRegistry {
                 "List known tabs with owner, read grant, URL, and page revision.",
                 true,
                 false,
+                true,
             ),
             tool(
                 "saccade.tabs.open",
@@ -254,6 +305,7 @@ fn registry() -> ToolRegistry {
                 ToolRisk::PolicyGated,
                 "Open a URL in a Human or Agent tab under explicit ownership.",
                 true,
+                false,
                 false,
             ),
             tool(
@@ -263,6 +315,7 @@ fn registry() -> ToolRegistry {
                 "Ask the user to log in in a Human tab, then expose only safe session status to Agent tabs.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.tabs.takeover",
@@ -271,6 +324,7 @@ fn registry() -> ToolRegistry {
                 "Transfer an Agent tab to human control and pause agent actions.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.tabs.pause_agent",
@@ -279,6 +333,7 @@ fn registry() -> ToolRegistry {
                 "Pause pending agent actions for a tab.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.tabs.close",
@@ -287,6 +342,7 @@ fn registry() -> ToolRegistry {
                 "Close a tab only after ownership and policy checks.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.web.truth",
@@ -294,6 +350,7 @@ fn registry() -> ToolRegistry {
                 ToolRisk::PolicyGated,
                 "Return redacted browser truth for a tab and page revision.",
                 true,
+                false,
                 false,
             ),
             tool(
@@ -303,6 +360,7 @@ fn registry() -> ToolRegistry {
                 "Return an action map with stable action IDs and page revision basis.",
                 true,
                 false,
+                false,
             ),
             tool(
                 "saccade.web.act",
@@ -311,6 +369,7 @@ fn registry() -> ToolRegistry {
                 "Perform one verified action by action ID and page revision basis.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.web.fill_form",
@@ -319,6 +378,7 @@ fn registry() -> ToolRegistry {
                 "Fill non-sensitive form values, block sensitive values, and return replay paths.",
                 true,
                 true,
+                false,
             ),
             tool(
                 "saccade.report.validate_run",
@@ -327,6 +387,7 @@ fn registry() -> ToolRegistry {
                 "Validate a run directory and return compact status plus artifact paths.",
                 true,
                 false,
+                false,
             ),
             tool(
                 "saccade.report.replay_summary",
@@ -334,6 +395,7 @@ fn registry() -> ToolRegistry {
                 ToolRisk::ReportOnly,
                 "Summarize replay JSONL without emitting full replay content.",
                 true,
+                false,
                 false,
             ),
         ],
@@ -347,6 +409,7 @@ fn tool(
     summary: &'static str,
     tab_scoped: bool,
     policy_gated: bool,
+    implemented: bool,
 ) -> ToolSpec {
     ToolSpec {
         name,
@@ -357,7 +420,382 @@ fn tool(
         artifact_paths_only: true,
         tab_scoped,
         policy_gated,
+        implemented,
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonRpcRequest {
+    id: Option<Value>,
+    method: String,
+    #[serde(default)]
+    params: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct ToolCallParams {
+    name: String,
+    #[serde(default)]
+    arguments: Value,
+}
+
+#[derive(Debug, Clone)]
+struct JsonRpcEvidence {
+    initialize: bool,
+    tools_list: bool,
+    tool_call: bool,
+    audit_report: String,
+}
+
+fn handle_json_rpc(request: JsonRpcRequest) -> Option<Value> {
+    let id = request.id.clone();
+    if request.method.starts_with("notifications/") {
+        return None;
+    }
+
+    let id_for_error = id.clone().unwrap_or(Value::Null);
+    let result = match request.method.as_str() {
+        "initialize" => Ok(json!({
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+                "tools": {
+                    "listChanged": false
+                }
+            },
+            "serverInfo": {
+                "name": "saccade-mcp",
+                "version": "mcp-stdio-v0"
+            }
+        })),
+        "tools/list" => Ok(json!({
+            "tools": registry()
+                .tools
+                .iter()
+                .map(mcp_tool_spec)
+                .collect::<Vec<_>>()
+        })),
+        "tools/call" => {
+            let params = serde_json::from_value::<ToolCallParams>(request.params)
+                .map_err(|error| anyhow!("invalid tools/call params: {error}"));
+            params.and_then(|params| {
+                invoke_tool(&params.name, params.arguments).map(|structured| {
+                    json!({
+                        "content": [{
+                            "type": "text",
+                            "text": tool_text_summary(&structured)
+                        }],
+                        "structuredContent": structured,
+                        "isError": false,
+                    })
+                })
+            })
+        }
+        _ => Err(anyhow!("method not found: {}", request.method)),
+    };
+
+    let id = id.unwrap_or(Value::Null);
+    Some(match result {
+        Ok(result) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": result,
+        }),
+        Err(error) => rpc_error(id_for_error, -32603, "Internal error", error.to_string()),
+    })
+}
+
+fn rpc_error(id: Value, code: i64, message: &'static str, detail: String) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message,
+            "data": detail,
+        }
+    })
+}
+
+fn mcp_tool_spec(tool: &ToolSpec) -> Value {
+    json!({
+        "name": tool.name,
+        "description": format!("{} Status: {}.", tool.summary, if tool.implemented { "implemented" } else { "registered skeleton" }),
+        "inputSchema": input_schema(tool.name),
+    })
+}
+
+fn input_schema(name: &str) -> Value {
+    match name {
+        "saccade.dev.open_local" => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "owner": {"type": "string", "enum": ["agent", "human"], "default": "agent"}
+            },
+            "required": ["url"],
+            "additionalProperties": false
+        }),
+        "saccade.dev.audit_page" => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "engine": {"type": "string", "enum": ["servo", "static"], "default": "servo"},
+                "replay": {"type": "boolean", "default": true}
+            },
+            "required": ["url"],
+            "additionalProperties": false
+        }),
+        _ => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+        }),
+    }
+}
+
+fn invoke_tool(name: &str, arguments: Value) -> Result<Value> {
+    match name {
+        "saccade.dev.open_local" => open_local_tool(arguments),
+        "saccade.dev.audit_page" => audit_page_tool(arguments),
+        "saccade.tabs.list" => Ok(json!({
+            "status": "ok",
+            "summary": "stateless skeleton has no persistent tabs yet",
+            "tabs": [],
+        })),
+        _ => bail!("tool {name:?} is registered but not implemented in mcp-stdio-v0"),
+    }
+}
+
+fn open_local_tool(arguments: Value) -> Result<Value> {
+    let url = required_url_arg(&arguments)?;
+    if !is_local_dev_url(&url) {
+        bail!("saccade.dev.open_local only accepts localhost, loopback, or file URLs: {url}");
+    }
+
+    let owner = arguments
+        .get("owner")
+        .and_then(Value::as_str)
+        .unwrap_or("agent");
+    let owner = match owner {
+        "agent" => TabOwner::Agent,
+        "human" => TabOwner::Human,
+        other => bail!("unsupported owner {other:?}; expected agent or human"),
+    };
+    let tab = tab(
+        (unix_ms()? % u64::MAX as u128) as u64,
+        owner,
+        ReadGrant::None,
+        url.as_str(),
+        "Saccade Local Dev",
+    );
+
+    Ok(json!({
+        "status": "ok",
+        "summary": "local URL accepted by Saccade MCP skeleton",
+        "runtime": "stateless_mcp_skeleton",
+        "tab": tab,
+    }))
+}
+
+fn audit_page_tool(arguments: Value) -> Result<Value> {
+    let url = required_url_arg(&arguments)?;
+    if !is_local_dev_url(&url) {
+        bail!("saccade.dev.audit_page only accepts localhost, loopback, or file URLs: {url}");
+    }
+
+    let engine = arguments
+        .get("engine")
+        .and_then(Value::as_str)
+        .unwrap_or("servo");
+    if !matches!(engine, "servo" | "static") {
+        bail!("unsupported DEVMAX engine {engine:?}; expected servo or static");
+    }
+    let replay = arguments
+        .get("replay")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    let devmax = run_devmax_audit(&url, engine, replay)?;
+    Ok(json!({
+        "status": "ok",
+        "summary": devmax.summary,
+        "tool": "saccade.dev.audit_page",
+        "engine": devmax.engine,
+        "url": url.as_str(),
+        "findings": devmax.findings,
+        "actions": devmax.actions,
+        "artifacts": {
+            "report": devmax.report_path,
+            "replay": devmax.replay_path,
+        }
+    }))
+}
+
+#[derive(Debug, Clone)]
+struct DevmaxToolResult {
+    engine: String,
+    summary: String,
+    findings: usize,
+    actions: usize,
+    report_path: String,
+    replay_path: Option<String>,
+}
+
+fn run_devmax_audit(url: &Url, engine: &str, replay: bool) -> Result<DevmaxToolResult> {
+    let workspace = workspace_root()?;
+    let mut command = ProcessCommand::new("cargo");
+    command
+        .current_dir(&workspace)
+        .args(["run", "-q", "-p", "devmax", "--", "audit"])
+        .args(["--url", url.as_str()])
+        .args(["--engine", engine]);
+    if replay {
+        command.arg("--replay");
+    }
+
+    let output = command.output().context("failed to spawn devmax audit")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        bail!(
+            "devmax audit failed: status={} stdout={} stderr={}",
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+        );
+    }
+
+    let report_path = parse_output_value(&stdout, "report=")
+        .context("devmax output did not include report path")?;
+    let replay_path = parse_output_value(&stdout, "replay=").filter(|path| !path.is_empty());
+    let report_text = fs::read_to_string(&report_path)
+        .with_context(|| format!("failed to read devmax report {report_path}"))?;
+    let report: Value = serde_json::from_str(&report_text)
+        .with_context(|| format!("invalid devmax report JSON {report_path}"))?;
+
+    Ok(DevmaxToolResult {
+        engine: report
+            .get("engine")
+            .and_then(Value::as_str)
+            .unwrap_or(engine)
+            .to_string(),
+        summary: report
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or("DEVMAX audit complete")
+            .to_string(),
+        findings: report
+            .get("findings")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len),
+        actions: report
+            .get("actions")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len),
+        report_path,
+        replay_path,
+    })
+}
+
+fn parse_output_value(output: &str, prefix: &str) -> Option<String> {
+    output
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix(prefix))
+        .map(ToOwned::to_owned)
+}
+
+fn required_url_arg(arguments: &Value) -> Result<Url> {
+    let url = arguments
+        .get("url")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field url")?;
+    Url::parse(url).with_context(|| format!("invalid URL argument: {url}"))
+}
+
+fn tool_text_summary(structured: &Value) -> String {
+    structured
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or("Saccade tool call complete")
+        .to_string()
+}
+
+fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
+    let initialize = handle_json_rpc(JsonRpcRequest {
+        id: Some(json!(1)),
+        method: "initialize".into(),
+        params: json!({}),
+    })
+    .and_then(|response| {
+        response
+            .get("result")
+            .and_then(|result| result.get("capabilities"))
+            .cloned()
+    })
+    .is_some();
+
+    let tools_list = handle_json_rpc(JsonRpcRequest {
+        id: Some(json!(2)),
+        method: "tools/list".into(),
+        params: json!({}),
+    })
+    .and_then(|response| {
+        response
+            .get("result")
+            .and_then(|result| result.get("tools"))
+            .and_then(Value::as_array)
+            .map(|tools| tools.len() >= REQUIRED_TOOL_COUNT)
+    })
+    .unwrap_or(false);
+
+    let local_url = start_test_server(
+        workspace_root()?
+            .join("test_pages")
+            .join("devmax")
+            .join("blank_page"),
+    )?;
+    let tool_call_response = handle_json_rpc(JsonRpcRequest {
+        id: Some(json!(3)),
+        method: "tools/call".into(),
+        params: json!({
+            "name": "saccade.dev.audit_page",
+            "arguments": {
+                "url": local_url.as_str(),
+                "engine": "static",
+                "replay": true
+            }
+        }),
+    });
+    let tool_call = tool_call_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("status"))
+                .and_then(Value::as_str)
+                .map(|status| status == "ok")
+        })
+        .unwrap_or(false);
+    let audit_report = tool_call_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("artifacts"))
+                .and_then(|artifacts| artifacts.get("report"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("")
+        .to_string();
+
+    Ok(JsonRpcEvidence {
+        initialize,
+        tools_list,
+        tool_call,
+        audit_report,
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -522,6 +960,48 @@ fn tab(id: u64, owner: TabOwner, read_grant: ReadGrant, url: &str, title: &str) 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value)?;
     fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn start_test_server(root: PathBuf) -> Result<Url> {
+    let server = Server::http("127.0.0.1:0")
+        .map_err(|error| anyhow!("failed to bind test HTTP server: {error}"))?;
+    let addr: SocketAddr = server
+        .server_addr()
+        .to_ip()
+        .context("test HTTP server did not expose an IP socket address")?;
+    thread::spawn(move || {
+        for request in server.incoming_requests() {
+            let url_path = request
+                .url()
+                .trim_start_matches('/')
+                .split('?')
+                .next()
+                .unwrap_or("");
+            let relative = if url_path.is_empty() {
+                "index.html"
+            } else {
+                url_path
+            };
+            let path = root.join(relative);
+            let response = match fs::read(&path) {
+                Ok(body) => Response::from_data(body)
+                    .with_header(Header::from_bytes("Content-Type", content_type(&path)).unwrap()),
+                Err(_) => Response::from_string("not found").with_status_code(StatusCode(404)),
+            };
+            let _ = request.respond(response);
+        }
+    });
+
+    Url::parse(&format!("http://{addr}/")).context("failed to form test server URL")
+}
+
+fn content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        _ => "application/octet-stream",
+    }
 }
 
 fn unix_ms() -> Result<u128> {

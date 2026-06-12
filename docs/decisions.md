@@ -157,4 +157,6 @@
 - Added `saccade-mcp` as the first agent-facing tool surface.
 - The skeleton registers `saccade.dev.*`, `saccade.tabs.*`, `saccade.web.*`, and `saccade.report.*` tool names with compact JSON/artifact-path return policy.
 - `saccade-mcp selftest` verifies tool count, tab scoping, loopback-only local dev audit acceptance, and sensitive-field policy gating.
-- This is not yet a full MCP transport server. The next step is wiring the registered tools to stdio/HTTP transport and routing `saccade.dev.audit_page` through DEVMAX.
+- Added `saccade-mcp serve-stdio` as a minimal MCP-style JSON-RPC stdio server. It handles `initialize`, `tools/list`, and `tools/call`.
+- Implemented tool calls for `saccade.dev.open_local`, `saccade.dev.audit_page`, and `saccade.tabs.list`. `saccade.dev.audit_page` validates loopback/file URLs, spawns DEVMAX audit, and returns compact counts plus report/replay artifact paths.
+- The next step is persistent tab state and real implementations for the remaining web/form/report tools.
