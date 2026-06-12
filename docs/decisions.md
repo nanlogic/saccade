@@ -115,6 +115,8 @@
 - Upgraded the path to Chrome CDP reference capture: it now writes screenshot, redacted truth/action map, network summary, and a manifest.
 - Added a default balanced CDP block policy for common ad/analytics hosts. The blocking fixture proves three ad/analytics requests are blocked without counting them as DEVMAX page findings.
 - Added `devmax audit --engine chrome` and `saccade.dev.audit_page(engine=chrome)` for local/file URLs.
+- Added `scripts/visual_parity_compare.py` and six local fixtures to compare Chrome screenshots against Saccade live-worker screenshots. The latest full run passed and exposed real layout gaps while preserving matching action counts.
+- The browser session worker now waits briefly after load completion and retries nearly-white screenshot readbacks, because the parity runner exposed blank screenshots on complex pages even when DOM truth was valid.
 - This is not yet the final Chrome adapter; it does not include browser chrome, Chrome-side click verification, real user-profile session reuse, or Firefox capture.
 
 ## N2 - DEVMAX local self-test

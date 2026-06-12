@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Canvas SVG</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .media { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    canvas, svg { width: 100%; height: 300px; background: #ffffff; border: 1px solid var(--line); border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <header><h1>Canvas And SVG</h1><button class="primary">Snapshot</button></header>
+  <main>
+    <section class="media">
+      <canvas id="chart" width="560" height="300"></canvas>
+      <svg viewBox="0 0 560 300" role="img" aria-label="svg diagram">
+        <rect x="20" y="20" width="520" height="260" rx="8" fill="#ffffff"/>
+        <path d="M60 230 C130 130 190 170 250 95 S390 80 500 55" fill="none" stroke="#0f766e" stroke-width="8"/>
+        <circle cx="60" cy="230" r="12" fill="#2563eb"/>
+        <circle cx="250" cy="95" r="12" fill="#b45309"/>
+        <circle cx="500" cy="55" r="12" fill="#0f766e"/>
+        <text x="38" y="274" font-size="18" fill="#334155">SVG trend</text>
+      </svg>
+    </section>
+  </main>
+  <script>
+    const canvas = document.querySelector("#chart");
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#d8dee8";
+    ctx.lineWidth = 1;
+    for (let x = 40; x < 540; x += 80) {
+      ctx.beginPath();
+      ctx.moveTo(x, 30);
+      ctx.lineTo(x, 260);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#2563eb";
+    [90, 160, 120, 210, 180, 245].forEach((height, index) => {
+      ctx.fillRect(70 + index * 72, 260 - height, 44, height);
+    });
+    ctx.fillStyle = "#1d2430";
+    ctx.font = "18px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    ctx.fillText("Canvas bars", 36, 284);
+  </script>
+</body>
+</html>

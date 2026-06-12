@@ -426,8 +426,7 @@ def main():
     started_ms = unix_ms()
     try:
         process = launch_chrome(chrome, port, user_data_dir, args.width, args.height, stderr_log)
-        target = wait_for_page_target(port, args.timeout_sec)
-        client = CdpClient(target["webSocketDebuggerUrl"], args.timeout_sec)
+        target, client = wait_for_cdp_client(port, args.timeout_sec)
 
         block_patterns = load_block_patterns(args.block_mode, args.block_file)
         client.call("Page.enable")
@@ -576,6 +575,19 @@ def wait_for_page_target(port, timeout):
             last_error = error
         time.sleep(0.1)
     raise TimeoutError(f"Chrome did not expose a page target: {last_error}")
+
+
+def wait_for_cdp_client(port, timeout):
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            target = wait_for_page_target(port, min(1.0, max(0.1, deadline - time.monotonic())))
+            return target, CdpClient(target["webSocketDebuggerUrl"], max(1.0, deadline - time.monotonic()))
+        except Exception as error:
+            last_error = error
+            time.sleep(0.2)
+    raise TimeoutError(f"Chrome CDP websocket did not become ready: {last_error}")
 
 
 def http_json(port, path):

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Modal Overlay</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .toolbar { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; background: #ffffff; padding: 14px 32px; border-bottom: 1px solid var(--line); }
+    .workspace { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .tile { min-height: 150px; padding: 18px; }
+    .backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.42); display: grid; place-items: center; }
+    .dialog { width: 460px; background: #ffffff; border-radius: 8px; border: 1px solid #cbd5e1; box-shadow: 0 20px 60px rgba(15, 23, 42, 0.32); padding: 24px; }
+    .dialog h2 { margin: 0 0 10px; font-size: 22px; }
+    .dialog footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+  </style>
+</head>
+<body>
+  <header><h1>Release Board</h1><button class="primary">Deploy</button></header>
+  <div class="toolbar"><button>Filter</button><button>Assign</button><button>Archive</button></div>
+  <main>
+    <section class="workspace">
+      <div class="panel tile"><h3>API</h3><p class="muted">Ready for deployment.</p></div>
+      <div class="panel tile"><h3>Web</h3><p class="muted">Waiting on copy review.</p></div>
+      <div class="panel tile"><h3>Billing</h3><p class="muted">Migration queued.</p></div>
+      <div class="panel tile"><h3>Search</h3><p class="muted">Index warmed.</p></div>
+    </section>
+  </main>
+  <div class="backdrop">
+    <section class="dialog" role="dialog" aria-modal="true">
+      <h2>Confirm deploy window</h2>
+      <p class="muted">The overlay intentionally covers the page to test z-index, hit targets, and modal geometry.</p>
+      <footer><button>Cancel</button><button class="primary">Confirm</button></footer>
+    </section>
+  </div>
+</body>
+</html>

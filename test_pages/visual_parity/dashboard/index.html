@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Dashboard</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 64px); }
+    nav { border-right: 1px solid var(--line); background: #ffffff; padding: 18px; }
+    nav a { display: block; padding: 10px 12px; border-radius: 6px; color: var(--ink); text-decoration: none; }
+    nav a.active { background: #e8f0ff; color: #174ea6; }
+    .bars { height: 180px; display: flex; align-items: end; gap: 10px; padding: 18px; }
+    .bar { flex: 1; background: linear-gradient(#3b82f6, #0f766e); border-radius: 5px 5px 0 0; }
+    .status { display: inline-block; min-width: 76px; padding: 4px 8px; border-radius: 999px; background: #ecfdf5; color: #047857; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Ops Review</h1>
+    <button class="primary">Export</button>
+  </header>
+  <div class="layout">
+    <nav>
+      <a class="active" href="#">Overview</a>
+      <a href="#">Revenue</a>
+      <a href="#">Customers</a>
+      <a href="#">Integrations</a>
+    </nav>
+    <main>
+      <section class="grid three">
+        <div class="panel metric"><span class="muted">Conversion</span><strong>42.8%</strong></div>
+        <div class="panel metric"><span class="muted">Latency</span><strong>183 ms</strong></div>
+        <div class="panel metric"><span class="muted">Errors</span><strong>0.18%</strong></div>
+      </section>
+      <section class="grid two" style="margin-top:16px">
+        <div class="panel bars" aria-label="weekly activity chart">
+          <div class="bar" style="height:42%"></div>
+          <div class="bar" style="height:64%"></div>
+          <div class="bar" style="height:55%"></div>
+          <div class="bar" style="height:82%"></div>
+          <div class="bar" style="height:70%"></div>
+          <div class="bar" style="height:92%"></div>
+          <div class="bar" style="height:58%"></div>
+        </div>
+        <div class="panel">
+          <table>
+            <thead><tr><th>Service</th><th>Owner</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Checkout</td><td>Mina</td><td><span class="status">Ready</span></td></tr>
+              <tr><td>Billing</td><td>Owen</td><td><span class="status">Ready</span></td></tr>
+              <tr><td>Search</td><td>Rae</td><td><span class="status">Ready</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

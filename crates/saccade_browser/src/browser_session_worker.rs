@@ -27,6 +27,7 @@ use winit::window::Window;
 
 const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 800;
+const LOAD_SETTLE_DELAY: Duration = Duration::from_millis(300);
 const ACT_VERIFY_DELAY: Duration = Duration::from_millis(160);
 
 pub fn run_browser_session_worker(url: Url) -> Result<()> {
@@ -124,6 +125,7 @@ struct WorkerState {
     queue: RefCell<VecDeque<WorkerRequest>>,
     eof_requested: Cell<bool>,
     loaded_once: Cell<bool>,
+    loaded_at: Cell<Option<Instant>>,
     page_revision: Cell<u64>,
     pending_probe: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     latest_probe: RefCell<Option<Value>>,
@@ -178,10 +180,19 @@ impl WorkerApp {
         let Some(webview) = state.webview.borrow().clone() else {
             return;
         };
-        if webview.load_status() == LoadStatus::Complete {
+        if webview.load_status() == LoadStatus::Complete && !state.loaded_once.get() {
             state.loaded_once.set(true);
+            state.loaded_at.set(Some(Instant::now()));
         }
         if !state.loaded_once.get() {
+            state.window.request_redraw();
+            return;
+        }
+        if state
+            .loaded_at
+            .get()
+            .is_some_and(|loaded_at| loaded_at.elapsed() < LOAD_SETTLE_DELAY)
+        {
             state.window.request_redraw();
             return;
         }
@@ -294,6 +305,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             queue: RefCell::new(VecDeque::new()),
             eof_requested: Cell::new(false),
             loaded_once: Cell::new(false),
+            loaded_at: Cell::new(None),
             page_revision: Cell::new(1),
             pending_probe: Rc::new(RefCell::new(None)),
             latest_probe: RefCell::new(None),
@@ -1058,31 +1070,62 @@ fn maybe_save_screenshot(
         return None;
     }
 
-    webview.paint();
     let rect = DeviceIntRect::from_size(DeviceIntSize::new(
         WINDOW_WIDTH as i32,
         WINDOW_HEIGHT as i32,
     ));
     let path = state.output_dir.join(filename);
-    match state.rendering_context.read_to_image(rect) {
-        Some(image) => {
-            if image.save(&path).is_ok() {
-                let path = path.display().to_string();
-                state.screenshots.borrow_mut().push(path.clone());
-                log_replay(
-                    state,
-                    json!({
-                        "kind": "screenshot_saved",
-                        "run_id": state.run_id.as_str(),
-                        "path": path,
-                    }),
-                );
-                Some(path)
-            } else {
-                None
+    for attempt in 1..=5 {
+        webview.paint();
+        state.window.request_redraw();
+        match state.rendering_context.read_to_image(rect) {
+            Some(image) => {
+                let non_white_ratio = image_non_white_ratio(&image);
+                if non_white_ratio <= 0.0005 && attempt < 5 {
+                    thread::sleep(Duration::from_millis(80));
+                    continue;
+                }
+                if image.save(&path).is_ok() {
+                    let path = path.display().to_string();
+                    state.screenshots.borrow_mut().push(path.clone());
+                    log_replay(
+                        state,
+                        json!({
+                            "kind": "screenshot_saved",
+                            "run_id": state.run_id.as_str(),
+                            "path": path,
+                            "non_white_ratio": non_white_ratio,
+                            "attempt": attempt,
+                        }),
+                    );
+                    return Some(path);
+                }
             }
+            None => {
+                if attempt < 5 {
+                    thread::sleep(Duration::from_millis(80));
+                    continue;
+                }
+            }
+        };
+    }
+    None
+}
+
+fn image_non_white_ratio(image: &image::RgbaImage) -> f64 {
+    let mut sampled = 0u64;
+    let mut non_white = 0u64;
+    for pixel in image.pixels().step_by(16) {
+        sampled += 1;
+        let [r, g, b, a] = pixel.0;
+        if a > 8 && (r < 245 || g < 245 || b < 245) {
+            non_white += 1;
         }
-        None => None,
+    }
+    if sampled == 0 {
+        0.0
+    } else {
+        non_white as f64 / sampled as f64
     }
 }
 

@@ -1,0 +1,464 @@
+#!/usr/bin/env python3
+import argparse
+import html
+import json
+import math
+import os
+import pathlib
+import shutil
+import struct
+import subprocess
+import sys
+import time
+import zlib
+
+
+WORKSPACE = pathlib.Path(__file__).resolve().parents[1]
+FIXTURE_ROOT = WORKSPACE / "test_pages" / "visual_parity"
+DEFAULT_FIXTURES = [
+    "dashboard",
+    "form_controls",
+    "modal_overlay",
+    "scroll_sticky",
+    "canvas_svg",
+    "responsive_cards",
+]
+
+
+def main():
+    args = parse_args()
+    fixtures = DEFAULT_FIXTURES if args.fixtures == ["all"] else args.fixtures
+    run_dir = (WORKSPACE / "runs" / "visual_parity" / f"parity_{unix_ms()}").resolve()
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    results = []
+    for fixture in fixtures:
+        fixture_dir = FIXTURE_ROOT / fixture
+        index = fixture_dir / "index.html"
+        if not index.exists():
+            raise SystemExit(f"unknown visual parity fixture: {fixture}")
+        case_dir = run_dir / fixture
+        case_dir.mkdir(parents=True, exist_ok=True)
+        url = index.resolve().as_uri()
+        print(f"VISUAL PARITY fixture={fixture} url={url}")
+        result = run_case(fixture, url, case_dir, args)
+        results.append(result)
+
+    manifest = {
+        "engine": "saccade-visual-parity-v0",
+        "created_at_unix_ms": unix_ms(),
+        "viewport": {"width": args.width, "height": args.height, "device_scale_factor": 1},
+        "fixtures": results,
+    }
+    (run_dir / "visual_parity_manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
+    write_html(run_dir, results, args)
+    print(f"VISUAL PARITY PASS fixtures={len(results)} report={run_dir / 'index.html'}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Capture Chrome and Saccade screenshots for local fixtures and compare pixels."
+    )
+    parser.add_argument(
+        "fixtures",
+        nargs="*",
+        default=["all"],
+        help="Fixture names under test_pages/visual_parity, or all.",
+    )
+    parser.add_argument("--width", type=int, default=1280)
+    parser.add_argument("--height", type=int, default=800)
+    parser.add_argument("--timeout-sec", type=float, default=45)
+    parser.add_argument(
+        "--diff-threshold",
+        type=int,
+        default=24,
+        help="Per-channel pixel threshold for diff ratio.",
+    )
+    return parser.parse_args()
+
+
+def run_case(fixture, url, case_dir, args):
+    chrome_dir = case_dir / "chrome"
+    chrome_dir.mkdir(parents=True, exist_ok=True)
+    chrome_cmd = [
+        str(WORKSPACE / "scripts" / "capture_chrome_reference.sh"),
+        url,
+        str(chrome_dir),
+        str(args.width),
+        str(args.height),
+        "--timeout-sec",
+        str(args.timeout_sec),
+    ]
+    run_with_retry(chrome_cmd, args.timeout_sec + 10, attempts=2)
+    chrome_src = chrome_dir / "chrome_page.png"
+    chrome_png = case_dir / "chrome_page.png"
+    shutil.copy2(chrome_src, chrome_png)
+
+    saccade = capture_saccade(url, case_dir, args.timeout_sec)
+    saccade_src = pathlib.Path(saccade["screenshot"])
+    if not saccade_src.is_absolute():
+        saccade_src = WORKSPACE / saccade_src
+    saccade_png = case_dir / "saccade_page.png"
+    shutil.copy2(saccade_src, saccade_png)
+
+    metrics, diff_rgb = compare_pngs(chrome_png, saccade_png, args.diff_threshold)
+    diff_png = case_dir / "diff.png"
+    write_png_rgb(diff_png, metrics["width"], metrics["height"], diff_rgb)
+
+    chrome_truth = json.loads((chrome_dir / "chrome_truth.json").read_text())
+    saccade_truth = saccade.get("result", {})
+    (case_dir / "saccade_worker_result.json").write_text(
+        json.dumps(saccade_truth, indent=2, sort_keys=True) + "\n"
+    )
+    actions_delta = abs(
+        len(chrome_truth.get("actions", [])) - len(saccade_truth.get("actions", []))
+    )
+    result = {
+        "fixture": fixture,
+        "url": url,
+        "case_dir": str(case_dir),
+        "chrome_screenshot": rel(run_dir=case_dir.parent, path=chrome_png),
+        "saccade_screenshot": rel(run_dir=case_dir.parent, path=saccade_png),
+        "diff_image": rel(run_dir=case_dir.parent, path=diff_png),
+        "chrome_actions": len(chrome_truth.get("actions", [])),
+        "saccade_actions": len(saccade_truth.get("actions", [])),
+        "actions_delta": actions_delta,
+        "chrome_title": chrome_truth.get("title", ""),
+        "saccade_title": saccade_truth.get("title", ""),
+        "metrics": metrics,
+        "artifacts": {
+            "chrome_manifest": str(chrome_dir / "chrome_reference_manifest.json"),
+            "chrome_truth": str(chrome_dir / "chrome_truth.json"),
+            "chrome_network": str(chrome_dir / "chrome_network.json"),
+            "saccade_worker_result": str(case_dir / "saccade_worker_result.json"),
+        },
+    }
+    (case_dir / "case_result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return result
+
+
+def capture_saccade(url, case_dir, timeout):
+    cmd = [
+        "cargo",
+        "run",
+        "-q",
+        "-p",
+        "saccade-shell",
+        "--",
+        "browser-session-worker",
+        "--url",
+        url,
+    ]
+    env = os.environ.copy()
+    env["RUST_LOG"] = "error"
+    input_text = '{"id":1,"method":"audit"}\n{"id":2,"method":"close"}\n'
+    proc = subprocess.Popen(
+        cmd,
+        cwd=WORKSPACE,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        stdout, _ = proc.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, _ = proc.communicate(timeout=5)
+        raise RuntimeError(f"Saccade worker timed out for {url}\n{stdout}")
+    (case_dir / "saccade_worker_stdout.log").write_text(stdout)
+    if proc.returncode != 0:
+        raise RuntimeError(f"Saccade worker failed for {url}\n{stdout}")
+
+    audit_response = None
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if value.get("id") == 1 and value.get("ok") is True:
+            audit_response = value
+            break
+    if not audit_response:
+        raise RuntimeError(f"Saccade worker output did not include audit response\n{stdout}")
+    result = audit_response["result"]
+    screenshot = result.get("visual_health", {}).get("screenshot")
+    if not screenshot:
+        raise RuntimeError(f"Saccade audit did not produce a screenshot for {url}")
+    return {"screenshot": screenshot, "result": result}
+
+
+def compare_pngs(chrome_path, saccade_path, threshold):
+    cw, ch, chrome = read_png_rgb(chrome_path)
+    sw, sh, saccade = read_png_rgb(saccade_path)
+    width = min(cw, sw)
+    height = min(ch, sh)
+    total_pixels = max(1, width * height)
+    diff_pixels = 0
+    sum_abs = 0
+    sum_sq = 0
+    max_delta = 0
+    diff_rgb = bytearray(width * height * 3)
+    chrome_nonwhite = 0
+    saccade_nonwhite = 0
+
+    for y in range(height):
+        for x in range(width):
+            ci = (y * cw + x) * 3
+            si = (y * sw + x) * 3
+            di = (y * width + x) * 3
+            cr, cg, cb = chrome[ci], chrome[ci + 1], chrome[ci + 2]
+            sr, sg, sb = saccade[si], saccade[si + 1], saccade[si + 2]
+            channel_diffs = (abs(cr - sr), abs(cg - sg), abs(cb - sb))
+            pixel_delta = max(channel_diffs)
+            if pixel_delta > threshold:
+                diff_pixels += 1
+                diff_rgb[di] = 255
+                diff_rgb[di + 1] = max(0, 255 - pixel_delta)
+                diff_rgb[di + 2] = max(0, 255 - pixel_delta)
+            else:
+                gray = int((cr + cg + cb + sr + sg + sb) / 6)
+                diff_rgb[di] = gray
+                diff_rgb[di + 1] = gray
+                diff_rgb[di + 2] = gray
+            for delta in channel_diffs:
+                sum_abs += delta
+                sum_sq += delta * delta
+                max_delta = max(max_delta, delta)
+            if (cr, cg, cb) < (245, 245, 245):
+                chrome_nonwhite += 1
+            if (sr, sg, sb) < (245, 245, 245):
+                saccade_nonwhite += 1
+
+    metrics = {
+        "chrome_width": cw,
+        "chrome_height": ch,
+        "saccade_width": sw,
+        "saccade_height": sh,
+        "width": width,
+        "height": height,
+        "dimension_match": cw == sw and ch == sh,
+        "diff_pixels": diff_pixels,
+        "diff_ratio": round(diff_pixels / total_pixels, 6),
+        "mean_abs_channel_delta": round(sum_abs / (total_pixels * 3), 3),
+        "rms_channel_delta": round(math.sqrt(sum_sq / (total_pixels * 3)), 3),
+        "max_channel_delta": max_delta,
+        "chrome_nonwhite_ratio": round(chrome_nonwhite / total_pixels, 6),
+        "saccade_nonwhite_ratio": round(saccade_nonwhite / total_pixels, 6),
+    }
+    return metrics, bytes(diff_rgb)
+
+
+def read_png_rgb(path):
+    data = pathlib.Path(path).read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"not a PNG: {path}")
+    offset = 8
+    width = height = color_type = bit_depth = None
+    idat = bytearray()
+    while offset < len(data):
+        length = struct.unpack(">I", data[offset : offset + 4])[0]
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_data = data[offset + 8 : offset + 8 + length]
+        offset += 12 + length
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type = struct.unpack(">IIBB", chunk_data[:10])
+        elif chunk_type == b"IDAT":
+            idat.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+    if bit_depth != 8 or color_type not in (2, 6):
+        raise ValueError(f"unsupported PNG format for {path}: bit_depth={bit_depth} color={color_type}")
+    channels = 3 if color_type == 2 else 4
+    stride = width * channels
+    raw = zlib.decompress(bytes(idat))
+    rows = []
+    index = 0
+    prev = bytearray(stride)
+    for _ in range(height):
+        filter_type = raw[index]
+        index += 1
+        row = bytearray(raw[index : index + stride])
+        index += stride
+        unfilter(row, prev, filter_type, channels)
+        rows.append(row)
+        prev = row
+    rgb = bytearray(width * height * 3)
+    for y, row in enumerate(rows):
+        for x in range(width):
+            src = x * channels
+            dst = (y * width + x) * 3
+            if channels == 4:
+                alpha = row[src + 3] / 255
+                rgb[dst] = int(row[src] * alpha + 255 * (1 - alpha))
+                rgb[dst + 1] = int(row[src + 1] * alpha + 255 * (1 - alpha))
+                rgb[dst + 2] = int(row[src + 2] * alpha + 255 * (1 - alpha))
+            else:
+                rgb[dst : dst + 3] = row[src : src + 3]
+    return width, height, bytes(rgb)
+
+
+def unfilter(row, prev, filter_type, bpp):
+    if filter_type == 0:
+        return
+    for i in range(len(row)):
+        left = row[i - bpp] if i >= bpp else 0
+        up = prev[i]
+        up_left = prev[i - bpp] if i >= bpp else 0
+        if filter_type == 1:
+            row[i] = (row[i] + left) & 0xFF
+        elif filter_type == 2:
+            row[i] = (row[i] + up) & 0xFF
+        elif filter_type == 3:
+            row[i] = (row[i] + ((left + up) // 2)) & 0xFF
+        elif filter_type == 4:
+            row[i] = (row[i] + paeth(left, up, up_left)) & 0xFF
+        else:
+            raise ValueError(f"unsupported PNG filter: {filter_type}")
+
+
+def paeth(a, b, c):
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+    if pa <= pb and pa <= pc:
+        return a
+    if pb <= pc:
+        return b
+    return c
+
+
+def write_png_rgb(path, width, height, rgb):
+    rows = bytearray()
+    stride = width * 3
+    for y in range(height):
+        rows.append(0)
+        rows.extend(rgb[y * stride : (y + 1) * stride])
+    chunks = [
+        png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)),
+        png_chunk(b"IDAT", zlib.compress(bytes(rows), level=6)),
+        png_chunk(b"IEND", b""),
+    ]
+    pathlib.Path(path).write_bytes(b"\x89PNG\r\n\x1a\n" + b"".join(chunks))
+
+
+def png_chunk(kind, data):
+    body = kind + data
+    return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+
+def write_html(run_dir, results, args):
+    rows = []
+    figures = []
+    for result in results:
+        m = result["metrics"]
+        rows.append(
+            "<tr>"
+            f"<td>{esc(result['fixture'])}</td>"
+            f"<td>{m['dimension_match']}</td>"
+            f"<td>{m['diff_ratio']:.3%}</td>"
+            f"<td>{m['mean_abs_channel_delta']}</td>"
+            f"<td>{result['chrome_actions']} / {result['saccade_actions']}</td>"
+            "</tr>"
+        )
+        figures.append(
+            f"""
+            <section class="case">
+              <h2>{esc(result['fixture'])}</h2>
+              <p class="muted">diff_ratio={m['diff_ratio']:.3%}, mean_abs={m['mean_abs_channel_delta']}, rms={m['rms_channel_delta']}, actions Chrome/Saccade={result['chrome_actions']}/{result['saccade_actions']}</p>
+              <div class="compare">
+                <figure><figcaption>Chrome</figcaption><img src="{esc(result['chrome_screenshot'])}"></figure>
+                <figure><figcaption>Saccade</figcaption><img src="{esc(result['saccade_screenshot'])}"></figure>
+                <figure><figcaption>Diff</figcaption><img src="{esc(result['diff_image'])}"></figure>
+              </div>
+            </section>
+            """
+        )
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Saccade Visual Parity Report</title>
+  <style>
+    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f8fb; color: #1d2430; }}
+    header {{ padding: 28px 34px; background: #ffffff; border-bottom: 1px solid #d8dee8; }}
+    main {{ padding: 24px 34px; }}
+    table {{ border-collapse: collapse; width: 100%; background: #ffffff; border: 1px solid #d8dee8; }}
+    th, td {{ border-bottom: 1px solid #d8dee8; padding: 10px 12px; text-align: left; }}
+    .muted {{ color: #64748b; }}
+    .case {{ margin-top: 28px; }}
+    .compare {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }}
+    figure {{ margin: 0; background: #ffffff; border: 1px solid #d8dee8; border-radius: 8px; overflow: hidden; }}
+    figcaption {{ padding: 10px 12px; border-bottom: 1px solid #d8dee8; font-weight: 700; }}
+    img {{ display: block; width: 100%; height: auto; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Saccade Visual Parity Report</h1>
+    <p class="muted">Viewport {args.width}x{args.height}. Chrome CDP screenshots compared against Saccade live worker screenshots.</p>
+  </header>
+  <main>
+    <table>
+      <thead><tr><th>Fixture</th><th>Dimensions</th><th>Diff ratio</th><th>Mean abs</th><th>Actions C/S</th></tr></thead>
+      <tbody>{''.join(rows)}</tbody>
+    </table>
+    {''.join(figures)}
+  </main>
+</body>
+</html>
+"""
+    (run_dir / "index.html").write_text(page)
+
+
+def run(cmd, timeout):
+    result = subprocess.run(
+        cmd,
+        cwd=WORKSPACE,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"command failed: {' '.join(cmd)}\n{result.stdout}")
+    return result.stdout
+
+
+def run_with_retry(cmd, timeout, attempts):
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return run(cmd, timeout)
+        except Exception as error:
+            last_error = error
+            if attempt < attempts:
+                time.sleep(1)
+    raise last_error
+
+
+def rel(run_dir, path):
+    return os.path.relpath(path, run_dir)
+
+
+def esc(value):
+    return html.escape(str(value), quote=True)
+
+
+def unix_ms():
+    return int(time.time() * 1000)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(f"visual parity compare failed: {error}", file=sys.stderr)
+        sys.exit(1)

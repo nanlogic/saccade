@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Form Controls</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    form { max-width: 880px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    label { display: grid; gap: 7px; color: var(--muted); font-size: 13px; }
+    input, select, textarea { min-height: 42px; border: 1px solid #b8c3d4; border-radius: 6px; padding: 8px 10px; color: var(--ink); background: #ffffff; }
+    textarea { min-height: 116px; resize: none; grid-column: span 2; }
+    .toggles { display: flex; gap: 14px; align-items: center; padding: 12px; }
+    .footer { grid-column: span 2; display: flex; justify-content: flex-end; gap: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Capacity Request</h1>
+    <span class="muted">Form controls parity</span>
+  </header>
+  <main>
+    <form class="panel" style="padding:24px">
+      <label>Team<input name="team" value="Platform Reliability"></label>
+      <label>Region<select name="region"><option>us-east</option><option>us-west</option><option>eu-central</option></select></label>
+      <label>Instances<input name="instances" type="number" value="24"></label>
+      <label>Launch date<input name="date" type="date" value="2026-07-15"></label>
+      <textarea name="notes">Need blue-green deployment capacity for launch rehearsal.</textarea>
+      <div class="toggles panel">
+        <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" checked> Include staging</label>
+        <label style="display:flex;align-items:center;gap:8px"><input type="radio" checked name="priority"> Normal</label>
+        <label style="display:flex;align-items:center;gap:8px"><input type="radio" name="priority"> Urgent</label>
+      </div>
+      <div class="footer">
+        <button type="button">Save Draft</button>
+        <button class="primary" type="submit">Submit</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

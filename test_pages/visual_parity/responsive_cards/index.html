@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Responsive Cards</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+    .card { min-height: 170px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; }
+    .swatches { display: flex; gap: 8px; }
+    .swatch { width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.18); }
+    .longword { overflow-wrap: anywhere; color: #334155; }
+  </style>
+</head>
+<body>
+  <header><h1>Responsive Cards</h1><button class="primary">Publish</button></header>
+  <main>
+    <section class="cards">
+      <article class="panel card"><strong>Small viewport</strong><p class="muted">Cards reflow without horizontal overflow.</p><button>Open</button></article>
+      <article class="panel card"><strong>Long token</strong><p class="longword">supercalifragilistic-layout-token-2026-review</p><button>Inspect</button></article>
+      <article class="panel card"><strong>Color states</strong><div class="swatches"><span class="swatch" style="background:#2563eb"></span><span class="swatch" style="background:#0f766e"></span><span class="swatch" style="background:#b45309"></span></div><button>Apply</button></article>
+      <article class="panel card"><strong>Mixed copy</strong><p class="muted">Text should stay inside the card at every width.</p><button>Review</button></article>
+    </section>
+  </main>
+</body>
+</html>

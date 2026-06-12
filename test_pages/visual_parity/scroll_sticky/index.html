@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Scroll Sticky</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .split { display: grid; grid-template-columns: 280px 1fr; gap: 18px; height: calc(100vh - 120px); }
+    aside { overflow: auto; padding: 12px; }
+    aside button { width: 100%; margin-bottom: 8px; text-align: left; }
+    .list { overflow: auto; position: relative; }
+    .list-head { position: sticky; top: 0; background: #ffffff; z-index: 2; padding: 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+    .row { display: grid; grid-template-columns: 90px 1fr 140px; gap: 14px; padding: 14px; border-bottom: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <header><h1>Inventory Review</h1><button class="primary">Approve Batch</button></header>
+  <main>
+    <section class="split">
+      <aside class="panel">
+        <button>All Warehouses</button><button>East</button><button>West</button><button>Europe</button><button>APAC</button>
+        <button>Backordered</button><button>Low Stock</button><button>Frozen</button><button>High Velocity</button>
+      </aside>
+      <div class="panel list">
+        <div class="list-head"><strong>Open Items</strong><button>Refresh</button></div>
+        <div class="row"><strong>SKU-102</strong><span>Replacement battery module</span><span>18 units</span></div>
+        <div class="row"><strong>SKU-118</strong><span>Thermal label roll</span><span>420 units</span></div>
+        <div class="row"><strong>SKU-144</strong><span>Scanner dock</span><span>32 units</span></div>
+        <div class="row"><strong>SKU-177</strong><span>Gateway board</span><span>8 units</span></div>
+        <div class="row"><strong>SKU-201</strong><span>Rack sensor</span><span>51 units</span></div>
+        <div class="row"><strong>SKU-236</strong><span>Cradle cable</span><span>109 units</span></div>
+        <div class="row"><strong>SKU-288</strong><span>Cold chain tag</span><span>73 units</span></div>
+        <div class="row"><strong>SKU-312</strong><span>Field repair kit</span><span>16 units</span></div>
+        <div class="row"><strong>SKU-330</strong><span>Bulk intake tray</span><span>27 units</span></div>
+        <div class="row"><strong>SKU-344</strong><span>Label verifier</span><span>12 units</span></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
