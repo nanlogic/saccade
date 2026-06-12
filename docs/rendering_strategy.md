@@ -52,6 +52,8 @@ Visual parity reports now classify Servo-vs-Chrome diffs by decision impact:
 
 The classifier uses action count/labels, Saccade click-point escape distance against the Chrome reference rect, Chrome-side non-mutating hit-tests for enabled non-sensitive Saccade actions, layout probes, screenshot dimensions, and raster/text diff ratios.
 
+The HTML report also includes labeled browser-frame previews around page-content screenshots. These previews show URL context for demos; they are not native browser UI screenshots.
+
 ## Rules
 
 - Never claim "Servo renders like Chrome."
@@ -103,7 +105,7 @@ Dogfood and browser-session workers now default to `servo-modern`. `servo-safe` 
 Latest visual classifier evidence:
 
 ```text
-/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781299261779/index.html
+/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781300179891/index.html
 ```
 
 The current seven-fixture local gauntlet has no red verdicts under `servo-modern`, and all enabled non-sensitive Saccade action points hit their expected Chrome targets. It still contains visual/raster yellow verdicts, so `chrome-reference` remains mandatory for public visual parity and UI design review.

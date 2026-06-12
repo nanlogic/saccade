@@ -17,7 +17,7 @@ The runner opens each fixture twice:
 - Chrome path: `scripts/capture_chrome_reference.sh`
 - Saccade path: `saccade-shell browser-session-worker --url ...`
 
-It writes Chrome, Saccade, and diff screenshots plus Chrome hit-test evidence, `visual_parity_manifest.json`, and an HTML report.
+It writes Chrome, Saccade, and diff screenshots plus Chrome hit-test evidence, browser-frame previews, `visual_parity_manifest.json`, and an HTML report.
 
 The manifest now includes a first-pass diff classifier:
 
@@ -28,6 +28,8 @@ The manifest now includes a first-pass diff classifier:
 - `FAIL_ACTION_MAP`: viewport or action map differs enough to block agent action.
 
 The action-map part compares action count, labels, Saccade click-point escape distance against the Chrome reference rect, action rect geometry, and a Chrome-side hit-test for enabled non-sensitive Saccade actions. The hit-test uses `elementFromPoint` plus label/control rules and does not dispatch real clicks.
+
+The browser-frame previews are labeled report wrappers around page-content screenshots. They are useful for public/demo review because the URL and browser context are visible, but they are not native browser UI screenshots.
 
 ## Fixture Coverage
 
@@ -44,13 +46,13 @@ The action-map part compares action count, labels, Saccade click-point escape di
 Latest full run:
 
 ```text
-runs/visual_parity/parity_1781299261779/index.html
+runs/visual_parity/parity_1781300179891/index.html
 ```
 
 Result:
 
 ```text
-VISUAL PARITY PASS fixtures=7 report=/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781299261779/index.html
+VISUAL PARITY PASS fixtures=7 report=/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781300179891/index.html
 ```
 
 Grid validation found the main "mobile-looking" layout root cause:
@@ -96,7 +98,7 @@ The first parity run exposed blank Saccade screenshots for complex pages even th
 
 ## Still Pending
 
-- Browser URL-bar parity artifacts for public demos.
+- Native Chrome/Safari browser-UI screenshots for public demos.
 - Firefox reference capture.
 - Root-cause remaining Servo/Chrome differences: font metrics, canvas/SVG, sticky/scroll, media-query coverage, and DPR/window chrome.
 - Broaden classifier fixtures for media queries, transforms, container queries, overlays, and generated agent-built pages.

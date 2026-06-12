@@ -242,7 +242,7 @@
   - `FAIL_LAYOUT`: layout differs enough to threaten coordinates.
   - `FAIL_ACTION_MAP`: viewport or action map differs enough to block agent action.
 - The classifier compares action count, labels, Saccade click-point escape distance against the Chrome reference rect, action rect geometry, layout probes, screenshot dimensions, and raster/text diff ratios.
-- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781299261779/index.html`.
+- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781300179891/index.html`.
 - Result: no red verdicts across the current seven local visual fixtures. `form_controls` stays yellow because Servo reports narrower native control rects, but the Saccade click points remain within tolerance.
 - This is a routing gate, not a pixel-parity claim: public demos and UI design review still route to `chrome-reference`.
 
@@ -251,6 +251,13 @@
 - Chrome reference capture can now accept `--verify-actions-file` and write `chrome_click_verification.json`.
 - The verifier checks enabled non-sensitive Saccade actions only. Disabled, blocked, or sensitive actions are skipped because the agent should not click them.
 - Verification is non-mutating: Chrome uses `document.elementFromPoint` and label/control association rules to confirm the Saccade click point would hit the same actionable target. It does not dispatch real click events.
-- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781299261779/index.html`.
+- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781300179891/index.html`.
 - Result: all verifiable Saccade action points hit the expected Chrome targets across the seven local visual fixtures. `modal_overlay` verifies `2/2` and skips `4` correctly blocked page-level actions.
 - A Chrome hit-test failure is now an `FAIL_ACTION_MAP` classifier input.
+
+## DECISION_RENDERING_006 - Browser-frame previews are labeled report artifacts
+
+- Visual parity HTML reports now include browser-frame previews around the Chrome and Saccade page-content screenshots.
+- These previews expose URL context and make public/demo review easier for non-engineering readers.
+- They are explicitly labeled report wrappers, not native Chrome/Saccade browser UI screenshots.
+- Native browser UI capture with real Chrome/Safari window chrome remains pending for public launch polish.

@@ -730,6 +730,10 @@ def write_html(run_dir, results, args):
               <h2>{esc(result['fixture'])}</h2>
               <p class="muted">diff_ratio={m['diff_ratio']:.3%}, mean_abs={m['mean_abs_channel_delta']}, rms={m['rms_channel_delta']}, actions {esc(action_summary)}, layout {esc(layout_summary)}</p>
               <p><strong>{esc(classification.get('verdict', ''))}</strong> · {esc(recommendation)}</p>
+              <div class="browser-preview">
+                {browser_frame('Chrome reference', result['url'], result['chrome_screenshot'])}
+                {browser_frame('Saccade worker', result['url'], result['saccade_screenshot'])}
+              </div>
               <div class="compare">
                 <figure><figcaption>Chrome</figcaption><img src="{esc(result['chrome_screenshot'])}"></figure>
                 <figure><figcaption>Saccade</figcaption><img src="{esc(result['saccade_screenshot'])}"></figure>
@@ -752,15 +756,25 @@ def write_html(run_dir, results, args):
     .muted {{ color: #64748b; }}
     .case {{ margin-top: 28px; }}
     .compare {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }}
+    .browser-preview {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 14px 0; }}
+    .browser-frame {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); }}
+    .browser-toolbar {{ display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; background: #eef2f7; border-bottom: 1px solid #cbd5e1; }}
+    .browser-dots {{ display: flex; gap: 6px; }}
+    .browser-dot {{ width: 10px; height: 10px; border-radius: 50%; background: #94a3b8; }}
+    .browser-address {{ min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border: 1px solid #cbd5e1; border-radius: 999px; background: #ffffff; padding: 5px 11px; font-size: 12px; color: #334155; }}
+    .browser-label {{ font-size: 12px; font-weight: 700; color: #475569; }}
+    .browser-frame img {{ display: block; width: 100%; height: auto; }}
     figure {{ margin: 0; background: #ffffff; border: 1px solid #d8dee8; border-radius: 8px; overflow: hidden; }}
     figcaption {{ padding: 10px 12px; border-bottom: 1px solid #d8dee8; font-weight: 700; }}
     img {{ display: block; width: 100%; height: auto; }}
+    @media (max-width: 900px) {{ .browser-preview, .compare {{ grid-template-columns: 1fr; }} }}
   </style>
 </head>
 <body>
   <header>
     <h1>Saccade Visual Parity Report</h1>
     <p class="muted">Viewport {args.width}x{args.height}. Chrome CDP screenshots compared against Saccade live worker screenshots. Rendering profile: {esc(resolved_rendering_profile(args))}. Legacy Grid override: {esc(args.saccade_grid)}.</p>
+    <p class="muted">Browser-frame previews are labeled report wrappers around page-content screenshots; they are not native browser UI screenshots.</p>
   </header>
   <main>
     <table>
@@ -773,6 +787,25 @@ def write_html(run_dir, results, args):
 </html>
 """
     (run_dir / "index.html").write_text(page)
+
+
+def browser_frame(label, url, image):
+    return f"""
+    <div class="browser-frame">
+      <div class="browser-toolbar">
+        <div class="browser-dots"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div>
+        <div class="browser-address">{esc(display_url(url))}</div>
+        <div class="browser-label">{esc(label)}</div>
+      </div>
+      <img src="{esc(image)}" alt="{esc(label)} page-content screenshot">
+    </div>
+    """
+
+
+def display_url(url):
+    if url.startswith("file://"):
+        return url.rsplit("/", 1)[-1] or url
+    return url
 
 
 def run(cmd, timeout):
