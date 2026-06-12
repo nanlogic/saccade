@@ -107,6 +107,7 @@ enum ActiveRequest {
 enum ProbeMethod {
     Truth,
     Actions,
+    Audit,
 }
 
 struct WorkerState {
@@ -437,6 +438,13 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
                 method: ProbeMethod::Actions,
             });
         }
+        "audit" => {
+            request_probe(state, webview);
+            *state.current.borrow_mut() = Some(ActiveRequest::Probe {
+                id,
+                method: ProbeMethod::Audit,
+            });
+        }
         "act" => start_act_request(state, webview, id, request.params),
         "close" => {
             respond_ok(
@@ -619,6 +627,7 @@ fn probe_response(
     let kind = match method {
         ProbeMethod::Truth => "truth_collected",
         ProbeMethod::Actions => "actions_collected",
+        ProbeMethod::Audit => "audit_completed",
     };
     let screenshot = maybe_save_screenshot(
         state,
@@ -626,6 +635,18 @@ fn probe_response(
         &format!("{}_rev{}.png", kind, state.page_revision.get()),
         sensitive_count,
     );
+    let findings = match method {
+        ProbeMethod::Audit => audit_findings(probe, &actions),
+        ProbeMethod::Truth | ProbeMethod::Actions => Vec::new(),
+    };
+    let body_text_length = probe
+        .get("bodyTextLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let body_child_count = probe
+        .get("bodyChildCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     log_replay(
         state,
         json!({
@@ -633,29 +654,48 @@ fn probe_response(
             "run_id": state.run_id.as_str(),
             "page_revision": state.page_revision.get(),
             "actions_seen": actions.len(),
+            "findings": findings.len(),
             "sensitive_fields": sensitive_count,
-            "body_text_length": probe.get("bodyTextLength").and_then(Value::as_u64).unwrap_or(0),
-            "screenshot": screenshot,
+            "body_text_length": body_text_length,
+            "screenshot": screenshot.clone(),
         }),
     );
+    let engine = match method {
+        ProbeMethod::Audit => "saccade-browser-session-audit-v0",
+        ProbeMethod::Truth | ProbeMethod::Actions => "saccade-browser-session-worker-v0",
+    };
+    let summary = match method {
+        ProbeMethod::Truth => "browser session truth collected from live Servo tab".to_string(),
+        ProbeMethod::Actions => {
+            "browser session action map collected from live Servo tab".to_string()
+        }
+        ProbeMethod::Audit => format!(
+            "live browser session audit found {} findings across {} actions",
+            findings.len(),
+            actions.len()
+        ),
+    };
     json!({
         "status": "ok",
         "runtime": "browser_session_worker_v0",
-        "engine": "saccade-browser-session-worker-v0",
-        "summary": match method {
-            ProbeMethod::Truth => "browser session truth collected from live Servo tab",
-            ProbeMethod::Actions => "browser session action map collected from live Servo tab",
-        },
+        "engine": engine,
+        "summary": summary,
         "url": probe.get("url").cloned().unwrap_or_else(|| json!(state.target_url.as_str())),
         "title": probe.get("title").cloned().unwrap_or(Value::Null),
         "page_revision": state.page_revision.get(),
         "dom_page_revision": probe.get("pageRevision").cloned().unwrap_or(Value::Null),
         "actions": actions,
+        "findings": findings.clone(),
+        "visual_health": {
+            "blank_page": body_text_length == 0 && body_child_count == 0,
+            "screenshot": screenshot,
+        },
         "truth": {
-            "body_text_length": probe.get("bodyTextLength").cloned().unwrap_or(Value::Null),
-            "body_child_count": probe.get("bodyChildCount").cloned().unwrap_or(Value::Null),
+            "body_text_length": body_text_length,
+            "body_child_count": body_child_count,
             "viewport": probe.get("viewport").cloned().unwrap_or(Value::Null),
             "sensitive_fields": sensitive_count,
+            "findings": findings,
         },
         "artifacts": artifact_paths(state),
     })
@@ -767,6 +807,113 @@ fn sensitive_action_count(actions: &[Value]) -> usize {
                 .is_some_and(|kind| kind != "none")
         })
         .count()
+}
+
+fn audit_findings(probe: &Value, actions: &[Value]) -> Vec<Value> {
+    let mut findings = Vec::new();
+    let body_text_length = probe
+        .get("bodyTextLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let body_child_count = probe
+        .get("bodyChildCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+
+    if body_text_length == 0 && body_child_count == 0 {
+        push_audit_finding(
+            &mut findings,
+            "blank_page",
+            "error",
+            "body",
+            "Live tab has no body text or body children.",
+            json!({
+                "body_text_length": body_text_length,
+                "body_child_count": body_child_count,
+            }),
+        );
+    }
+
+    for action in probe
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let action_id = action_id_for(action);
+        let label = probe_action_label(action);
+        if action
+            .get("offscreen")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            push_audit_finding(
+                &mut findings,
+                "offscreen_action",
+                "warning",
+                &action_id,
+                "Action exists but is outside the current viewport.",
+                json!({
+                    "action_id": action_id.clone(),
+                    "label": label,
+                    "rect": action.get("rect").cloned().unwrap_or(Value::Null),
+                }),
+            );
+            continue;
+        }
+        if let Some(blocked_by) = action
+            .get("blockedBy")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            push_audit_finding(
+                &mut findings,
+                "blocked_action",
+                "warning",
+                &action_id,
+                "Action center is covered by another visible element.",
+                json!({
+                    "action_id": action_id.clone(),
+                    "label": label,
+                    "blocked_by": blocked_by,
+                }),
+            );
+        }
+    }
+
+    let sensitive_count = sensitive_action_count(actions);
+    if sensitive_count > 0 {
+        push_audit_finding(
+            &mut findings,
+            "sensitive_fields_require_user",
+            "info",
+            "form",
+            "Sensitive fields are present and require user input or confirmation.",
+            json!({
+                "sensitive_fields": sensitive_count,
+            }),
+        );
+    }
+
+    findings
+}
+
+fn push_audit_finding(
+    findings: &mut Vec<Value>,
+    kind: &str,
+    severity: &str,
+    selector: &str,
+    message: &str,
+    evidence: Value,
+) {
+    findings.push(json!({
+        "finding_id": format!("live_{:02}", findings.len() + 1),
+        "kind": kind,
+        "severity": severity,
+        "selector": selector,
+        "message": message,
+        "evidence": evidence,
+    }));
 }
 
 fn action_labels(actions: &[Value]) -> Vec<String> {

@@ -178,4 +178,5 @@
 - Worker truth/action maps redact form values before they leave the browser process. Sensitive fields expose kind and completion status, not raw values. Local redaction fixture passed with SSN, credit-card, password, and ordinary name values absent from stdout/report/replay.
 - Worker screenshots are now policy-gated: non-sensitive pages save PNG artifacts, while pages with sensitive fields skip screenshot capture and log `screenshot_skipped_sensitive_fields`.
 - Added `saccade.report.validate_run` kind `browser_session_worker` to validate worker report/replay, screenshot references, and replay raw-value leak checks.
-- This is still v0: one child process per Agent tab, no shared browser process yet, and dedicated DEVMAX/FORMMAX tools still run as child workflows.
+- Added a live `audit` method to the browser worker. `saccade.dev.audit_page(engine=servo)` now uses the live Agent tab when present, producing compact findings and worker artifacts from the same WebView instead of spawning a separate DEVMAX audit.
+- This is still v0: one child process per Agent tab, no shared browser process yet, and static audit fallback, click-all verification, and FORMMAX tools still run as child workflows.

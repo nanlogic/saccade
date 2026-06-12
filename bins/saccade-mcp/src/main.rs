@@ -98,6 +98,7 @@ struct SelftestEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    live_worker_audit: bool,
     dev_click_all_primary_actions: bool,
     dev_fill_smoke_form: bool,
     dev_get_report: bool,
@@ -221,6 +222,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
         && stdio_evidence.web_act
+        && stdio_evidence.live_worker_audit
         && stdio_evidence.dev_click_all_primary_actions
         && stdio_evidence.dev_fill_smoke_form
         && stdio_evidence.dev_get_report
@@ -243,6 +245,7 @@ fn selftest() -> Result<()> {
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
+        live_worker_audit: stdio_evidence.live_worker_audit,
         dev_click_all_primary_actions: stdio_evidence.dev_click_all_primary_actions,
         dev_fill_smoke_form: stdio_evidence.dev_fill_smoke_form,
         dev_get_report: stdio_evidence.dev_get_report,
@@ -527,6 +530,7 @@ struct JsonRpcEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    live_worker_audit: bool,
     dev_click_all_primary_actions: bool,
     dev_fill_smoke_form: bool,
     dev_get_report: bool,
@@ -962,6 +966,64 @@ fn audit_page_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
         .get("replay")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+
+    if engine == "servo" {
+        if let Some(tab_id) = tab_id {
+            if state.browser_workers.contains_key(&tab_id.0) {
+                let live_audit = call_browser_worker(state, tab_id, "audit", json!({}))?;
+                if let Some(tab) = state.find_tab_mut(tab_id) {
+                    update_session_tab_from_browser_result(tab, &live_audit);
+                }
+                let summary = live_audit
+                    .get("summary")
+                    .and_then(Value::as_str)
+                    .unwrap_or("live browser session audit completed")
+                    .to_string();
+                let live_engine = live_audit
+                    .get("engine")
+                    .and_then(Value::as_str)
+                    .unwrap_or("saccade-browser-session-audit-v0")
+                    .to_string();
+                let actions = live_audit
+                    .get("actions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let findings = live_audit
+                    .get("findings")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let artifacts = live_audit
+                    .get("artifacts")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let artifact_index = record_artifact_index(
+                    "saccade.dev.audit_page",
+                    "browser_worker_audit",
+                    &summary,
+                    artifacts.clone(),
+                )?;
+                return Ok(json!({
+                    "status": "ok",
+                    "summary": summary,
+                    "tool": "saccade.dev.audit_page",
+                    "runtime": live_audit.get("runtime").cloned().unwrap_or_else(|| json!("browser_session_worker_v0")),
+                    "engine": live_engine,
+                    "url": live_audit.get("url").cloned().unwrap_or_else(|| json!(url.as_str())),
+                    "tab_id": tab_id.0,
+                    "page_revision": live_audit.get("page_revision").cloned().unwrap_or(Value::Null),
+                    "title": live_audit.get("title").cloned().unwrap_or(Value::Null),
+                    "findings": findings.len(),
+                    "actions": actions.len(),
+                    "action_map": actions,
+                    "finding_list": findings,
+                    "artifacts": artifacts,
+                    "artifact_index": artifact_index,
+                }));
+            }
+        }
+    }
 
     let devmax = run_devmax_audit(&url, engine, replay)?;
     if let Some(tab_id) = tab_id {
@@ -1881,9 +1943,15 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
         .cloned()
         .unwrap_or_default();
     tab.last_findings = result
-        .pointer("/truth/findings")
+        .get("findings")
         .and_then(Value::as_array)
         .cloned()
+        .or_else(|| {
+            result
+                .pointer("/truth/findings")
+                .and_then(Value::as_array)
+                .cloned()
+        })
         .unwrap_or_default();
     tab.last_report_path = result
         .pointer("/artifacts/report")
@@ -2164,6 +2232,40 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         })
         .unwrap_or("")
         .to_string();
+    let live_audit_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(41)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.dev.audit_page",
+                "arguments": {
+                    "tab_id": tab_id,
+                    "engine": "servo",
+                    "replay": true
+                }
+            }),
+        },
+    );
+    let live_worker_audit = live_audit_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && content.get("engine").and_then(Value::as_str)
+                            == Some("saccade-browser-session-audit-v0")
+                        && content
+                            .pointer("/artifacts/report")
+                            .and_then(Value::as_str)
+                            .is_some_and(|path| path.contains("browser_session_worker"))
+                })
+        })
+        .unwrap_or(false);
     let web_truth = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -2446,6 +2548,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         web_truth,
         web_actions,
         web_act,
+        live_worker_audit,
         dev_click_all_primary_actions,
         dev_fill_smoke_form,
         dev_get_report,

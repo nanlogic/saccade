@@ -8,9 +8,11 @@ Date: 2026-06-12
 
 It opens a local page in Servo, collects browser truth and an action map, dispatches one native Servo mouse click, then collects post-action truth from the same WebView path. The fixture advances `data-session-revision` from `0` to `1`, so the gate verifies a visible page-state change rather than only an input event.
 
-The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, and `saccade.tabs.close` talk to that worker over JSONL.
+The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.dev.audit_page(engine=servo)`, `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, and `saccade.tabs.close` talk to that worker over JSONL.
 
 The worker now writes compact artifacts under `runs/browser_session_worker/worker_*/` and redacts field values before data leaves the browser process. Sensitive fields expose type and completion status, not raw values. Non-sensitive pages also receive screenshot PNG artifacts; pages with sensitive fields skip screenshots and record that policy decision in replay.
+
+Live worker audit is intentionally compact. It converts the current live probe into action counts, screenshot policy, and findings for blank pages, offscreen actions, blocked actions, and sensitive fields that require user handling. Static or non-live audits still use DEVMAX as fallback.
 
 ## Evidence
 
@@ -38,7 +40,7 @@ runs/browser_session_worker/worker_*/replay.jsonl
 ## Current Scope
 
 - Proves `open -> truth -> actions -> act -> truth_after_act` on a Servo-backed WebView.
-- Proves the MCP stdio path can keep a browser worker alive across `tabs.open -> web.actions -> web.act -> tabs.close`.
+- Proves the MCP stdio path can keep a browser worker alive across `tabs.open -> dev.audit_page -> web.actions -> web.act -> tabs.close`.
 - Produces compact report/replay artifacts without echoing full page text.
 - Saves screenshot PNG artifacts for pages without sensitive fields.
 - Skips screenshot capture when sensitive fields are present, instead logging `screenshot_skipped_sensitive_fields`.
@@ -47,5 +49,5 @@ runs/browser_session_worker/worker_*/replay.jsonl
 
 ## Still Pending
 
-- MCP still uses DEVMAX/FORMMAX child tools for dedicated audit and form workflows.
-- The worker is one Agent tab per child process; multi-tab shared browser process and FORMMAX/DEVMAX live-tab integration remain next hardening steps.
+- MCP still uses DEVMAX/FORMMAX child tools for static audit fallback, click-all verification, and form workflows.
+- The worker is one Agent tab per child process; multi-tab shared browser process and FORMMAX live-tab integration remain next hardening steps.
