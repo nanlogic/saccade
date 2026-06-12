@@ -106,6 +106,28 @@ def resolved_rendering_profile(args):
 
 
 def run_case(fixture, url, case_dir, args):
+    saccade = capture_saccade(
+        url,
+        case_dir,
+        args.timeout_sec,
+        resolved_rendering_profile(args),
+        args.saccade_grid,
+    )
+    saccade_truth = saccade.get("result", {})
+    (case_dir / "saccade_worker_result.json").write_text(
+        json.dumps(saccade_truth, indent=2, sort_keys=True) + "\n"
+    )
+    saccade_actions_for_chrome = case_dir / "saccade_actions_for_chrome.json"
+    verifiable_actions = verifiable_saccade_actions(saccade_truth.get("actions", []))
+    saccade_actions_for_chrome.write_text(
+        json.dumps(verifiable_actions, indent=2, sort_keys=True) + "\n"
+    )
+    saccade_src = pathlib.Path(saccade["screenshot"])
+    if not saccade_src.is_absolute():
+        saccade_src = WORKSPACE / saccade_src
+    saccade_png = case_dir / "saccade_page.png"
+    shutil.copy2(saccade_src, saccade_png)
+
     chrome_dir = case_dir / "chrome"
     chrome_dir.mkdir(parents=True, exist_ok=True)
     chrome_cmd = [
@@ -116,36 +138,30 @@ def run_case(fixture, url, case_dir, args):
         str(args.height),
         "--timeout-sec",
         str(args.timeout_sec),
+        "--verify-actions-file",
+        str(saccade_actions_for_chrome),
     ]
     run_with_retry(chrome_cmd, args.timeout_sec + 10, attempts=2)
     chrome_src = chrome_dir / "chrome_page.png"
     chrome_png = case_dir / "chrome_page.png"
     shutil.copy2(chrome_src, chrome_png)
 
-    saccade = capture_saccade(
-        url,
-        case_dir,
-        args.timeout_sec,
-        resolved_rendering_profile(args),
-        args.saccade_grid,
-    )
-    saccade_src = pathlib.Path(saccade["screenshot"])
-    if not saccade_src.is_absolute():
-        saccade_src = WORKSPACE / saccade_src
-    saccade_png = case_dir / "saccade_page.png"
-    shutil.copy2(saccade_src, saccade_png)
-
     metrics, diff_rgb = compare_pngs(chrome_png, saccade_png, args.diff_threshold)
     diff_png = case_dir / "diff.png"
     write_png_rgb(diff_png, metrics["width"], metrics["height"], diff_rgb)
 
     chrome_truth = json.loads((chrome_dir / "chrome_truth.json").read_text())
-    saccade_truth = saccade.get("result", {})
+    chrome_click_verification = json.loads(
+        (chrome_dir / "chrome_click_verification.json").read_text()
+    )
+    chrome_click_verification["candidate_policy"] = {
+        "scope": "enabled_non_sensitive_saccade_actions",
+        "saccade_actions_total": len(saccade_truth.get("actions", [])),
+        "saccade_actions_verified": len(verifiable_actions),
+        "saccade_actions_skipped": len(saccade_truth.get("actions", [])) - len(verifiable_actions),
+    }
     layout_probe_metrics = compare_layout_probes(chrome_truth, saccade_truth)
     action_map_metrics = compare_action_maps(chrome_truth, saccade_truth)
-    (case_dir / "saccade_worker_result.json").write_text(
-        json.dumps(saccade_truth, indent=2, sort_keys=True) + "\n"
-    )
     actions_delta = abs(
         len(chrome_truth.get("actions", [])) - len(saccade_truth.get("actions", []))
     )
@@ -164,16 +180,28 @@ def run_case(fixture, url, case_dir, args):
         "metrics": metrics,
         "layout_probe_metrics": layout_probe_metrics,
         "action_map_metrics": action_map_metrics,
+        "chrome_click_verification": chrome_click_verification,
         "artifacts": {
             "chrome_manifest": str(chrome_dir / "chrome_reference_manifest.json"),
             "chrome_truth": str(chrome_dir / "chrome_truth.json"),
             "chrome_network": str(chrome_dir / "chrome_network.json"),
+            "chrome_click_verification": str(chrome_dir / "chrome_click_verification.json"),
+            "saccade_actions_for_chrome": str(saccade_actions_for_chrome),
             "saccade_worker_result": str(case_dir / "saccade_worker_result.json"),
         },
     }
     result["diff_classification"] = classify_diff(result)
     (case_dir / "case_result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
+
+
+def verifiable_saccade_actions(actions):
+    return [
+        action
+        for action in actions
+        if action.get("enabled") is True
+        and action.get("sensitivity", {}).get("kind", "none") == "none"
+    ]
 
 
 def capture_saccade(url, case_dir, timeout, rendering_profile, saccade_grid):
@@ -398,6 +426,7 @@ def classify_diff(result):
     metrics = result["metrics"]
     layout = result.get("layout_probe_metrics", {})
     actions = result.get("action_map_metrics", {})
+    chrome_clicks = result.get("chrome_click_verification", {})
     diff_classes = {
         "layout_rect_style_diff": [],
         "text_font_diff": [],
@@ -416,6 +445,15 @@ def classify_diff(result):
     if actions.get("count_delta", 0) != 0:
         diff_classes["action_map_diff"].append(
             f"Action count differs: Chrome {actions.get('chrome_actions')} vs Saccade {actions.get('saccade_actions')}"
+        )
+    if chrome_clicks.get("failed", 0) != 0:
+        failures = [
+            f"{item.get('expected_label', '')}->{item.get('target_label', '') or item.get('reason', '')}"
+            for item in chrome_clicks.get("results", [])
+            if not item.get("ok")
+        ][:5]
+        diff_classes["action_map_diff"].append(
+            f"Chrome hit-test failed for {chrome_clicks.get('failed')} Saccade click point(s): {failures}"
         )
     if actions.get("labels_match") is False:
         missing = actions.get("missing_in_saccade", [])[:5]
@@ -661,6 +699,7 @@ def write_html(run_dir, results, args):
         m = result["metrics"]
         lp = result.get("layout_probe_metrics", {})
         am = result.get("action_map_metrics", {})
+        chrome_clicks = result.get("chrome_click_verification", {})
         classification = result.get("diff_classification", {})
         layout_summary = (
             f"max rect {lp.get('max_rect_delta', 0):.1f}px, "
@@ -669,6 +708,7 @@ def write_html(run_dir, results, args):
         )
         action_summary = (
             f"{result['chrome_actions']} / {result['saccade_actions']}, "
+            f"hit {chrome_clicks.get('passed', 0)}/{chrome_clicks.get('total', 0)}, "
             f"escape {am.get('max_click_escape_delta', 0):.1f}px, "
             f"rect {am.get('max_rect_delta', 0):.1f}px"
         )
@@ -724,7 +764,7 @@ def write_html(run_dir, results, args):
   </header>
   <main>
     <table>
-      <thead><tr><th>Fixture</th><th>Dimensions</th><th>Diff ratio</th><th>Mean abs</th><th>Actions C/S</th><th>Layout probes</th><th>Verdict</th></tr></thead>
+      <thead><tr><th>Fixture</th><th>Dimensions</th><th>Diff ratio</th><th>Mean abs</th><th>Actions / Chrome hit</th><th>Layout probes</th><th>Verdict</th></tr></thead>
       <tbody>{''.join(rows)}</tbody>
     </table>
     {''.join(figures)}

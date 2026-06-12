@@ -221,6 +221,144 @@ JSON.stringify((() => {
 })())
 """
 
+VERIFY_ACTIONS_JS_TEMPLATE = r"""
+JSON.stringify((() => {
+  const candidates = __SACCADE_ACTIONS__;
+  const viewport = {
+    width: window.innerWidth || 0,
+    height: window.innerHeight || 0,
+    devicePixelRatio: window.devicePixelRatio || 1
+  };
+
+  function normalize(value) {
+    return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  function rectOf(el) {
+    const rect = el.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+
+  function centerOf(rect) {
+    return {
+      x: Number(rect.left || 0) + Number(rect.width || 0) / 2,
+      y: Number(rect.top || 0) + Number(rect.height || 0) / 2
+    };
+  }
+
+  function inViewport(point) {
+    return point.x >= 0 && point.y >= 0 && point.x < viewport.width && point.y < viewport.height;
+  }
+
+  function fieldToken(el) {
+    return [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("type") || ""
+    ].join(" ").toLowerCase();
+  }
+
+  function sensitivityOf(el) {
+    const token = fieldToken(el);
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
+    if (/\b(passport|driver|license|national id|government)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  function safeLabel(el, sensitivity) {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    const role = el.getAttribute("role") || "";
+    const isCommandInput = tag === "input" && ["button", "submit", "reset"].includes(type);
+    if (tag === "button" || tag === "a" || role === "button" || isCommandInput) {
+      return (el.innerText || el.textContent || el.getAttribute("aria-label") || el.value || el.getAttribute("href") || el.tagName).trim();
+    }
+    const descriptor = (el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.getAttribute("name") || el.id || el.tagName).trim();
+    return sensitivity === "none" ? descriptor : `${descriptor || tag} (${sensitivity})`;
+  }
+
+  function actionableFromHit(hit) {
+    if (!hit) return { el: null, source: "none" };
+    const selector = "button, a, input, select, textarea, [role='button'], [onclick]";
+    const direct = hit.closest(selector);
+    if (direct) return { el: direct, source: "direct" };
+    const label = hit.closest("label");
+    if (label) {
+      if (label.control) return { el: label.control, source: "label" };
+      const nested = label.querySelector("input, select, textarea, button");
+      if (nested) return { el: nested, source: "label" };
+    }
+    return { el: null, source: "none" };
+  }
+
+  const results = candidates.map((candidate, index) => {
+    const point = centerOf(candidate.rect || {});
+    const expectedLabel = normalize(candidate.label || candidate.action_id || candidate.tag || "");
+    if (!inViewport(point)) {
+      return {
+        index,
+        action_id: candidate.action_id || "",
+        expected_label: expectedLabel,
+        point,
+        ok: false,
+        reason: "point_out_of_viewport",
+        hit_tag: "",
+        target_label: "",
+        target_tag: "",
+        target_source: "none"
+      };
+    }
+
+    const hit = document.elementFromPoint(point.x, point.y);
+    const target = actionableFromHit(hit);
+    const targetEl = target.el;
+    const targetSensitivity = targetEl ? sensitivityOf(targetEl) : "none";
+    const targetLabel = targetEl ? normalize(safeLabel(targetEl, targetSensitivity)) : "";
+    const labelMatches = !!targetEl && targetLabel === expectedLabel;
+    return {
+      index,
+      action_id: candidate.action_id || "",
+      expected_label: expectedLabel,
+      point,
+      ok: labelMatches,
+      reason: labelMatches ? "matched" : (targetEl ? "label_mismatch" : "no_actionable_target"),
+      hit_tag: hit ? hit.tagName.toLowerCase() : "",
+      hit_text: hit ? String(hit.innerText || hit.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80) : "",
+      target_label: targetLabel,
+      target_tag: targetEl ? targetEl.tagName.toLowerCase() : "",
+      target_source: target.source,
+      target_rect: targetEl ? rectOf(targetEl) : null
+    };
+  });
+  const passed = results.filter(item => item.ok).length;
+  return {
+    engine: "chrome-cdp-action-hit-test-v1",
+    mode: "elementFromPoint_no_mutation",
+    viewport,
+    total: results.length,
+    passed,
+    failed: results.length - passed,
+    results
+  };
+})())
+"""
+
 
 class CdpError(Exception):
     pass
@@ -430,6 +568,10 @@ def parse_args():
         default=os.environ.get("SACCADE_CHROME_BLOCK", "balanced"),
     )
     parser.add_argument("--block-file", default=os.environ.get("SACCADE_CHROME_BLOCK_FILE"))
+    parser.add_argument(
+        "--verify-actions-file",
+        help="Optional JSON file containing Saccade actions to hit-test against the Chrome DOM without dispatching clicks.",
+    )
     return parser.parse_args()
 
 
@@ -480,6 +622,13 @@ def main():
         )
         truth_json = truth_result.get("result", {}).get("value", "{}")
         truth = json.loads(truth_json)
+        click_verification = None
+        if args.verify_actions_file:
+            actions = json.loads(pathlib.Path(args.verify_actions_file).read_text())
+            click_verification = verify_actions(client, actions)
+            (output_dir / "chrome_click_verification.json").write_text(
+                json.dumps(click_verification, indent=2, sort_keys=True) + "\n"
+            )
         screenshot_data = capture_screenshot(client)
         screenshot_path = output_dir / "chrome_page.png"
         screenshot_path.write_bytes(base64.b64decode(screenshot_data))
@@ -498,13 +647,20 @@ def main():
             network,
             load_status,
             started_ms,
+            click_verification,
         )
         manifest_path = output_dir / "chrome_reference_manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        verify_summary = ""
+        if click_verification:
+            verify_summary = (
+                f" click_verified={click_verification['passed']}/{click_verification['total']}"
+            )
         print(
             "CHROME REFERENCE READY "
             f"screenshot={screenshot_path} manifest={manifest_path} "
             f"actions={len(truth.get('actions', []))} blocked={network['blocked_requests']}"
+            f"{verify_summary}"
         )
         print("Use only with local fixtures or non-sensitive pages; screenshots capture visible page values.")
     finally:
@@ -629,6 +785,17 @@ def capture_screenshot(client):
         return client.call("Page.captureScreenshot", params, timeout=15)["data"]
 
 
+def verify_actions(client, actions):
+    expression = VERIFY_ACTIONS_JS_TEMPLATE.replace("__SACCADE_ACTIONS__", json.dumps(actions))
+    result = client.call(
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True, "awaitPromise": True},
+        timeout=10,
+    )
+    value = result.get("result", {}).get("value", "{}")
+    return json.loads(value)
+
+
 def load_block_patterns(mode, block_file):
     patterns = []
     if mode in ("balanced", "aggressive"):
@@ -711,7 +878,17 @@ def safe_host(value):
         return ""
 
 
-def build_manifest(args, chrome, target, block_patterns, truth, network, load_status, started_ms):
+def build_manifest(
+    args,
+    chrome,
+    target,
+    block_patterns,
+    truth,
+    network,
+    load_status,
+    started_ms,
+    click_verification,
+):
     sensitive_fields = sum(
         1
         for action in truth.get("actions", [])
@@ -758,13 +935,29 @@ def build_manifest(args, chrome, target, block_patterns, truth, network, load_st
             "truth": "chrome_truth.json",
             "network": "chrome_network.json",
             "stderr_log": "chrome_stderr.log",
+            "click_verification": "chrome_click_verification.json"
+            if click_verification
+            else None,
         },
+        "click_verification": compact_click_verification(click_verification),
         "sources": {
             "cdp_network": "https://chromedevtools.github.io/devtools-protocol/tot/Network/",
             "cdp_page": "https://chromedevtools.github.io/devtools-protocol/tot/Page/",
             "cdp_runtime": "https://chromedevtools.github.io/devtools-protocol/tot/Runtime/",
         },
         "note": "Chrome-rendered page-content screenshot plus redacted page truth. This is not a browser-UI screenshot with URL bar.",
+    }
+
+
+def compact_click_verification(click_verification):
+    if not click_verification:
+        return None
+    return {
+        "engine": click_verification.get("engine"),
+        "mode": click_verification.get("mode"),
+        "total": click_verification.get("total", 0),
+        "passed": click_verification.get("passed", 0),
+        "failed": click_verification.get("failed", 0),
     }
 
 

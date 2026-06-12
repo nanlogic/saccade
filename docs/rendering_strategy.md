@@ -50,7 +50,7 @@ Visual parity reports now classify Servo-vs-Chrome diffs by decision impact:
 - Yellow visual/raster: acceptable for agent action, but route polished UI or pixel judgement to `chrome-reference`.
 - Red layout/action-map: do not trust Servo coordinates until investigated or rerouted.
 
-The classifier uses action count/labels, Saccade click-point escape distance against the Chrome reference rect, layout probes, screenshot dimensions, and raster/text diff ratios.
+The classifier uses action count/labels, Saccade click-point escape distance against the Chrome reference rect, Chrome-side non-mutating hit-tests for enabled non-sensitive Saccade actions, layout probes, screenshot dimensions, and raster/text diff ratios.
 
 ## Rules
 
@@ -103,7 +103,7 @@ Dogfood and browser-session workers now default to `servo-modern`. `servo-safe` 
 Latest visual classifier evidence:
 
 ```text
-/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781298297898/index.html
+/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781299261779/index.html
 ```
 
-The current seven-fixture local gauntlet has no red verdicts under `servo-modern`; it still contains visual/raster yellow verdicts, so `chrome-reference` remains mandatory for public visual parity and UI design review.
+The current seven-fixture local gauntlet has no red verdicts under `servo-modern`, and all enabled non-sensitive Saccade action points hit their expected Chrome targets. It still contains visual/raster yellow verdicts, so `chrome-reference` remains mandatory for public visual parity and UI design review.

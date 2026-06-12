@@ -117,7 +117,7 @@
 - Added `devmax audit --engine chrome` and `saccade.dev.audit_page(engine=chrome)` for local/file URLs.
 - Added `scripts/visual_parity_compare.py` and six local fixtures to compare Chrome screenshots against Saccade live-worker screenshots. The latest full run passed and exposed real layout gaps while preserving matching action counts.
 - The browser session worker now waits briefly after load completion and retries nearly-white screenshot readbacks, because the parity runner exposed blank screenshots on complex pages even when DOM truth was valid.
-- This is not yet the final Chrome adapter; it does not include browser chrome, Chrome-side click verification, real user-profile session reuse, or Firefox capture.
+- This is not yet the final Chrome adapter; it does not include browser chrome, real user-profile session reuse, or Firefox capture. Later rendering work added non-mutating Chrome hit-test verification for Saccade action points.
 
 ## N2 - DEVMAX local self-test
 
@@ -242,6 +242,15 @@
   - `FAIL_LAYOUT`: layout differs enough to threaten coordinates.
   - `FAIL_ACTION_MAP`: viewport or action map differs enough to block agent action.
 - The classifier compares action count, labels, Saccade click-point escape distance against the Chrome reference rect, action rect geometry, layout probes, screenshot dimensions, and raster/text diff ratios.
-- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781298297898/index.html`.
+- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781299261779/index.html`.
 - Result: no red verdicts across the current seven local visual fixtures. `form_controls` stays yellow because Servo reports narrower native control rects, but the Saccade click points remain within tolerance.
 - This is a routing gate, not a pixel-parity claim: public demos and UI design review still route to `chrome-reference`.
+
+## DECISION_RENDERING_005 - Chrome hit-test verifies Saccade action coordinates
+
+- Chrome reference capture can now accept `--verify-actions-file` and write `chrome_click_verification.json`.
+- The verifier checks enabled non-sensitive Saccade actions only. Disabled, blocked, or sensitive actions are skipped because the agent should not click them.
+- Verification is non-mutating: Chrome uses `document.elementFromPoint` and label/control association rules to confirm the Saccade click point would hit the same actionable target. It does not dispatch real click events.
+- Latest full `servo-modern` evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/visual_parity/parity_1781299261779/index.html`.
+- Result: all verifiable Saccade action points hit the expected Chrome targets across the seven local visual fixtures. `modal_overlay` verifies `2/2` and skips `4` correctly blocked page-level actions.
+- A Chrome hit-test failure is now an `FAIL_ACTION_MAP` classifier input.
