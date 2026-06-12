@@ -1,5 +1,6 @@
+use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -96,6 +97,9 @@ struct SelftestEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    dev_get_report: bool,
+    report_validate_run: bool,
+    report_replay_summary: bool,
     normal_field_decision: PolicyDecision,
     sensitive_field_decision: PolicyDecision,
 }
@@ -202,7 +206,10 @@ fn selftest() -> Result<()> {
         && stdio_evidence.persistent_tabs
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
-        && stdio_evidence.web_act;
+        && stdio_evidence.web_act
+        && stdio_evidence.dev_get_report
+        && stdio_evidence.report_validate_run
+        && stdio_evidence.report_replay_summary;
     let evidence = SelftestEvidence {
         denied_human_input: tab_evidence.denied_human_input,
         denied_human_truth_without_grant: tab_evidence.denied_human_truth_without_grant,
@@ -218,6 +225,9 @@ fn selftest() -> Result<()> {
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
+        dev_get_report: stdio_evidence.dev_get_report,
+        report_validate_run: stdio_evidence.report_validate_run,
+        report_replay_summary: stdio_evidence.report_replay_summary,
         normal_field_decision,
         sensitive_field_decision,
     };
@@ -301,7 +311,7 @@ fn registry() -> ToolRegistry {
                 "Fetch a compact development audit report by run ID.",
                 true,
                 false,
-                false,
+                true,
             ),
             tool(
                 "saccade.tabs.list",
@@ -400,7 +410,7 @@ fn registry() -> ToolRegistry {
                 "Validate a run directory and return compact status plus artifact paths.",
                 true,
                 false,
-                false,
+                true,
             ),
             tool(
                 "saccade.report.replay_summary",
@@ -409,7 +419,7 @@ fn registry() -> ToolRegistry {
                 "Summarize replay JSONL without emitting full replay content.",
                 true,
                 false,
-                false,
+                true,
             ),
         ],
     }
@@ -494,6 +504,9 @@ struct JsonRpcEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    dev_get_report: bool,
+    report_validate_run: bool,
+    report_replay_summary: bool,
     audit_report: String,
 }
 
@@ -642,6 +655,31 @@ fn input_schema(name: &str) -> Value {
             "required": ["tab_id", "action_id", "basis_page_revision"],
             "additionalProperties": false
         }),
+        "saccade.dev.get_report" => json!({
+            "type": "object",
+            "properties": {
+                "report_path": {"type": "string"}
+            },
+            "required": ["report_path"],
+            "additionalProperties": false
+        }),
+        "saccade.report.validate_run" => json!({
+            "type": "object",
+            "properties": {
+                "run_dir": {"type": "string"},
+                "kind": {"type": "string", "enum": ["generic", "formmax"], "default": "generic"}
+            },
+            "required": ["run_dir"],
+            "additionalProperties": false
+        }),
+        "saccade.report.replay_summary" => json!({
+            "type": "object",
+            "properties": {
+                "run_dir": {"type": "string"},
+                "replay_path": {"type": "string"}
+            },
+            "additionalProperties": false
+        }),
         _ => json!({
             "type": "object",
             "properties": {},
@@ -654,6 +692,7 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
     match name {
         "saccade.dev.open_local" => open_local_tool(state, arguments),
         "saccade.dev.audit_page" => audit_page_tool(state, arguments),
+        "saccade.dev.get_report" => dev_get_report_tool(arguments),
         "saccade.tabs.list" => tabs_list_tool(state),
         "saccade.tabs.open" => tabs_open_tool(state, arguments),
         "saccade.tabs.request_user_login" => tabs_request_user_login_tool(state, arguments),
@@ -663,6 +702,8 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.web.truth" => web_truth_tool(state, arguments),
         "saccade.web.actions" => web_actions_tool(state, arguments),
         "saccade.web.act" => web_act_tool(state, arguments),
+        "saccade.report.validate_run" => report_validate_run_tool(arguments),
+        "saccade.report.replay_summary" => report_replay_summary_tool(arguments),
         _ => bail!("tool {name:?} is registered but not implemented in mcp-stdio-v0"),
     }
 }
@@ -1040,6 +1081,203 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
     }))
 }
 
+fn dev_get_report_tool(arguments: Value) -> Result<Value> {
+    let report_path = arguments
+        .get("report_path")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field report_path")?;
+    let report_path = safe_workspace_path(report_path)?;
+    let report_text = fs::read_to_string(&report_path)
+        .with_context(|| format!("failed to read {}", report_path.display()))?;
+    let report: Value = serde_json::from_str(&report_text)
+        .with_context(|| format!("invalid report JSON {}", report_path.display()))?;
+
+    Ok(json!({
+        "status": "ok",
+        "summary": report
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or("report loaded"),
+        "engine": report.get("engine"),
+        "title": report.get("title"),
+        "url": report.get("url"),
+        "page_revision": report.get("page_revision"),
+        "findings_count": report
+            .get("findings")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len),
+        "actions_count": report
+            .get("actions")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len),
+        "artifacts": {
+            "report": report_path.display().to_string(),
+            "replay": report
+                .get("artifacts")
+                .and_then(|artifacts| artifacts.get("replay")),
+        }
+    }))
+}
+
+fn report_validate_run_tool(arguments: Value) -> Result<Value> {
+    let run_dir = arguments
+        .get("run_dir")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field run_dir")?;
+    let kind = arguments
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("generic");
+    let run_dir = safe_workspace_path(run_dir)?;
+
+    match kind {
+        "generic" => validate_generic_run(&run_dir),
+        "formmax" => validate_formmax_run(&run_dir),
+        other => bail!("unsupported validation kind {other:?}"),
+    }
+}
+
+fn validate_generic_run(run_dir: &Path) -> Result<Value> {
+    let report_path = run_dir.join("report.json");
+    let result_path = run_dir.join("result.json");
+    let replay_path = run_dir.join("replay.jsonl");
+    let primary_report = if report_path.exists() {
+        Some(report_path)
+    } else if result_path.exists() {
+        Some(result_path)
+    } else {
+        None
+    };
+    let Some(primary_report) = primary_report else {
+        bail!(
+            "run directory has no report.json or result.json: {}",
+            run_dir.display()
+        );
+    };
+
+    let report_text = fs::read_to_string(&primary_report)
+        .with_context(|| format!("failed to read {}", primary_report.display()))?;
+    let report: Value = serde_json::from_str(&report_text)
+        .with_context(|| format!("invalid JSON {}", primary_report.display()))?;
+    Ok(json!({
+        "status": "ok",
+        "summary": "generic run artifact check passed",
+        "run_dir": run_dir.display().to_string(),
+        "engine": report.get("engine"),
+        "has_replay": replay_path.exists(),
+        "artifacts": {
+            "report": primary_report.display().to_string(),
+            "replay": if replay_path.exists() { Some(replay_path.display().to_string()) } else { None },
+        }
+    }))
+}
+
+fn validate_formmax_run(run_dir: &Path) -> Result<Value> {
+    let workspace = workspace_root()?;
+    let output = ProcessCommand::new("cargo")
+        .current_dir(&workspace)
+        .args(["run", "-q", "-p", "formmax", "--", "validate-run"])
+        .arg(run_dir)
+        .output()
+        .context("failed to spawn formmax validate-run")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        bail!(
+            "formmax validate-run failed: status={} stdout={} stderr={}",
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+        );
+    }
+
+    Ok(json!({
+        "status": "ok",
+        "summary": stdout.trim(),
+        "run_dir": run_dir.display().to_string(),
+        "artifacts": {
+            "result": run_dir.join("result.json").display().to_string(),
+            "replay": run_dir.join("replay.jsonl").display().to_string(),
+        }
+    }))
+}
+
+fn report_replay_summary_tool(arguments: Value) -> Result<Value> {
+    let replay_path = if let Some(path) = arguments.get("replay_path").and_then(Value::as_str) {
+        safe_workspace_path(path)?
+    } else {
+        let run_dir = arguments
+            .get("run_dir")
+            .and_then(Value::as_str)
+            .context("tool arguments must include run_dir or replay_path")?;
+        safe_workspace_path(run_dir)?.join("replay.jsonl")
+    };
+    ensure_workspace_child(&replay_path)?;
+    let file = fs::File::open(&replay_path)
+        .with_context(|| format!("failed to open {}", replay_path.display()))?;
+    let mut total = 0usize;
+    let mut invalid = 0usize;
+    let mut value_like_fields = 0usize;
+    let mut first_ts_ms: Option<u64> = None;
+    let mut last_ts_ms: Option<u64> = None;
+    let mut kinds = BTreeMap::<String, usize>::new();
+
+    for line in BufReader::new(file).lines() {
+        let line = line.context("failed to read replay line")?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        total += 1;
+        match serde_json::from_str::<Value>(&line) {
+            Ok(event) => {
+                let kind = event
+                    .get("kind")
+                    .or_else(|| event.get("event"))
+                    .or_else(|| event.get("type"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+                    .to_string();
+                *kinds.entry(kind).or_insert(0) += 1;
+                if let Some(ts) = event.get("ts_ms").and_then(Value::as_u64) {
+                    first_ts_ms.get_or_insert(ts);
+                    last_ts_ms = Some(ts);
+                }
+                if object_has_value_like_field(&event) {
+                    value_like_fields += 1;
+                }
+            }
+            Err(_) => invalid += 1,
+        }
+    }
+
+    Ok(json!({
+        "status": if invalid == 0 { "ok" } else { "warning" },
+        "summary": format!("{total} replay event(s), {invalid} invalid line(s)"),
+        "events": total,
+        "invalid_lines": invalid,
+        "first_ts_ms": first_ts_ms,
+        "last_ts_ms": last_ts_ms,
+        "kinds": kinds,
+        "value_like_fields": value_like_fields,
+        "artifacts": {
+            "replay": replay_path.display().to_string(),
+        }
+    }))
+}
+
+fn object_has_value_like_field(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            matches!(
+                key.as_str(),
+                "value" | "raw_value" | "password" | "ssn" | "credit_card"
+            ) || object_has_value_like_field(value)
+        }),
+        Value::Array(items) => items.iter().any(object_has_value_like_field),
+        _ => false,
+    }
+}
+
 fn update_tab_from_devmax(
     state: &mut McpSessionState,
     tab_id: TabId,
@@ -1313,6 +1551,18 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         })
         .unwrap_or("")
         .to_string();
+    let audit_replay = tool_call_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("artifacts"))
+                .and_then(|artifacts| artifacts.get("replay"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("")
+        .to_string();
     let web_truth = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -1414,6 +1664,80 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 .map(|status| status == "ok")
         })
         .unwrap_or(false);
+    let dev_get_report = !audit_report.is_empty()
+        && handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(9)),
+                method: "tools/call".into(),
+                params: json!({
+                    "name": "saccade.dev.get_report",
+                    "arguments": {
+                        "report_path": audit_report.clone()
+                    }
+                }),
+            },
+        )
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("status"))
+                .and_then(Value::as_str)
+                .map(|status| status == "ok")
+        })
+        .unwrap_or(false);
+    let audit_run_dir = PathBuf::from(&audit_report)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let report_validate_run = !audit_run_dir.as_os_str().is_empty()
+        && handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(10)),
+                method: "tools/call".into(),
+                params: json!({
+                    "name": "saccade.report.validate_run",
+                    "arguments": {
+                        "run_dir": audit_run_dir.display().to_string(),
+                        "kind": "generic"
+                    }
+                }),
+            },
+        )
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("status"))
+                .and_then(Value::as_str)
+                .map(|status| status == "ok")
+        })
+        .unwrap_or(false);
+    let report_replay_summary = !audit_replay.is_empty()
+        && handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(11)),
+                method: "tools/call".into(),
+                params: json!({
+                    "name": "saccade.report.replay_summary",
+                    "arguments": {
+                        "replay_path": audit_replay
+                    }
+                }),
+            },
+        )
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("status"))
+                .and_then(Value::as_str)
+                .map(|status| status == "ok" || status == "warning")
+        })
+        .unwrap_or(false);
 
     Ok(JsonRpcEvidence {
         initialize,
@@ -1423,6 +1747,9 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         web_truth,
         web_actions,
         web_act,
+        dev_get_report,
+        report_validate_run,
+        report_replay_summary,
         audit_report,
     })
 }
@@ -1589,6 +1916,38 @@ fn tab(id: u64, owner: TabOwner, read_grant: ReadGrant, url: &str, title: &str) 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value)?;
     fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn safe_workspace_path(path: &str) -> Result<PathBuf> {
+    let input = PathBuf::from(path);
+    let workspace = workspace_root()?;
+    let full_path = if input.is_absolute() {
+        input
+    } else {
+        workspace.join(input)
+    };
+    let canonical = full_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", full_path.display()))?;
+    ensure_workspace_child(&canonical)?;
+    Ok(canonical)
+}
+
+fn ensure_workspace_child(path: &Path) -> Result<()> {
+    let workspace = workspace_root()?
+        .canonicalize()
+        .context("failed to canonicalize workspace root")?;
+    let canonical = path
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize {}", path.display()))?;
+    if !canonical.starts_with(&workspace) {
+        bail!(
+            "path {} is outside workspace {}",
+            canonical.display(),
+            workspace.display()
+        );
+    }
+    Ok(())
 }
 
 fn start_test_server(root: PathBuf) -> Result<Url> {

@@ -12,6 +12,7 @@ Implemented v0 tools:
 
 - `saccade.dev.open_local`
 - `saccade.dev.audit_page`
+- `saccade.dev.get_report`
 - `saccade.tabs.list`
 - `saccade.tabs.open`
 - `saccade.tabs.request_user_login`
@@ -21,6 +22,8 @@ Implemented v0 tools:
 - `saccade.web.truth`
 - `saccade.web.actions`
 - `saccade.web.act`
+- `saccade.report.validate_run`
+- `saccade.report.replay_summary`
 
 ## Commands
 
@@ -69,6 +72,9 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Exposes `saccade.web.truth` and `saccade.web.actions` from DEVMAX report state.
 - Runs `saccade.web.act` v0 through a Servo-backed DEVMAX verification pass for the first enabled action in the current action map.
 - Creates Human-owned login tabs through `saccade.tabs.request_user_login` without exposing credentials to agent truth.
+- Loads compact reports through `saccade.dev.get_report` without returning full artifacts.
+- Validates generic run directories and FORMMAX run directories through `saccade.report.validate_run`.
+- Summarizes replay JSONL through `saccade.report.replay_summary`, including event counts and value-like field detection.
 - Verifies normal fields are agent-fillable while sensitive payment fields require user input.
 
 ## Next
