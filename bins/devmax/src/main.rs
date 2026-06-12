@@ -25,6 +25,8 @@ const SERVO_FIXTURES: &[&str] = &[
     "modal_blocks_page",
     "canvas_chart_blank",
     "button_no_handler",
+    "console_error",
+    "missing_asset",
 ];
 
 const FIXTURES: &[&str] = &[
@@ -692,8 +694,66 @@ fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxR
         .to_string();
     let mut findings = Vec::new();
     let mut visual_health = VisualHealth::default();
-    let runtime_health = RuntimeHealth::default();
+    let mut runtime_health = RuntimeHealth::default();
     let mut actions = collect_probe_actions(&probe);
+
+    for message in probe
+        .pointer("/runtime/console_messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if message
+            .get("level")
+            .and_then(Value::as_str)
+            .is_some_and(|level| level == "error")
+        {
+            let text = message
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            runtime_health.console_errors.push(text);
+            findings.push(finding(
+                "console_error",
+                "high",
+                Some("console"),
+                "Servo WebView delegate captured a page console error.",
+                message,
+            ));
+        }
+    }
+
+    for request in probe
+        .pointer("/runtime/network_requests")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if request
+            .get("url")
+            .and_then(Value::as_str)
+            .is_some_and(|url| url.contains("missing"))
+            && !request
+                .get("is_for_main_frame")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        {
+            let url = request
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            runtime_health.network_errors.push(url);
+            findings.push(finding(
+                "missing_asset",
+                "high",
+                Some("[src], [href]"),
+                "Servo WebView delegate observed a request for a missing fixture asset.",
+                request,
+            ));
+        }
+    }
 
     if probe
         .get("blankPage")

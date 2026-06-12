@@ -6,9 +6,10 @@ use anyhow::{Context, Result, bail};
 use euclid::{Point2D, Scale};
 use serde_json::{Value, json};
 use servo::{
-    CSSPixel, DeviceIntRect, DeviceIntSize, InputEvent, JSValue, LoadStatus, MouseButton,
-    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext, Servo, ServoBuilder,
-    WebView, WebViewBuilder, WebViewDelegate, WebViewPoint, WindowRenderingContext,
+    CSSPixel, ConsoleLogLevel, DeviceIntRect, DeviceIntSize, InputEvent, JSValue, LoadStatus,
+    MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext, Servo,
+    ServoBuilder, WebResourceLoad, WebView, WebViewBuilder, WebViewDelegate, WebViewPoint,
+    WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -61,12 +62,32 @@ struct ProbeState {
     baseline_probe: RefCell<Option<Value>>,
     clicked_action: RefCell<Option<Value>>,
     click_dispatched_at: RefCell<Option<Instant>>,
+    console_messages: RefCell<Vec<Value>>,
+    network_requests: RefCell<Vec<Value>>,
     result: Rc<RefCell<Option<std::result::Result<Value, String>>>>,
 }
 
 impl WebViewDelegate for ProbeState {
     fn notify_new_frame_ready(&self, _webview: WebView) {
         self.window.request_redraw();
+    }
+
+    fn show_console_message(&self, _webview: WebView, level: ConsoleLogLevel, message: String) {
+        self.console_messages.borrow_mut().push(json!({
+            "level": format!("{level:?}").to_lowercase(),
+            "message": message,
+        }));
+    }
+
+    fn load_web_resource(&self, _webview: WebView, load: WebResourceLoad) {
+        let request = load.request();
+        self.network_requests.borrow_mut().push(json!({
+            "method": request.method.to_string(),
+            "url": request.url.to_string(),
+            "destination": format!("{:?}", request.destination),
+            "is_for_main_frame": request.is_for_main_frame,
+            "is_redirect": request.is_redirect,
+        }));
     }
 }
 
@@ -134,6 +155,7 @@ impl ProbeApp {
                             state.phase.set(Phase::ClickDispatched);
                         } else {
                             let mut value = value;
+                            append_delegate_observations(&state, &mut value);
                             webview.paint();
                             if let Some(screenshot) = screenshot_summary(&state, &value) {
                                 value["screenshot"] = screenshot;
@@ -171,6 +193,7 @@ impl ProbeApp {
                             .borrow_mut()
                             .take()
                             .unwrap_or(Value::Null);
+                        append_delegate_observations(&state, &mut value);
                         if let Some(screenshot) = screenshot_summary(&state, &after_click) {
                             value["screenshot"] = screenshot;
                         }
@@ -282,6 +305,8 @@ impl ApplicationHandler<WakerEvent> for ProbeApp {
             baseline_probe: RefCell::new(None),
             clicked_action: RefCell::new(None),
             click_dispatched_at: RefCell::new(None),
+            console_messages: RefCell::new(Vec::new()),
+            network_requests: RefCell::new(Vec::new()),
             result: result.clone(),
         });
 
@@ -375,6 +400,14 @@ fn finish_err(state: &Rc<ProbeState>, event_loop: &ActiveEventLoop, message: imp
         *state.result.borrow_mut() = Some(Err(message.into()));
     }
     event_loop.exit();
+}
+
+fn append_delegate_observations(state: &Rc<ProbeState>, value: &mut Value) {
+    value["runtime"] = json!({
+        "console_messages": state.console_messages.borrow().clone(),
+        "network_requests": state.network_requests.borrow().clone(),
+        "capture": "servo_delegate_v0",
+    });
 }
 
 fn first_click_candidate(probe: &Value) -> Option<Value> {

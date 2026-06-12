@@ -15,7 +15,7 @@ cargo run -q -p devmax -- selftest-servo-fixtures
 Observed output:
 
 ```text
-DEVMAX SERVO FIXTURES PASS total=6 detected=6 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781224367155
+DEVMAX SERVO FIXTURES PASS total=8 detected=8 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781224856481
 ```
 
 ## What It Tests
@@ -31,6 +31,8 @@ The Servo probe opens each fixture in a real Servo WebView and evaluates compact
 - overlay blockers covering action centers
 - screenshot pixel checks for canvas regions
 - real mouse click verification for enabled actions
+- Servo WebViewDelegate console messages
+- Servo WebViewDelegate resource load requests
 
 Covered fixtures:
 
@@ -40,12 +42,14 @@ Covered fixtures:
 - `modal_blocks_page`
 - `canvas_chart_blank`
 - `button_no_handler`
+- `console_error`
+- `missing_asset`
 
 ## Important Boundary
 
 This is `engine=servo-rendered-probe-v0`.
 
-It uses screenshot pixels for canvas-region blank checks and real Servo mouse input for first-action click verification. It does not capture real browser console/network events yet. It does prove the report path can consume browser-computed layout/style truth, screenshot evidence, and post-click page state instead of only static fixture markers.
+It uses screenshot pixels for canvas-region blank checks, real Servo mouse input for first-action click verification, and Servo delegate hooks for console/resource-load capture. Resource-load capture currently records request metadata; it does not yet include final HTTP status codes.
 
 ## Runtime Note
 

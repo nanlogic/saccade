@@ -107,3 +107,11 @@
 - The report now includes `clickVerification` evidence comparing before/after body text, URL, and body child count.
 - `button_no_handler` is now covered by the Servo gate: a clickable `Save` button with no visible post-click effect is reported as `button_no_handler`.
 - `devmax selftest-servo-fixtures` passed with `total=6 detected=6 false_positives=0`.
+
+## N2E - DEVMAX console and resource capture
+
+- Verified pinned Servo exposes `WebViewDelegate::show_console_message` and `WebViewDelegate::load_web_resource`.
+- `devmax_probe` now records console messages and resource-load request metadata into `runtime`.
+- `console_error` is now covered by the Servo gate from a real delegate console error.
+- `missing_asset` is now covered by the Servo gate from a non-main-frame image resource request. This captures request metadata, not final HTTP status code yet.
+- `devmax selftest-servo-fixtures` passed with `total=8 detected=8 false_positives=0`.

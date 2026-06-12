@@ -9,9 +9,13 @@
   <main>
     <h1>Dashboard</h1>
     <button type="button">Refresh</button>
+    <p id="status">idle</p>
   </main>
   <script>
     console.error("DEVMAX fixture startup failure");
+    document.querySelector("button").addEventListener("click", () => {
+      document.getElementById("status").textContent = "refreshed";
+    });
   </script>
 </body>
 </html>

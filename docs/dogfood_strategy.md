@@ -129,7 +129,7 @@ Move DEVMAX from static fixture markers toward browser-backed truth:
 ```text
 Open local app or fixture.
 Collect rendered truth and action map from the browser boundary.
-Add browser-side console/network capture.
 Expand click verification from one action to multi-action smoke flows.
+Add HTTP status awareness for resource-load reports.
 Keep report JSON and replay artifacts stable.
 ```

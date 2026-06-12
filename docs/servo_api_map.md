@@ -25,6 +25,8 @@ Dependency alignment from `cargo tree -p saccade_browser`:
 - Input point unit: `WebViewPoint`, which is either `WebViewPoint::Device(DevicePoint)` or `WebViewPoint::Page(Point2D<f32, CSSPixel>)`. Servo's own tests pass `DevicePoint` converted with `.into()`.
 - JS probe: `WebView::evaluate_javascript(script, callback)` where callback is `FnOnce(Result<JSValue, JavaScriptEvaluationError>) + 'static`.
 - Screenshot: `WebView::take_screenshot(rect: Option<WebViewRect>, callback: FnOnce(Result<RgbaImage, ScreenshotCaptureError>) + 'static)`.
+- WebView console capture: `WebViewDelegate::show_console_message(&self, WebView, ConsoleLogLevel, String)`.
+- WebView resource-load capture/interception: `WebViewDelegate::load_web_resource(&self, WebView, WebResourceLoad)`; `WebResourceLoad::request()` exposes method, URL, destination, main-frame flag, redirect flag, and headers. Dropping the load continues without interception.
 - Event loop shape: mirrored `servo 0.2.0`'s `examples/winit_minimal.rs` using `winit::application::ApplicationHandler`, `EventLoop::with_user_event()`, `ServoBuilder::default().event_loop_waker(...)`, `Servo::spin_event_loop()`, and `WindowRenderingContext`.
 
 ## M0 boot result
