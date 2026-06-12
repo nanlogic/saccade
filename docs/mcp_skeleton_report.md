@@ -70,7 +70,7 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Verifies local dev audit accepts loopback URLs and returns compact JSON.
 - Verifies local dev audit rejects public web URLs.
 - Verifies `initialize`, `tools/list`, and `tools/call` over the JSON-RPC handler.
-- Routes `saccade.dev.audit_page(engine=servo)` to the live browser worker when an Agent-owned tab has one; otherwise routes static/local audits to DEVMAX and records report paths.
+- Routes `saccade.dev.audit_page(engine=servo)` to the live browser worker when an Agent-owned tab has one; otherwise routes static/local audits to DEVMAX and records report paths. `engine=chrome` is available for local/file URLs and returns Chrome screenshot/truth/network artifact paths through the DEVMAX report.
 - Maintains persistent tab state across stdio requests.
 - Exposes `saccade.web.truth` and `saccade.web.actions` from the live browser worker when available, with DEVMAX report state as fallback.
 - Runs `saccade.web.act` v0 through the live browser worker when available, with Servo-backed DEVMAX verification as fallback.
@@ -93,4 +93,4 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 
 ## Next
 
-Harden the browser worker with a shared multi-tab process, FORMMAX live-tab integration, and richer DEVMAX findings that reuse live worker screenshots.
+Harden the browser worker with a shared multi-tab process, FORMMAX live-tab integration, Chrome-side click verification, and richer DEVMAX findings that reuse live worker or Chrome screenshots.

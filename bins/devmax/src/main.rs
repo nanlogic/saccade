@@ -18,6 +18,7 @@ const REQUIRED_FIXTURE_TOTAL: usize = 20;
 const MIN_DETECTED: usize = 17;
 const MAX_FALSE_POSITIVES: usize = 1;
 const SERVO_ENGINE: &str = "servo-rendered-probe-v0";
+const CHROME_ENGINE: &str = "chrome-cdp-reference-v1";
 const SERVO_FIXTURES: &[&str] = &[
     "blank_page",
     "invisible_text",
@@ -148,6 +149,14 @@ struct Recommendation {
 struct ReportArtifacts {
     report: Option<String>,
     replay: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chrome_manifest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chrome_screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chrome_truth: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chrome_network: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,7 +208,8 @@ fn audit(url: Url, engine: String, replay: bool) -> Result<()> {
             let probe = saccade_browser::devmax_probe(url.clone())?;
             analyze_servo_probe(run_id.clone(), url.clone(), probe)?
         }
-        other => bail!("unsupported DEVMAX engine {other:?}; expected static or servo"),
+        "chrome" => analyze_chrome_reference(run_id.clone(), url.clone(), &output_dir)?,
+        other => bail!("unsupported DEVMAX engine {other:?}; expected static, servo, or chrome"),
     };
     let report_path = output_dir.join("report.json");
     let replay_path = output_dir.join("replay.jsonl");
@@ -971,6 +981,226 @@ fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxR
     })
 }
 
+fn analyze_chrome_reference(run_id: String, url: Url, output_dir: &Path) -> Result<DevmaxReport> {
+    run_chrome_reference(&url, output_dir)?;
+    let manifest_path = output_dir.join("chrome_reference_manifest.json");
+    let truth_path = output_dir.join("chrome_truth.json");
+    let network_path = output_dir.join("chrome_network.json");
+    let screenshot_path = output_dir.join("chrome_page.png");
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(&manifest_path)
+            .with_context(|| format!("failed to read {}", manifest_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let truth: Value = serde_json::from_str(
+        &fs::read_to_string(&truth_path)
+            .with_context(|| format!("failed to read {}", truth_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", truth_path.display()))?;
+    let network: Value = serde_json::from_str(
+        &fs::read_to_string(&network_path)
+            .with_context(|| format!("failed to read {}", network_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", network_path.display()))?;
+
+    let title = truth
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Untitled")
+        .to_string();
+    let mut findings = Vec::new();
+    let mut visual_health = VisualHealth::default();
+    let mut runtime_health = RuntimeHealth::default();
+    let mut actions = collect_probe_actions(&truth);
+    let body_text_length = truth
+        .get("bodyTextLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let body_child_count = truth
+        .get("bodyChildCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+
+    if body_text_length == 0 && body_child_count == 0 {
+        visual_health.blank_page = true;
+        findings.push(finding(
+            "blank_page",
+            "critical",
+            Some("body"),
+            "Chrome-rendered page has no visible application content.",
+            json!({
+                "engine": CHROME_ENGINE,
+                "body_text_length": body_text_length,
+                "body_child_count": body_child_count,
+            }),
+        ));
+    }
+
+    for action in truth
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if action
+            .get("offscreen")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            let action_info = action_info_from_probe(&action);
+            visual_health
+                .offscreen_interactive
+                .push(action_info.clone());
+            findings.push(finding(
+                "offscreen_button",
+                "medium",
+                Some("button, a, input, select, textarea, [role=button]"),
+                "Chrome layout places an interactive control outside the viewport.",
+                json!({ "action": action_info, "probe": action }),
+            ));
+        }
+
+        if let Some(blocker) = action_blocker(&action) {
+            for report_action in actions.iter_mut() {
+                if report_action.label == probe_action_label(&action) {
+                    report_action.blocked_by = Some(blocker.clone());
+                }
+            }
+            visual_health.overlaps.push(OverlapIssue {
+                front: blocker.clone(),
+                back: probe_action_label(&action),
+                severity: "blocking".into(),
+            });
+            findings.push(finding(
+                "modal_blocks_page",
+                "high",
+                Some("button, a, input, select, textarea, [role=button]"),
+                "Chrome hit-test geometry shows an overlay blocking a page action.",
+                json!({ "blocked_by": blocker, "action": action }),
+            ));
+        }
+    }
+
+    let sensitive_count = truth
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|action| {
+            action
+                .pointer("/sensitivity/kind")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind != "none")
+        })
+        .count();
+    if sensitive_count > 0 {
+        findings.push(finding(
+            "sensitive_fields_require_user",
+            "info",
+            Some("form"),
+            "Sensitive fields are present in Chrome truth and require user input or confirmation.",
+            json!({ "sensitive_fields": sensitive_count }),
+        ));
+    }
+
+    let blocked_requests = manifest
+        .pointer("/block_policy/blocked_requests")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let failed_requests = network
+        .get("failed_requests")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let unexpected_network_failures = failed_requests.saturating_sub(blocked_requests);
+    if unexpected_network_failures > 0 {
+        runtime_health.network_errors.push(format!(
+            "{unexpected_network_failures} Chrome network request(s) failed outside the block policy"
+        ));
+        findings.push(finding(
+            "network_error",
+            "medium",
+            Some("network"),
+            "Chrome observed network failures outside the configured block policy.",
+            json!({
+                "failed_requests": failed_requests,
+                "blocked_requests": blocked_requests,
+            }),
+        ));
+    }
+
+    let summary = if findings.is_empty() {
+        format!(
+            "No DEVMAX findings from Chrome reference audit; policy blocked {blocked_requests} resource(s)."
+        )
+    } else {
+        format!(
+            "Detected {} Chrome-backed issue(s); highest severity: {}; policy blocked {} resource(s).",
+            findings.len(),
+            highest_severity(&findings),
+            blocked_requests
+        )
+    };
+    let mut recommendations: Vec<Recommendation> = findings
+        .iter()
+        .map(|finding| Recommendation {
+            kind: "fix".into(),
+            message: fix_hint(&finding.kind).into(),
+        })
+        .collect();
+    if blocked_requests > 0 {
+        recommendations.push(Recommendation {
+            kind: "stability".into(),
+            message:
+                "Keep Chrome block policy enabled for public pages with ad or analytics resources."
+                    .into(),
+        });
+    }
+
+    Ok(DevmaxReport {
+        run_id,
+        engine: CHROME_ENGINE.into(),
+        page_revision: 1,
+        url: url.to_string(),
+        title,
+        summary,
+        visual_health,
+        runtime_health,
+        actions,
+        findings,
+        recommendations,
+        artifacts: ReportArtifacts {
+            report: None,
+            replay: None,
+            chrome_manifest: Some(manifest_path.display().to_string()),
+            chrome_screenshot: Some(screenshot_path.display().to_string()),
+            chrome_truth: Some(truth_path.display().to_string()),
+            chrome_network: Some(network_path.display().to_string()),
+        },
+    })
+}
+
+fn run_chrome_reference(url: &Url, output_dir: &Path) -> Result<()> {
+    let script = workspace_root()?
+        .join("scripts")
+        .join("capture_chrome_reference.sh");
+    let output = ProcessCommand::new(&script)
+        .arg(url.as_str())
+        .arg(output_dir)
+        .arg("1280")
+        .arg("800")
+        .output()
+        .with_context(|| format!("failed to run {}", script.display()))?;
+    if !output.status.success() {
+        bail!(
+            "Chrome reference capture failed: status={} stdout={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout).trim(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 fn collect_probe_actions(probe: &Value) -> Vec<ActionInfo> {
     probe
         .get("actions")
@@ -984,28 +1214,44 @@ fn collect_probe_actions(probe: &Value) -> Vec<ActionInfo> {
 fn action_info_from_probe(action: &Value) -> ActionInfo {
     let label = probe_action_label(action);
     ActionInfo {
-        action_id: if label.eq_ignore_ascii_case("submit") {
-            "act_submit".into()
-        } else if label.eq_ignore_ascii_case("export") {
-            "act_export".into()
-        } else {
-            format!(
-                "act_{}",
-                action.get("index").and_then(Value::as_u64).unwrap_or(0)
-            )
-        },
+        action_id: action
+            .get("action_id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                if label.eq_ignore_ascii_case("submit") {
+                    "act_submit".into()
+                } else if label.eq_ignore_ascii_case("export") {
+                    "act_export".into()
+                } else {
+                    format!(
+                        "act_{}",
+                        action.get("index").and_then(Value::as_u64).unwrap_or(0)
+                    )
+                }
+            }),
         label,
         kind: "click".into(),
-        enabled: !action
-            .get("disabled")
+        enabled: action
+            .get("enabled")
             .and_then(Value::as_bool)
-            .unwrap_or(false),
-        blocked_by: action
-            .get("blockedBy")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
+            .unwrap_or_else(|| {
+                !action
+                    .get("disabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            }),
+        blocked_by: action_blocker(action),
     }
+}
+
+fn action_blocker(action: &Value) -> Option<String> {
+    action
+        .get("blockedBy")
+        .or_else(|| action.get("blocked_by"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn probe_action_label(action: &Value) -> String {
@@ -1066,8 +1312,12 @@ fn highest_severity(findings: &[Finding]) -> &'static str {
         "critical"
     } else if findings.iter().any(|finding| finding.severity == "high") {
         "high"
-    } else {
+    } else if findings.iter().any(|finding| finding.severity == "medium") {
         "medium"
+    } else if findings.iter().any(|finding| finding.severity == "info") {
+        "info"
+    } else {
+        "none"
     }
 }
 
@@ -1110,6 +1360,10 @@ fn fix_hint(kind: &str) -> &'static str {
         }
         "wrong_route_404" => {
             "Fix the route target or show a handled not-found state before navigation."
+        }
+        "network_error" => "Fix failing network resources or add an explicit, reviewed block rule.",
+        "sensitive_fields_require_user" => {
+            "Leave sensitive fields to the user and expose only completion status to the agent."
         }
         _ => "Inspect the finding evidence and add a deterministic fix.",
     }

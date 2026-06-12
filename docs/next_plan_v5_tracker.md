@@ -25,7 +25,7 @@ Use this tracker as the normalized execution map.
 | N4 FORMMAX Servo input runner | Local pass | `cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay`; `cargo run -q -p formmax -- validate-run runs/formmax/run_1781266239027` | PASS: rows=96 pages=2 filled=672 native_typed=1 blocked_sensitive=3 receipt_verified=true; replay has 2712 events, screenshots=2, and no table-value echo; artifact validator passes |
 | N4A Servo native input/dropdown probe | Local pass | `RUST_LOG=error cargo run -q -p saccade-shell -- selftest-native-input` | PASS x3: focused=true, value_len=9, keydown=9, input=9, keyup=9, dispatch_failed=0; select_value=gamma, select_input=1, select_change=1; Servo does not emit beforeinput on text input path |
 | N5 Safety truth v1 | Local pass | `cargo run -q -p saccade-shell -- selftest-safety` | PASS: agent sees agent-filled values; human can see all; agent truth masks sensitive values while preserving completed/requires-user status |
-| N6 Chrome adapter v0 | Started | `scripts/capture_chrome_reference.sh <url> <output-dir>`; later `cargo run -q -p devmax -- audit --engine chrome --url ... --replay` | Chrome reference capture script exists; CDP action/truth adapter not started |
+| N6 Chrome adapter v0 | Minimal pass | `scripts/selftest_chrome_reference.sh`; `cargo run -q -p devmax -- audit --engine chrome --url file://... --replay` | Chrome CDP reference capture writes screenshot, redacted truth/action map, network summary, and manifest; default balanced block policy handles common ad/analytics hosts; DEVMAX and MCP expose `engine=chrome`; Chrome-side click verification and Firefox capture not started |
 | N7 Public release package | Pending | README/site/video/report package | Launch docs and parity requirements exist; video/site not done |
 | Comparison benchmark | Pending | `devmax compare` and `formmax compare` | Not started |
 
@@ -55,10 +55,10 @@ The new gauntlet file is now the product scoreboard:
 
 Do these in order:
 
-1. Move Chrome/Firefox visual parity earlier: Chrome reference capture now exists; next is Chrome adapter v0 or visual parity layer for UI review credibility.
+1. Move Chrome/Firefox visual parity earlier: Chrome CDP reference capture exists; next is Chrome-side click verification and URL-bar parity artifacts.
 2. Harden FORMMAX runner v1: expand native input-event typing to more controls and add a comparison baseline.
 3. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: add Chrome and Safari URL-bar screenshots, then regenerate `parity_review.html`.
-4. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, live-worker finding parity, and HTTP status awareness for resource loads.
+4. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, live-worker/Chrome finding parity, and HTTP status awareness for resource loads.
 5. Harden browser-backed MCP sessions: shared multi-tab process and FORMMAX integration with the live tab. Worker report/replay, live audit, screenshot policy, and sensitive-value redaction are in place.
 6. Add replay metadata for masked status and user action boundaries without sensitive values.
 

@@ -10,18 +10,24 @@ Servo remains useful for the current evidence chain and controlled browser exper
 
 ## Current v0
 
-Add a small Chrome reference capture tool:
+Added a Chrome CDP reference capture path:
 
 ```bash
 scripts/capture_chrome_reference.sh <url> <output-dir> [width] [height]
+scripts/selftest_chrome_reference.sh
+cargo run -q -p devmax -- audit --engine chrome --url <local-url> --replay
 ```
 
-It uses an installed Chrome-family browser to render page content at a fixed viewport and writes:
+It uses an installed Chrome-family browser through the Chrome DevTools Protocol to render page content at a fixed viewport and writes:
 
 - `chrome_page.png`
 - `chrome_reference_manifest.json`
+- `chrome_truth.json`
+- `chrome_network.json`
 
-This proves the repo can produce a real Chrome-rendered reference artifact without changing the product runtime yet.
+The default `balanced` block policy uses CDP `Network.setBlockedURLs` to block common ad and analytics hosts before navigation completes. This is not a full ad-block extension; it is a deterministic stability policy for reference captures and local audits. The manifest records the policy mode, pattern hash, blocked request count, and network summary.
+
+`devmax audit --engine chrome` now wraps this capture path and returns a normal DEVMAX report with Chrome screenshot/truth/network artifacts. `saccade.dev.audit_page(engine=chrome)` exposes the same path through MCP for local/file URLs.
 
 Privacy note: page screenshots capture visible page values. Use this script on local fixtures or non-sensitive pages only until redacted artifact capture exists.
 
@@ -32,10 +38,9 @@ This is not the final Chrome adapter.
 It does not yet provide:
 
 - browser UI / URL bar screenshots,
-- CDP action maps,
 - Chrome-side click verification,
-- redacted agent truth from Chrome,
-- replay integration.
+- human-profile Chrome session reuse,
+- Firefox reference capture.
 
 ## Target Architecture
 
@@ -51,6 +56,6 @@ Replay: records actions, statuses, and masked boundaries without secrets
 ## Next
 
 1. Use Chrome reference screenshots in MOUSEMAX and DEVMAX parity pages.
-2. Add Chrome adapter v0 for page truth and screenshots.
-3. Add action map and click verification through Chrome/CDP.
+2. Add Chrome-side click verification through CDP.
+3. Add user-profile/session handoff only behind explicit permission.
 4. Keep Servo as a controlled evidence engine until Chrome adapter coverage is strong enough.

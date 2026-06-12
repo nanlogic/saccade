@@ -112,7 +112,10 @@
 
 - Added `scripts/capture_chrome_reference.sh` as the first Chrome reference artifact path.
 - This uses an installed Chrome-family browser for page-content screenshots at a fixed viewport.
-- This is not yet the Chrome adapter; it does not include browser chrome, CDP action maps, click verification, redacted truth, or replay integration.
+- Upgraded the path to Chrome CDP reference capture: it now writes screenshot, redacted truth/action map, network summary, and a manifest.
+- Added a default balanced CDP block policy for common ad/analytics hosts. The blocking fixture proves three ad/analytics requests are blocked without counting them as DEVMAX page findings.
+- Added `devmax audit --engine chrome` and `saccade.dev.audit_page(engine=chrome)` for local/file URLs.
+- This is not yet the final Chrome adapter; it does not include browser chrome, Chrome-side click verification, real user-profile session reuse, or Firefox capture.
 
 ## N2 - DEVMAX local self-test
 

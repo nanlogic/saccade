@@ -741,7 +741,7 @@ fn input_schema(name: &str) -> Value {
             "properties": {
                 "url": {"type": "string"},
                 "tab_id": {"type": "integer"},
-                "engine": {"type": "string", "enum": ["servo", "static"], "default": "servo"},
+                "engine": {"type": "string", "enum": ["servo", "static", "chrome"], "default": "servo"},
                 "replay": {"type": "boolean", "default": true}
             },
             "additionalProperties": false
@@ -959,8 +959,8 @@ fn audit_page_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
         .get("engine")
         .and_then(Value::as_str)
         .unwrap_or("servo");
-    if !matches!(engine, "servo" | "static") {
-        bail!("unsupported DEVMAX engine {engine:?}; expected servo or static");
+    if !matches!(engine, "servo" | "static" | "chrome") {
+        bail!("unsupported DEVMAX engine {engine:?}; expected servo, static, or chrome");
     }
     let replay = arguments
         .get("replay")
@@ -1029,10 +1029,7 @@ fn audit_page_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
     if let Some(tab_id) = tab_id {
         update_tab_from_devmax(state, tab_id, &devmax)?;
     }
-    let artifacts = json!({
-        "report": devmax.report_path,
-        "replay": devmax.replay_path,
-    });
+    let artifacts = devmax.artifacts.clone();
     let artifact_index = record_artifact_index(
         "saccade.dev.audit_page",
         "devmax_audit",
@@ -1087,10 +1084,7 @@ fn dev_click_all_primary_actions_tool(
             max_actions
         );
     }
-    let artifacts = json!({
-        "report": devmax.report_path,
-        "replay": devmax.replay_path,
-    });
+    let artifacts = devmax.artifacts.clone();
     let artifact_index = record_artifact_index(
         "saccade.dev.click_all_primary_actions",
         "devmax_click_verification",
@@ -1128,6 +1122,7 @@ struct DevmaxToolResult {
     finding_list: Vec<Value>,
     report_path: String,
     replay_path: Option<String>,
+    artifacts: Value,
 }
 
 fn run_devmax_audit(url: &Url, engine: &str, replay: bool) -> Result<DevmaxToolResult> {
@@ -1161,6 +1156,14 @@ fn run_devmax_audit(url: &Url, engine: &str, replay: bool) -> Result<DevmaxToolR
         .with_context(|| format!("failed to read devmax report {report_path}"))?;
     let report: Value = serde_json::from_str(&report_text)
         .with_context(|| format!("invalid devmax report JSON {report_path}"))?;
+    let mut artifacts = report
+        .get("artifacts")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if let Some(map) = artifacts.as_object_mut() {
+        map.insert("report".into(), json!(report_path.clone()));
+        map.insert("replay".into(), json!(replay_path.clone()));
+    }
 
     Ok(DevmaxToolResult {
         engine: report
@@ -1202,6 +1205,7 @@ fn run_devmax_audit(url: &Url, engine: &str, replay: bool) -> Result<DevmaxToolR
             .unwrap_or_default(),
         report_path,
         replay_path,
+        artifacts,
     })
 }
 
@@ -1447,10 +1451,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
     let url = Url::parse(&tab.info.url).context("tab URL should parse")?;
     let devmax = run_devmax_audit(&url, "servo", true)?;
     update_tab_from_devmax(state, tab_id, &devmax)?;
-    let artifacts = json!({
-        "report": devmax.report_path,
-        "replay": devmax.replay_path,
-    });
+    let artifacts = devmax.artifacts.clone();
     let artifact_index = record_artifact_index(
         "saccade.web.act",
         "web_action_verification",
