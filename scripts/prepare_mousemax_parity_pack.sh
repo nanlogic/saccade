@@ -45,19 +45,22 @@ cat > "$ABS_RUN_DIR/demo_parity_manifest.json" <<EOF
   },
   "comparison_status": {
     "saccade_verified_click_run": "complete",
-    "chrome_urlbar_reference": "pending until chrome_options_urlbar.png is added",
-    "safari_urlbar_reference": "pending until safari_options_urlbar.png is added",
+    "chrome_urlbar_reference": "$(if [[ -f "$ABS_RUN_DIR/chrome_options_urlbar.png" ]]; then echo complete; else echo "pending until chrome_options_urlbar.png is added"; fi)",
+    "safari_urlbar_reference": "$(if [[ -f "$ABS_RUN_DIR/safari_options_urlbar.png" ]]; then echo complete; else echo "pending until safari_options_urlbar.png is added"; fi)",
+    "firefox_urlbar_reference": "$(if [[ -f "$ABS_RUN_DIR/firefox_options_urlbar.png" ]]; then echo complete; else echo "pending until firefox_options_urlbar.png is added"; fi)",
     "chrome_automated_click_run": "deferred_until_chrome_adapter_v0"
   },
   "reference_artifacts_expected": {
     "chrome_options_urlbar": "chrome_options_urlbar.png",
     "safari_options_urlbar": "safari_options_urlbar.png",
+    "firefox_options_urlbar": "firefox_options_urlbar.png",
     "chrome_result_urlbar_optional": "chrome_result_urlbar.png",
     "safari_result_urlbar_optional": "safari_result_urlbar.png",
+    "firefox_result_urlbar_optional": "firefox_result_urlbar.png",
     "chrome_click_video_optional": "chrome_click_video.mp4",
     "saccade_replay_video_optional": "saccade_replay_video.mp4"
   },
-  "note": "Chrome/Safari screenshots should include the browser URL bar. Saccade screenshots are embedded Servo content screenshots without browser chrome. Full automated Chrome click comparison is deferred until the Chrome adapter gate."
+  "note": "Chrome/Safari/Firefox screenshots should include the browser URL bar. Saccade screenshots are embedded Servo content screenshots without browser chrome. Full automated Chrome click comparison is deferred until the Chrome adapter gate."
 }
 EOF
 
@@ -73,8 +76,10 @@ image_or_placeholder() {
 
 chrome_options="$(image_or_placeholder chrome_options_urlbar.png "Chrome options reference")"
 safari_options="$(image_or_placeholder safari_options_urlbar.png "Safari options reference")"
+firefox_options="$(image_or_placeholder firefox_options_urlbar.png "Firefox options reference")"
 chrome_result="$(image_or_placeholder chrome_result_urlbar.png "Chrome result reference")"
 safari_result="$(image_or_placeholder safari_result_urlbar.png "Safari result reference")"
+firefox_result="$(image_or_placeholder firefox_result_urlbar.png "Firefox result reference")"
 chrome_click_reference="$(image_or_placeholder chrome_result_urlbar.png "Chrome click/reference result")"
 
 cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
@@ -91,7 +96,7 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
     h1 { font-size: 28px; margin-bottom: 8px; }
     h2 { font-size: 18px; margin: 24px 0 10px; }
     p { line-height: 1.45; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; }
     .two { grid-template-columns: repeat(2, 1fr); }
     figure { margin: 0; background: #fff; border: 1px solid #d7dce3; border-radius: 8px; padding: 10px; }
     figcaption { font-size: 13px; color: #59616c; margin-bottom: 8px; }
@@ -99,7 +104,7 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
     pre { white-space: pre-wrap; background: #111821; color: #e6edf7; border-radius: 8px; padding: 14px; overflow: auto; }
     .placeholder { min-height: 220px; display: grid; place-items: center; text-align: center; background: #fff7e6; border: 1px dashed #b88322; color: #5d3d00; border-radius: 6px; padding: 16px; }
     .note { background: #fff; border: 1px solid #d7dce3; border-radius: 8px; padding: 14px; margin-top: 14px; }
-    .status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0 6px; }
+    .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin: 16px 0 6px; }
     .status div { background: #fff; border: 1px solid #d7dce3; border-radius: 8px; padding: 10px; font-size: 13px; }
     .status strong { display: block; color: #20252c; margin-bottom: 3px; }
     .wide img { max-height: 620px; object-fit: contain; }
@@ -110,12 +115,13 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
   <h1>MOUSEMAX Demo Parity Review</h1>
   <p>URL under test: <code>https://mouseaccuracy.com/classic/</code></p>
   <div class="note">
-    <p>Saccade uses an embedded Servo window, so it does not look like Chrome or Safari. This review proves page and artifact parity: same public URL, same visible controls, same result wording, replay log, click map, and validator output.</p>
+    <p>Saccade uses an embedded Servo window, so it does not look like Chrome, Safari, or Firefox. This review proves page and artifact parity: same public URL, same visible controls, same result wording, replay log, click map, and validator output.</p>
   </div>
   <section class="status">
     <div><strong>Saccade click run</strong>Complete: replay + click map + validator.</div>
-    <div><strong>Chrome URL reference</strong>Pending until <code>chrome_options_urlbar.png</code> is added.</div>
-    <div><strong>Safari URL reference</strong>Pending until <code>safari_options_urlbar.png</code> is added.</div>
+    <div><strong>Chrome URL reference</strong>$(if [[ -f "$ABS_RUN_DIR/chrome_options_urlbar.png" ]]; then echo Complete: '<code>chrome_options_urlbar.png</code>'; else echo Pending until '<code>chrome_options_urlbar.png</code>' is added.; fi)</div>
+    <div><strong>Safari URL reference</strong>$(if [[ -f "$ABS_RUN_DIR/safari_options_urlbar.png" ]]; then echo Complete: '<code>safari_options_urlbar.png</code>'; else echo Pending until '<code>safari_options_urlbar.png</code>' is added.; fi)</div>
+    <div><strong>Firefox URL reference</strong>$(if [[ -f "$ABS_RUN_DIR/firefox_options_urlbar.png" ]]; then echo Complete: '<code>firefox_options_urlbar.png</code>'; else echo Pending until '<code>firefox_options_urlbar.png</code>' is added.; fi)</div>
     <div><strong>Chrome click baseline</strong>Deferred until Chrome adapter v0.</div>
   </section>
 
@@ -132,6 +138,7 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
   <section class="grid">
     <figure><figcaption>Chrome reference with URL bar</figcaption>$chrome_options</figure>
     <figure><figcaption>Safari reference with URL bar</figcaption>$safari_options</figure>
+    <figure><figcaption>Firefox reference with URL bar</figcaption>$firefox_options</figure>
     <figure><figcaption>Saccade / Servo before run</figcaption><img src="before.png" alt="Saccade before run"></figure>
   </section>
 
@@ -139,6 +146,7 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
   <section class="grid">
     <figure><figcaption>Chrome result reference, optional</figcaption>$chrome_result</figure>
     <figure><figcaption>Safari result reference, optional</figcaption>$safari_result</figure>
+    <figure><figcaption>Firefox result reference, optional</figcaption>$firefox_result</figure>
     <figure><figcaption>Saccade / Servo after run</figcaption><img src="after.png" alt="Saccade after run"></figure>
   </section>
 
@@ -149,8 +157,8 @@ cat > "$ABS_RUN_DIR/parity_review.html" <<EOF
   </section>
 
   <h2>Checklist</h2>
-  <pre>1. Chrome/Safari references show https://mouseaccuracy.com/classic/ in the URL bar.
-2. Chrome/Safari/Saccade show the same Mouse Accuracy controls.
+  <pre>1. Chrome/Safari/Firefox references show https://mouseaccuracy.com/classic/ in the URL bar, when that browser is installed.
+2. Chrome/Safari/Firefox/Saccade show the same Mouse Accuracy controls.
 3. Saccade result.json shows Epic + Tiny, 47 hits, 0 misses, instrumentation=none.
 4. Saccade replay.jsonl and click_map.png exist.
 5. validator.txt reports VALIDATE PASS.</pre>
@@ -162,4 +170,4 @@ EOF
 echo "MOUSEMAX PARITY PACK READY run=$RUN_DIR"
 echo "review=$RUN_DIR/parity_review.html"
 echo "manifest=$RUN_DIR/demo_parity_manifest.json"
-echo "Add Chrome/Safari URL-bar screenshots before publishing."
+echo "Add Chrome/Safari/Firefox URL-bar screenshots before publishing."

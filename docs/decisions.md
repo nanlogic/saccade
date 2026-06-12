@@ -268,6 +268,14 @@
 - Added `scripts/build_demo_comparison_pack.py` to combine native browser UI capture attempts, Saccade visual parity evidence, and Chrome hit-test summaries into `demo_review.html`.
 - `demo_review.html` now embeds the Saccade worker screenshot directly next to Chrome page-content and pixel-diff thumbnails, so reviewers do not have to open the nested visual parity report to find Saccade evidence.
 - Native browser UI screenshots are public-demo artifacts only; browser truth, safety policy, replay, and hit-test verification remain separate evidence.
-- Latest pack: `/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781304174442/demo_review.html`.
-- Current result captures real Chrome and Safari native browser UI screenshots for the dashboard fixture.
+- Latest pack: `/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781306995672/demo_review.html`.
+- Current result captures real Chrome and Safari native browser UI screenshots, records Firefox as unavailable on this machine, and embeds Saccade worker screenshots for all seven local visual fixtures.
+- The seven-fixture pack verifies Chrome hit-test 35/35, skips four blocked modal actions correctly, and has no red action-map verdicts. `canvas_svg` remains `PASS_ACTION_YELLOW_RASTER`, which routes raster/canvas judgement to Chrome.
 - The pack serves the default native-capture fixture over `127.0.0.1` to avoid Safari's `file://` load confirmation dialog.
+
+## DECISION_DEMO_002 - MOUSEMAX public parity references are browser-visible
+
+- `scripts/prepare_mousemax_parity_pack.sh` now tracks Chrome, Safari, and Firefox URL-bar reference slots.
+- `runs/real/run_1781193985/parity_review.html` now includes captured Chrome and Safari URL-bar screenshots for `https://mouseaccuracy.com/classic/`.
+- Firefox is recorded as pending because Firefox is not installed on this machine. The native capture script accepts `--browser firefox` and writes `capture_unavailable` evidence when unavailable.
+- The MOUSEMAX validator still passes for the pure-pixel run: 47 hits, 0 misses, 47 targets seen, 47 clicks sent, `instrumentation=none`.

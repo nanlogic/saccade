@@ -39,8 +39,7 @@ What this already proves:
 
 What is still pending:
 
-- Chrome URL-bar screenshot reference.
-- Safari URL-bar screenshot reference.
+- Firefox URL-bar screenshot reference on a machine with Firefox installed.
 - Optional Chrome result screenshot.
 - Full Chrome-engine automated click comparison.
 
@@ -75,7 +74,7 @@ Use this order unless a blocker forces a swap:
 
 1. Finish Safety truth v1 replay metadata for Human/Agent boundaries and sensitive-field masking.
 2. Move Chrome/Firefox visual parity earlier so UI review and public demos are credible.
-3. Finish MOUSEMAX parity pack references for `run_1781193985`.
+3. Finish MOUSEMAX parity pack references for `run_1781193985`. Chrome and Safari URL-bar references are now complete; Firefox is pending because this machine does not have Firefox installed.
 4. Finish DEVMAX gauntlet evidence polish: screenshot crop/evidence per finding and replay.
 5. Build FORMMAX Servo input runner for the local two-page scrolling table fixture.
 6. Add MCP skeleton only after DEVMAX and FORMMAX have useful report shapes.

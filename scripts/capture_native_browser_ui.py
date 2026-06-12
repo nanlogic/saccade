@@ -24,6 +24,13 @@ BROWSERS = {
         "kind": "safari",
         "filename": "safari_native_window.png",
     },
+    "firefox": {
+        "app_name": "Firefox",
+        "bundle_id": "org.mozilla.firefox",
+        "kind": "generic",
+        "process_name": "Firefox",
+        "filename": "firefox_native_window.png",
+    },
 }
 
 
@@ -198,7 +205,7 @@ tell application "{browser['app_name']}"
   return (id of w as text) & "|" & (item 1 of b as text) & "," & (item 2 of b as text) & "," & (item 3 of b as text) & "," & (item 4 of b as text)
 end tell
 """
-    else:
+    elif browser["kind"] == "safari":
         script = f"""
 tell application "{browser['app_name']}"
   activate
@@ -210,6 +217,8 @@ tell application "{browser['app_name']}"
   return (id of w as text) & "|" & (item 1 of b as text) & "," & (item 2 of b as text) & "," & (item 3 of b as text) & "," & (item 4 of b as text)
 end tell
 """
+    else:
+        return open_generic_browser_window(args, browser)
     result = subprocess.run(
         ["osascript", "-e", script],
         text=True,
@@ -220,6 +229,56 @@ end tell
     if result.returncode != 0:
         raise CaptureUnavailable(
             f'failed to open {browser["app_name"]} window through AppleScript',
+            stderr=result.stderr.strip(),
+            returncode=result.returncode,
+        )
+    return parse_window_response(result.stdout.strip())
+
+
+def open_generic_browser_window(args, browser):
+    left = args.left
+    top = args.top
+    settle_seconds = max(0, args.settle_ms) / 1000
+    result = subprocess.run(
+        ["open", "-na", browser["app_name"], "--args", "--new-window", args.url],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=max(5, args.timeout_sec),
+    )
+    if result.returncode != 0:
+        raise CaptureUnavailable(
+            f'failed to open {browser["app_name"]} through macOS open',
+            stderr=result.stderr.strip(),
+            returncode=result.returncode,
+        )
+    time.sleep(settle_seconds)
+    process_name = applescript_string(browser.get("process_name", browser["app_name"]))
+    script = f"""
+tell application "System Events"
+  tell process "{process_name}"
+    set frontmost to true
+    delay 0.2
+    set w to front window
+    set position of w to {{{left}, {top}}}
+    set size of w to {{{args.width}, {args.height}}}
+    delay {settle_seconds}
+    set p to position of w
+    set s to size of w
+    return "generic|" & (item 1 of p as text) & "," & (item 2 of p as text) & "," & ((item 1 of p) + (item 1 of s) as text) & "," & ((item 2 of p) + (item 2 of s) as text)
+  end tell
+end tell
+"""
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=max(5, args.timeout_sec),
+    )
+    if result.returncode != 0:
+        raise CaptureUnavailable(
+            f'failed to position {browser["app_name"]} window through System Events',
             stderr=result.stderr.strip(),
             returncode=result.returncode,
         )
@@ -256,6 +315,17 @@ tell application "{browser['app_name']}"
   try
     close (first window whose id is {window_id})
   end try
+end tell
+"""
+    elif browser["kind"] == "generic":
+        process_name = applescript_string(browser.get("process_name", browser["app_name"]))
+        script = f"""
+tell application "System Events"
+  tell process "{process_name}"
+    try
+      keystroke "w" using command down
+    end try
+  end tell
 end tell
 """
     else:

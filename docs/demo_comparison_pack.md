@@ -8,6 +8,7 @@ Added two public-demo artifact scripts:
 
 ```bash
 scripts/capture_native_browser_ui.py --browser chrome --url <url> --output-dir <dir>
+scripts/capture_native_browser_ui.py --browser firefox --url <url> --output-dir <dir>
 scripts/build_demo_comparison_pack.py --fixtures dashboard --timeout-sec 60
 ```
 
@@ -24,7 +25,7 @@ scripts/build_demo_comparison_pack.py --fixtures dashboard --timeout-sec 60
 ## Latest Evidence
 
 ```text
-/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781304174442/demo_review.html
+/Users/waynema/Documents/GitHub/SACCADE/runs/demo_pack/demo_1781306995672/demo_review.html
 ```
 
 Current machine result:
@@ -32,9 +33,16 @@ Current machine result:
 ```text
 chrome native UI: captured
 safari native UI: captured
-dashboard visual parity: PASS_ACTION_YELLOW_VISUAL
-Chrome hit-test: 5/5
-Saccade worker screenshot: embedded in demo_review.html
+firefox native UI: capture_unavailable (Firefox is not installed on this machine)
+layout_probe visual parity: PASS_ACTION_GREEN, Chrome hit-test 1/1
+dashboard visual parity: PASS_ACTION_YELLOW_VISUAL, Chrome hit-test 5/5
+form_controls visual parity: PASS_ACTION_YELLOW_VISUAL, Chrome hit-test 10/10
+modal_overlay visual parity: PASS_ACTION_YELLOW_VISUAL, Chrome hit-test 2/2, skipped blocked actions 4
+scroll_sticky visual parity: PASS_ACTION_YELLOW_VISUAL, Chrome hit-test 11/11
+canvas_svg visual parity: PASS_ACTION_YELLOW_RASTER, Chrome hit-test 1/1
+responsive_cards visual parity: PASS_ACTION_GREEN, Chrome hit-test 5/5
+total Chrome hit-test: 35/35, skipped blocked actions 4
+Saccade worker screenshots: embedded in demo_review.html
 ```
 
 The demo pack serves the default local fixture over `127.0.0.1` for native browser UI capture. This avoids Safari's `file://` load confirmation dialog while keeping the visual parity runner's normal fixture flow unchanged.
@@ -58,7 +66,7 @@ scripts/build_demo_comparison_pack.py --fixtures dashboard --timeout-sec 60
 For a fuller local review:
 
 ```bash
-scripts/build_demo_comparison_pack.py --fixtures dashboard form_controls modal_overlay --timeout-sec 60
+scripts/build_demo_comparison_pack.py --fixtures all --native-browsers chrome safari firefox --timeout-sec 60
 ```
 
 ## Boundary

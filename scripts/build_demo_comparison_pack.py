@@ -77,7 +77,7 @@ def parse_args():
         "--native-browsers",
         nargs="+",
         default=["chrome", "safari"],
-        choices=["chrome", "safari"],
+        choices=["chrome", "safari", "firefox"],
     )
     parser.add_argument("--output-dir")
     parser.add_argument(
