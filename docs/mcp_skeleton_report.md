@@ -22,6 +22,7 @@ Implemented v0 tools:
 - `saccade.web.truth`
 - `saccade.web.actions`
 - `saccade.web.act`
+- `saccade.web.fill_form`
 - `saccade.report.validate_run`
 - `saccade.report.replay_summary`
 
@@ -71,6 +72,7 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Maintains persistent in-memory tabs across stdio requests.
 - Exposes `saccade.web.truth` and `saccade.web.actions` from DEVMAX report state.
 - Runs `saccade.web.act` v0 through a Servo-backed DEVMAX verification pass for the first enabled action in the current action map.
+- Runs `saccade.web.fill_form` v0 against the local FORMMAX fixture, blocks sensitive fields, validates the result, and returns result/replay/screenshot artifact paths.
 - Creates Human-owned login tabs through `saccade.tabs.request_user_login` without exposing credentials to agent truth.
 - Loads compact reports through `saccade.dev.get_report` without returning full artifacts.
 - Validates generic run directories and FORMMAX run directories through `saccade.report.validate_run`.
@@ -79,4 +81,4 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 
 ## Next
 
-Complete MCP protocol polish, move tab state from in-memory v0 to a browser-backed tab session, and route the remaining form/report tools through Trusted Tabs, safety truth, replay, and policy gates.
+Complete MCP protocol polish, move tab state from in-memory v0 to a browser-backed tab session, and route the remaining report/dev helper through durable artifact indexes.

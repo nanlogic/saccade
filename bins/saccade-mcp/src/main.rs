@@ -401,7 +401,7 @@ fn registry() -> ToolRegistry {
                 "Fill non-sensitive form values, block sensitive values, and return replay paths.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.report.validate_run",
@@ -655,6 +655,23 @@ fn input_schema(name: &str) -> Value {
             "required": ["tab_id", "action_id", "basis_page_revision"],
             "additionalProperties": false
         }),
+        "saccade.web.fill_form" => json!({
+            "type": "object",
+            "properties": {
+                "fixture": {"type": "string", "default": "test_pages/formmax/index.html"},
+                "input": {"type": "string"},
+                "replay": {"type": "boolean", "default": true},
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "block_sensitive": {"type": "boolean", "const": true},
+                        "local_fixture_only": {"type": "boolean", "const": true}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        }),
         "saccade.dev.get_report" => json!({
             "type": "object",
             "properties": {
@@ -702,6 +719,7 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.web.truth" => web_truth_tool(state, arguments),
         "saccade.web.actions" => web_actions_tool(state, arguments),
         "saccade.web.act" => web_act_tool(state, arguments),
+        "saccade.web.fill_form" => web_fill_form_tool(arguments),
         "saccade.report.validate_run" => report_validate_run_tool(arguments),
         "saccade.report.replay_summary" => report_replay_summary_tool(arguments),
         _ => bail!("tool {name:?} is registered but not implemented in mcp-stdio-v0"),
@@ -1077,6 +1095,102 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
             "action_sent": true,
             "report": tab.last_report_path,
             "replay": tab.last_replay_path,
+        }
+    }))
+}
+
+fn web_fill_form_tool(arguments: Value) -> Result<Value> {
+    let fixture = arguments
+        .get("fixture")
+        .and_then(Value::as_str)
+        .unwrap_or("test_pages/formmax/index.html");
+    let fixture = safe_workspace_path(fixture)?;
+    let input = arguments
+        .get("input")
+        .and_then(Value::as_str)
+        .map(safe_workspace_path)
+        .transpose()?;
+    let replay = arguments
+        .get("replay")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    if let Some(policy) = arguments.get("policy") {
+        if policy
+            .get("block_sensitive")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.fill_form v0 requires block_sensitive=true");
+        }
+        if policy
+            .get("local_fixture_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.fill_form v0 requires local_fixture_only=true");
+        }
+    }
+
+    let workspace = workspace_root()?;
+    let mut command = ProcessCommand::new("cargo");
+    command
+        .current_dir(&workspace)
+        .args(["run", "-q", "-p", "formmax", "--", "run"])
+        .arg("--fixture")
+        .arg(&fixture);
+    if let Some(input) = input.as_ref() {
+        command.arg("--input").arg(input);
+    }
+    if replay {
+        command.arg("--replay");
+    }
+
+    let output = command.output().context("failed to spawn formmax run")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        bail!(
+            "formmax run failed: status={} stdout={} stderr={}",
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+        );
+    }
+
+    let replay_path = parse_output_value(&stdout, "replay=")
+        .filter(|path| path != "disabled")
+        .context("formmax run output did not include replay path")?;
+    let replay_path = safe_workspace_path(&replay_path)?;
+    let run_dir = replay_path
+        .parent()
+        .map(Path::to_path_buf)
+        .context("replay path has no parent")?;
+    let validation = validate_formmax_run(&run_dir)?;
+    let result_path = run_dir.join("result.json");
+    let result_text = fs::read_to_string(&result_path)
+        .with_context(|| format!("failed to read {}", result_path.display()))?;
+    let result: Value = serde_json::from_str(&result_text)
+        .with_context(|| format!("invalid result JSON {}", result_path.display()))?;
+
+    Ok(json!({
+        "status": "ok",
+        "summary": "FORMMAX local fixture filled and validated",
+        "policy": {
+            "block_sensitive": true,
+            "local_fixture_only": true,
+        },
+        "rows": result.get("rows"),
+        "pages": result.get("pages"),
+        "filled": result.get("filled"),
+        "blocked_sensitive": result.get("blocked_sensitive"),
+        "native_input": result.get("native_input"),
+        "receipt_verified": result.get("receipt_verified"),
+        "validation": validation,
+        "artifacts": {
+            "result": result_path.display().to_string(),
+            "replay": replay_path.display().to_string(),
+            "screenshots": result.get("screenshots"),
         }
     }))
 }

@@ -162,4 +162,5 @@
 - Added in-memory persistent tab state for the stdio server plus v0 implementations for `saccade.tabs.open`, `request_user_login`, `takeover`, `pause_agent`, `close`, `saccade.web.truth`, `saccade.web.actions`, and `saccade.web.act`.
 - `saccade.web.truth/actions` use DEVMAX report state as compact browser truth/action-map evidence. `saccade.web.act` v0 requires an Agent-owned local tab, a fresh page revision, and the first enabled action in the current action map, then runs a Servo-backed DEVMAX verification pass.
 - Added report tools: `saccade.dev.get_report`, `saccade.report.validate_run`, and `saccade.report.replay_summary`. `validate_run` can route FORMMAX run directories to the FORMMAX validator; `replay_summary` returns event counts without replay contents.
-- The next step is replacing in-memory/report-backed tabs with browser-backed tab sessions and implementing form tools.
+- Added `saccade.web.fill_form` v0 for the local FORMMAX fixture. It runs the FORMMAX Servo runner, blocks sensitive fields, validates the run, and returns result/replay/screenshot artifact paths. Evidence run: `runs/formmax/run_1781270729709`.
+- The next step is replacing in-memory/report-backed tabs with browser-backed tab sessions and durable artifact indexes.
