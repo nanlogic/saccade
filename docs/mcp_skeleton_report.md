@@ -79,8 +79,9 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Loads compact reports through `saccade.dev.get_report` without returning full artifacts.
 - Validates generic run directories and FORMMAX run directories through `saccade.report.validate_run`.
 - Summarizes replay JSONL through `saccade.report.replay_summary`, including event counts and value-like field detection.
+- Appends generated DEVMAX/FORMMAX artifact paths to `runs/mcp/artifacts.jsonl` so later agents can find evidence without relying on chat history.
 - Verifies normal fields are agent-fillable while sensitive payment fields require user input.
 
 ## Next
 
-Complete MCP protocol polish, move tab state from in-memory v0 to a browser-backed tab session, and add durable artifact indexes.
+Complete MCP protocol polish and move tab state from in-memory/report-backed v0 to a browser-backed tab session.

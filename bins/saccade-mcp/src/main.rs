@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -114,6 +114,15 @@ struct LocalAuditResult {
     summary: String,
     actions: Vec<Value>,
     findings: Vec<Value>,
+    artifacts: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ArtifactIndexRecord<'a> {
+    ts_ms: u128,
+    tool: &'a str,
+    kind: &'a str,
+    summary: &'a str,
     artifacts: Value,
 }
 
@@ -820,6 +829,16 @@ fn audit_page_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
     if let Some(tab_id) = tab_id {
         update_tab_from_devmax(state, tab_id, &devmax)?;
     }
+    let artifacts = json!({
+        "report": devmax.report_path,
+        "replay": devmax.replay_path,
+    });
+    let artifact_index = record_artifact_index(
+        "saccade.dev.audit_page",
+        "devmax_audit",
+        &devmax.summary,
+        artifacts.clone(),
+    )?;
     Ok(json!({
         "status": "ok",
         "summary": devmax.summary,
@@ -832,10 +851,8 @@ fn audit_page_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
         "findings": devmax.findings,
         "actions": devmax.actions,
         "action_map": devmax.action_map,
-        "artifacts": {
-            "report": devmax.report_path,
-            "replay": devmax.replay_path,
-        }
+        "artifacts": artifacts,
+        "artifact_index": artifact_index,
     }))
 }
 
@@ -870,6 +887,16 @@ fn dev_click_all_primary_actions_tool(
             max_actions
         );
     }
+    let artifacts = json!({
+        "report": devmax.report_path,
+        "replay": devmax.replay_path,
+    });
+    let artifact_index = record_artifact_index(
+        "saccade.dev.click_all_primary_actions",
+        "devmax_click_verification",
+        &devmax.summary,
+        artifacts.clone(),
+    )?;
 
     Ok(json!({
         "status": "ok",
@@ -880,10 +907,8 @@ fn dev_click_all_primary_actions_tool(
         "actions_verified": devmax.action_map.len(),
         "actions": devmax.action_map,
         "findings": devmax.findings,
-        "artifacts": {
-            "report": devmax.report_path,
-            "replay": devmax.replay_path,
-        }
+        "artifacts": artifacts,
+        "artifact_index": artifact_index,
     }))
 }
 
@@ -1169,6 +1194,16 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
     let url = Url::parse(&tab.info.url).context("tab URL should parse")?;
     let devmax = run_devmax_audit(&url, "servo", true)?;
     update_tab_from_devmax(state, tab_id, &devmax)?;
+    let artifacts = json!({
+        "report": devmax.report_path,
+        "replay": devmax.replay_path,
+    });
+    let artifact_index = record_artifact_index(
+        "saccade.web.act",
+        "web_action_verification",
+        &devmax.summary,
+        artifacts.clone(),
+    )?;
     let tab = state
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
@@ -1184,7 +1219,8 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
             "action_sent": true,
             "report": tab.last_report_path,
             "replay": tab.last_replay_path,
-        }
+        },
+        "artifact_index": artifact_index,
     }))
 }
 
@@ -1261,6 +1297,17 @@ fn web_fill_form_tool(arguments: Value) -> Result<Value> {
         .with_context(|| format!("failed to read {}", result_path.display()))?;
     let result: Value = serde_json::from_str(&result_text)
         .with_context(|| format!("invalid result JSON {}", result_path.display()))?;
+    let artifacts = json!({
+        "result": result_path.display().to_string(),
+        "replay": replay_path.display().to_string(),
+        "screenshots": result.get("screenshots"),
+    });
+    let artifact_index = record_artifact_index(
+        "saccade.web.fill_form",
+        "formmax_fill",
+        "FORMMAX local fixture filled and validated",
+        artifacts.clone(),
+    )?;
 
     Ok(json!({
         "status": "ok",
@@ -1276,11 +1323,8 @@ fn web_fill_form_tool(arguments: Value) -> Result<Value> {
         "native_input": result.get("native_input"),
         "receipt_verified": result.get("receipt_verified"),
         "validation": validation,
-        "artifacts": {
-            "result": result_path.display().to_string(),
-            "replay": replay_path.display().to_string(),
-            "screenshots": result.get("screenshots"),
-        }
+        "artifacts": artifacts,
+        "artifact_index": artifact_index,
     }))
 }
 
@@ -2170,6 +2214,36 @@ fn tab(id: u64, owner: TabOwner, read_grant: ReadGrant, url: &str, title: &str) 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value)?;
     fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn record_artifact_index(
+    tool: &str,
+    kind: &str,
+    summary: &str,
+    artifacts: Value,
+) -> Result<String> {
+    let index_path = workspace_root()?
+        .join("runs")
+        .join("mcp")
+        .join("artifacts.jsonl");
+    if let Some(parent) = index_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let record = ArtifactIndexRecord {
+        ts_ms: unix_ms()?,
+        tool,
+        kind,
+        summary,
+        artifacts,
+    };
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&index_path)
+        .with_context(|| format!("failed to open {}", index_path.display()))?;
+    writeln!(file, "{}", serde_json::to_string(&record)?)?;
+    Ok(index_path.display().to_string())
 }
 
 fn safe_workspace_path(path: &str) -> Result<PathBuf> {
