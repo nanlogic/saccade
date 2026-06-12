@@ -20,7 +20,7 @@ Use this tracker as the normalized execution map.
 | MOUSEMAX evidence freeze | Partial | M7 artifact validates, parity pack exists, 5 pure-pixel runs pending | `scripts/validate_m9_release.sh`, `parity_review.html` generated |
 | N1 Trusted Tabs runtime | Minimal pass | `cargo run -q -p saccade-shell -- selftest-tabs` | PASS: `webviews=2 cookie_shared=true storage_shared=true input_isolated=true read_policy_enforced=true` |
 | N1B Login handoff protocol | Minimal pass | `cargo run -q -p saccade-shell -- selftest-login-handoff` | PASS: `human_login=true agent_session=true password_exposed=false otp_exposed=false agent_input_to_human_tab_blocked=true` |
-| N2 DEVMAX local self-test | Minimal pass + Servo truth pass | `cargo run -q -p devmax -- selftest-fixtures`; `cargo run -q -p devmax -- selftest-servo-fixtures` | PASS: static `total=16 detected=16 false_positives=0`; Servo `total=8 detected=8 false_positives=0` |
+| N2 DEVMAX local self-test | Gauntlet corpus minimum + Servo truth pass | `cargo run -q -p devmax -- selftest-fixtures`; `cargo run -q -p devmax -- selftest-servo-fixtures` | PASS: static `total=20 detected=20 false_positives=0`; Servo `total=8 detected=8 false_positives=0` |
 | N3 MCP skeleton | Pending | `cargo run -q -p saccade-mcp -- selftest` | Not started |
 | N4 FORMMAX Servo input runner | Pending | `cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay` | Fixture and smoke oracle exist; browser runner not built |
 | N5 Safety truth v1 | Pending | `cargo run -q -p saccade-shell -- selftest-safety` | Policy docs exist; live UI not built |
@@ -54,7 +54,7 @@ The new gauntlet file is now the product scoreboard:
 Do these in order:
 
 1. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: add Chrome and Safari URL-bar screenshots, then regenerate `parity_review.html`.
-2. Expand DEVMAX to the gauntlet bar: at least 20 fixtures, screenshot crop/evidence per finding, and replay.
+2. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, and HTTP status awareness for resource loads.
 3. Build FORMMAX Servo input runner for the local two-page scrolling table fixture.
 4. Add safety selftest for sensitive-field confirmation and trusted-tab policy.
 5. Add MCP skeleton after DEVMAX and FORMMAX have useful report shapes.

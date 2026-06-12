@@ -41,6 +41,7 @@
 - `observe_only` uses live `.target` rectangles from the page as browser-owned layout evidence. `instrumentation=none` disables DOM target data and uses rendered RGBA pixels with a red connected-component detector.
 - M7 passed 5 consecutive real-site observe-only runs and one pure pixel run on macOS arm64. The pure pixel artifact is `runs/real/run_1781193985`: 47 hits, 0 misses, 47 targets seen, 47 clicks sent, p95 detect 6.3 ms, p95 first-visible-to-dispatch 16.0 ms.
 - Each arena and real run now saves `before.png` and `after.png` in the run directory. These screenshots are artifact evidence, not detector inputs.
+- Chrome/Safari visual parity is a separate launch concern. Current Servo rendering can differ from Chrome in layout, scaling, fonts, and page code paths, so public demos must not imply Chrome visual equivalence until the Chrome adapter or a visual parity layer proves it.
 
 ## M8 - Replay and artifact polish
 
@@ -86,6 +87,8 @@
 - Added 16 deterministic local fixtures for common agent-built UI failures: blank page, console error, hydration error, missing asset, invisible text, overlap, offscreen action, no handler, broken validation, lazy route error, hidden submit, mobile break, blocking modal, blank canvas, z-index overlay, and wrong success state.
 - The first engine is explicitly `static-fixture-v0`. It validates the CLI, report schema, fixture corpus, and replay artifact shape. It is not yet a Servo rendered-truth audit.
 - The N2 gate passed with `total=16 detected=16 false_positives=0`.
+- Expanded the static fixture corpus to the gauntlet minimum of 20 by adding stuck loading, disabled primary action, duplicate IDs, and wrong-route 404 cases.
+- Latest static gate passed with `total=20 detected=20 false_positives=0`.
 
 ## N2B - DEVMAX Servo rendered probe
 

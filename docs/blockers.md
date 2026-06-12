@@ -18,3 +18,9 @@ On macOS arm64, `cargo check -p mousemax` with stock `servo-fonts 0.2.0` fails i
 Workaround applied for M0: vendor `servo-fonts 0.2.0` under `vendor/servo-fonts-0.2.0` and patch only the temporary `CFString` lifetime. This is a local macOS build workaround, not a Servo version bump.
 
 Status: workaround verified by `cargo check -p mousemax` and `cargo run -p mousemax -- selftest-boot` on macOS arm64.
+
+## MOUSEMAX Chrome visual parity gap
+
+A non-engineering viewer can see that the current Servo window does not look like Chrome/Safari on `mouseaccuracy.com`. The mismatch may come from browser engine support, CSS/layout differences, font metrics, viewport/device-scale behavior, and site JavaScript choosing a different code path.
+
+Status: deferred. The current MOUSEMAX evidence proves replayable action correctness on the real public URL, not Chrome visual equivalence. Before public marketing, resolve this through Chrome adapter v0 or a visual parity layer, then capture Chrome/Safari URL-bar references and an explicit comparison artifact.

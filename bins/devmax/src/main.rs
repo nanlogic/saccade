@@ -14,8 +14,8 @@ use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
 const ENGINE: &str = "static-fixture-v0";
-const REQUIRED_FIXTURE_TOTAL: usize = 16;
-const MIN_DETECTED: usize = 14;
+const REQUIRED_FIXTURE_TOTAL: usize = 20;
+const MIN_DETECTED: usize = 17;
 const MAX_FALSE_POSITIVES: usize = 1;
 const SERVO_ENGINE: &str = "servo-rendered-probe-v0";
 const SERVO_FIXTURES: &[&str] = &[
@@ -46,6 +46,10 @@ const FIXTURES: &[&str] = &[
     "canvas_chart_blank",
     "css_zindex_overlay_bug",
     "wrong_success_state",
+    "stuck_loading_spinner",
+    "disabled_primary_action",
+    "duplicate_id_controls",
+    "wrong_route_404",
 ];
 
 #[derive(Parser)]
@@ -653,6 +657,49 @@ fn analyze_html(
         ));
     }
 
+    if html.contains("data-devmax-stuck-loading") {
+        findings.push(finding(
+            "stuck_loading_spinner",
+            "high",
+            Some("[data-devmax-stuck-loading]"),
+            "Loading state remains visible without resolved content or an error path.",
+            json!({ "state": "loading", "timeout_policy": "missing" }),
+        ));
+    }
+
+    if html.contains("data-devmax-disabled-primary") {
+        findings.push(finding(
+            "disabled_primary_action",
+            "medium",
+            Some("[data-devmax-disabled-primary]"),
+            "Primary action is disabled without an explanation or recovery path.",
+            json!({ "action_id": "act_primary", "reason_visible": false }),
+        ));
+    }
+
+    if html.contains("data-devmax-duplicate-id") || has_duplicate_id(html) {
+        findings.push(finding(
+            "duplicate_id_controls",
+            "medium",
+            Some("[id]"),
+            "Page contains duplicate IDs that can break labels, selectors, and action maps.",
+            json!({ "id_uniqueness": "violated" }),
+        ));
+    }
+
+    if html.contains("data-devmax-wrong-route") {
+        runtime_health
+            .network_errors
+            .push("primary navigation points at a missing route".into());
+        findings.push(finding(
+            "wrong_route_404",
+            "high",
+            Some("[data-devmax-wrong-route]"),
+            "Primary navigation target is a missing route or broken deep link.",
+            json!({ "route": "/admin/reports", "status": 404 }),
+        ));
+    }
+
     let summary = if findings.is_empty() {
         "No DEVMAX findings from static fixture analyzer.".into()
     } else {
@@ -1052,6 +1099,18 @@ fn fix_hint(kind: &str) -> &'static str {
         "canvas_chart_blank" => "Render a fallback or verify the chart draws non-empty pixels.",
         "css_zindex_overlay_bug" => "Fix stacking context and pointer-events for overlays.",
         "wrong_success_state" => "Tie visible success state to the verified request result.",
+        "stuck_loading_spinner" => {
+            "Resolve the loading state or show a deterministic error/retry path."
+        }
+        "disabled_primary_action" => {
+            "Explain why the primary action is disabled and provide a reachable recovery path."
+        }
+        "duplicate_id_controls" => {
+            "Use unique element IDs so labels, selectors, and action maps stay stable."
+        }
+        "wrong_route_404" => {
+            "Fix the route target or show a handled not-found state before navigation."
+        }
         _ => "Inspect the finding evidence and add a deterministic fix.",
     }
 }
@@ -1116,6 +1175,24 @@ fn has_missing_asset(html: &str, fixture_dir: Option<&Path>) -> bool {
             }
             rest = &rest[end..];
         }
+    }
+    false
+}
+
+fn has_duplicate_id(html: &str) -> bool {
+    let mut ids = Vec::new();
+    let mut rest = html;
+    while let Some(index) = rest.find("id=\"") {
+        rest = &rest[index + 4..];
+        let Some(end) = rest.find('"') else {
+            break;
+        };
+        let id = &rest[..end];
+        if ids.iter().any(|existing| existing == &id) {
+            return true;
+        }
+        ids.push(id.to_string());
+        rest = &rest[end..];
     }
     false
 }

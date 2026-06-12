@@ -1,10 +1,11 @@
 # Saccade N2 DEVMAX Local Self-Test Report
 
 Date: 2026-06-11
+Updated: 2026-06-12
 
 ## Result
 
-N2 minimal DEVMAX fixture gate passed.
+N2 DEVMAX fixture gate passed, and the static fixture corpus now meets the gauntlet minimum of 20 fixtures.
 
 Command:
 
@@ -15,7 +16,7 @@ cargo run -q -p devmax -- selftest-fixtures
 Observed output:
 
 ```text
-DEVMAX FIXTURES PASS total=16 detected=16 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/selftest_1781224856449
+DEVMAX FIXTURES PASS total=20 detected=20 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/selftest_1781227035808
 ```
 
 The live audit command also passed against a local fixture server:
@@ -39,7 +40,7 @@ cargo run -q -p devmax -- selftest-servo-fixtures
 Observed output:
 
 ```text
-DEVMAX SERVO FIXTURES PASS total=8 detected=8 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781224856481
+DEVMAX SERVO FIXTURES PASS total=8 detected=8 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781227051278
 ```
 
 ## What Was Built
@@ -49,7 +50,7 @@ Added a new `devmax` binary with:
 - `devmax selftest-fixtures`
 - `devmax audit --url <http://...> --replay`
 
-Added 16 deterministic local fixtures under:
+Added 20 deterministic local fixtures under:
 
 `/Users/waynema/Documents/GitHub/SACCADE/test_pages/devmax/`
 
@@ -71,6 +72,10 @@ Fixture coverage:
 - blank canvas chart
 - z-index overlay bug
 - wrong success state
+- stuck loading spinner
+- disabled primary action
+- duplicate ID controls
+- wrong-route 404
 
 ## Report Shape
 
@@ -96,8 +101,8 @@ The first gate is `engine=static-fixture-v0`; the new browser-backed path is `en
 
 Together they prove the DEVMAX CLI/report contract, fixture corpus, replay artifact shape, browser-computed layout/style truth path, screenshot pixel checks for blank canvas regions, real click verification for enabled actions, and Servo delegate capture for console messages and resource-load requests.
 
-Next DEVMAX step:
+Remaining DEVMAX gauntlet work:
 
 ```text
-Expand click verification from one action to multi-action smoke flows and add HTTP status awareness for resource loads.
+Add per-finding screenshot crops, expand click verification from one action to multi-action smoke flows, and add HTTP status awareness for resource loads.
 ```
