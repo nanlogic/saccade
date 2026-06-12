@@ -90,6 +90,12 @@
 - The safety UX should not be confirmation-heavy. Agent fills non-sensitive fields, user handles sensitive fields in the real browser, and agent sees status such as `completed_without_value` or `requires_user_input` rather than raw values.
 - Chrome/Firefox visual parity is also promoted because UI design review loses credibility if Saccade renders materially different output from mainstream browsers.
 
+## N6 - Chrome visual parity v0
+
+- Added `scripts/capture_chrome_reference.sh` as the first Chrome reference artifact path.
+- This uses an installed Chrome-family browser for page-content screenshots at a fixed viewport.
+- This is not yet the Chrome adapter; it does not include browser chrome, CDP action maps, click verification, redacted truth, or replay integration.
+
 ## N2 - DEVMAX local self-test
 
 - Added `devmax` as the first local development-audit binary. The initial gate is `cargo run -q -p devmax -- selftest-fixtures`.

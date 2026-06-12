@@ -24,7 +24,7 @@ Use this tracker as the normalized execution map.
 | N3 MCP skeleton | Pending | `cargo run -q -p saccade-mcp -- selftest` | Not started |
 | N4 FORMMAX Servo input runner | Pending | `cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay` | Fixture and smoke oracle exist; browser runner not built |
 | N5 Safety truth v1 | Local pass | `cargo run -q -p saccade-shell -- selftest-safety` | PASS: agent sees agent-filled values; human can see all; agent truth masks sensitive values while preserving completed/requires-user status |
-| N6 Chrome adapter v0 | Pending | `cargo run -q -p devmax -- audit --engine chrome --url ... --replay` | Not started |
+| N6 Chrome adapter v0 | Started | `scripts/capture_chrome_reference.sh <url> <output-dir>`; later `cargo run -q -p devmax -- audit --engine chrome --url ... --replay` | Chrome reference capture script exists; CDP action/truth adapter not started |
 | N7 Public release package | Pending | README/site/video/report package | Launch docs and parity requirements exist; video/site not done |
 | Comparison benchmark | Pending | `devmax compare` and `formmax compare` | Not started |
 
@@ -53,7 +53,7 @@ The new gauntlet file is now the product scoreboard:
 
 Do these in order:
 
-1. Move Chrome/Firefox visual parity earlier: Chrome adapter v0 or visual parity layer for UI review credibility.
+1. Move Chrome/Firefox visual parity earlier: Chrome reference capture now exists; next is Chrome adapter v0 or visual parity layer for UI review credibility.
 2. Build FORMMAX Servo input runner using the safety model: fill non-sensitive fields, mark sensitive fields as user-required, never expose sensitive values.
 3. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: add Chrome and Safari URL-bar screenshots, then regenerate `parity_review.html`.
 4. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, and HTTP status awareness for resource loads.
