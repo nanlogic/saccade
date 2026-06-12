@@ -94,13 +94,16 @@ fn selftest_safety() -> Result<()> {
         || profile.agent_government_id_exposed
         || profile.agent_credit_card_exposed
         || profile.agent_user_password_exposed
-        || profile.masked_sensitive_fields < 4
+        || profile.masked_sensitive_fields < 5
+        || profile.sensitive_completed_without_value < 4
+        || profile.sensitive_requires_user_input < 1
+        || !profile.agent_knows_sensitive_field_status
     {
         bail!("safety selftest failed: {profile:?}");
     }
 
     println!(
-        "SAFETY PASS human_login={} agent_session={} human_can_see_agent_values={} agent_can_see_agent_values={} ssn_exposed={} government_id_exposed={} credit_card_exposed={} user_password_exposed={} masked_sensitive_fields={}",
+        "SAFETY PASS human_login={} agent_session={} human_can_see_agent_values={} agent_can_see_agent_values={} ssn_exposed={} government_id_exposed={} credit_card_exposed={} user_password_exposed={} masked_sensitive_fields={} completed_without_value={} requires_user_input={} status_known={}",
         profile.human_login,
         profile.agent_session,
         profile.human_can_see_agent_values,
@@ -110,6 +113,9 @@ fn selftest_safety() -> Result<()> {
         profile.agent_credit_card_exposed,
         profile.agent_user_password_exposed,
         profile.masked_sensitive_fields,
+        profile.sensitive_completed_without_value,
+        profile.sensitive_requires_user_input,
+        profile.agent_knows_sensitive_field_status,
     );
     Ok(())
 }

@@ -86,7 +86,8 @@
 - Human/Agent truth boundaries are promoted ahead of FORMMAX and MCP because the product is unsafe without them.
 - Safety v1 rule: the user can see all page state, including values filled by the agent; the agent receives mediated truth and can see agent-filled values but not human-owned sensitive values such as SSN, government ID, credit card, or password.
 - Added `saccade-shell selftest-safety`, backed by `test_pages/login_handoff/safety.html`.
-- The local gate passed with `human_can_see_agent_values=true`, `agent_can_see_agent_values=true`, `masked_sensitive_fields=4`, and sensitive exposures all false.
+- The local gate passed with `human_can_see_agent_values=true`, `agent_can_see_agent_values=true`, `masked_sensitive_fields=5`, `completed_without_value=4`, `requires_user_input=1`, and sensitive exposures all false.
+- The safety UX should not be confirmation-heavy. Agent fills non-sensitive fields, user handles sensitive fields in the real browser, and agent sees status such as `completed_without_value` or `requires_user_input` rather than raw values.
 - Chrome/Firefox visual parity is also promoted because UI design review loses credibility if Saccade renders materially different output from mainstream browsers.
 
 ## N2 - DEVMAX local self-test

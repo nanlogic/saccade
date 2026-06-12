@@ -42,6 +42,9 @@ pub struct TrustedTabsProfile {
     pub agent_credit_card_exposed: bool,
     pub agent_user_password_exposed: bool,
     pub masked_sensitive_fields: usize,
+    pub sensitive_completed_without_value: usize,
+    pub sensitive_requires_user_input: usize,
+    pub agent_knows_sensitive_field_status: bool,
 }
 
 pub fn selftest_trusted_tabs(base_url: Url) -> Result<TrustedTabsProfile> {
@@ -667,6 +670,9 @@ fn build_profile(state: &Rc<TabsState>, agent_probe: &Value) -> TrustedTabsProfi
         agent_credit_card_exposed: safety.agent_credit_card_exposed,
         agent_user_password_exposed: safety.agent_user_password_exposed,
         masked_sensitive_fields: safety.masked_sensitive_fields,
+        sensitive_completed_without_value: safety.sensitive_completed_without_value,
+        sensitive_requires_user_input: safety.sensitive_requires_user_input,
+        agent_knows_sensitive_field_status: safety.agent_knows_sensitive_field_status,
     }
 }
 
@@ -679,6 +685,9 @@ struct SafetyVisibility {
     agent_credit_card_exposed: bool,
     agent_user_password_exposed: bool,
     masked_sensitive_fields: usize,
+    sensitive_completed_without_value: usize,
+    sensitive_requires_user_input: usize,
+    agent_knows_sensitive_field_status: bool,
 }
 
 fn safety_visibility(probe: &Value) -> SafetyVisibility {
@@ -714,6 +723,23 @@ fn safety_visibility(probe: &Value) -> SafetyVisibility {
                     .unwrap_or(false)
             })
             .count(),
+        sensitive_completed_without_value: count_fields_with_status(
+            &agent_truth,
+            "completed_without_value",
+        ),
+        sensitive_requires_user_input: count_fields_with_status(
+            &agent_truth,
+            "requires_user_input",
+        ),
+        agent_knows_sensitive_field_status: truth_has_status(
+            &agent_truth,
+            "ssn",
+            "completed_without_value",
+        ) && truth_has_status(
+            &agent_truth,
+            "tax-id-empty",
+            "requires_user_input",
+        ),
     }
 }
 
@@ -725,6 +751,15 @@ fn mask_field_for_agent(field: &Value) -> Value {
         .unwrap_or("");
     let should_mask = owner == "human" || sensitive != "none";
     if should_mask {
+        let value_present = field
+            .get("value")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty() && value != "false");
+        let status = if value_present {
+            "completed_without_value"
+        } else {
+            "requires_user_input"
+        };
         json!({
             "id": field.get("id").cloned().unwrap_or(Value::Null),
             "label": field.get("label").cloned().unwrap_or(Value::Null),
@@ -732,10 +767,14 @@ fn mask_field_for_agent(field: &Value) -> Value {
             "sensitivity": sensitive,
             "value": null,
             "masked": true,
+            "value_state": status,
+            "user_action_required": !value_present,
         })
     } else {
         let mut visible = field.clone();
         visible["masked"] = Value::Bool(false);
+        visible["value_state"] = Value::String("agent_visible".into());
+        visible["user_action_required"] = Value::Bool(false);
         visible
     }
 }
@@ -755,6 +794,25 @@ fn truth_has_unmasked_sensitive(fields: &[Value], id: &str) -> bool {
                 .and_then(Value::as_str)
                 .is_some_and(|value| !value.is_empty())
     })
+}
+
+fn truth_has_status(fields: &[Value], id: &str, status: &str) -> bool {
+    fields.iter().any(|field| {
+        field.get("id").and_then(Value::as_str) == Some(id)
+            && field.get("value_state").and_then(Value::as_str) == Some(status)
+            && field.get("value").is_some_and(Value::is_null)
+            && field
+                .get("masked")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+    })
+}
+
+fn count_fields_with_status(fields: &[Value], status: &str) -> usize {
+    fields
+        .iter()
+        .filter(|field| field.get("value_state").and_then(Value::as_str) == Some(status))
+        .count()
 }
 
 fn finish_ok(state: &Rc<TabsState>, event_loop: &ActiveEventLoop, profile: TrustedTabsProfile) {
