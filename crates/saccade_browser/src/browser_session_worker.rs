@@ -13,9 +13,9 @@ use euclid::{Point2D, Scale};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use servo::{
-    CSSPixel, InputEvent, JSValue, LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent,
-    MouseMoveEvent, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder,
-    WebViewDelegate, WebViewPoint, WindowRenderingContext,
+    CSSPixel, DeviceIntRect, DeviceIntSize, InputEvent, JSValue, LoadStatus, MouseButton,
+    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext, Servo, ServoBuilder,
+    WebView, WebViewBuilder, WebViewDelegate, WebViewPoint, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -127,6 +127,8 @@ struct WorkerState {
     pending_probe: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     latest_probe: RefCell<Option<Value>>,
     current: RefCell<Option<ActiveRequest>>,
+    screenshots: RefCell<Vec<String>>,
+    screenshot_skipped_sensitive: Cell<u64>,
     stdout: RefCell<io::Stdout>,
 }
 
@@ -295,6 +297,8 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             pending_probe: Rc::new(RefCell::new(None)),
             latest_probe: RefCell::new(None),
             current: RefCell::new(None),
+            screenshots: RefCell::new(Vec::new()),
+            screenshot_skipped_sensitive: Cell::new(0),
             stdout: RefCell::new(io::stdout()),
         });
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
@@ -512,7 +516,7 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
             Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
                 Ok(value) => {
                     *state.latest_probe.borrow_mut() = Some(value.clone());
-                    respond_ok(state, id, probe_response(state, &value, method));
+                    respond_ok(state, id, probe_response(state, webview, &value, method));
                 }
                 Err(error) => respond_error(state, id, format!("failed to parse probe: {error}")),
             },
@@ -562,6 +566,7 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                         id,
                         act_response(
                             state,
+                            webview,
                             action_id,
                             before_revision,
                             after_revision,
@@ -603,12 +608,24 @@ fn finish_probe(
     pending.borrow_mut().take()
 }
 
-fn probe_response(state: &Rc<WorkerState>, probe: &Value, method: ProbeMethod) -> Value {
+fn probe_response(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    probe: &Value,
+    method: ProbeMethod,
+) -> Value {
     let actions = action_map(probe);
+    let sensitive_count = sensitive_action_count(&actions);
     let kind = match method {
         ProbeMethod::Truth => "truth_collected",
         ProbeMethod::Actions => "actions_collected",
     };
+    let screenshot = maybe_save_screenshot(
+        state,
+        webview,
+        &format!("{}_rev{}.png", kind, state.page_revision.get()),
+        sensitive_count,
+    );
     log_replay(
         state,
         json!({
@@ -616,8 +633,9 @@ fn probe_response(state: &Rc<WorkerState>, probe: &Value, method: ProbeMethod) -
             "run_id": state.run_id.as_str(),
             "page_revision": state.page_revision.get(),
             "actions_seen": actions.len(),
-            "sensitive_fields": sensitive_action_count(&actions),
+            "sensitive_fields": sensitive_count,
             "body_text_length": probe.get("bodyTextLength").and_then(Value::as_u64).unwrap_or(0),
+            "screenshot": screenshot,
         }),
     );
     json!({
@@ -637,7 +655,7 @@ fn probe_response(state: &Rc<WorkerState>, probe: &Value, method: ProbeMethod) -
             "body_text_length": probe.get("bodyTextLength").cloned().unwrap_or(Value::Null),
             "body_child_count": probe.get("bodyChildCount").cloned().unwrap_or(Value::Null),
             "viewport": probe.get("viewport").cloned().unwrap_or(Value::Null),
-            "sensitive_fields": sensitive_action_count(&actions),
+            "sensitive_fields": sensitive_count,
         },
         "artifacts": artifact_paths(state),
     })
@@ -645,6 +663,7 @@ fn probe_response(state: &Rc<WorkerState>, probe: &Value, method: ProbeMethod) -
 
 fn act_response(
     state: &Rc<WorkerState>,
+    webview: &WebView,
     action_id: String,
     before_revision: u64,
     after_revision: u64,
@@ -652,6 +671,14 @@ fn act_response(
     after_probe: &Value,
 ) -> Value {
     let changed = probe_changed(before_probe, after_probe);
+    let actions = action_map(after_probe);
+    let sensitive_count = sensitive_action_count(&actions);
+    let screenshot = maybe_save_screenshot(
+        state,
+        webview,
+        &format!("action_rev{after_revision}.png"),
+        sensitive_count,
+    );
     log_replay(
         state,
         json!({
@@ -663,6 +690,8 @@ fn act_response(
             "changed": changed,
             "dom_page_revision_before": before_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
             "dom_page_revision_after": after_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
+            "sensitive_fields": sensitive_count,
+            "screenshot": screenshot,
         }),
     );
     json!({
@@ -673,7 +702,7 @@ fn act_response(
         "url": after_probe.get("url").cloned().unwrap_or_else(|| json!(state.target_url.as_str())),
         "title": after_probe.get("title").cloned().unwrap_or(Value::Null),
         "page_revision": after_revision,
-        "actions": action_map(after_probe),
+        "actions": actions,
         "verification": {
             "mode": "browser_session_worker_native_click_v0",
             "action_id": action_id,
@@ -841,6 +870,8 @@ fn artifact_paths(state: &Rc<WorkerState>) -> Value {
         "run_dir": state.output_dir.display().to_string(),
         "report": state.report_path.display().to_string(),
         "replay": state.replay_path.display().to_string(),
+        "screenshots": state.screenshots.borrow().clone(),
+        "screenshot_skipped_sensitive": state.screenshot_skipped_sensitive.get(),
     })
 }
 
@@ -855,6 +886,56 @@ fn write_report(state: &Rc<WorkerState>, latest: &Value) {
     });
     if let Ok(bytes) = serde_json::to_vec_pretty(&report) {
         let _ = fs::write(&state.report_path, bytes);
+    }
+}
+
+fn maybe_save_screenshot(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    filename: &str,
+    sensitive_count: usize,
+) -> Option<String> {
+    if sensitive_count > 0 {
+        state
+            .screenshot_skipped_sensitive
+            .set(state.screenshot_skipped_sensitive.get().saturating_add(1));
+        log_replay(
+            state,
+            json!({
+                "kind": "screenshot_skipped_sensitive_fields",
+                "run_id": state.run_id.as_str(),
+                "filename": filename,
+                "sensitive_fields": sensitive_count,
+            }),
+        );
+        return None;
+    }
+
+    webview.paint();
+    let rect = DeviceIntRect::from_size(DeviceIntSize::new(
+        WINDOW_WIDTH as i32,
+        WINDOW_HEIGHT as i32,
+    ));
+    let path = state.output_dir.join(filename);
+    match state.rendering_context.read_to_image(rect) {
+        Some(image) => {
+            if image.save(&path).is_ok() {
+                let path = path.display().to_string();
+                state.screenshots.borrow_mut().push(path.clone());
+                log_replay(
+                    state,
+                    json!({
+                        "kind": "screenshot_saved",
+                        "run_id": state.run_id.as_str(),
+                        "path": path,
+                    }),
+                );
+                Some(path)
+            } else {
+                None
+            }
+        }
+        None => None,
     }
 }
 

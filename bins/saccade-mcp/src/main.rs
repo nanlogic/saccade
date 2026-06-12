@@ -102,6 +102,7 @@ struct SelftestEvidence {
     dev_fill_smoke_form: bool,
     dev_get_report: bool,
     report_validate_run: bool,
+    browser_worker_validate_run: bool,
     report_replay_summary: bool,
     normal_field_decision: PolicyDecision,
     sensitive_field_decision: PolicyDecision,
@@ -224,6 +225,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.dev_fill_smoke_form
         && stdio_evidence.dev_get_report
         && stdio_evidence.report_validate_run
+        && stdio_evidence.browser_worker_validate_run
         && stdio_evidence.report_replay_summary;
     let evidence = SelftestEvidence {
         denied_human_input: tab_evidence.denied_human_input,
@@ -245,6 +247,7 @@ fn selftest() -> Result<()> {
         dev_fill_smoke_form: stdio_evidence.dev_fill_smoke_form,
         dev_get_report: stdio_evidence.dev_get_report,
         report_validate_run: stdio_evidence.report_validate_run,
+        browser_worker_validate_run: stdio_evidence.browser_worker_validate_run,
         report_replay_summary: stdio_evidence.report_replay_summary,
         normal_field_decision,
         sensitive_field_decision,
@@ -528,6 +531,7 @@ struct JsonRpcEvidence {
     dev_fill_smoke_form: bool,
     dev_get_report: bool,
     report_validate_run: bool,
+    browser_worker_validate_run: bool,
     report_replay_summary: bool,
     audit_report: String,
 }
@@ -839,7 +843,7 @@ fn input_schema(name: &str) -> Value {
             "type": "object",
             "properties": {
                 "run_dir": {"type": "string"},
-                "kind": {"type": "string", "enum": ["generic", "formmax"], "default": "generic"}
+                "kind": {"type": "string", "enum": ["generic", "formmax", "browser_session_worker"], "default": "generic"}
             },
             "required": ["run_dir"],
             "additionalProperties": false
@@ -1567,6 +1571,7 @@ fn report_validate_run_tool(arguments: Value) -> Result<Value> {
     match kind {
         "generic" => validate_generic_run(&run_dir),
         "formmax" => validate_formmax_run(&run_dir),
+        "browser_session_worker" => validate_browser_session_worker_run(&run_dir),
         other => bail!("unsupported validation kind {other:?}"),
     }
 }
@@ -1632,6 +1637,107 @@ fn validate_formmax_run(run_dir: &Path) -> Result<Value> {
         "artifacts": {
             "result": run_dir.join("result.json").display().to_string(),
             "replay": run_dir.join("replay.jsonl").display().to_string(),
+        }
+    }))
+}
+
+fn validate_browser_session_worker_run(run_dir: &Path) -> Result<Value> {
+    let report_path = run_dir.join("report.json");
+    let replay_path = run_dir.join("replay.jsonl");
+    if !report_path.exists() {
+        bail!(
+            "browser session worker report missing: {}",
+            report_path.display()
+        );
+    }
+    if !replay_path.exists() {
+        bail!(
+            "browser session worker replay missing: {}",
+            replay_path.display()
+        );
+    }
+
+    let report_text = fs::read_to_string(&report_path)
+        .with_context(|| format!("failed to read {}", report_path.display()))?;
+    let report: Value = serde_json::from_str(&report_text)
+        .with_context(|| format!("invalid JSON {}", report_path.display()))?;
+    let engine_ok =
+        report.get("engine").and_then(Value::as_str) == Some("saccade-browser-session-worker-v0");
+    let screenshots = report
+        .pointer("/artifacts/screenshots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let missing_screenshots = screenshots
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|path| !safe_workspace_path(path).is_ok_and(|path| path.exists()))
+        .count();
+    let skipped_sensitive = report
+        .pointer("/artifacts/screenshot_skipped_sensitive")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+
+    let file = fs::File::open(&replay_path)
+        .with_context(|| format!("failed to open {}", replay_path.display()))?;
+    let mut events = 0usize;
+    let mut truth_events = 0usize;
+    let mut action_verified = 0usize;
+    let mut screenshot_saved = 0usize;
+    let mut screenshot_skipped = 0usize;
+    let mut raw_value_leaks = 0usize;
+    for line in BufReader::new(file).lines() {
+        let line = line.context("failed to read replay line")?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        events += 1;
+        if line.contains("123-45-6789")
+            || line.contains("4111111111111111")
+            || line.contains("correct-horse-battery")
+        {
+            raw_value_leaks += 1;
+        }
+        let event: Value = serde_json::from_str(&line)
+            .with_context(|| format!("invalid replay JSON in {}", replay_path.display()))?;
+        match event.get("kind").and_then(Value::as_str).unwrap_or("") {
+            "truth_collected" | "actions_collected" => truth_events += 1,
+            "action_verified" => action_verified += 1,
+            "screenshot_saved" => screenshot_saved += 1,
+            "screenshot_skipped_sensitive_fields" => screenshot_skipped += 1,
+            _ => {}
+        }
+    }
+
+    if !engine_ok {
+        bail!("browser session worker report has wrong engine");
+    }
+    if events == 0 || truth_events == 0 {
+        bail!("browser session worker replay missing truth/actions events");
+    }
+    if missing_screenshots > 0 {
+        bail!("browser session worker report references missing screenshot(s)");
+    }
+    if raw_value_leaks > 0 {
+        bail!("browser session worker replay contains raw sensitive values");
+    }
+
+    Ok(json!({
+        "status": "ok",
+        "summary": "browser session worker artifact check passed",
+        "run_dir": run_dir.display().to_string(),
+        "engine": report.get("engine"),
+        "events": events,
+        "truth_events": truth_events,
+        "action_verified": action_verified,
+        "screenshots": screenshots.len(),
+        "screenshot_saved_events": screenshot_saved,
+        "screenshot_skipped_sensitive": skipped_sensitive,
+        "screenshot_skipped_events": screenshot_skipped,
+        "artifacts": {
+            "report": report_path.display().to_string(),
+            "replay": replay_path.display().to_string(),
+            "screenshots": screenshots,
         }
     }))
 }
@@ -2132,9 +2238,8 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 .and_then(Value::as_u64)
         })
         .unwrap_or(0);
-    let web_act = !action_id.is_empty()
-        && basis_page_revision > 0
-        && handle_json_rpc(
+    let web_act_response = if !action_id.is_empty() && basis_page_revision > 0 {
+        handle_json_rpc(
             &mut state,
             JsonRpcRequest {
                 id: Some(json!(8)),
@@ -2150,6 +2255,11 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 }),
             },
         )
+    } else {
+        None
+    };
+    let web_act = web_act_response
+        .as_ref()
         .and_then(|response| {
             response
                 .get("result")
@@ -2163,6 +2273,44 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                             .and_then(Value::as_bool)
                             == Some(true)
                 })
+        })
+        .unwrap_or(false);
+    let browser_worker_run_dir = web_act_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("artifacts"))
+                .and_then(|artifacts| artifacts.get("report"))
+                .and_then(Value::as_str)
+        })
+        .and_then(|report| PathBuf::from(report).parent().map(Path::to_path_buf));
+    let browser_worker_validate_run = browser_worker_run_dir
+        .as_ref()
+        .and_then(|run_dir| {
+            handle_json_rpc(
+                &mut state,
+                JsonRpcRequest {
+                    id: Some(json!(81)),
+                    method: "tools/call".into(),
+                    params: json!({
+                        "name": "saccade.report.validate_run",
+                        "arguments": {
+                            "run_dir": run_dir.display().to_string(),
+                            "kind": "browser_session_worker"
+                        }
+                    }),
+                },
+            )
+        })
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("status"))
+                .and_then(Value::as_str)
+                .map(|status| status == "ok")
         })
         .unwrap_or(false);
     let dev_click_all_primary_actions = handle_json_rpc(
@@ -2302,6 +2450,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         dev_fill_smoke_form,
         dev_get_report,
         report_validate_run,
+        browser_worker_validate_run,
         report_replay_summary,
         audit_report,
     })

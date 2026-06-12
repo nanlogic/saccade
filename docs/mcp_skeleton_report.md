@@ -87,8 +87,10 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Human takeover closes the live worker before changing ownership.
 - The live worker returns artifact paths and writes compact `report.json` plus `replay.jsonl` under `runs/browser_session_worker/worker_*/`.
 - The live worker redacts form values before truth/actions leave the browser process. Sensitive controls expose kind and completion status only.
+- The live worker saves screenshot PNG artifacts only when no sensitive fields are detected. Sensitive pages log a skip event instead.
+- `saccade.report.validate_run` accepts `kind=browser_session_worker` and verifies worker report/replay shape, screenshot references, and replay raw-value leak checks.
 - Browser-session smoke remains available outside MCP: `saccade-shell selftest-browser-session` proves open, truth, action map, native act, and truth-after-act on one Servo WebView path.
 
 ## Next
 
-Harden the browser worker with screenshot artifacts, a shared multi-tab process, and live-tab integration for DEVMAX/FORMMAX workflows.
+Harden the browser worker with a shared multi-tab process and live-tab integration for DEVMAX/FORMMAX workflows.
