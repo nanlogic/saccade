@@ -56,4 +56,4 @@ Still pending for product UI:
 
 - Visible tab strip and handoff affordance in the real shell UI.
 - Replay events that include `tab_id`, `owner`, `actor`, and `page_revision`.
-- Browser truth masking for arbitrary third-party sensitive fields.
+- Browser truth masking now has a local v1 gate in `docs/safety_truth_profile.md`; arbitrary third-party sensitive fields still need product UI and replay coverage.

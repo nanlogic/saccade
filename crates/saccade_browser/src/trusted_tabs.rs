@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use euclid::Scale;
 use saccade_core::{ReadGrant, TabId, TabInfo, TabOwner, TabVisualMarker};
-use serde_json::Value;
+use serde_json::{Value, json};
 use servo::{
     JSValue, LoadStatus, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder,
     WebViewDelegate, WindowRenderingContext,
@@ -35,6 +35,13 @@ pub struct TrustedTabsProfile {
     pub otp_exposed: bool,
     pub agent_input_to_human_tab_blocked: bool,
     pub done_clicked: bool,
+    pub human_can_see_agent_values: bool,
+    pub agent_can_see_agent_values: bool,
+    pub agent_ssn_exposed: bool,
+    pub agent_government_id_exposed: bool,
+    pub agent_credit_card_exposed: bool,
+    pub agent_user_password_exposed: bool,
+    pub masked_sensitive_fields: usize,
 }
 
 pub fn selftest_trusted_tabs(base_url: Url) -> Result<TrustedTabsProfile> {
@@ -45,10 +52,15 @@ pub fn selftest_login_handoff(base_url: Url) -> Result<TrustedTabsProfile> {
     run_tabs_selftest(base_url, TabsMode::LoginHandoff)
 }
 
+pub fn selftest_safety(base_url: Url) -> Result<TrustedTabsProfile> {
+    run_tabs_selftest(base_url, TabsMode::Safety)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TabsMode {
     TrustedTabs,
     LoginHandoff,
+    Safety,
 }
 
 fn run_tabs_selftest(base_url: Url, mode: TabsMode) -> Result<TrustedTabsProfile> {
@@ -75,7 +87,7 @@ enum Phase {
     SubmitHumanLogin,
     WaitHumanDashboard,
     ProbeHuman,
-    WaitAgentDashboard,
+    WaitAgentPage,
     ProbeAgent,
     Done,
 }
@@ -213,8 +225,10 @@ impl TabsApp {
                     *self = Self::Finished;
                     return;
                 }
-                if state.runtime.borrow().mode == TabsMode::LoginHandoff
-                    && !probe_handoff_done(&probe)
+                if matches!(
+                    state.runtime.borrow().mode,
+                    TabsMode::LoginHandoff | TabsMode::Safety
+                ) && !probe_handoff_done(&probe)
                 {
                     finish_err(
                         &state,
@@ -228,28 +242,40 @@ impl TabsApp {
                 let Some(agent) = tab(&state, TabId(2)) else {
                     return;
                 };
-                match state.base_url.join("dashboard.html") {
+                let agent_path = match state.runtime.borrow().mode {
+                    TabsMode::Safety => "safety.html",
+                    TabsMode::TrustedTabs | TabsMode::LoginHandoff => "dashboard.html",
+                };
+                match state.base_url.join(agent_path) {
                     Ok(url) => agent.webview.load(url),
                     Err(error) => {
                         finish_err(
                             &state,
                             event_loop,
-                            format!("failed to build dashboard URL: {error}"),
+                            format!("failed to build agent URL: {error}"),
                         );
                         *self = Self::Finished;
                         return;
                     }
                 }
-                state.runtime.borrow_mut().phase = Phase::WaitAgentDashboard;
+                state.runtime.borrow_mut().phase = Phase::WaitAgentPage;
             }
-            Phase::WaitAgentDashboard => {
+            Phase::WaitAgentPage => {
                 let Some(agent) = tab(&state, TabId(2)) else {
                     return;
                 };
+                let expected_title = match state.runtime.borrow().mode {
+                    TabsMode::Safety => "Safety Fixture",
+                    TabsMode::TrustedTabs | TabsMode::LoginHandoff => "Dashboard",
+                };
                 if agent.webview.load_status() == LoadStatus::Complete
-                    && agent.webview.page_title().as_deref() == Some("Dashboard")
+                    && agent.webview.page_title().as_deref() == Some(expected_title)
                 {
-                    request_agent_probe(&state, &agent.webview);
+                    if state.runtime.borrow().mode == TabsMode::Safety {
+                        request_safety_probe(&state, &agent.webview);
+                    } else {
+                        request_agent_probe(&state, &agent.webview);
+                    }
                     let mut runtime = state.runtime.borrow_mut();
                     runtime.phase = Phase::ProbeAgent;
                     runtime.agent_probe_requested = true;
@@ -366,7 +392,7 @@ impl ApplicationHandler<WakerEvent> for TabsApp {
                 mode: *mode,
                 phase: match *mode {
                     TabsMode::TrustedTabs => Phase::WaitHumanDashboard,
-                    TabsMode::LoginHandoff => Phase::WaitHumanLoginPage,
+                    TabsMode::LoginHandoff | TabsMode::Safety => Phase::WaitHumanLoginPage,
                 },
                 human_probe_requested: false,
                 agent_probe_requested: false,
@@ -379,7 +405,7 @@ impl ApplicationHandler<WakerEvent> for TabsApp {
 
         let human_path = match *mode {
             TabsMode::TrustedTabs => "login.html?auto=1",
-            TabsMode::LoginHandoff => "login.html",
+            TabsMode::LoginHandoff | TabsMode::Safety => "login.html",
         };
         let human_url = match state.base_url.join(human_path) {
             Ok(url) => url,
@@ -514,6 +540,14 @@ fn request_agent_probe(state: &Rc<TabsState>, webview: &WebView) {
     });
 }
 
+fn request_safety_probe(state: &Rc<TabsState>, webview: &WebView) {
+    *state.pending_agent_probe.borrow_mut() = None;
+    let pending = state.pending_agent_probe.clone();
+    webview.evaluate_javascript(SAFETY_PROBE_JS, move |result| {
+        *pending.borrow_mut() = Some(js_result_to_string(result));
+    });
+}
+
 fn request_handoff_done_probe(state: &Rc<TabsState>, webview: &WebView) {
     *state.pending_human_probe.borrow_mut() = None;
     let pending = state.pending_human_probe.clone();
@@ -612,6 +646,7 @@ fn build_profile(state: &Rc<TabsState>, agent_probe: &Value) -> TrustedTabsProfi
     let agent_password = probe_password(agent_probe).unwrap_or_default();
     let human_otp = probe_otp(&human_probe).unwrap_or_default();
     let agent_otp = probe_otp(agent_probe).unwrap_or_default();
+    let safety = safety_visibility(agent_probe);
 
     TrustedTabsProfile {
         webviews: tabs.len(),
@@ -625,7 +660,101 @@ fn build_profile(state: &Rc<TabsState>, agent_probe: &Value) -> TrustedTabsProfi
         otp_exposed: !human_otp.is_empty() || !agent_otp.is_empty(),
         agent_input_to_human_tab_blocked: human.is_some_and(|tab| !tab.info.agent_input_allowed()),
         done_clicked: probe_handoff_done(&human_probe),
+        human_can_see_agent_values: safety.human_can_see_agent_values,
+        agent_can_see_agent_values: safety.agent_can_see_agent_values,
+        agent_ssn_exposed: safety.agent_ssn_exposed,
+        agent_government_id_exposed: safety.agent_government_id_exposed,
+        agent_credit_card_exposed: safety.agent_credit_card_exposed,
+        agent_user_password_exposed: safety.agent_user_password_exposed,
+        masked_sensitive_fields: safety.masked_sensitive_fields,
     }
+}
+
+#[derive(Default)]
+struct SafetyVisibility {
+    human_can_see_agent_values: bool,
+    agent_can_see_agent_values: bool,
+    agent_ssn_exposed: bool,
+    agent_government_id_exposed: bool,
+    agent_credit_card_exposed: bool,
+    agent_user_password_exposed: bool,
+    masked_sensitive_fields: usize,
+}
+
+fn safety_visibility(probe: &Value) -> SafetyVisibility {
+    let fields = probe
+        .get("fields")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let human_truth = fields.clone();
+    let agent_truth = fields.iter().map(mask_field_for_agent).collect::<Vec<_>>();
+
+    SafetyVisibility {
+        human_can_see_agent_values: truth_has_value(
+            &human_truth,
+            "agent-note",
+            "agent-filled-note",
+        ),
+        agent_can_see_agent_values: truth_has_value(
+            &agent_truth,
+            "agent-note",
+            "agent-filled-note",
+        ),
+        agent_ssn_exposed: truth_has_unmasked_sensitive(&agent_truth, "ssn"),
+        agent_government_id_exposed: truth_has_unmasked_sensitive(&agent_truth, "government-id"),
+        agent_credit_card_exposed: truth_has_unmasked_sensitive(&agent_truth, "credit-card"),
+        agent_user_password_exposed: truth_has_unmasked_sensitive(&agent_truth, "user-password"),
+        masked_sensitive_fields: agent_truth
+            .iter()
+            .filter(|field| {
+                field
+                    .get("masked")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
+            .count(),
+    }
+}
+
+fn mask_field_for_agent(field: &Value) -> Value {
+    let owner = field.get("owner").and_then(Value::as_str).unwrap_or("");
+    let sensitive = field
+        .get("sensitivity")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let should_mask = owner == "human" || sensitive != "none";
+    if should_mask {
+        json!({
+            "id": field.get("id").cloned().unwrap_or(Value::Null),
+            "label": field.get("label").cloned().unwrap_or(Value::Null),
+            "owner": owner,
+            "sensitivity": sensitive,
+            "value": null,
+            "masked": true,
+        })
+    } else {
+        let mut visible = field.clone();
+        visible["masked"] = Value::Bool(false);
+        visible
+    }
+}
+
+fn truth_has_value(fields: &[Value], id: &str, expected: &str) -> bool {
+    fields.iter().any(|field| {
+        field.get("id").and_then(Value::as_str) == Some(id)
+            && field.get("value").and_then(Value::as_str) == Some(expected)
+    })
+}
+
+fn truth_has_unmasked_sensitive(fields: &[Value], id: &str) -> bool {
+    fields.iter().any(|field| {
+        field.get("id").and_then(Value::as_str) == Some(id)
+            && field
+                .get("value")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+    })
 }
 
 fn finish_ok(state: &Rc<TabsState>, event_loop: &ActiveEventLoop, profile: TrustedTabsProfile) {
@@ -718,5 +847,42 @@ const HUMAN_LOGIN_JS: &str = r#"
       form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     }
   }
+})()
+"#;
+
+const SAFETY_PROBE_JS: &str = r#"
+(() => {
+  const note = document.getElementById("agent-note");
+  if (note) {
+    note.value = "agent-filled-note";
+    localStorage.setItem("saccade_agent_note", note.value);
+  }
+  const confirmation = document.getElementById("agent-confirm");
+  if (confirmation) {
+    confirmation.checked = true;
+  }
+
+  function labelFor(id) {
+    const label = document.querySelector(`label[for="${id}"]`);
+    return label ? label.textContent.trim().replace(/\s+/g, " ") : id;
+  }
+
+  const fields = Array.from(document.querySelectorAll("[data-saccade-field]")).map((el) => ({
+    id: el.id || "",
+    label: labelFor(el.id || ""),
+    owner: el.getAttribute("data-owner") || "",
+    sensitivity: el.getAttribute("data-sensitive") || "none",
+    value: el.type === "checkbox" ? String(el.checked) : (el.value || "")
+  }));
+
+  return JSON.stringify({
+    title: document.title,
+    url: location.href,
+    text: document.body ? document.body.innerText : "",
+    cookie: document.cookie,
+    storage: localStorage.getItem("saccade_storage") || "",
+    handoffDone: localStorage.getItem("saccade_handoff_done") === "true",
+    fields
+  });
 })()
 "#;

@@ -23,7 +23,7 @@ Use this tracker as the normalized execution map.
 | N2 DEVMAX local self-test | Gauntlet corpus minimum + Servo truth pass | `cargo run -q -p devmax -- selftest-fixtures`; `cargo run -q -p devmax -- selftest-servo-fixtures` | PASS: static `total=20 detected=20 false_positives=0`; Servo `total=8 detected=8 false_positives=0` |
 | N3 MCP skeleton | Pending | `cargo run -q -p saccade-mcp -- selftest` | Not started |
 | N4 FORMMAX Servo input runner | Pending | `cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay` | Fixture and smoke oracle exist; browser runner not built |
-| N5 Safety truth v1 | Pending | `cargo run -q -p saccade-shell -- selftest-safety` | Policy docs exist; live UI not built |
+| N5 Safety truth v1 | Local pass | `cargo run -q -p saccade-shell -- selftest-safety` | PASS: agent sees agent-filled values; human can see all; agent truth masks SSN, government ID, credit card, password |
 | N6 Chrome adapter v0 | Pending | `cargo run -q -p devmax -- audit --engine chrome --url ... --replay` | Not started |
 | N7 Public release package | Pending | README/site/video/report package | Launch docs and parity requirements exist; video/site not done |
 | Comparison benchmark | Pending | `devmax compare` and `formmax compare` | Not started |
@@ -53,13 +53,12 @@ The new gauntlet file is now the product scoreboard:
 
 Do these in order:
 
-1. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: add Chrome and Safari URL-bar screenshots, then regenerate `parity_review.html`.
-2. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, and HTTP status awareness for resource loads.
-3. Build FORMMAX Servo input runner for the local two-page scrolling table fixture.
-4. Add safety selftest for sensitive-field confirmation and trusted-tab policy.
-5. Add MCP skeleton after DEVMAX and FORMMAX have useful report shapes.
-6. Add replay metadata for Trusted Tabs and Login Handoff actions.
-7. Build Chrome adapter v0 for true Chrome-engine comparison runs.
+1. Add replay metadata for safety masking, Trusted Tabs, and Login Handoff actions.
+2. Move Chrome/Firefox visual parity earlier: Chrome adapter v0 or visual parity layer for UI review credibility.
+3. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: add Chrome and Safari URL-bar screenshots, then regenerate `parity_review.html`.
+4. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, and HTTP status awareness for resource loads.
+5. Build FORMMAX Servo input runner for the local two-page scrolling table fixture.
+6. Add MCP skeleton after DEVMAX and FORMMAX have useful report shapes.
 
 ## Parking Lot
 

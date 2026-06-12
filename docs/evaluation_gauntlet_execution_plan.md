@@ -73,18 +73,19 @@ The strong bundle adds:
 
 Use this order unless a blocker forces a swap:
 
-1. Finish MOUSEMAX parity pack references for `run_1781193985`.
-2. Expand DEVMAX to the gauntlet bar: at least 20 fixtures, screenshot crop/evidence per finding, and replay.
-3. Build FORMMAX Servo input runner for the local two-page scrolling table fixture.
-4. Add safety selftest for sensitive-field confirmation and trusted-tab policy.
-5. Add MCP skeleton only after DEVMAX and FORMMAX have useful report shapes.
-6. Build Chrome adapter v0 for reference runs and demo parity.
-7. Run UI Torture selected public targets.
-8. Add RealWorld/Discourse draft-only thread workflow.
-9. Add selected WebArena tasks.
-10. Add WorkArena-like enterprise tasks.
-11. Add PDF suite.
-12. Add baseline comparison.
+1. Finish Safety truth v1 replay metadata for Human/Agent boundaries and sensitive-field masking.
+2. Move Chrome/Firefox visual parity earlier so UI review and public demos are credible.
+3. Finish MOUSEMAX parity pack references for `run_1781193985`.
+4. Finish DEVMAX gauntlet evidence polish: screenshot crop/evidence per finding and replay.
+5. Build FORMMAX Servo input runner for the local two-page scrolling table fixture.
+6. Add MCP skeleton only after DEVMAX and FORMMAX have useful report shapes.
+7. Build Chrome adapter v0 for reference runs and demo parity.
+8. Run UI Torture selected public targets.
+9. Add RealWorld/Discourse draft-only thread workflow.
+10. Add selected WebArena tasks.
+11. Add WorkArena-like enterprise tasks.
+12. Add PDF suite.
+13. Add baseline comparison.
 
 ## Done Means
 

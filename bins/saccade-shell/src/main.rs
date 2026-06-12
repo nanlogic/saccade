@@ -19,6 +19,7 @@ struct Cli {
 enum Command {
     SelftestTabs,
     SelftestLoginHandoff,
+    SelftestSafety,
 }
 
 fn main() -> Result<()> {
@@ -26,6 +27,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::SelftestTabs => selftest_tabs(),
         Command::SelftestLoginHandoff => selftest_login_handoff(),
+        Command::SelftestSafety => selftest_safety(),
     }
 }
 
@@ -71,6 +73,43 @@ fn selftest_login_handoff() -> Result<()> {
         profile.password_exposed,
         profile.otp_exposed,
         profile.agent_input_to_human_tab_blocked,
+    );
+    Ok(())
+}
+
+fn selftest_safety() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("login_handoff"))?;
+    let profile = saccade_browser::selftest_safety(base_url)?;
+
+    if !profile.human_login
+        || !profile.agent_session
+        || !profile.done_clicked
+        || !profile.input_isolated
+        || !profile.read_policy_enforced
+        || !profile.agent_input_to_human_tab_blocked
+        || !profile.human_can_see_agent_values
+        || !profile.agent_can_see_agent_values
+        || profile.agent_ssn_exposed
+        || profile.agent_government_id_exposed
+        || profile.agent_credit_card_exposed
+        || profile.agent_user_password_exposed
+        || profile.masked_sensitive_fields < 4
+    {
+        bail!("safety selftest failed: {profile:?}");
+    }
+
+    println!(
+        "SAFETY PASS human_login={} agent_session={} human_can_see_agent_values={} agent_can_see_agent_values={} ssn_exposed={} government_id_exposed={} credit_card_exposed={} user_password_exposed={} masked_sensitive_fields={}",
+        profile.human_login,
+        profile.agent_session,
+        profile.human_can_see_agent_values,
+        profile.agent_can_see_agent_values,
+        profile.agent_ssn_exposed,
+        profile.agent_government_id_exposed,
+        profile.agent_credit_card_exposed,
+        profile.agent_user_password_exposed,
+        profile.masked_sensitive_fields,
     );
     Ok(())
 }
