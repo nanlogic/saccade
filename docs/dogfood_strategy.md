@@ -96,6 +96,7 @@ A feature counts only when it has:
 ## Near-Term Dogfood Gates
 
 ```text
+N0: cargo run -q -p saccade-shell -- browse --url https://example.com
 N1: cargo run -q -p saccade-shell -- selftest-tabs
 N1B: cargo run -q -p saccade-shell -- selftest-login-handoff
 N2: cargo run -q -p devmax -- selftest-fixtures
@@ -134,3 +135,9 @@ Expand click verification from one action to multi-action smoke flows.
 Add HTTP status awareness for resource-load reports.
 Keep report JSON and replay artifacts stable.
 ```
+
+## Human Dogfood Shell
+
+`saccade-shell browse --url ...` is the first human-facing browser shell for daily dogfood on macOS. It opens a Servo-backed Saccade window with mouse click, wheel scroll, keyboard text entry, basic select handoff, reload, back, and forward.
+
+Use it before reaching for Chrome when the task only needs a single page and ordinary input. Use Chrome/Playwright when exact mainstream rendering, browser chrome, extensions, downloads, or complete native controls matter.

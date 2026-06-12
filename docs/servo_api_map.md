@@ -18,13 +18,16 @@ Dependency alignment from `cargo tree -p saccade_browser`:
 - Test/headless context visible in Servo tests: `servo::SoftwareRenderingContext::new(PhysicalSize<u32>) -> Result<SoftwareRenderingContext, surfman::Error>`.
 - WebView creation: `servo::WebViewBuilder::new(&Servo, Rc<dyn RenderingContext>).url(Url).hidpi_scale_factor(Scale<f32, DeviceIndependentPixel, DevicePixel>).delegate(Rc<dyn WebViewDelegate>).build()`.
 - Frame readiness: `WebViewDelegate::notify_new_frame_ready(&self, WebView)`.
+- Page metadata callbacks: `WebViewDelegate::notify_url_changed(&self, WebView, Url)`, `notify_page_title_changed(&self, WebView, Option<String>)`, and `notify_load_status_changed(&self, WebView, LoadStatus)`.
 - Load readiness: `WebView::load_status() -> LoadStatus`; complete state is `LoadStatus::Complete`.
 - Paint: `WebView::paint()`.
 - Readback: `RenderingContext::read_to_image(source_rectangle: DeviceIntRect) -> Option<RgbaImage>`.
 - Input: `InputEvent::MouseMove(MouseMoveEvent::new(point: WebViewPoint))`; `InputEvent::MouseButton(MouseButtonEvent::new(action: MouseButtonAction, button: MouseButton, point: WebViewPoint))`.
+- Wheel input: `InputEvent::Wheel(WheelEvent::new(WheelDelta { x, y, z, mode }, point))`; Servo's pinned `winit_minimal` example maps `MouseScrollDelta::LineDelta` to `WheelMode::DeltaLine` and `PixelDelta` to `WheelMode::DeltaPixel`.
 - Keyboard input: `InputEvent::Keyboard(KeyboardEvent::from_state_and_key(KeyState::Down, Key::Character(text)))` and the matching `KeyState::Up` event inserted ASCII text into a focused `<input>` in the native input selftest.
 - Input handling callback: `WebViewDelegate::notify_input_event_handled(&self, WebView, InputEventId, InputEventResult)` is delivered after `WebView::notify_input_event(...)`; `InputEventResult::DispatchFailed` is the failure flag to gate on. In the native input selftest, `Consumed` remained false even though the DOM value updated.
 - Select/dropdown control: a trusted click on `<select>` causes `WebViewDelegate::show_embedder_control(&self, WebView, EmbedderControl::SelectElement(...))`; Saccade can call `select.select(vec![index])` and `select.submit()` to send the chosen option back to Servo.
+- Navigation controls: `WebView::reload()`, `can_go_back()`, `go_back(amount)`, `can_go_forward()`, and `go_forward(amount)` are public in the pinned WebView API.
 - Input point unit: `WebViewPoint`, which is either `WebViewPoint::Device(DevicePoint)` or `WebViewPoint::Page(Point2D<f32, CSSPixel>)`. Servo's own tests pass `DevicePoint` converted with `.into()`.
 - JS probe: `WebView::evaluate_javascript(script, callback)` where callback is `FnOnce(Result<JSValue, JavaScriptEvaluationError>) + 'static`.
 - Screenshot: `WebView::take_screenshot(rect: Option<WebViewRect>, callback: FnOnce(Result<RgbaImage, ScreenshotCaptureError>) + 'static)`.

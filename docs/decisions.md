@@ -90,6 +90,7 @@
 ## Dogfood policy
 
 - Saccade should become the default browser layer for local development inspection, form workflow tests, login handoff, and replay-backed actions. Chrome and Playwright remain compatibility baselines and escape hatches.
+- Added `saccade-shell browse --url ...` as the first human-facing dogfood browser shell on macOS. It supports one Servo WebView with mouse click, wheel scroll, keyboard text entry, basic `<select>` handoff, reload, back, and forward. This is intentionally a dogfood shell, not a packaged Chrome-parity browser UI yet.
 
 ## N1B - Login handoff
 

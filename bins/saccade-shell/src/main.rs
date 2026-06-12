@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
@@ -17,6 +18,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    Browse {
+        #[arg(long)]
+        url: String,
+        #[arg(long, default_value_t = 1440)]
+        width: u32,
+        #[arg(long, default_value_t = 1000)]
+        height: u32,
+        #[arg(long)]
+        smoke_seconds: Option<u64>,
+    },
     SelftestTabs,
     SelftestLoginHandoff,
     SelftestSafety,
@@ -26,11 +37,25 @@ enum Command {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Command::Browse {
+            url,
+            width,
+            height,
+            smoke_seconds,
+        } => browse(url, width, height, smoke_seconds),
         Command::SelftestTabs => selftest_tabs(),
         Command::SelftestLoginHandoff => selftest_login_handoff(),
         Command::SelftestSafety => selftest_safety(),
         Command::SelftestNativeInput => selftest_native_input(),
     }
+}
+
+fn browse(url: String, width: u32, height: u32, smoke_seconds: Option<u64>) -> Result<()> {
+    let mut config = saccade_browser::DogfoodBrowserConfig::new(parse_user_url(&url)?);
+    config.width = width;
+    config.height = height;
+    config.auto_close_after = smoke_seconds.map(Duration::from_secs);
+    saccade_browser::run_dogfood_browser(config)
 }
 
 fn selftest_tabs() -> Result<()> {
@@ -160,6 +185,23 @@ fn selftest_native_input() -> Result<()> {
         profile.select_controls_shown,
     );
     Ok(())
+}
+
+fn parse_user_url(input: &str) -> Result<Url> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        bail!("--url cannot be empty");
+    }
+
+    let with_scheme =
+        if trimmed.contains("://") || trimmed.starts_with("about:") || trimmed.starts_with("file:")
+        {
+            trimmed.to_string()
+        } else {
+            format!("https://{trimmed}")
+        };
+
+    Url::parse(&with_scheme).with_context(|| format!("invalid URL: {input}"))
 }
 
 fn start_test_server(root: PathBuf) -> Result<Url> {

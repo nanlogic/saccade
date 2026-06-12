@@ -2,6 +2,7 @@
 
 mod arena_run;
 mod devmax_probe;
+mod dogfood;
 mod formmax_run;
 mod native_input;
 mod real_run;
@@ -15,6 +16,7 @@ mod page_selftest;
 pub use arena_run::{ArenaRunConfig, ArenaRunReport, run_arena};
 pub use calibration::{CalibrationAttempt, CalibrationClick, CalibrationReport, calibrate_input};
 pub use devmax_probe::devmax_probe;
+pub use dogfood::{DogfoodBrowserConfig, run_dogfood_browser};
 pub use formmax_run::{
     FormmaxRunConfig, FormmaxRunReport, run_formmax_fixture, run_formmax_fixture_with_config,
 };
