@@ -1905,6 +1905,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "formmax"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "saccade_browser",
+ "serde",
+ "serde_json",
+ "tiny_http",
+ "url",
+]
+
+[[package]]
 name = "freetype"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

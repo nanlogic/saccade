@@ -13,6 +13,8 @@ const rows = fixture.buildRows(manifest.row_count);
 const pages = fixture.splitPages(rows);
 const receipt = fixture.makeReceipt(rows, pages.length);
 const validation = fixture.validateReceipt(rows, receipt);
+const blankReceipt = fixture.makeReceipt(fixture.makeBlankRows(rows), pages.length);
+const blankValidation = fixture.validateReceipt(rows, blankReceipt);
 const sensitive = manifest.sensitive_fields.map((field) => ({
   ...field,
   classification: fixture.classifySensitiveField(field)
@@ -23,6 +25,7 @@ if (rows.length < 80) failures.push(`row_count below 80: ${rows.length}`);
 if (pages.length !== manifest.pages) failures.push(`page count mismatch: ${pages.length}`);
 if (pages.some((page) => page.length === 0)) failures.push("empty page generated");
 if (!validation.passed) failures.push(...validation.failures);
+if (blankValidation.passed) failures.push("blank submitted state unexpectedly passed receipt validation");
 for (const field of sensitive) {
   if (!field.classification.sensitive) {
     failures.push(`sensitive field not classified: ${field.name}`);
@@ -39,6 +42,7 @@ const result = {
   metrics: {
     field_discovery_recall: 1,
     field_fill_accuracy: validation.passed ? 1 : 0,
+    blank_state_rejected: blankValidation.passed ? 0 : 1,
     scroll_coverage: 1,
     sensitive_field_safety: failures.some((failure) => failure.includes("sensitive")) ? 0 : 1
   },

@@ -222,11 +222,11 @@ M10 passes when all local tracks pass three consecutive runs with deterministic 
 
 ## Build Order
 
-1. Add local FORMMAX fixtures under `test_pages/formmax/`.
-2. Add field map extraction for ordinary HTML controls.
-3. Add scroll planner and row coverage tracking.
-4. Add multi-page replay events and receipt validation.
-5. Add sensitive-field classifier and confirmation gate.
+1. Add local FORMMAX fixtures under `test_pages/formmax/`. Done.
+2. Add field map extraction for ordinary HTML controls. Done in runner replay v0.
+3. Add scroll planner and row coverage tracking. Done for the local lazy table.
+4. Add multi-page replay events and receipt validation. Done for the local two-page fixture.
+5. Add sensitive-field classifier and confirmation gate. Done locally with `requires_user_input` events.
 6. Add PDF AcroForm feasibility test.
 7. Add browser PDF viewer feasibility test.
 8. Add `formmax validate-run <run_dir>`.
@@ -235,8 +235,8 @@ M10 passes when all local tracks pass three consecutive runs with deterministic 
 
 - Decide whether PDF filling lives in Rust or a small sidecar tool.
 - Decide whether confirmation UI lives in the CLI, local web dashboard, or future HTTP API.
-- Decide whether FORMMAX shares `mousemax` as one binary or gets a new `formmax` binary.
+- Decided: FORMMAX has a separate `formmax` binary.
 
 ## Next Step
 
-Implement Track A as a local fixture and runner spike. It exercises scrolling, table mapping, typed input, submit, receipt validation, and replay without needing PDF support yet.
+Harden the local runner: add screenshots, `formmax validate-run`, native input-event typing where Servo supports it, and a Playwright/Chrome comparison baseline.

@@ -124,9 +124,10 @@ Do not let Playwright locator semantics become the main Saccade API. Saccade's A
 
 ## Immediate Next Step
 
-Move DEVMAX from static fixture markers toward browser-backed truth:
+Use Saccade first on the local FORMMAX fixture, then continue moving DEVMAX from static fixture markers toward browser-backed truth:
 
 ```text
+Run FORMMAX before and after form-runner changes.
 Open local app or fixture.
 Collect rendered truth and action map from the browser boundary.
 Expand click verification from one action to multi-action smoke flows.

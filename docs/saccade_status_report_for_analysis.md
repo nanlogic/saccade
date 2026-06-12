@@ -96,6 +96,18 @@ Observed result:
 FORMMAX FIXTURE PASS rows=96 pages=2 sensitive_fields=3
 ```
 
+Browser runner:
+
+```bash
+cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay
+```
+
+Observed result:
+
+```text
+FORMMAX RUNNER PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true
+```
+
 ### M11: PDF And Sensitive Field Feasibility
 
 We added an offline PDF feasibility harness:
@@ -125,13 +137,14 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 - The pixel-only path can solve the benchmark without target DOM reads.
 - Replay logs can reproduce the run summary and generate a click map.
 - A local HTTP shell can expose benchmark start/status/result for an agent.
-- The project now has a local practical-form fixture for long scrolling forms and multi-page submission.
+- The project now has a local practical-form fixture and browser runner for long scrolling forms and multi-page submission.
+- The FORMMAX runner can fill non-sensitive table fields, block sensitive fields, verify the receipt, and produce replay JSONL without echoing table values.
 - The project can detect sensitive PDF/form fields and keep them gated in offline tests.
 
 ## What Is Not Proven Yet
 
 - Linux/X11 has not yet repeated the M7 real-site gate.
-- M10 does not yet include a browser runner that fills the FORMMAX page through Servo input.
+- FORMMAX v0 drives trusted fixture DOM controls inside a Servo-loaded page; it is not yet native keyboard text entry.
 - M11 does not yet fill PDFs through the browser PDF viewer. It uses a programmatic AcroForm path.
 - Sensitive-field confirmation is represented by policy and offline tests. It does not yet have a live user confirmation UI.
 - Replay timestamps measure when Servo input dispatch returned, not when page JavaScript processed the event.
@@ -141,7 +154,7 @@ FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3
 1. Run the M7 gate on Linux/X11.
 2. Continue N2 login handoff: Human tab logs in, Agent tab inherits the session without seeing passwords or OTP.
 3. Start DEVMAX local agent self-test fixtures.
-4. Add a FORMMAX browser runner that fills the local long-table fixture through Servo input.
+4. Harden FORMMAX with screenshots, `validate-run`, native input-event typing where Servo supports it, and comparison baselines.
 5. Add a user confirmation UI for sensitive fields.
 6. Add a public-facing report page that links the M7 artifact, click map, validator output, and caveats.
 

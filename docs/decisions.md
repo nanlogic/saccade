@@ -57,6 +57,14 @@
 
 - Added a local FORMMAX capacity fixture under `test_pages/formmax/`. It covers two-page long tables, lazy row rendering, mixed field types, receipt JSON, and confirmation-gated sensitive fields.
 - `scripts/formmax_fixture_smoke.js` validates the deterministic fixture oracle and writes `runs/formmax/fixture_smoke/result.json`.
+- The fixture now starts with empty ordinary fields and produces receipts from submitted DOM state. The smoke oracle rejects a blank submitted state, so FORMMAX cannot pass merely because the fixture knows the expected rows.
+
+## N4 - FORMMAX Servo runner
+
+- Added `formmax run --fixture ... --replay` as the local practical form workflow gate.
+- The runner opens the fixture in Servo, scrolls both lazy-rendered pages, fills 672 non-sensitive fields, blocks the three sensitive fields as `requires_user_input`, submits the local fixture, verifies the receipt, and writes replay JSONL.
+- The v0 runner drives trusted fixture DOM controls from the Servo page context. It proves rendered-page state, transaction replay, scroll/page coverage, receipt validation, and safety policy. It is not yet native keyboard text entry.
+- Local verification passed three consecutive runs. The first run wrote `runs/formmax/run_1781233667392/` with 2711 replay events and no table-value echo in replay.
 
 ## M11 - PDF and sensitive gate feasibility
 
