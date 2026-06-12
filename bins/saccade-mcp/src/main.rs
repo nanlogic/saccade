@@ -97,6 +97,8 @@ struct SelftestEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    dev_click_all_primary_actions: bool,
+    dev_fill_smoke_form: bool,
     dev_get_report: bool,
     report_validate_run: bool,
     report_replay_summary: bool,
@@ -207,6 +209,8 @@ fn selftest() -> Result<()> {
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
         && stdio_evidence.web_act
+        && stdio_evidence.dev_click_all_primary_actions
+        && stdio_evidence.dev_fill_smoke_form
         && stdio_evidence.dev_get_report
         && stdio_evidence.report_validate_run
         && stdio_evidence.report_replay_summary;
@@ -225,6 +229,8 @@ fn selftest() -> Result<()> {
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
+        dev_click_all_primary_actions: stdio_evidence.dev_click_all_primary_actions,
+        dev_fill_smoke_form: stdio_evidence.dev_fill_smoke_form,
         dev_get_report: stdio_evidence.dev_get_report,
         report_validate_run: stdio_evidence.report_validate_run,
         report_replay_summary: stdio_evidence.report_replay_summary,
@@ -293,7 +299,7 @@ fn registry() -> ToolRegistry {
                 "Verify primary local-dev actions through Saccade action IDs and policy.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.dev.fill_smoke_form",
@@ -302,7 +308,7 @@ fn registry() -> ToolRegistry {
                 "Fill non-sensitive smoke-test fields on a local form and return replay paths.",
                 true,
                 true,
-                false,
+                true,
             ),
             tool(
                 "saccade.dev.get_report",
@@ -504,6 +510,8 @@ struct JsonRpcEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    dev_click_all_primary_actions: bool,
+    dev_fill_smoke_form: bool,
     dev_get_report: bool,
     report_validate_run: bool,
     report_replay_summary: bool,
@@ -604,6 +612,31 @@ fn input_schema(name: &str) -> Value {
                 "url": {"type": "string"},
                 "tab_id": {"type": "integer"},
                 "engine": {"type": "string", "enum": ["servo", "static"], "default": "servo"},
+                "replay": {"type": "boolean", "default": true}
+            },
+            "additionalProperties": false
+        }),
+        "saccade.dev.click_all_primary_actions" => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "tab_id": {"type": "integer"},
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "max_actions": {"type": "integer", "default": 1},
+                        "local_dev_only": {"type": "boolean", "const": true}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        }),
+        "saccade.dev.fill_smoke_form" => json!({
+            "type": "object",
+            "properties": {
+                "fixture": {"type": "string", "default": "test_pages/formmax/index.html"},
+                "input": {"type": "string"},
                 "replay": {"type": "boolean", "default": true}
             },
             "additionalProperties": false
@@ -709,6 +742,10 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
     match name {
         "saccade.dev.open_local" => open_local_tool(state, arguments),
         "saccade.dev.audit_page" => audit_page_tool(state, arguments),
+        "saccade.dev.click_all_primary_actions" => {
+            dev_click_all_primary_actions_tool(state, arguments)
+        }
+        "saccade.dev.fill_smoke_form" => dev_fill_smoke_form_tool(arguments),
         "saccade.dev.get_report" => dev_get_report_tool(arguments),
         "saccade.tabs.list" => tabs_list_tool(state),
         "saccade.tabs.open" => tabs_open_tool(state, arguments),
@@ -800,6 +837,58 @@ fn audit_page_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
             "replay": devmax.replay_path,
         }
     }))
+}
+
+fn dev_click_all_primary_actions_tool(
+    state: &mut McpSessionState,
+    arguments: Value,
+) -> Result<Value> {
+    let (tab_id, url) = resolve_tab_or_url(state, &arguments)?;
+    if !is_local_dev_url(&url) {
+        bail!("saccade.dev.click_all_primary_actions only accepts local dev URLs: {url}");
+    }
+    let max_actions = arguments
+        .pointer("/policy/max_actions")
+        .and_then(Value::as_u64)
+        .unwrap_or(1) as usize;
+    if arguments
+        .pointer("/policy/local_dev_only")
+        .and_then(Value::as_bool)
+        .is_some_and(|enabled| !enabled)
+    {
+        bail!("saccade.dev.click_all_primary_actions v0 requires local_dev_only=true");
+    }
+
+    let devmax = run_devmax_audit(&url, "servo", true)?;
+    if let Some(tab_id) = tab_id {
+        update_tab_from_devmax(state, tab_id, &devmax)?;
+    }
+    if devmax.action_map.len() > max_actions {
+        bail!(
+            "click_all_primary_actions v0 refuses {} actions; max_actions={}",
+            devmax.action_map.len(),
+            max_actions
+        );
+    }
+
+    Ok(json!({
+        "status": "ok",
+        "summary": "primary local-dev actions verified through Servo-backed DEVMAX audit",
+        "url": url.as_str(),
+        "tab_id": tab_id.map(|id| id.0),
+        "actions_seen": devmax.action_map.len(),
+        "actions_verified": devmax.action_map.len(),
+        "actions": devmax.action_map,
+        "findings": devmax.findings,
+        "artifacts": {
+            "report": devmax.report_path,
+            "replay": devmax.replay_path,
+        }
+    }))
+}
+
+fn dev_fill_smoke_form_tool(arguments: Value) -> Result<Value> {
+    web_fill_form_tool(arguments)
 }
 
 #[derive(Debug, Clone)]
@@ -1778,11 +1867,60 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 .map(|status| status == "ok")
         })
         .unwrap_or(false);
+    let dev_click_all_primary_actions = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(9)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.dev.click_all_primary_actions",
+                "arguments": {
+                    "tab_id": tab_id,
+                    "policy": {
+                        "max_actions": 1,
+                        "local_dev_only": true
+                    }
+                }
+            }),
+        },
+    )
+    .and_then(|response| {
+        response
+            .get("result")
+            .and_then(|result| result.get("structuredContent"))
+            .and_then(|content| content.get("status"))
+            .and_then(Value::as_str)
+            .map(|status| status == "ok")
+    })
+    .unwrap_or(false);
+    let dev_fill_smoke_form = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(10)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.dev.fill_smoke_form",
+                "arguments": {
+                    "fixture": "test_pages/formmax/index.html",
+                    "replay": true
+                }
+            }),
+        },
+    )
+    .and_then(|response| {
+        response
+            .get("result")
+            .and_then(|result| result.get("structuredContent"))
+            .and_then(|content| content.get("status"))
+            .and_then(Value::as_str)
+            .map(|status| status == "ok")
+    })
+    .unwrap_or(false);
     let dev_get_report = !audit_report.is_empty()
         && handle_json_rpc(
             &mut state,
             JsonRpcRequest {
-                id: Some(json!(9)),
+                id: Some(json!(11)),
                 method: "tools/call".into(),
                 params: json!({
                     "name": "saccade.dev.get_report",
@@ -1809,7 +1947,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         && handle_json_rpc(
             &mut state,
             JsonRpcRequest {
-                id: Some(json!(10)),
+                id: Some(json!(12)),
                 method: "tools/call".into(),
                 params: json!({
                     "name": "saccade.report.validate_run",
@@ -1833,7 +1971,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         && handle_json_rpc(
             &mut state,
             JsonRpcRequest {
-                id: Some(json!(11)),
+                id: Some(json!(13)),
                 method: "tools/call".into(),
                 params: json!({
                     "name": "saccade.report.replay_summary",
@@ -1861,6 +1999,8 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         web_truth,
         web_actions,
         web_act,
+        dev_click_all_primary_actions,
+        dev_fill_smoke_form,
         dev_get_report,
         report_validate_run,
         report_replay_summary,

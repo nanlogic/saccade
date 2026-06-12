@@ -73,6 +73,8 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Exposes `saccade.web.truth` and `saccade.web.actions` from DEVMAX report state.
 - Runs `saccade.web.act` v0 through a Servo-backed DEVMAX verification pass for the first enabled action in the current action map.
 - Runs `saccade.web.fill_form` v0 against the local FORMMAX fixture, blocks sensitive fields, validates the result, and returns result/replay/screenshot artifact paths.
+- Runs `saccade.dev.click_all_primary_actions` v0 through Servo-backed DEVMAX verification when the local page has at most one primary action.
+- Routes `saccade.dev.fill_smoke_form` to the same FORMMAX local fixture workflow.
 - Creates Human-owned login tabs through `saccade.tabs.request_user_login` without exposing credentials to agent truth.
 - Loads compact reports through `saccade.dev.get_report` without returning full artifacts.
 - Validates generic run directories and FORMMAX run directories through `saccade.report.validate_run`.
@@ -81,4 +83,4 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 
 ## Next
 
-Complete MCP protocol polish, move tab state from in-memory v0 to a browser-backed tab session, and route the remaining report/dev helper through durable artifact indexes.
+Complete MCP protocol polish, move tab state from in-memory v0 to a browser-backed tab session, and add durable artifact indexes.

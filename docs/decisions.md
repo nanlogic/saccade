@@ -163,4 +163,5 @@
 - `saccade.web.truth/actions` use DEVMAX report state as compact browser truth/action-map evidence. `saccade.web.act` v0 requires an Agent-owned local tab, a fresh page revision, and the first enabled action in the current action map, then runs a Servo-backed DEVMAX verification pass.
 - Added report tools: `saccade.dev.get_report`, `saccade.report.validate_run`, and `saccade.report.replay_summary`. `validate_run` can route FORMMAX run directories to the FORMMAX validator; `replay_summary` returns event counts without replay contents.
 - Added `saccade.web.fill_form` v0 for the local FORMMAX fixture. It runs the FORMMAX Servo runner, blocks sensitive fields, validates the run, and returns result/replay/screenshot artifact paths. Evidence run: `runs/formmax/run_1781270729709`.
+- Added v0 handlers for the remaining MCP tools: `saccade.dev.click_all_primary_actions` and `saccade.dev.fill_smoke_form`. All 17 registered tools now have handlers; the selftest verifies the full set, with local-only and max-one-action limits where appropriate.
 - The next step is replacing in-memory/report-backed tabs with browser-backed tab sessions and durable artifact indexes.
