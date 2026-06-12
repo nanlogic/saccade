@@ -12,6 +12,12 @@
   <main>
     <h1>Invoice</h1>
     <button class="ghost" data-devmax-invisible-text type="button">Submit</button>
+    <p id="status">idle</p>
   </main>
+  <script>
+    document.querySelector("button").addEventListener("click", () => {
+      document.getElementById("status").textContent = "submitted";
+    });
+  </script>
 </body>
 </html>

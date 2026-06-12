@@ -15,7 +15,7 @@ cargo run -q -p devmax -- selftest-servo-fixtures
 Observed output:
 
 ```text
-DEVMAX SERVO FIXTURES PASS total=5 detected=5 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781223967984
+DEVMAX SERVO FIXTURES PASS total=6 detected=6 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781224367155
 ```
 
 ## What It Tests
@@ -30,6 +30,7 @@ The Servo probe opens each fixture in a real Servo WebView and evaluates compact
 - computed foreground/background colors
 - overlay blockers covering action centers
 - screenshot pixel checks for canvas regions
+- real mouse click verification for enabled actions
 
 Covered fixtures:
 
@@ -38,12 +39,13 @@ Covered fixtures:
 - `offscreen_button`
 - `modal_blocks_page`
 - `canvas_chart_blank`
+- `button_no_handler`
 
 ## Important Boundary
 
 This is `engine=servo-rendered-probe-v0`.
 
-It uses screenshot pixels for canvas-region blank checks. It does not capture real browser console/network events yet. It does prove the report path can consume browser-computed layout/style truth and screenshot evidence instead of only static fixture markers.
+It uses screenshot pixels for canvas-region blank checks and real Servo mouse input for first-action click verification. It does not capture real browser console/network events yet. It does prove the report path can consume browser-computed layout/style truth, screenshot evidence, and post-click page state instead of only static fixture markers.
 
 ## Runtime Note
 

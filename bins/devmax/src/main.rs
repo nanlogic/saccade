@@ -24,6 +24,7 @@ const SERVO_FIXTURES: &[&str] = &[
     "offscreen_button",
     "modal_blocks_page",
     "canvas_chart_blank",
+    "button_no_handler",
 ];
 
 const FIXTURES: &[&str] = &[
@@ -811,6 +812,23 @@ fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxR
                 canvas,
             ));
         }
+    }
+
+    if probe
+        .pointer("/clickVerification/no_effect")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        findings.push(finding(
+            "button_no_handler",
+            "high",
+            Some("button, a, input, select, textarea, [role=button]"),
+            "Browser click verification found an enabled action with no visible effect.",
+            probe
+                .get("clickVerification")
+                .cloned()
+                .unwrap_or(Value::Null),
+        ));
     }
 
     let summary = if findings.is_empty() {

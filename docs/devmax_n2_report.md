@@ -15,7 +15,7 @@ cargo run -q -p devmax -- selftest-fixtures
 Observed output:
 
 ```text
-DEVMAX FIXTURES PASS total=16 detected=16 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/selftest_1781223990081
+DEVMAX FIXTURES PASS total=16 detected=16 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/selftest_1781224367182
 ```
 
 The live audit command also passed against a local fixture server:
@@ -39,7 +39,7 @@ cargo run -q -p devmax -- selftest-servo-fixtures
 Observed output:
 
 ```text
-DEVMAX SERVO FIXTURES PASS total=5 detected=5 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781223967984
+DEVMAX SERVO FIXTURES PASS total=6 detected=6 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781224367155
 ```
 
 ## What Was Built
@@ -94,10 +94,10 @@ Each fixture also writes a replay JSONL with run-start, finding, and run-finishe
 
 The first gate is `engine=static-fixture-v0`; the new browser-backed path is `engine=servo-rendered-probe-v0`.
 
-Together they prove the DEVMAX CLI/report contract, fixture corpus, replay artifact shape, browser-computed layout/style truth path, and screenshot pixel checks for blank canvas regions. DEVMAX still does not yet claim browser console/network capture or click verification through Servo.
+Together they prove the DEVMAX CLI/report contract, fixture corpus, replay artifact shape, browser-computed layout/style truth path, screenshot pixel checks for blank canvas regions, and real click verification for enabled actions. DEVMAX still does not yet claim browser console/network capture.
 
 Next DEVMAX step:
 
 ```text
-Expand Servo-backed truth to browser-side console/network capture and click verification.
+Expand Servo-backed truth to browser-side console/network capture.
 ```

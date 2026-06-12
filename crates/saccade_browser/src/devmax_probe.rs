@@ -3,11 +3,12 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use euclid::Scale;
+use euclid::{Point2D, Scale};
 use serde_json::{Value, json};
 use servo::{
-    DeviceIntRect, DeviceIntSize, JSValue, LoadStatus, RenderingContext, Servo, ServoBuilder,
-    WebView, WebViewBuilder, WebViewDelegate, WindowRenderingContext,
+    CSSPixel, DeviceIntRect, DeviceIntSize, InputEvent, JSValue, LoadStatus, MouseButton,
+    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext, Servo, ServoBuilder,
+    WebView, WebViewBuilder, WebViewDelegate, WebViewPoint, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -42,7 +43,9 @@ pub fn devmax_probe(url: Url) -> Result<Value> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Load,
-    ProbeRequested,
+    BaselineProbeRequested,
+    ClickDispatched,
+    VerificationProbeRequested,
     Done,
 }
 
@@ -55,6 +58,9 @@ struct ProbeState {
     started_at: Instant,
     phase: Cell<Phase>,
     pending_probe: Rc<RefCell<Option<std::result::Result<String, String>>>>,
+    baseline_probe: RefCell<Option<Value>>,
+    clicked_action: RefCell<Option<Value>>,
+    click_dispatched_at: RefCell<Option<Instant>>,
     result: Rc<RefCell<Option<std::result::Result<Value, String>>>>,
 }
 
@@ -112,19 +118,30 @@ impl ProbeApp {
         match state.phase.get() {
             Phase::Load if webview.load_status() == LoadStatus::Complete => {
                 request_probe(&state, &webview);
-                state.phase.set(Phase::ProbeRequested);
+                state.phase.set(Phase::BaselineProbeRequested);
             }
-            Phase::ProbeRequested => {
+            Phase::BaselineProbeRequested => {
                 let Some(probe) = finish_probe(&state.pending_probe) else {
                     return;
                 };
                 match serde_json::from_str(&probe) {
-                    Ok(mut value) => {
-                        webview.paint();
-                        if let Some(screenshot) = screenshot_summary(&state, &value) {
-                            value["screenshot"] = screenshot;
+                    Ok(value) => {
+                        if let Some(action) = first_click_candidate(&value) {
+                            click_action(&state, &webview, &action);
+                            *state.baseline_probe.borrow_mut() = Some(value);
+                            *state.clicked_action.borrow_mut() = Some(action);
+                            *state.click_dispatched_at.borrow_mut() = Some(Instant::now());
+                            state.phase.set(Phase::ClickDispatched);
+                        } else {
+                            let mut value = value;
+                            webview.paint();
+                            if let Some(screenshot) = screenshot_summary(&state, &value) {
+                                value["screenshot"] = screenshot;
+                            }
+                            finish_ok(&state, event_loop, value);
+                            state.phase.set(Phase::Done);
+                            *self = Self::Finished;
                         }
-                        finish_ok(&state, event_loop, value);
                     }
                     Err(error) => finish_err(
                         &state,
@@ -132,8 +149,49 @@ impl ProbeApp {
                         format!("failed to parse DEVMAX probe JSON: {error}; raw={probe:?}"),
                     ),
                 }
-                state.phase.set(Phase::Done);
-                *self = Self::Finished;
+            }
+            Phase::ClickDispatched => {
+                if state
+                    .click_dispatched_at
+                    .borrow()
+                    .is_some_and(|instant| instant.elapsed() >= Duration::from_millis(160))
+                {
+                    request_probe(&state, &webview);
+                    state.phase.set(Phase::VerificationProbeRequested);
+                }
+            }
+            Phase::VerificationProbeRequested => {
+                let Some(probe) = finish_probe(&state.pending_probe) else {
+                    return;
+                };
+                match serde_json::from_str(&probe) {
+                    Ok(after_click) => {
+                        let mut value = state
+                            .baseline_probe
+                            .borrow_mut()
+                            .take()
+                            .unwrap_or(Value::Null);
+                        if let Some(screenshot) = screenshot_summary(&state, &after_click) {
+                            value["screenshot"] = screenshot;
+                        }
+                        value["afterClick"] = after_click.clone();
+                        value["clickVerification"] = click_verification_summary(
+                            state.clicked_action.borrow().as_ref(),
+                            &value,
+                            &after_click,
+                        );
+                        finish_ok(&state, event_loop, value);
+                        state.phase.set(Phase::Done);
+                        *self = Self::Finished;
+                    }
+                    Err(error) => finish_err(
+                        &state,
+                        event_loop,
+                        format!(
+                            "failed to parse DEVMAX verification probe JSON: {error}; raw={probe:?}"
+                        ),
+                    ),
+                }
             }
             Phase::Done => {}
             _ => {}
@@ -221,6 +279,9 @@ impl ApplicationHandler<WakerEvent> for ProbeApp {
             started_at: Instant::now(),
             phase: Cell::new(Phase::Load),
             pending_probe: Rc::new(RefCell::new(None)),
+            baseline_probe: RefCell::new(None),
+            clicked_action: RefCell::new(None),
+            click_dispatched_at: RefCell::new(None),
             result: result.clone(),
         });
 
@@ -314,6 +375,93 @@ fn finish_err(state: &Rc<ProbeState>, event_loop: &ActiveEventLoop, message: imp
         *state.result.borrow_mut() = Some(Err(message.into()));
     }
     event_loop.exit();
+}
+
+fn first_click_candidate(probe: &Value) -> Option<Value> {
+    probe
+        .get("actions")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|action| {
+            !action
+                .get("disabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                && action
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                && !action
+                    .get("offscreen")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                && action.get("blockedBy").is_none_or(Value::is_null)
+        })
+        .cloned()
+}
+
+fn click_action(state: &Rc<ProbeState>, webview: &WebView, action: &Value) {
+    let rect = action.get("rect").unwrap_or(&Value::Null);
+    let x = (value_f64(rect, "left") + value_f64(rect, "width") / 2.0) as f32;
+    let y = (value_f64(rect, "top") + value_f64(rect, "height") / 2.0) as f32;
+    let page_point = WebViewPoint::Page(Point2D::<f32, CSSPixel>::new(x, y));
+    webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(page_point)));
+    webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+        MouseButtonAction::Down,
+        MouseButton::Left,
+        page_point,
+    )));
+    webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+        MouseButtonAction::Up,
+        MouseButton::Left,
+        page_point,
+    )));
+    state.window.request_redraw();
+}
+
+fn click_verification_summary(
+    action: Option<&Value>,
+    before_click: &Value,
+    after_click: &Value,
+) -> Value {
+    let before_text = before_click
+        .get("bodyText")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let after_text = after_click
+        .get("bodyText")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let before_url = before_click
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let after_url = after_click.get("url").and_then(Value::as_str).unwrap_or("");
+    let before_child_count = before_click
+        .get("bodyChildCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let after_child_count = after_click
+        .get("bodyChildCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let changed = before_text != after_text
+        || before_url != after_url
+        || before_child_count != after_child_count;
+
+    json!({
+        "attempted": action.is_some(),
+        "action": action.cloned().unwrap_or(Value::Null),
+        "body_text_changed": before_text != after_text,
+        "url_changed": before_url != after_url,
+        "body_child_count_changed": before_child_count != after_child_count,
+        "changed": changed,
+        "no_effect": action.is_some() && !changed,
+        "after_body_text_sample": after_click
+            .get("bodyTextSample")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    })
 }
 
 fn screenshot_summary(state: &Rc<ProbeState>, probe: &Value) -> Option<Value> {
@@ -570,6 +718,8 @@ const PROBE_JS: &str = r##"
     title: document.title || "",
     url: location.href,
     viewport,
+    bodyText,
+    bodyTextSample: bodyText.slice(0, 240),
     bodyTextLength: bodyText.length,
     bodyChildCount: body ? body.children.length : 0,
     blankPage: bodyText.length === 0 && (!body || body.children.length === 0),

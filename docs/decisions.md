@@ -100,3 +100,10 @@
 - The probe now combines browser-reported canvas rectangles with screenshot RGBA sampling to detect blank canvas regions.
 - `devmax selftest-servo-fixtures` now includes `canvas_chart_blank` and passed with `total=5 detected=5 false_positives=0`.
 - Browser console and network capture remain pending; the current Servo probe does not claim those yet.
+
+## N2D - DEVMAX click verification
+
+- Extended `devmax_probe` to dispatch one real Servo mouse click against the first visible, enabled, unblocked action and then collect a second browser truth probe.
+- The report now includes `clickVerification` evidence comparing before/after body text, URL, and body child count.
+- `button_no_handler` is now covered by the Servo gate: a clickable `Save` button with no visible post-click effect is reported as `button_no_handler`.
+- `devmax selftest-servo-fixtures` passed with `total=6 detected=6 false_positives=0`.
