@@ -478,9 +478,18 @@ fn click_verification_summary(
         .get("bodyChildCount")
         .and_then(Value::as_u64)
         .unwrap_or(0);
+    let before_page_revision = before_click
+        .get("pageRevision")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let after_page_revision = after_click
+        .get("pageRevision")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let changed = before_text != after_text
         || before_url != after_url
-        || before_child_count != after_child_count;
+        || before_child_count != after_child_count
+        || before_page_revision != after_page_revision;
 
     json!({
         "attempted": action.is_some(),
@@ -488,6 +497,9 @@ fn click_verification_summary(
         "body_text_changed": before_text != after_text,
         "url_changed": before_url != after_url,
         "body_child_count_changed": before_child_count != after_child_count,
+        "page_revision_changed": before_page_revision != after_page_revision,
+        "before_page_revision": before_page_revision,
+        "after_page_revision": after_page_revision,
         "changed": changed,
         "no_effect": action.is_some() && !changed,
         "after_body_text_sample": after_click
@@ -642,6 +654,7 @@ const PROBE_JS: &str = r##"
   const viewport = { width: window.innerWidth || 0, height: window.innerHeight || 0 };
   const body = document.body;
   const bodyText = body ? (body.innerText || body.textContent || "").trim() : "";
+  const pageRevision = Number(body && body.dataset ? (body.dataset.sessionRevision || "0") : "0") || 0;
 
   function rectOf(el) {
     const rect = el.getBoundingClientRect();
@@ -755,6 +768,7 @@ const PROBE_JS: &str = r##"
     bodyTextSample: bodyText.slice(0, 240),
     bodyTextLength: bodyText.length,
     bodyChildCount: body ? body.children.length : 0,
+    pageRevision,
     blankPage: bodyText.length === 0 && (!body || body.children.length === 0),
     actions,
     invisibleText,

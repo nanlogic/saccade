@@ -81,7 +81,8 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Summarizes replay JSONL through `saccade.report.replay_summary`, including event counts and value-like field detection.
 - Appends generated DEVMAX/FORMMAX artifact paths to `runs/mcp/artifacts.jsonl` so later agents can find evidence without relying on chat history.
 - Verifies normal fields are agent-fillable while sensitive payment fields require user input.
+- Browser-session smoke now exists outside MCP: `saccade-shell selftest-browser-session` proves open, truth, action map, native act, and truth-after-act on one Servo WebView path.
 
 ## Next
 
-Complete MCP protocol polish and move tab state from in-memory/report-backed v0 to a browser-backed tab session.
+Move MCP tab state from in-memory/report-backed v0 to a long-lived browser-backed tab session actor.

@@ -32,6 +32,7 @@ enum Command {
     SelftestLoginHandoff,
     SelftestSafety,
     SelftestNativeInput,
+    SelftestBrowserSession,
 }
 
 fn main() -> Result<()> {
@@ -47,6 +48,7 @@ fn main() -> Result<()> {
         Command::SelftestLoginHandoff => selftest_login_handoff(),
         Command::SelftestSafety => selftest_safety(),
         Command::SelftestNativeInput => selftest_native_input(),
+        Command::SelftestBrowserSession => selftest_browser_session(),
     }
 }
 
@@ -183,6 +185,39 @@ fn selftest_native_input() -> Result<()> {
         profile.select_input_events,
         profile.select_change_events,
         profile.select_controls_shown,
+    );
+    Ok(())
+}
+
+fn selftest_browser_session() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("browser_session"))?;
+    let profile = saccade_browser::selftest_browser_session(
+        base_url,
+        workspace.join("runs").join("browser_session"),
+    )?;
+
+    if !profile.opened
+        || !profile.truth_collected
+        || profile.actions_seen == 0
+        || !profile.act_attempted
+        || !profile.act_verified
+        || !profile.same_webview
+        || profile.page_revision_after <= profile.page_revision_before
+    {
+        bail!("browser session selftest failed: {profile:?}");
+    }
+
+    println!(
+        "BROWSER_SESSION PASS run_id={} session={} tab={} actions_seen={} revision={}=>{} report={} replay={}",
+        profile.run_id,
+        profile.session_id,
+        profile.tab_id,
+        profile.actions_seen,
+        profile.page_revision_before,
+        profile.page_revision_after,
+        profile.report_path.display(),
+        profile.replay_path.display(),
     );
     Ok(())
 }

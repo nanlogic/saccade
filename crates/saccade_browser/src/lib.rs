@@ -1,6 +1,7 @@
 //! Servo-backed browser boundary. This is the only crate that may import `servo`.
 
 mod arena_run;
+mod browser_session;
 mod devmax_probe;
 mod dogfood;
 mod formmax_run;
@@ -14,6 +15,7 @@ mod calibration;
 mod page_selftest;
 
 pub use arena_run::{ArenaRunConfig, ArenaRunReport, run_arena};
+pub use browser_session::{BrowserSessionProfile, selftest_browser_session};
 pub use calibration::{CalibrationAttempt, CalibrationClick, CalibrationReport, calibrate_input};
 pub use devmax_probe::devmax_probe;
 pub use dogfood::{DogfoodBrowserConfig, run_dogfood_browser};

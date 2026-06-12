@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Browser Session Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f7f8fa;
+      color: #20242c;
+    }
+
+    main {
+      max-width: 720px;
+      margin: 96px auto;
+      padding: 32px;
+      border: 1px solid #d9dee8;
+      background: #ffffff;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 28px;
+      font-weight: 650;
+    }
+
+    p {
+      margin: 0 0 24px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    button {
+      min-width: 180px;
+      min-height: 48px;
+      border: 0;
+      background: #1457d9;
+      color: white;
+      font: inherit;
+      font-weight: 650;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body data-session-revision="0">
+  <main>
+    <h1>Browser Session Smoke</h1>
+    <p id="status">Ready for agent action.</p>
+    <button id="verify-action" type="button">Verify Action</button>
+  </main>
+  <script>
+    const button = document.querySelector("#verify-action");
+    const status = document.querySelector("#status");
+    button.addEventListener("click", () => {
+      document.body.dataset.sessionRevision = "1";
+      status.textContent = "Agent action verified in the same browser session.";
+      button.textContent = "Verified";
+    });
+  </script>
+</body>
+</html>

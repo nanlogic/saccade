@@ -166,3 +166,10 @@
 - Added v0 handlers for the remaining MCP tools: `saccade.dev.click_all_primary_actions` and `saccade.dev.fill_smoke_form`. All 17 registered tools now have handlers; the selftest verifies the full set, with local-only and max-one-action limits where appropriate.
 - MCP tools that generate DEVMAX/FORMMAX evidence now append compact artifact records to `runs/mcp/artifacts.jsonl`.
 - The next step is replacing in-memory/report-backed tabs with browser-backed tab sessions.
+
+## N3B - Browser session smoke
+
+- Added `saccade-shell selftest-browser-session` as the first browser-backed session gate.
+- The gate uses one Servo WebView path to open a local fixture, collect truth/actions, dispatch a native mouse click, and collect post-action truth.
+- The local fixture advances `data-session-revision` from `0` to `1`; the report/replay gate requires the revision to advance and the click verification to be non-no-op.
+- This is a stepping stone, not the final MCP runtime. MCP tabs remain report-backed until a long-lived browser session actor can accept repeated MCP commands without rebuilding the WebView.
