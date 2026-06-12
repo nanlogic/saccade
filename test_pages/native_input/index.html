@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Native Input</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f6f7f9;
+        color: #101418;
+      }
+
+      main {
+        padding: 72px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 12px;
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      input {
+        box-sizing: border-box;
+        width: 360px;
+        height: 48px;
+        border: 2px solid #6b7280;
+        border-radius: 6px;
+        padding: 8px 12px;
+        background: #ffffff;
+        color: #111827;
+        font-size: 20px;
+      }
+
+      input:focus {
+        border-color: #1668e3;
+        outline: 3px solid rgba(22, 104, 227, 0.25);
+      }
+
+      pre {
+        margin-top: 28px;
+        width: 520px;
+        min-height: 120px;
+        padding: 16px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        background: #ffffff;
+        color: #374151;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <label for="probe">Native keyboard probe</label>
+      <input id="probe" name="probe" autocomplete="off" spellcheck="false">
+      <pre id="log">[]</pre>
+    </main>
+    <script>
+      (() => {
+        const input = document.getElementById("probe");
+        const log = document.getElementById("log");
+        const state = {
+          events: [],
+        };
+
+        function record(event) {
+          state.events.push({
+            type: event.type,
+            key: event.key || null,
+            inputType: event.inputType || null,
+            target: event.target ? event.target.id : null,
+            valueLength: input.value.length,
+          });
+          log.textContent = JSON.stringify(state.events, null, 2);
+        }
+
+        [
+          "mousedown",
+          "mouseup",
+          "click",
+          "focus",
+          "keydown",
+          "keypress",
+          "beforeinput",
+          "input",
+          "keyup",
+          "change",
+        ].forEach((type) => input.addEventListener(type, record));
+
+        window.__NATIVE_INPUT = state;
+        window.__NATIVE_INPUT_PROBE = () => {
+          const counts = {};
+          for (const event of state.events) {
+            counts[event.type] = (counts[event.type] || 0) + 1;
+          }
+          const rect = input.getBoundingClientRect();
+          return JSON.stringify({
+            ready: true,
+            activeId: document.activeElement ? document.activeElement.id : null,
+            focused: document.activeElement === input,
+            value: input.value,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            },
+            counts,
+            events: state.events,
+            selectionStart: input.selectionStart,
+            selectionEnd: input.selectionEnd,
+          });
+        };
+      })();
+    </script>
+  </body>
+</html>

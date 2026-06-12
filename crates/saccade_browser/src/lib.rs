@@ -3,6 +3,7 @@
 mod arena_run;
 mod devmax_probe;
 mod formmax_run;
+mod native_input;
 mod real_run;
 mod recon;
 mod selftest;
@@ -17,6 +18,7 @@ pub use devmax_probe::devmax_probe;
 pub use formmax_run::{
     FormmaxRunConfig, FormmaxRunReport, run_formmax_fixture, run_formmax_fixture_with_config,
 };
+pub use native_input::{NativeInputProfile, selftest_native_input};
 pub use page_selftest::{SelftestPageOutcome, SelftestPagesReport, selftest_pages};
 pub use real_run::{RealRunConfig, RealRunReport, run_real};
 pub use recon::{RealSiteRecon, real_site_recon};

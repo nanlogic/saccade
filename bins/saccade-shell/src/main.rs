@@ -20,6 +20,7 @@ enum Command {
     SelftestTabs,
     SelftestLoginHandoff,
     SelftestSafety,
+    SelftestNativeInput,
 }
 
 fn main() -> Result<()> {
@@ -28,6 +29,7 @@ fn main() -> Result<()> {
         Command::SelftestTabs => selftest_tabs(),
         Command::SelftestLoginHandoff => selftest_login_handoff(),
         Command::SelftestSafety => selftest_safety(),
+        Command::SelftestNativeInput => selftest_native_input(),
     }
 }
 
@@ -116,6 +118,37 @@ fn selftest_safety() -> Result<()> {
         profile.sensitive_completed_without_value,
         profile.sensitive_requires_user_input,
         profile.agent_knows_sensitive_field_status,
+    );
+    Ok(())
+}
+
+fn selftest_native_input() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("native_input"))?;
+    let profile = saccade_browser::selftest_native_input(base_url)?;
+
+    if !profile.focused
+        || profile.value != profile.expected_value
+        || profile.keydown_events < profile.expected_value.len()
+        || profile.input_events < profile.expected_value.len()
+        || profile.keyup_events < profile.expected_value.len()
+        || profile.dispatch_failed_keyboard_events != 0
+    {
+        bail!("native input selftest failed: {profile:?}");
+    }
+
+    println!(
+        "NATIVE_INPUT PASS focused={} value_len={} keydown={} keypress={} beforeinput={} input={} keyup={} handled_keyboard={} consumed_keyboard={} dispatch_failed={}",
+        profile.focused,
+        profile.value.len(),
+        profile.keydown_events,
+        profile.keypress_events,
+        profile.beforeinput_events,
+        profile.input_events,
+        profile.keyup_events,
+        profile.handled_keyboard_events,
+        profile.consumed_keyboard_events,
+        profile.dispatch_failed_keyboard_events,
     );
     Ok(())
 }

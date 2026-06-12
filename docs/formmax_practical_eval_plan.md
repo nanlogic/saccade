@@ -230,6 +230,7 @@ M10 passes when all local tracks pass three consecutive runs with deterministic 
 6. Add PDF AcroForm feasibility test.
 7. Add browser PDF viewer feasibility test.
 8. Add `formmax validate-run <run_dir>`. Done for runner artifacts.
+9. Add Servo native keyboard input probe. Done in `saccade-shell selftest-native-input`; not yet integrated into FORMMAX.
 
 ## Open Decisions
 
@@ -239,4 +240,4 @@ M10 passes when all local tracks pass three consecutive runs with deterministic 
 
 ## Next Step
 
-Harden the local runner: add native input-event typing where Servo supports it and a Playwright/Chrome comparison baseline.
+Harden the local runner by migrating ordinary text fields from fixture-side DOM writes to native keyboard typing where practical, then add a Playwright/Chrome comparison baseline.

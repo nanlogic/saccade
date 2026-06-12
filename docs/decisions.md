@@ -67,6 +67,13 @@
 - Local verification passed three consecutive runs. Current evidence run `runs/formmax/run_1781234358800/` has 2711 replay events, `before.png`, `after.png`, and no table-value echo in replay.
 - Added `formmax validate-run <run_dir>` to re-check result/replay artifacts, required event counts, sensitive field blocking, receipt validation, and replay value-leak policy.
 
+## N4A - Servo native input probe
+
+- Added `test_pages/native_input/` and `saccade-shell selftest-native-input`.
+- The selftest measures a real `<input>` rect, clicks its center through Saccade's native mouse path, types `saccade42` with `InputEvent::Keyboard`, then verifies focus, DOM value, keyboard/input event counts, and zero keyboard dispatch failures.
+- Pinned Servo `0.2.0` emits `keydown`, `keypress`, `input`, and `keyup` for this path, but not `beforeinput`. `InputEventResult::Consumed` stays false despite successful DOM input, so verification should rely on DOM state, replay evidence, and dispatch-failure checks.
+- The gate passed three consecutive local runs. This proves native keyboard text entry is available for the next FORMMAX hardening pass; the FORMMAX runner has not yet been migrated to it.
+
 ## M11 - PDF and sensitive gate feasibility
 
 - `scripts/formmax_pdf_feasibility.py` generates a fillable AcroForm PDF and a flat PDF, fills only non-sensitive fields, and verifies tax ID, signature, and legal attestation fields stay gated.
