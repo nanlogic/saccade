@@ -45,6 +45,10 @@ enum Command {
     BrowserSessionWorker {
         #[arg(long)]
         url: String,
+        #[arg(long, default_value_t = 1600)]
+        width: u32,
+        #[arg(long, default_value_t = 1000)]
+        height: u32,
         #[arg(long)]
         rendering_profile: Option<String>,
     },
@@ -71,11 +75,17 @@ fn main() -> Result<()> {
         Command::SelftestFormmaxLive => selftest_formmax_live(),
         Command::BrowserSessionWorker {
             url,
+            width,
+            height,
             rendering_profile,
-        } => saccade_browser::run_browser_session_worker(
-            parse_user_url(&url)?,
-            parse_rendering_profile(rendering_profile)?,
-        ),
+        } => {
+            let mut config =
+                saccade_browser::BrowserSessionWorkerConfig::new(parse_user_url(&url)?);
+            config.width = width;
+            config.height = height;
+            config.rendering_profile = parse_rendering_profile(rendering_profile)?;
+            saccade_browser::run_browser_session_worker_with_config(config)
+        }
     }
 }
 

@@ -21,6 +21,7 @@ Dependency alignment from `cargo tree -p saccade_browser`:
 - Page metadata callbacks: `WebViewDelegate::notify_url_changed(&self, WebView, Url)`, `notify_page_title_changed(&self, WebView, Option<String>)`, and `notify_load_status_changed(&self, WebView, LoadStatus)`.
 - Load readiness: `WebView::load_status() -> LoadStatus`; complete state is `LoadStatus::Complete`.
 - Paint: `WebView::paint()`.
+- Runtime resize: `WebView::resize(PhysicalSize<u32>)` resizes the rendering context/paint surface in the pinned API. In worker dogfood measurement it did not update the already-loaded page's JS/layout viewport (`window.innerWidth/innerHeight` stayed at startup size), so Saccade currently treats startup viewport size as the reliable layout contract.
 - Readback: `RenderingContext::read_to_image(source_rectangle: DeviceIntRect) -> Option<RgbaImage>`.
 - Input: `InputEvent::MouseMove(MouseMoveEvent::new(point: WebViewPoint))`; `InputEvent::MouseButton(MouseButtonEvent::new(action: MouseButtonAction, button: MouseButton, point: WebViewPoint))`.
 - Wheel input: `InputEvent::Wheel(WheelEvent::new(WheelDelta { x, y, z, mode }, point))`; Servo's pinned `winit_minimal` example maps `MouseScrollDelta::LineDelta` to `WheelMode::DeltaLine` and `PixelDelta` to `WheelMode::DeltaPixel`.

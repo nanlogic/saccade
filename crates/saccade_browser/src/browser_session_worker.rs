@@ -32,19 +32,46 @@ use winit::window::Window;
 
 use crate::{RenderingProfile, RenderingProfileSettings};
 
-const WINDOW_WIDTH: u32 = 1280;
-const WINDOW_HEIGHT: u32 = 800;
+const DEFAULT_WINDOW_WIDTH: u32 = 1600;
+const DEFAULT_WINDOW_HEIGHT: u32 = 1000;
 const LOAD_SETTLE_DELAY: Duration = Duration::from_millis(300);
 const ACT_VERIFY_DELAY: Duration = Duration::from_millis(160);
+
+#[derive(Clone)]
+pub struct BrowserSessionWorkerConfig {
+    pub url: Url,
+    pub rendering_profile: Option<RenderingProfile>,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl BrowserSessionWorkerConfig {
+    pub fn new(url: Url) -> Self {
+        Self {
+            url,
+            rendering_profile: None,
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
+        }
+    }
+}
 
 pub fn run_browser_session_worker(
     url: Url,
     rendering_profile: Option<RenderingProfile>,
 ) -> Result<()> {
-    let rendering_settings =
-        RenderingProfile::resolve_with_default(rendering_profile, RenderingProfile::ServoModern)?;
+    let mut config = BrowserSessionWorkerConfig::new(url);
+    config.rendering_profile = rendering_profile;
+    run_browser_session_worker_with_config(config)
+}
+
+pub fn run_browser_session_worker_with_config(config: BrowserSessionWorkerConfig) -> Result<()> {
+    let rendering_settings = RenderingProfile::resolve_with_default(
+        config.rendering_profile,
+        RenderingProfile::ServoModern,
+    )?;
     if rendering_settings.profile == RenderingProfile::ChromeReference {
-        return run_unsupported_worker(url, rendering_settings);
+        return run_unsupported_worker(config.url, rendering_settings);
     }
 
     let artifacts = WorkerArtifacts::new()?;
@@ -55,7 +82,15 @@ pub fn run_browser_session_worker(
     let reader_proxy = event_loop.create_proxy();
     thread::spawn(move || read_commands(tx, reader_proxy));
 
-    let mut app = WorkerApp::new(&event_loop, url, rx, artifacts, rendering_settings);
+    let mut app = WorkerApp::new(
+        &event_loop,
+        config.url,
+        rx,
+        artifacts,
+        rendering_settings,
+        config.width,
+        config.height,
+    );
     event_loop
         .run_app(&mut app)
         .context("winit event loop failed")?;
@@ -331,6 +366,8 @@ enum WorkerApp {
         command_rx: Option<Receiver<WorkerInput>>,
         artifacts: Option<WorkerArtifacts>,
         rendering_settings: RenderingProfileSettings,
+        width: u32,
+        height: u32,
     },
     Running {
         state: Rc<WorkerState>,
@@ -345,6 +382,8 @@ impl WorkerApp {
         command_rx: Receiver<WorkerInput>,
         artifacts: WorkerArtifacts,
         rendering_settings: RenderingProfileSettings,
+        width: u32,
+        height: u32,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
@@ -352,6 +391,8 @@ impl WorkerApp {
             command_rx: Some(command_rx),
             artifacts: Some(artifacts),
             rendering_settings,
+            width,
+            height,
         }
     }
 
@@ -366,6 +407,7 @@ impl WorkerApp {
         let Some(webview) = state.webview.borrow().clone() else {
             return;
         };
+        sync_worker_render_surface_to_window(&state, &webview);
         if webview.load_status() == LoadStatus::Complete && !state.loaded_once.get() {
             state.loaded_once.set(true);
             state.loaded_at.set(Some(Instant::now()));
@@ -405,10 +447,13 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             command_rx,
             artifacts,
             rendering_settings,
+            width,
+            height,
         } = self
         else {
             return;
         };
+        let initial_size = PhysicalSize::new((*width).max(1), (*height).max(1));
 
         let display_handle = match event_loop.display_handle() {
             Ok(handle) => handle,
@@ -427,7 +472,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
         let window = match event_loop.create_window(
             Window::default_attributes()
                 .with_title("Saccade Browser Session Worker")
-                .with_inner_size(PhysicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT)),
+                .with_inner_size(initial_size),
         ) {
             Ok(window) => window,
             Err(error) => {
@@ -456,24 +501,21 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                 return;
             }
         };
-        let rendering_context = match WindowRenderingContext::new(
-            display_handle,
-            window_handle,
-            PhysicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT),
-        ) {
-            Ok(context) => Rc::new(context),
-            Err(error) => {
-                emit_renderer_crash(
-                    rendering_settings,
-                    target_url,
-                    "rendering_context",
-                    &format!("{error:?}"),
-                );
-                eprintln!("browser session worker rendering context error: {error:?}");
-                event_loop.exit();
-                return;
-            }
-        };
+        let rendering_context =
+            match WindowRenderingContext::new(display_handle, window_handle, initial_size) {
+                Ok(context) => Rc::new(context),
+                Err(error) => {
+                    emit_renderer_crash(
+                        rendering_settings,
+                        target_url,
+                        "rendering_context",
+                        &format!("{error:?}"),
+                    );
+                    eprintln!("browser session worker rendering context error: {error:?}");
+                    event_loop.exit();
+                    return;
+                }
+            };
         if let Err(error) = rendering_context.make_current() {
             emit_renderer_crash(
                 rendering_settings,
@@ -595,9 +637,8 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                     }
                 }
                 WindowEvent::Resized(new_size) => {
-                    state.rendering_context.resize(new_size);
                     if let Some(webview) = state.webview.borrow().as_ref() {
-                        webview.resize(new_size);
+                        resize_worker_render_surface(&state, webview, new_size, "window_event");
                     }
                 }
                 WindowEvent::CursorMoved { position, .. } => {
@@ -785,6 +826,65 @@ fn drain_commands(state: &Rc<WorkerState>) {
     }
 }
 
+fn sync_worker_render_surface_to_window(state: &Rc<WorkerState>, webview: &WebView) {
+    let window_size = state.window.inner_size();
+    let context_size = state.rendering_context.size2d();
+    if context_size.width != window_size.width || context_size.height != window_size.height {
+        resize_worker_render_surface(state, webview, window_size, "window_poll");
+    }
+}
+
+fn resize_worker_render_surface(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    new_size: PhysicalSize<u32>,
+    source: &str,
+) {
+    let old_size = state.rendering_context.size2d();
+    state.rendering_context.resize(new_size);
+    webview.resize(new_size);
+    state.servo.spin_event_loop();
+    state.window.request_redraw();
+    log_replay(
+        state,
+        json!({
+            "kind": "browser_render_surface_resized",
+            "run_id": state.run_id.as_str(),
+            "source": source,
+            "old": {
+                "width": old_size.width,
+                "height": old_size.height,
+            },
+            "new": {
+                "width": new_size.width,
+                "height": new_size.height,
+            },
+            "runtime_geometry": runtime_geometry(state, webview),
+        }),
+    );
+}
+
+fn runtime_geometry(state: &Rc<WorkerState>, webview: &WebView) -> Value {
+    let window_size = state.window.inner_size();
+    let context_size = state.rendering_context.size2d();
+    let webview_size = webview.size();
+    json!({
+        "window_inner": {
+            "width": window_size.width,
+            "height": window_size.height,
+        },
+        "rendering_context_device": {
+            "width": context_size.width,
+            "height": context_size.height,
+        },
+        "webview_device": {
+            "width": webview_size.width,
+            "height": webview_size.height,
+        },
+        "hidpi_scale_factor": webview.hidpi_scale_factor().0,
+    })
+}
+
 fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &ActiveEventLoop) {
     let Some(request) = state.queue.borrow_mut().pop_front() else {
         return;
@@ -802,6 +902,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
                 "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
                 "url": state.target_url.as_str(),
                 "page_revision": state.page_revision.get(),
+                "runtime_geometry": runtime_geometry(state, webview),
             }),
         ),
         "truth" => {
@@ -1566,6 +1667,7 @@ fn probe_response(
         "servo_grid_enabled": state.rendering_settings.layout_grid_enabled,
         "legacy_grid_override": state.rendering_settings.legacy_grid_override,
         "experimental_prefs": state.rendering_settings.experimental_prefs(),
+        "runtime_geometry": runtime_geometry(state, webview),
         "url": probe.get("url").cloned().unwrap_or_else(|| json!(state.target_url.as_str())),
         "title": probe.get("title").cloned().unwrap_or(Value::Null),
         "page_revision": state.page_revision.get(),
@@ -3131,9 +3233,10 @@ fn maybe_save_screenshot(
         return None;
     }
 
+    let context_size = state.rendering_context.size2d();
     let rect = DeviceIntRect::from_size(DeviceIntSize::new(
-        WINDOW_WIDTH as i32,
-        WINDOW_HEIGHT as i32,
+        context_size.width as i32,
+        context_size.height as i32,
     ));
     let path = state.output_dir.join(filename);
     for attempt in 1..=5 {
