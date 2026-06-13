@@ -136,6 +136,11 @@ enum ActiveRequest {
         before_probe: Value,
         dispatched_at: Instant,
     },
+    TypeFocusedInsert {
+        id: Value,
+        chars_requested: usize,
+        before_probe: Value,
+    },
     TypeFocusedVerify {
         id: Value,
         chars_requested: usize,
@@ -970,6 +975,28 @@ fn request_type_focused_probe(state: &Rc<WorkerState>, webview: &WebView) {
     });
 }
 
+fn request_type_focused_contenteditable_insert(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    text: &str,
+) -> std::result::Result<(), String> {
+    let text_json = serde_json::to_string(text)
+        .map_err(|error| format!("failed to serialize focused text: {error}"))?;
+    let script = type_focused_contenteditable_insert_script(&text_json);
+    let script: &'static str = Box::leak(script.into_boxed_str());
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(script, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
+    });
+    state.window.request_redraw();
+    Ok(())
+}
+
 fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &ActiveEventLoop) {
     let Some(current) = state.current.borrow_mut().take() else {
         return;
@@ -1115,13 +1142,28 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                             return;
                         }
                         let chars_requested = text.chars().count();
-                        type_text_into_focused_field(state, webview, &text);
-                        *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedWait {
-                            id,
-                            chars_requested,
-                            before_probe: value,
-                            dispatched_at: Instant::now(),
-                        });
+                        if value.get("contentEditable").and_then(Value::as_bool) == Some(true) {
+                            match request_type_focused_contenteditable_insert(state, webview, &text)
+                            {
+                                Ok(()) => {
+                                    *state.current.borrow_mut() =
+                                        Some(ActiveRequest::TypeFocusedInsert {
+                                            id,
+                                            chars_requested,
+                                            before_probe: value,
+                                        });
+                                }
+                                Err(error) => respond_error(state, id, error),
+                            }
+                        } else {
+                            type_text_into_focused_field(state, webview, &text);
+                            *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedWait {
+                                id,
+                                chars_requested,
+                                before_probe: value,
+                                dispatched_at: Instant::now(),
+                            });
+                        }
                     }
                     Err(error) => respond_error(
                         state,
@@ -1158,6 +1200,49 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                 });
             }
         }
+        ActiveRequest::TypeFocusedInsert {
+            id,
+            chars_requested,
+            before_probe,
+        } => match finish_probe(&state.pending_probe) {
+            Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                Ok(value) => {
+                    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+                        let reason = value
+                            .get("reason")
+                            .and_then(Value::as_str)
+                            .unwrap_or("focused contenteditable insertion failed");
+                        respond_error(
+                            state,
+                            id,
+                            format!("type_focused_text insert blocked: {reason}"),
+                        );
+                        return;
+                    }
+                    if type_focused_changed(&before_probe, &value) {
+                        state.page_revision.set(state.page_revision.get() + 1);
+                    }
+                    respond_ok(
+                        state,
+                        id,
+                        type_focused_text_response(state, chars_requested, &before_probe, &value),
+                    );
+                }
+                Err(error) => respond_error(
+                    state,
+                    id,
+                    format!("failed to parse focused type insertion: {error}"),
+                ),
+            },
+            Some(Err(error)) => respond_error(state, id, error),
+            None => {
+                *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedInsert {
+                    id,
+                    chars_requested,
+                    before_probe,
+                });
+            }
+        },
         ActiveRequest::TypeFocusedVerify {
             id,
             chars_requested,
@@ -1177,7 +1262,7 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                         );
                         return;
                     }
-                    if value.get("changed").and_then(Value::as_bool) == Some(true) {
+                    if type_focused_changed(&before_probe, &value) {
                         state.page_revision.set(state.page_revision.get() + 1);
                     }
                     respond_ok(
@@ -1654,7 +1739,7 @@ fn type_focused_text_response(
         .get("valueLength")
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    let changed = after_length > before_length;
+    let changed = type_focused_changed(before_probe, after_probe);
     let field = json!({
         "tag": after_probe.get("tag").cloned().unwrap_or(Value::Null),
         "type": after_probe.get("type").cloned().unwrap_or(Value::Null),
@@ -1663,6 +1748,10 @@ fn type_focused_text_response(
         "contenteditable": after_probe.get("contentEditable").cloned().unwrap_or(Value::Null),
         "sensitivity": after_probe.get("sensitivity").cloned().unwrap_or(Value::Null),
     });
+    let insert_method = after_probe
+        .get("insertMethod")
+        .cloned()
+        .unwrap_or(Value::Null);
     log_replay(
         state,
         json!({
@@ -1673,6 +1762,7 @@ fn type_focused_text_response(
             "before_length": before_length,
             "after_length": after_length,
             "changed": changed,
+            "insert_method": insert_method,
             "field": field,
             "values_logged": false,
         }),
@@ -1688,6 +1778,7 @@ fn type_focused_text_response(
         "before_length": before_length,
         "after_length": after_length,
         "changed": changed,
+        "insert_method": insert_method,
         "field": field,
         "policy": {
             "active_element_only": true,
@@ -1696,6 +1787,22 @@ fn type_focused_text_response(
         },
         "artifacts": artifact_paths(state),
     })
+}
+
+fn type_focused_changed(before_probe: &Value, after_probe: &Value) -> bool {
+    let before_length = before_probe
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let after_length = after_probe
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let inserted = after_probe
+        .get("inserted")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    before_length != after_length || inserted
 }
 
 fn formmax_live_fill_response(state: &Rc<WorkerState>, result: &Value) -> Value {
@@ -2102,6 +2209,135 @@ const TYPE_FOCUSED_PROBE_JS: &str = r#"
   });
 })()
 "#;
+
+fn type_focused_contenteditable_insert_script(text_json: &str) -> String {
+    format!(
+        r#"
+(() => {{
+  const text = {text_json};
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) {{
+    return JSON.stringify({{ ok: false, reason: "no_focused_field" }});
+  }}
+
+  function sensitivityOf(el) {{
+    const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || "",
+      labelText
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }}
+
+  function probe(extra) {{
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    return Object.assign({{
+      ok: true,
+      tag,
+      type,
+      contentEditable: Boolean(el.isContentEditable),
+      idPresent: Boolean(el.id),
+      namePresent: Boolean(el.getAttribute("name")),
+      sensitivity: "none",
+      valueLength: String(el.textContent || "").length
+    }}, extra || {{}});
+  }}
+
+  const sensitivity = sensitivityOf(el);
+  if (sensitivity !== "none") {{
+    return JSON.stringify({{
+      ok: false,
+      reason: "focused_field_sensitive",
+      sensitivity
+    }});
+  }}
+  if (!el.isContentEditable) {{
+    return JSON.stringify({{
+      ok: false,
+      reason: "focused_element_not_contenteditable",
+      tag: el.tagName ? el.tagName.toLowerCase() : "",
+      type: (el.getAttribute("type") || "").toLowerCase()
+    }});
+  }}
+
+  let inserted = false;
+  let insertMethod = "none";
+  el.focus();
+
+  try {{
+    if (
+      typeof document.queryCommandSupported === "function" &&
+      document.queryCommandSupported("insertText")
+    ) {{
+      inserted = document.execCommand("insertText", false, text);
+      if (inserted) insertMethod = "execCommand.insertText";
+    }}
+  }} catch (_) {{}}
+
+  if (!inserted) {{
+    try {{
+      const selection = window.getSelection && window.getSelection();
+      if (selection) {{
+        let range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        if (
+          !range ||
+          (range.commonAncestorContainer !== el && !el.contains(range.commonAncestorContainer))
+        ) {{
+          range = document.createRange();
+          range.selectNodeContents(el);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }}
+        range.deleteContents();
+        const node = document.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.setEndAfter(node);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        inserted = true;
+        insertMethod = "selection.range";
+      }}
+    }} catch (_) {{}}
+  }}
+
+  if (!inserted) {{
+    el.textContent = String(el.textContent || "") + text;
+    inserted = true;
+    insertMethod = "textContent.append";
+  }}
+
+  try {{
+    const event =
+      typeof InputEvent === "function"
+        ? new InputEvent("input", {{ bubbles: true, inputType: "insertText", data: text }})
+        : new Event("input", {{ bubbles: true }});
+    el.dispatchEvent(event);
+  }} catch (_) {{
+    try {{
+      el.dispatchEvent(new Event("input", {{ bubbles: true }}));
+    }} catch (__) {{}}
+  }}
+
+  return JSON.stringify(probe({{ inserted: Boolean(inserted), insertMethod }}));
+}})()
+"#
+    )
+}
 
 fn fill_agent_fields_script(fields_json: &str) -> String {
     format!(

@@ -416,6 +416,43 @@ fn selftest_focused_type() -> Result<()> {
         bail!("focused type replay leaked typed text");
     }
 
+    let contenteditable_url =
+        start_test_server(workspace.join("test_pages").join("focused_contenteditable"))?;
+    let contenteditable_response =
+        run_type_focused_worker(&workspace, contenteditable_url.as_str(), text)?;
+    if contenteditable_response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("type_focused_text contenteditable response was not ok: {contenteditable_response}");
+    }
+    let contenteditable_result = contenteditable_response
+        .get("result")
+        .context("contenteditable type_focused_text response missing result")?;
+    let contenteditable_changed = contenteditable_result
+        .get("changed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let contenteditable_field = contenteditable_result
+        .get("field")
+        .context("contenteditable type_focused_text response missing field")?;
+    let contenteditable_replay_path = contenteditable_result
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .context("contenteditable type_focused_text response missing replay artifact")?;
+    let contenteditable_replay_text = std::fs::read_to_string(contenteditable_replay_path)
+        .with_context(|| {
+            format!("failed to read contenteditable replay artifact {contenteditable_replay_path}")
+        })?;
+    if !contenteditable_changed
+        || contenteditable_field
+            .get("contenteditable")
+            .and_then(Value::as_bool)
+            != Some(true)
+    {
+        bail!("focused contenteditable type selftest failed: {contenteditable_result}");
+    }
+    if contenteditable_replay_text.contains(text) {
+        bail!("focused contenteditable replay leaked typed text");
+    }
+
     let sensitive_url = start_test_server(workspace.join("test_pages").join("focused_sensitive"))?;
     let sensitive_response = run_type_focused_worker(&workspace, sensitive_url.as_str(), text)?;
     let sensitive_blocked = sensitive_response.get("ok").and_then(Value::as_bool) == Some(false)
@@ -428,10 +465,11 @@ fn selftest_focused_type() -> Result<()> {
     }
 
     println!(
-        "FOCUSED_TYPE PASS chars={} after_length={} sensitive_blocked=true replay={}",
+        "FOCUSED_TYPE PASS chars={} after_length={} contenteditable=true sensitive_blocked=true replay={} contenteditable_replay={}",
         text.len(),
         after_length,
-        replay_path
+        replay_path,
+        contenteditable_replay_path
     );
     Ok(())
 }

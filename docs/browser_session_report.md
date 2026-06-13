@@ -92,7 +92,7 @@ Focused typing evidence:
 
 ```text
 RUST_LOG=error cargo run -q -p saccade-shell -- selftest-focused-type
-FOCUSED_TYPE PASS chars=22 after_length=22 sensitive_blocked=true replay=runs/browser_session_worker/worker_1781387505146_27892/replay.jsonl
+FOCUSED_TYPE PASS chars=22 after_length=22 contenteditable=true sensitive_blocked=true replay=runs/browser_session_worker/worker_1781388877375_67314/replay.jsonl contenteditable_replay=runs/browser_session_worker/worker_1781388880110_67320/replay.jsonl
 ```
 
 Artifacts are written under:
