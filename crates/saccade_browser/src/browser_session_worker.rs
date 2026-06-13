@@ -21,7 +21,7 @@ use servo::{
 };
 use url::Url;
 use winit::application::ApplicationHandler;
-use winit::dpi::PhysicalSize;
+use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{
     ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent,
 };
@@ -453,7 +453,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
         else {
             return;
         };
-        let initial_size = PhysicalSize::new((*width).max(1), (*height).max(1));
+        let initial_size = LogicalSize::new((*width).max(1), (*height).max(1));
 
         let display_handle = match event_loop.display_handle() {
             Ok(handle) => handle,
@@ -501,8 +501,10 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                 return;
             }
         };
+        let initial_physical_size = window.inner_size();
         let rendering_context =
-            match WindowRenderingContext::new(display_handle, window_handle, initial_size) {
+            match WindowRenderingContext::new(display_handle, window_handle, initial_physical_size)
+            {
                 Ok(context) => Rc::new(context),
                 Err(error) => {
                     emit_renderer_crash(
@@ -581,7 +583,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
         });
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
             .url(state.target_url.clone())
-            .hidpi_scale_factor(Scale::new(1.0))
+            .hidpi_scale_factor(Scale::new(state.window.scale_factor() as f32))
             .delegate(state.clone())
             .build();
         *state.webview.borrow_mut() = Some(webview);
@@ -841,7 +843,7 @@ fn resize_worker_render_surface(
     source: &str,
 ) {
     let old_size = state.rendering_context.size2d();
-    state.rendering_context.resize(new_size);
+    webview.set_hidpi_scale_factor(Scale::new(state.window.scale_factor() as f32));
     webview.resize(new_size);
     state.servo.spin_event_loop();
     state.window.request_redraw();

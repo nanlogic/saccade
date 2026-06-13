@@ -310,13 +310,11 @@
 - MCP selftest now opens the user-flow fixture, fills `task-1`, rejects `ssn`, inspects `task-1`, and verifies `ssn` remains redacted through the MCP surface.
 - Latest evidence: `MCP PASS tools_registered=19` with report `/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781363828594/report.json`.
 
-## DECISION_BROWSER_001 - Worker viewport must be correct at startup
+## DECISION_BROWSER_001 - Worker viewport tracks logical window size
 
 - Real-site GitHub Gist dogfood exposed a browser-alignment issue: the visible window could be enlarged while the page layout viewport, DOM rects, and action map still behaved as the original `1280x800` viewport.
-- Measurement on `https://example.com/` showed runtime geometry changed to `2080x1336` after a macOS window resize, but `window.innerWidth/innerHeight` stayed `1280x800`.
-- Local Servo source inspection shows pinned `WebView::resize(PhysicalSize<u32>)` resizes the rendering context/paint surface; it does not by itself update script/layout viewport details for the already-loaded page.
-- A hidpi-scale pulse using public `set_hidpi_scale_factor` was tested and did not update the page viewport.
-- Current decision: do not rely on runtime window resizing for browser facts. Start the worker at the intended viewport size instead.
-- Implemented `BrowserSessionWorkerConfig` and CLI `browser-session-worker --width --height`; default worker startup size is now `1600x1000`, and dogfood/demo can launch at `1920x1080`.
-- Verification: starting `browser-session-worker --url https://example.com/ --width 1920 --height 1080` produced runtime geometry `1920x1080` and JS viewport `1920x1080`.
-- Follow-up: a Servo adapter/patch should expose or fix real runtime `ChangeViewportDetails` behavior before we promise freeform user resizing.
+- Root cause was in Saccade's adapter, not a Servo version blocker. The worker resized the shared `WindowRenderingContext` before calling `WebView::resize`, so Servo's pinned resize path saw the target size already applied and returned before sending layout viewport updates.
+- Worker and dogfood windows now treat configured width/height as logical/CSS pixels, construct the rendering context from the actual physical `window.inner_size()`, and set `hidpi_scale_factor` from `window.scale_factor()` instead of hardcoding `1.0`.
+- Runtime resize now calls `webview.set_hidpi_scale_factor(...)` and `webview.resize(...)` without pre-resizing the rendering context, so Servo owns render-surface and page-viewport synchronization.
+- Verification on `https://example.com/` with `browser-session-worker --width 1280 --height 800`: startup runtime geometry was `2560x1518`, HiDPI `2.0`, JS viewport `1280x759`; macOS resize expanded it to runtime `2720x1518` and JS viewport `1360x759`; shrinking to `1000x700` produced runtime `2000x1336` and JS viewport `1000x668`.
+- `cargo check -q -p saccade-shell`, `selftest-focused-type`, and `selftest-browser-session` passed after the fix.

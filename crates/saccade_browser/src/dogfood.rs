@@ -13,7 +13,7 @@ use servo::{
 };
 use url::Url;
 use winit::application::ApplicationHandler;
-use winit::dpi::PhysicalSize;
+use winit::dpi::LogicalSize;
 use winit::event::{
     ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent,
 };
@@ -329,7 +329,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
         let window = match event_loop.create_window(
             Window::default_attributes()
                 .with_title(format!("Saccade - {}", config.url))
-                .with_inner_size(PhysicalSize::new(config.width, config.height)),
+                .with_inner_size(LogicalSize::new(config.width.max(1), config.height.max(1))),
         ) {
             Ok(window) => window,
             Err(error) => {
@@ -348,18 +348,17 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             }
         };
 
-        let rendering_context = match WindowRenderingContext::new(
-            display_handle,
-            window_handle,
-            PhysicalSize::new(config.width, config.height),
-        ) {
-            Ok(context) => Rc::new(context),
-            Err(error) => {
-                eprintln!("failed to create rendering context: {error:?}");
-                event_loop.exit();
-                return;
-            }
-        };
+        let initial_physical_size = window.inner_size();
+        let rendering_context =
+            match WindowRenderingContext::new(display_handle, window_handle, initial_physical_size)
+            {
+                Ok(context) => Rc::new(context),
+                Err(error) => {
+                    eprintln!("failed to create rendering context: {error:?}");
+                    event_loop.exit();
+                    return;
+                }
+            };
 
         if let Err(error) = rendering_context.make_current() {
             eprintln!("failed to make GL context current: {error:?}");
@@ -391,7 +390,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
 
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
             .url(state.url.clone())
-            .hidpi_scale_factor(Scale::new(1.0))
+            .hidpi_scale_factor(Scale::new(state.window.scale_factor() as f32))
             .delegate(state.clone())
             .build();
         *state.webview.borrow_mut() = Some(webview);
@@ -427,8 +426,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                     }
                 }
                 WindowEvent::Resized(new_size) => {
-                    state.rendering_context.resize(new_size);
                     if let Some(webview) = state.webview.borrow().as_ref() {
+                        webview
+                            .set_hidpi_scale_factor(Scale::new(state.window.scale_factor() as f32));
                         webview.resize(new_size);
                     }
                 }

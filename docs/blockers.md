@@ -29,8 +29,8 @@ Status: deferred. The current MOUSEMAX evidence proves replayable action correct
 
 During the first real GitHub Gist human-in-the-loop dogfood run, the Saccade worker was usable but uncomfortable as a human-facing browser:
 
-- Page content did not reflow/resize with the enlarged macOS window, leaving large blank areas and making the useful page region hard to read. Measurement confirmed runtime rendering geometry can resize while the page JS/layout viewport remains at the original startup size.
+- Page content originally did not reflow/resize with the enlarged macOS window, leaving large blank areas and making the useful page region hard to read. Root cause was Saccade resizing the rendering context before calling `WebView::resize`, which caused Servo's resize path to return before sending layout viewport updates.
 - The worker shell has no browser chrome: URL bar, Back, Forward, Reload, visible current URL, or page title/status controls.
 - GitHub's user menu popover could remain open and cover page content; the shell needs better Esc/click-outside handling and visible focus state.
 
-Status: partially mitigated. The worker now supports startup viewport sizing through `browser-session-worker --width --height` and defaults to `1600x1000`; dogfood/demo should start at the desired viewport, for example `1920x1080`. True runtime resize/reflow remains blocked on a Servo adapter/patch that updates page layout viewport details after window resize.
+Status: partially mitigated. Worker and dogfood windows now use logical/CSS startup sizing, the real macOS HiDPI scale, and `WebView::resize` as the single runtime resize path. Manual resize on `https://example.com/` updated JS viewport from `1280x759` to `1360x759`, then down to `1000x668`. Remaining shell work is browser chrome, focus/popover polish, and real-site editor edge cases.
