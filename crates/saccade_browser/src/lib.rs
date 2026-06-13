@@ -12,6 +12,7 @@ mod recon;
 mod rendering_profile;
 mod selftest;
 mod trusted_tabs;
+mod user_flow;
 
 mod calibration;
 mod page_selftest;
@@ -34,3 +35,4 @@ pub use selftest::selftest_boot;
 pub use trusted_tabs::{
     TrustedTabsProfile, selftest_login_handoff, selftest_safety, selftest_trusted_tabs,
 };
+pub use user_flow::{UserFlowProfile, selftest_user_flow};

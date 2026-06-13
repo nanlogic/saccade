@@ -24,6 +24,7 @@ The appendix should carry the weight: commands, artifact paths, screenshots, man
 | Native browser UI evidence | Partial | Chrome and Safari native window screenshots captured; Firefox capture path exists but reports unavailable on this machine |
 | FORMMAX workflow | Strong local proof | 96 rows, two pages, 672 non-sensitive fields filled, three sensitive fields blocked, receipt verified |
 | Safety truth | Strong local proof | Agent sees agent-filled values; human sees all values; sensitive human-owned values stay masked |
+| Full user flow | Strong local proof | `saccade-shell selftest-user-flow`: Human login, handoff, Agent tab continuation, normal-field fill, sensitive masking, user page change, user partial fill, agent continuation, and masked sensitive-status checking |
 | DEVMAX/MCP | Useful local proof | Local fixture corpus, Servo worker, Chrome reference audit, MCP tool surface, redacted artifacts |
 
 ## Next Tests Before A Public Post

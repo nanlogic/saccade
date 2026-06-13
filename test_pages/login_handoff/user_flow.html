@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>User Flow Fixture</title>
+  <link rel="stylesheet" href="login_handoff.css">
+  <style>
+    main { max-width: 980px; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+    th, td { border: 1px solid #d8dde5; padding: 8px; text-align: left; }
+    th { background: #f1f4f8; }
+    input[type="text"], input[type="number"], input[type="password"] { width: 220px; }
+    .hidden { display: none; }
+    .note { color: #57616f; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>User Flow Fixture</h1>
+    <p id="session-state">Checking session...</p>
+    <p class="note">Local fixture for login handoff, agent fill, sensitive masking, user review, page change, and user-value checking.</p>
+
+    <section id="page-one" data-flow-page="1">
+      <h2>Page 1: Agent fills normal fields</h2>
+      <table aria-label="Page one task table">
+        <thead>
+          <tr><th>Field</th><th>Value</th><th>Policy</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><label for="task-1">Task 1</label></td>
+            <td><input id="task-1" data-saccade-field data-owner="agent" data-sensitive="none" value=""></td>
+            <td>agent may fill</td>
+          </tr>
+          <tr>
+            <td><label for="task-2">Task 2</label></td>
+            <td><input id="task-2" data-saccade-field data-owner="agent" data-sensitive="none" value=""></td>
+            <td>agent may fill</td>
+          </tr>
+          <tr>
+            <td><label for="task-3">Task 3</label></td>
+            <td><input id="task-3" data-saccade-field data-owner="agent" data-sensitive="none" value=""></td>
+            <td>agent may fill</td>
+          </tr>
+          <tr>
+            <td><label for="task-4">Task 4</label></td>
+            <td><input id="task-4" data-saccade-field data-owner="agent" data-sensitive="none" value=""></td>
+            <td>agent may fill</td>
+          </tr>
+          <tr>
+            <td><label for="ssn">SSN</label></td>
+            <td><input id="ssn" data-saccade-field data-owner="human" data-sensitive="ssn" value="123-45-6789"></td>
+            <td>agent must not read or write value</td>
+          </tr>
+          <tr>
+            <td><label for="tax-id-empty">Tax ID</label></td>
+            <td><input id="tax-id-empty" data-saccade-field data-owner="human" data-sensitive="tax_id" value=""></td>
+            <td>user required</td>
+          </tr>
+        </tbody>
+      </table>
+      <button id="next-page" type="button">Next page</button>
+    </section>
+
+    <section id="page-two" class="hidden" data-flow-page="2">
+      <h2>Page 2: User and agent collaborate</h2>
+      <table aria-label="Page two continuation table">
+        <thead>
+          <tr><th>Field</th><th>Value</th><th>Policy</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><label for="user-quantity">User quantity</label></td>
+            <td><input id="user-quantity" type="number" data-saccade-field data-owner="human" data-sensitive="none" value=""></td>
+            <td>user may fill; agent may verify because it is not sensitive</td>
+          </tr>
+          <tr>
+            <td><label for="agent-page2-code">Agent page 2 code</label></td>
+            <td><input id="agent-page2-code" data-saccade-field data-owner="agent" data-sensitive="none" value=""></td>
+            <td>agent may fill after user page change</td>
+          </tr>
+          <tr>
+            <td><label for="agent-page2-owner">Agent owner</label></td>
+            <td><input id="agent-page2-owner" data-saccade-field data-owner="agent" data-sensitive="none" value=""></td>
+            <td>agent may fill after user page change</td>
+          </tr>
+          <tr>
+            <td><label for="signature">Signature</label></td>
+            <td><input id="signature" data-saccade-field data-owner="human" data-sensitive="signature" value=""></td>
+            <td>agent may know completion and validity only</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+  <script src="login_handoff.js"></script>
+  <script>
+    (function () {
+      const next = document.getElementById("next-page");
+      if (next) {
+        next.addEventListener("click", () => {
+          document.getElementById("page-one").classList.add("hidden");
+          document.getElementById("page-two").classList.remove("hidden");
+          localStorage.setItem("saccade_user_flow_page", "2");
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

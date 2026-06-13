@@ -279,3 +279,9 @@
 - `runs/real/run_1781193985/parity_review.html` now includes captured Chrome and Safari URL-bar screenshots for `https://mouseaccuracy.com/classic/`.
 - Firefox is recorded as pending because Firefox is not installed on this machine. The native capture script accepts `--browser firefox` and writes `capture_unavailable` evidence when unavailable.
 - The MOUSEMAX validator still passes for the pure-pixel run: 47 hits, 0 misses, 47 targets seen, 47 clicks sent, `instrumentation=none`.
+
+## DECISION_USER_FLOW_001 - Full local user workflow gate
+
+- Added `saccade-shell selftest-user-flow` and `test_pages/login_handoff/user_flow.html`.
+- The gate proves the product flow Wayne identified: Human login, explicit handoff, Agent-owned tab continuation, agent fills normal fields, user sees agent-filled values, sensitive fields stay unfilled/unread by the agent, user changes page and fills part, agent fills the remaining normal fields, and agent checks user input without receiving raw sensitive values.
+- Current result passes with `round1_agent_filled=4`, `round1_requires_user_input=3`, `user_page_change_seen=true`, `user_normal_checked=true`, `sensitive_status_checked_without_value=true`, `agent_completed_remaining=2`, `preserved_user_values=true`, `same_agent_tab_continued=true`, `final_sensitive_completed_without_value=4`, and `sensitive_values_exposed=false`.

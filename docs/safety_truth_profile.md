@@ -76,6 +76,14 @@ The preferred flow is:
 
 Security should behave like a guardrail, not a toll booth.
 
+The full local product flow now has a separate gate:
+
+```bash
+RUST_LOG=error cargo run -q -p saccade-shell -- selftest-user-flow
+```
+
+That gate proves login handoff, agent fill, user review, user page change, user partial fill, agent continuation, and masked sensitive-status checking in one run.
+
 ## Scope
 
 This is a deterministic local fixture and policy gate. It proves the masking rule at the Saccade browser boundary, not the final product UI.

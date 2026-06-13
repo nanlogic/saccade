@@ -33,6 +33,7 @@ enum Command {
     SelftestTabs,
     SelftestLoginHandoff,
     SelftestSafety,
+    SelftestUserFlow,
     SelftestNativeInput,
     SelftestBrowserSession,
     BrowserSessionWorker {
@@ -56,6 +57,7 @@ fn main() -> Result<()> {
         Command::SelftestTabs => selftest_tabs(),
         Command::SelftestLoginHandoff => selftest_login_handoff(),
         Command::SelftestSafety => selftest_safety(),
+        Command::SelftestUserFlow => selftest_user_flow(),
         Command::SelftestNativeInput => selftest_native_input(),
         Command::SelftestBrowserSession => selftest_browser_session(),
         Command::BrowserSessionWorker {
@@ -177,6 +179,51 @@ fn selftest_safety() -> Result<()> {
         profile.sensitive_completed_without_value,
         profile.sensitive_requires_user_input,
         profile.agent_knows_sensitive_field_status,
+    );
+    Ok(())
+}
+
+fn selftest_user_flow() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("login_handoff"))?;
+    let profile = saccade_browser::selftest_user_flow(base_url)?;
+
+    if !profile.human_login
+        || !profile.handoff_done
+        || !profile.agent_session
+        || !profile.agent_input_to_human_tab_blocked
+        || !profile.read_policy_enforced
+        || profile.agent_round1_filled < 4
+        || !profile.user_can_see_agent_values
+        || profile.round1_sensitive_requires_user_input < 2
+        || !profile.user_page_change_seen
+        || !profile.user_normal_value_checked
+        || !profile.user_sensitive_status_checked_without_value
+        || profile.agent_completed_remaining < 2
+        || !profile.agent_preserved_user_values
+        || !profile.same_agent_tab_continued
+        || profile.final_sensitive_completed_without_value < 3
+        || profile.agent_sensitive_values_exposed
+    {
+        bail!("user flow selftest failed: {profile:?}");
+    }
+
+    println!(
+        "USER_FLOW PASS human_login={} handoff_done={} agent_session={} round1_agent_filled={} user_can_see_agent_values={} round1_requires_user_input={} user_page_change_seen={} user_normal_checked={} sensitive_status_checked_without_value={} agent_completed_remaining={} preserved_user_values={} same_agent_tab_continued={} final_sensitive_completed_without_value={} sensitive_values_exposed={}",
+        profile.human_login,
+        profile.handoff_done,
+        profile.agent_session,
+        profile.agent_round1_filled,
+        profile.user_can_see_agent_values,
+        profile.round1_sensitive_requires_user_input,
+        profile.user_page_change_seen,
+        profile.user_normal_value_checked,
+        profile.user_sensitive_status_checked_without_value,
+        profile.agent_completed_remaining,
+        profile.agent_preserved_user_values,
+        profile.same_agent_tab_continued,
+        profile.final_sensitive_completed_without_value,
+        profile.agent_sensitive_values_exposed,
     );
     Ok(())
 }
