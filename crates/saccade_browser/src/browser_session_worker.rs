@@ -126,6 +126,9 @@ enum ActiveRequest {
         id: Value,
         requested: usize,
     },
+    InspectEditors {
+        id: Value,
+    },
     TypeFocusedPreflight {
         id: Value,
         text: String,
@@ -825,6 +828,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
         "act" => start_act_request(state, webview, id, request.params),
         "fill_agent_fields" => start_fill_agent_fields_request(state, webview, id, request.params),
         "inspect_fields" => start_inspect_fields_request(state, webview, id, request.params),
+        "inspect_editors" => start_inspect_editors_request(state, webview, id),
         "type_focused_text" => start_type_focused_text_request(state, webview, id, request.params),
         "formmax_live_fill" => start_formmax_live_fill_request(state, webview, id, request.params),
         "close" => {
@@ -1125,6 +1129,20 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                 }
             }
         }
+        ActiveRequest::InspectEditors { id } => match finish_probe(&state.pending_probe) {
+            Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                Ok(value) => respond_ok(state, id, inspect_editors_response(state, &value)),
+                Err(error) => respond_error(
+                    state,
+                    id,
+                    format!("failed to parse inspect editors result: {error}"),
+                ),
+            },
+            Some(Err(error)) => respond_error(state, id, error),
+            None => {
+                *state.current.borrow_mut() = Some(ActiveRequest::InspectEditors { id });
+            }
+        },
         ActiveRequest::TypeFocusedPreflight { id, text } => {
             match finish_probe(&state.pending_probe) {
                 Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
@@ -1448,6 +1466,19 @@ fn start_inspect_fields_request(
     *state.current.borrow_mut() = Some(ActiveRequest::InspectFields { id, requested });
 }
 
+fn start_inspect_editors_request(state: &Rc<WorkerState>, webview: &WebView, id: Value) {
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(INSPECT_EDITORS_JS, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
+    });
+    *state.current.borrow_mut() = Some(ActiveRequest::InspectEditors { id });
+}
+
 fn request_probe(state: &Rc<WorkerState>, webview: &WebView) {
     *state.pending_probe.borrow_mut() = None;
     let pending = state.pending_probe.clone();
@@ -1721,6 +1752,63 @@ fn inspect_fields_response(
         "requested": requested,
         "fields": inspect_result.get("fields").cloned().unwrap_or_else(|| json!([])),
         "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+        "artifacts": artifact_paths(state),
+    })
+}
+
+fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> Value {
+    let editors = inspect_result
+        .get("editors")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let zero_rect_count = editors
+        .iter()
+        .filter(|editor| {
+            editor
+                .pointer("/rect/width")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                <= 0.0
+                || editor
+                    .pointer("/rect/height")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+                    <= 0.0
+        })
+        .count();
+    let sensitive_count = editors
+        .iter()
+        .filter(|editor| {
+            editor
+                .get("sensitivity")
+                .and_then(Value::as_str)
+                .is_some_and(|sensitivity| sensitivity != "none")
+        })
+        .count();
+    log_replay(
+        state,
+        json!({
+            "kind": "editors_inspected",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "editor_count": editors.len(),
+            "zero_rect_count": zero_rect_count,
+            "sensitive_count": sensitive_count,
+            "values_logged": false,
+        }),
+    );
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-worker-v0",
+        "summary": "editor candidates inspected without returning text values",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "page_revision": state.page_revision.get(),
+        "editor_count": editors.len(),
+        "zero_rect_count": zero_rect_count,
+        "sensitive_count": sensitive_count,
+        "editors": editors,
         "artifacts": artifact_paths(state),
     })
 }
@@ -2209,6 +2297,142 @@ const TYPE_FOCUSED_PROBE_JS: &str = r#"
   });
 })()
 "#;
+
+const INSPECT_EDITORS_JS: &str = r##"
+(() => {
+  function textOf(value) {
+    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+
+  function rectOf(el) {
+    const rect = el.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+
+  function sensitivityOf(el) {
+    const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || "",
+      labelText
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  function editorKind(el) {
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "textarea") return "textarea";
+    if (tag === "input" && (!type || ["text", "search", "url", "email", "tel", "number"].includes(type))) {
+      return "input";
+    }
+    if (el.isContentEditable) return "contenteditable";
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    if (role === "textbox") return "role_textbox";
+    const className = String(el.className || "");
+    if (/\b(cm-content|CodeMirror|CodeMirror-code|ace_editor|ace_text-input)\b/.test(className)) {
+      return "js_editor_shell";
+    }
+    return "";
+  }
+
+  function valueLength(el, kind) {
+    if (kind === "input" || kind === "textarea") return String(el.value || "").length;
+    return String(el.textContent || "").length;
+  }
+
+  const selectors = [
+    "textarea",
+    "input",
+    "[contenteditable='true']",
+    "[role='textbox']",
+    ".cm-content",
+    ".CodeMirror",
+    ".CodeMirror-code",
+    ".ace_editor",
+    ".ace_text-input"
+  ];
+  const seen = new Set();
+  const elements = [];
+  for (const selector of selectors) {
+    for (const el of Array.from(document.querySelectorAll(selector))) {
+      if (!seen.has(el)) {
+        seen.add(el);
+        elements.push(el);
+      }
+    }
+  }
+
+  const active = document.activeElement;
+  const editors = elements
+    .map((el, index) => {
+      const kind = editorKind(el);
+      if (!kind) return null;
+      const style = window.getComputedStyle(el);
+      const rect = rectOf(el);
+      const labelText = Array.from(el.labels || [])
+        .map((label) => label.textContent || "")
+        .join(" ");
+      const hidden =
+        el.hidden ||
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        (rect.width <= 0 || rect.height <= 0);
+      return {
+        index,
+        kind,
+        tag: el.tagName ? el.tagName.toLowerCase() : "",
+        type: (el.getAttribute("type") || "").toLowerCase(),
+        id: el.id || "",
+        name: el.getAttribute("name") || "",
+        role: el.getAttribute("role") || "",
+        className: textOf(el.className || ""),
+        ariaLabel: textOf(el.getAttribute("aria-label") || ""),
+        placeholder: textOf(el.getAttribute("placeholder") || ""),
+        label: textOf(labelText),
+        autocomplete: textOf(el.getAttribute("autocomplete") || ""),
+        disabled: Boolean(el.disabled),
+        readOnly: Boolean(el.readOnly),
+        contentEditable: Boolean(el.isContentEditable),
+        active: el === active,
+        hidden,
+        rect,
+        valueLength: valueLength(el, kind),
+        sensitivity: sensitivityOf(el)
+      };
+    })
+    .filter(Boolean);
+
+  return JSON.stringify({
+    ok: true,
+    url: location.href,
+    title: document.title,
+    activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
+    activeId: active && active.id ? active.id : "",
+    editorCount: editors.length,
+    sensitiveFieldsSeen: editors.filter((editor) => editor.sensitivity !== "none").length,
+    editors
+  });
+})()
+"##;
 
 fn type_focused_contenteditable_insert_script(text_json: &str) -> String {
     format!(
