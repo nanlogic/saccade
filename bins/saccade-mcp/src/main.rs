@@ -100,6 +100,7 @@ struct SelftestEvidence {
     web_act: bool,
     web_fill_agent_fields: bool,
     web_inspect_fields: bool,
+    web_fill_form_live: bool,
     live_worker_audit: bool,
     dev_click_all_primary_actions: bool,
     dev_fill_smoke_form: bool,
@@ -226,6 +227,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.web_act
         && stdio_evidence.web_fill_agent_fields
         && stdio_evidence.web_inspect_fields
+        && stdio_evidence.web_fill_form_live
         && stdio_evidence.live_worker_audit
         && stdio_evidence.dev_click_all_primary_actions
         && stdio_evidence.dev_fill_smoke_form
@@ -251,6 +253,7 @@ fn selftest() -> Result<()> {
         web_act: stdio_evidence.web_act,
         web_fill_agent_fields: stdio_evidence.web_fill_agent_fields,
         web_inspect_fields: stdio_evidence.web_inspect_fields,
+        web_fill_form_live: stdio_evidence.web_fill_form_live,
         live_worker_audit: stdio_evidence.live_worker_audit,
         dev_click_all_primary_actions: stdio_evidence.dev_click_all_primary_actions,
         dev_fill_smoke_form: stdio_evidence.dev_fill_smoke_form,
@@ -556,6 +559,7 @@ struct JsonRpcEvidence {
     web_act: bool,
     web_fill_agent_fields: bool,
     web_inspect_fields: bool,
+    web_fill_form_live: bool,
     live_worker_audit: bool,
     dev_click_all_primary_actions: bool,
     dev_fill_smoke_form: bool,
@@ -893,6 +897,8 @@ fn input_schema(name: &str) -> Value {
         "saccade.web.fill_form" => json!({
             "type": "object",
             "properties": {
+                "tab_id": {"type": "integer"},
+                "basis_page_revision": {"type": "integer"},
                 "fixture": {"type": "string", "default": "test_pages/formmax/index.html"},
                 "input": {"type": "string"},
                 "replay": {"type": "boolean", "default": true},
@@ -900,7 +906,8 @@ fn input_schema(name: &str) -> Value {
                     "type": "object",
                     "properties": {
                         "block_sensitive": {"type": "boolean", "const": true},
-                        "local_fixture_only": {"type": "boolean", "const": true}
+                        "local_fixture_only": {"type": "boolean", "const": true},
+                        "live_worker_only": {"type": "boolean", "const": true}
                     },
                     "additionalProperties": false
                 }
@@ -960,7 +967,7 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.web.act" => web_act_tool(state, arguments),
         "saccade.web.fill_agent_fields" => web_fill_agent_fields_tool(state, arguments),
         "saccade.web.inspect_fields" => web_inspect_fields_tool(state, arguments),
-        "saccade.web.fill_form" => web_fill_form_tool(arguments),
+        "saccade.web.fill_form" => web_fill_form_tool(state, arguments),
         "saccade.report.validate_run" => report_validate_run_tool(arguments),
         "saccade.report.replay_summary" => report_replay_summary_tool(arguments),
         _ => bail!("tool {name:?} is registered but not implemented in mcp-stdio-v0"),
@@ -1181,7 +1188,7 @@ fn dev_click_all_primary_actions_tool(
 }
 
 fn dev_fill_smoke_form_tool(arguments: Value) -> Result<Value> {
-    web_fill_form_tool(arguments)
+    web_fill_form_static_tool(arguments)
 }
 
 #[derive(Debug, Clone)]
@@ -1741,7 +1748,108 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
     }))
 }
 
-fn web_fill_form_tool(arguments: Value) -> Result<Value> {
+fn web_fill_form_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    if arguments.get("tab_id").is_some() {
+        return web_fill_form_live_tool(state, arguments);
+    }
+    web_fill_form_static_tool(arguments)
+}
+
+fn web_fill_form_live_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let basis_page_revision = arguments
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("live saccade.web.fill_form requires integer basis_page_revision")?;
+    if let Some(policy) = arguments.get("policy") {
+        if policy
+            .get("block_sensitive")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("live saccade.web.fill_form requires block_sensitive=true");
+        }
+        if policy
+            .get("local_fixture_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("live saccade.web.fill_form requires local_fixture_only=true");
+        }
+        if policy
+            .get("live_worker_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("live saccade.web.fill_form requires live_worker_only=true");
+        }
+    }
+
+    ensure_agent_input_allowed(state, tab_id)?;
+    if !state.browser_workers.contains_key(&tab_id.0) {
+        bail!("live saccade.web.fill_form requires a live browser worker tab");
+    }
+    let current_revision = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .page_revision;
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale form fill basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+
+    let live_fill = call_browser_worker(
+        state,
+        tab_id,
+        "formmax_live_fill",
+        json!({
+            "policy": {
+                "block_sensitive": true,
+                "local_fixture_only": true,
+            }
+        }),
+    )?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &live_fill);
+    }
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+
+    Ok(json!({
+        "status": "ok",
+        "summary": "FORMMAX capacity fixture filled and validated through the live Saccade browser session",
+        "runtime": "browser_session_worker_v0",
+        "engine": live_fill.get("engine").cloned().unwrap_or_else(|| json!("saccade-browser-session-formmax-live-v0")),
+        "tab_id": tab_id.0,
+        "basis_page_revision": basis_page_revision,
+        "new_page_revision": tab.info.page_revision,
+        "rows": live_fill.get("rows").cloned().unwrap_or(Value::Null),
+        "pages": live_fill.get("pages").cloned().unwrap_or(Value::Null),
+        "filled": live_fill.get("filled").cloned().unwrap_or(Value::Null),
+        "blocked_sensitive": live_fill.get("blocked_sensitive").cloned().unwrap_or(Value::Null),
+        "receipt_verified": live_fill.get("receipt_verified").cloned().unwrap_or(Value::Null),
+        "validation_errors": live_fill.get("validation_errors").cloned().unwrap_or(Value::Null),
+        "receipt": live_fill.get("receipt").cloned().unwrap_or(Value::Null),
+        "policy": {
+            "block_sensitive": true,
+            "local_fixture_only": true,
+            "live_worker_only": true,
+            "same_live_tab": true,
+            "values_logged": false,
+        },
+        "artifacts": {
+            "report": tab.last_report_path,
+            "replay": tab.last_replay_path,
+        },
+    }))
+}
+
+fn web_fill_form_static_tool(arguments: Value) -> Result<Value> {
     let fixture = arguments
         .get("fixture")
         .and_then(Value::as_str)
@@ -2819,6 +2927,86 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 })
         })
         .unwrap_or(false);
+    let formmax_base_url = start_test_server(workspace_root()?.join("test_pages").join("formmax"))?;
+    let formmax_open_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(85)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.dev.open_local",
+                "arguments": {
+                    "url": formmax_base_url.as_str(),
+                    "owner": "agent"
+                }
+            }),
+        },
+    );
+    let formmax_tab_id = formmax_open_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("tab"))
+                .and_then(|tab| tab.get("tab_id"))
+                .and_then(Value::as_u64)
+        })
+        .context("FORMMAX live open selftest did not return tab_id")?;
+    let formmax_basis_page_revision = formmax_open_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("tab"))
+                .and_then(|tab| tab.get("page_revision"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(1);
+    let web_fill_form_live_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(86)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.fill_form",
+                "arguments": {
+                    "tab_id": formmax_tab_id,
+                    "basis_page_revision": formmax_basis_page_revision,
+                    "policy": {
+                        "block_sensitive": true,
+                        "local_fixture_only": true,
+                        "live_worker_only": true
+                    }
+                }
+            }),
+        },
+    );
+    let web_fill_form_live = web_fill_form_live_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && content.get("engine").and_then(Value::as_str)
+                            == Some("saccade-browser-session-formmax-live-v0")
+                        && content.get("rows").and_then(Value::as_u64) == Some(96)
+                        && content.get("pages").and_then(Value::as_u64) == Some(2)
+                        && content.get("filled").and_then(Value::as_u64) == Some(672)
+                        && content.get("blocked_sensitive").and_then(Value::as_u64) == Some(3)
+                        && content.get("receipt_verified").and_then(Value::as_bool) == Some(true)
+                        && content
+                            .pointer("/artifacts/replay")
+                            .and_then(Value::as_str)
+                            .is_some_and(|path| path.contains("browser_session_worker"))
+                })
+        })
+        .unwrap_or(false);
     let dev_click_all_primary_actions = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -2954,6 +3142,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         web_act,
         web_fill_agent_fields,
         web_inspect_fields,
+        web_fill_form_live,
         live_worker_audit,
         dev_click_all_primary_actions,
         dev_fill_smoke_form,

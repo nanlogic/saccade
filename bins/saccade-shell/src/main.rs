@@ -1,10 +1,13 @@
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::{Command as ProcessCommand, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
+use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
@@ -36,6 +39,7 @@ enum Command {
     SelftestUserFlow,
     SelftestNativeInput,
     SelftestBrowserSession,
+    SelftestFormmaxLive,
     BrowserSessionWorker {
         #[arg(long)]
         url: String,
@@ -60,6 +64,7 @@ fn main() -> Result<()> {
         Command::SelftestUserFlow => selftest_user_flow(),
         Command::SelftestNativeInput => selftest_native_input(),
         Command::SelftestBrowserSession => selftest_browser_session(),
+        Command::SelftestFormmaxLive => selftest_formmax_live(),
         Command::BrowserSessionWorker {
             url,
             rendering_profile,
@@ -297,6 +302,128 @@ fn selftest_browser_session() -> Result<()> {
         profile.page_revision_after,
         profile.report_path.display(),
         profile.replay_path.display(),
+    );
+    Ok(())
+}
+
+fn selftest_formmax_live() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("formmax"))?;
+    let current_exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let mut child = ProcessCommand::new(current_exe)
+        .current_dir(&workspace)
+        .arg("browser-session-worker")
+        .arg("--url")
+        .arg(base_url.as_str())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("failed to spawn browser-session-worker")?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("browser-session-worker stdin was not piped")?;
+        writeln!(
+            stdin,
+            "{}",
+            json!({
+                "id": 1,
+                "method": "formmax_live_fill",
+                "params": {
+                    "policy": {
+                        "block_sensitive": true,
+                        "local_fixture_only": true
+                    }
+                }
+            })
+        )
+        .context("failed to send formmax_live_fill request")?;
+        writeln!(stdin, "{}", json!({"id": 2, "method": "close"}))
+            .context("failed to send close request")?;
+    }
+
+    let started = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .context("failed to poll browser-session-worker")?
+            .is_some()
+        {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(45) {
+            let _ = child.kill();
+            bail!("FORMMAX live worker selftest timed out");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout)
+            .context("failed to read browser-session-worker stdout")?;
+    }
+    let status = child
+        .wait()
+        .context("failed to wait for browser-session-worker")?;
+    if !status.success() {
+        bail!("browser-session-worker exited with {status}");
+    }
+
+    let response = stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|value| value.get("id").and_then(Value::as_u64) == Some(1))
+        .with_context(|| format!("missing formmax_live_fill response in stdout: {stdout}"))?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("formmax_live_fill response was not ok: {response}");
+    }
+    let result = response
+        .get("result")
+        .context("formmax_live_fill response missing result")?;
+    let rows = result.get("rows").and_then(Value::as_u64).unwrap_or(0);
+    let pages = result.get("pages").and_then(Value::as_u64).unwrap_or(0);
+    let filled = result.get("filled").and_then(Value::as_u64).unwrap_or(0);
+    let blocked_sensitive = result
+        .get("blocked_sensitive")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let receipt_verified = result
+        .get("receipt_verified")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let validation_errors = result
+        .get("validation_errors")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let replay_path = result
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .context("formmax_live_fill response missing replay artifact")?;
+    let replay_text = std::fs::read_to_string(replay_path)
+        .with_context(|| format!("failed to read replay artifact {replay_path}"))?;
+
+    if rows != 96
+        || pages != 2
+        || filled != 672
+        || blocked_sensitive != 3
+        || !receipt_verified
+        || validation_errors != 0
+    {
+        bail!("FORMMAX live worker selftest failed: {result}");
+    }
+    for needle in ["Region 1 / Site 001", "2026-02-02", "Mina"] {
+        if replay_text.contains(needle) {
+            bail!("FORMMAX live replay leaked table value {needle:?}");
+        }
+    }
+
+    println!(
+        "FORMMAX_LIVE PASS rows={} pages={} filled={} blocked_sensitive={} receipt_verified={} replay={}",
+        rows, pages, filled, blocked_sensitive, receipt_verified, replay_path
     );
     Ok(())
 }

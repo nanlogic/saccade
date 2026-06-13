@@ -5482,6 +5482,7 @@ dependencies = [
  "anyhow",
  "clap",
  "saccade_browser",
+ "serde_json",
  "tiny_http",
  "url",
 ]

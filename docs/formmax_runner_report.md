@@ -18,6 +18,18 @@ Observed three consecutive passes:
 FORMMAX RUNNER PASS rows=96 pages=2 filled=672 native_typed=1 blocked_sensitive=3 receipt_verified=true
 ```
 
+FORMMAX also has a live-tab worker gate:
+
+```bash
+RUST_LOG=error cargo run -q -p saccade-shell -- selftest-formmax-live
+```
+
+Observed result:
+
+```text
+FORMMAX_LIVE PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true replay=runs/browser_session_worker/worker_1781367973334_69584/replay.jsonl
+```
+
 ## Evidence
 
 Current evidence run artifacts:
@@ -63,6 +75,8 @@ legal_attestation: requires_user_input, value_present=false
 
 Replay does not echo table values. A local leak check over 288 deterministic text/date/owner values found `replay_value_leaks=0`.
 
+The live-tab worker replay also avoids table-value echo and keeps the workflow inside the same visible browser session. This is the path used by the MCP `saccade.web.fill_form` tool when `tab_id` and `live_worker_only=true` are provided.
+
 Artifact validation command:
 
 ```bash
@@ -79,4 +93,6 @@ FORMMAX VALIDATION PASS run=runs/formmax/run_1781266239027 rows=96 pages=2 fille
 
 The runner now proves native keyboard text entry for one real FORMMAX text field, then uses the trusted fixture DOM transaction path for the remaining full-table fill. It proves rendered-page transaction behavior, scroll/page coverage, receipt validation, screenshot artifacts, replay shape, sensitive-field policy, and a small native input bridge.
 
-Next hardening: expand native input coverage to more control types, including number/date/select/checkbox, and add Chrome/Playwright comparison baselines.
+The dropdown/select path is separately covered by `saccade-shell selftest-native-input`, which verifies `select_value=gamma`, `select_input=1`, `select_change=1`, and `select_controls=1`.
+
+Next hardening: expand native input coverage to more control types, add visual dropdown-open selection evidence for demos, and add Chrome/Playwright comparison baselines.

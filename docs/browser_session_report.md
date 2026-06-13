@@ -8,13 +8,15 @@ Date: 2026-06-13
 
 It opens a local page in Servo, collects browser truth and an action map, dispatches one native Servo mouse click, then collects post-action truth from the same WebView path. The fixture advances `data-session-revision` from `0` to `1`, so the gate verifies a visible page-state change rather than only an input event.
 
-The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.dev.audit_page(engine=servo)`, `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, `saccade.web.fill_agent_fields`, `saccade.web.inspect_fields`, and `saccade.tabs.close` talk to that worker over JSONL.
+The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.dev.audit_page(engine=servo)`, `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, `saccade.web.fill_agent_fields`, `saccade.web.inspect_fields`, `saccade.web.fill_form`, and `saccade.tabs.close` talk to that worker over JSONL.
 
 The worker now writes compact artifacts under `runs/browser_session_worker/worker_*/` and redacts field values before data leaves the browser process. Sensitive fields expose type and completion status, not raw values. Non-sensitive pages also receive screenshot PNG artifacts; pages with sensitive fields skip screenshots and record that policy decision in replay.
 
 Live worker audit is intentionally compact. It converts the current live probe into action counts, screenshot policy, and findings for blank pages, offscreen actions, blocked actions, and sensitive fields that require user handling. Static or non-live audits still use DEVMAX as fallback.
 
 The live worker is now interactive enough for Wayne-in-the-loop dogfood. It forwards real mouse, wheel, keyboard, browser back/forward/reload shortcuts, and simple native select control input into the Servo WebView. It also accepts a constrained `fill_agent_fields` JSONL request: only fields marked `data-owner="agent"` and `data-sensitive="none"` can be filled, sensitivity is recomputed in-page before writing, and replay records only field IDs plus rejection reasons. A separate `inspect_fields` request can check explicitly named fields: non-sensitive values may be returned to the agent, while sensitive fields return completion status only.
+
+FORMMAX live fill is now connected to the same worker tab. The worker can fill the 96-row, two-page local capacity fixture inside the visible browser session, block three sensitive fields, submit the receipt, and write replay evidence without raw table values.
 
 ## Evidence
 
@@ -70,6 +72,20 @@ inspect: 3 non-sensitive values returned, 3 sensitive values redacted
 artifact grep: no field values or sensitive fixture value found
 ```
 
+Live FORMMAX evidence:
+
+```text
+RUST_LOG=error cargo run -q -p saccade-shell -- selftest-formmax-live
+FORMMAX_LIVE PASS rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true replay=runs/browser_session_worker/worker_1781367973334_69584/replay.jsonl
+```
+
+MCP evidence:
+
+```text
+RUST_LOG=error cargo run -q -p saccade-mcp -- selftest
+MCP PASS tools_registered=19 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781368050809/report.json
+```
+
 Artifacts are written under:
 
 ```text
@@ -91,11 +107,13 @@ runs/browser_session_worker/worker_*/replay.jsonl
 - Supports constrained agent fill for agent-owned, non-sensitive fields.
 - Rejects human-owned or sensitive fields even if a caller asks to fill them.
 - Supports explicit field inspection for user review flows: non-sensitive values can be checked only when named, sensitive values stay masked.
+- Supports live FORMMAX fill through `saccade.web.fill_form` when called with a live Agent tab, `basis_page_revision`, and `live_worker_only=true`.
+- Worker run directories include the process ID in addition to a millisecond timestamp to avoid concurrent artifact collisions.
 - Uses the existing Servo event-loop/input/evaluate APIs already recorded in `docs/servo_api_map.md`.
 
 ## Still Pending
 
 - MCP still uses DEVMAX/FORMMAX child tools for static audit fallback, click-all verification, and bulk form workflows.
-- MCP exposes `fill_agent_fields` and `inspect_fields` as first-class live-worker tools; direct worker protocol remains useful for low-level debugging.
-- The worker is one Agent tab per child process; multi-tab shared browser process and FORMMAX live-tab integration remain next hardening steps.
+- MCP exposes `fill_agent_fields`, `inspect_fields`, and live `fill_form` as first-class live-worker tools; direct worker protocol remains useful for low-level debugging.
+- The worker is one Agent tab per child process; multi-tab shared browser process remains next hardening work.
 - Product UI still needs explicit Human/Agent badges and a polished handoff surface around the worker capability.

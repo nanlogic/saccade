@@ -71,7 +71,7 @@ struct WorkerArtifacts {
 
 impl WorkerArtifacts {
     fn new() -> Result<Self> {
-        let run_id = format!("worker_{}", unix_ms()?);
+        let run_id = format!("worker_{}_{}", unix_ms()?, std::process::id());
         let output_dir = PathBuf::from("runs")
             .join("browser_session_worker")
             .join(&run_id);
@@ -125,6 +125,9 @@ enum ActiveRequest {
     InspectFields {
         id: Value,
         requested: usize,
+    },
+    FormmaxLiveFill {
+        id: Value,
     },
 }
 
@@ -802,13 +805,17 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
         "act" => start_act_request(state, webview, id, request.params),
         "fill_agent_fields" => start_fill_agent_fields_request(state, webview, id, request.params),
         "inspect_fields" => start_inspect_fields_request(state, webview, id, request.params),
+        "formmax_live_fill" => start_formmax_live_fill_request(state, webview, id, request.params),
         "close" => {
-            respond_ok(
+            write_response(
                 state,
-                id,
                 json!({
-                    "status": "ok",
-                    "summary": "browser session worker closing",
+                    "id": id,
+                    "ok": true,
+                    "result": {
+                        "status": "ok",
+                        "summary": "browser session worker closing",
+                    },
                 }),
             );
             event_loop.exit();
@@ -999,7 +1006,74 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                 }
             }
         }
+        ActiveRequest::FormmaxLiveFill { id } => match finish_probe(&state.pending_probe) {
+            Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                Ok(value) => {
+                    let filled = value.get("filled").and_then(Value::as_u64).unwrap_or(0);
+                    if filled > 0 {
+                        state.page_revision.set(state.page_revision.get() + 1);
+                    }
+                    respond_ok(state, id, formmax_live_fill_response(state, &value));
+                }
+                Err(error) => {
+                    respond_error(
+                        state,
+                        id,
+                        format!("failed to parse FORMMAX live fill result: {error}"),
+                    );
+                }
+            },
+            Some(Err(error)) => respond_error(state, id, error),
+            None => {
+                *state.current.borrow_mut() = Some(ActiveRequest::FormmaxLiveFill { id });
+            }
+        },
     }
+}
+
+fn start_formmax_live_fill_request(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    id: Value,
+    params: Value,
+) {
+    if let Some(policy) = params.get("policy") {
+        if policy
+            .get("block_sensitive")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            respond_error(
+                state,
+                id,
+                "formmax_live_fill requires block_sensitive=true".into(),
+            );
+            return;
+        }
+        if policy
+            .get("local_fixture_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            respond_error(
+                state,
+                id,
+                "formmax_live_fill requires local_fixture_only=true".into(),
+            );
+            return;
+        }
+    }
+
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(FORMMAX_LIVE_FILL_JS, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
+    });
+    *state.current.borrow_mut() = Some(ActiveRequest::FormmaxLiveFill { id });
 }
 
 fn start_fill_agent_fields_request(
@@ -1371,6 +1445,90 @@ fn inspect_fields_response(
     })
 }
 
+fn formmax_live_fill_response(state: &Rc<WorkerState>, result: &Value) -> Value {
+    let events = result
+        .get("events")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for event in &events {
+        let mut event = event.clone();
+        if let Some(object) = event.as_object_mut() {
+            object.insert("run_id".into(), json!(state.run_id.as_str()));
+            object.insert("page_revision".into(), json!(state.page_revision.get()));
+            object.insert("values_logged".into(), json!(false));
+        }
+        log_replay(state, event);
+    }
+
+    let rows = result.get("rows").and_then(Value::as_u64).unwrap_or(0);
+    let pages = result.get("pages").and_then(Value::as_u64).unwrap_or(0);
+    let filled = result.get("filled").and_then(Value::as_u64).unwrap_or(0);
+    let blocked_sensitive = result
+        .get("blocked_sensitive")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let receipt_verified = result
+        .get("receipt_verified")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let validation_errors = result
+        .get("validation_errors")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let receipt_row_count = result
+        .pointer("/receipt/row_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+
+    log_replay(
+        state,
+        json!({
+            "kind": "formmax_live_fill_summary",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "rows": rows,
+            "pages": pages,
+            "filled": filled,
+            "blocked_sensitive": blocked_sensitive,
+            "receipt_verified": receipt_verified,
+            "validation_errors": validation_errors,
+            "values_logged": false,
+        }),
+    );
+
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-formmax-live-v0",
+        "summary": "FORMMAX capacity fixture filled and verified inside the live Servo browser session",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "page_revision": state.page_revision.get(),
+        "rows": rows,
+        "pages": pages,
+        "filled": filled,
+        "blocked_sensitive": blocked_sensitive,
+        "receipt_verified": receipt_verified,
+        "validation_errors": validation_errors,
+        "replay_events": events.len() + 1,
+        "receipt": {
+            "row_count": receipt_row_count,
+            "validation": result.pointer("/receipt/validation").cloned().unwrap_or(Value::Null),
+            "sensitive_fields_present": result
+                .pointer("/receipt/sensitive_fields_present")
+                .cloned()
+                .unwrap_or(Value::Null),
+        },
+        "policy": {
+            "block_sensitive": true,
+            "local_fixture_only": true,
+            "same_live_tab": true,
+            "values_logged": false,
+        },
+        "artifacts": artifact_paths(state),
+    })
+}
+
 fn probe_changed(before_probe: &Value, after_probe: &Value) -> bool {
     before_probe.get("bodyTextLength") != after_probe.get("bodyTextLength")
         || before_probe.get("bodyChildCount") != after_probe.get("bodyChildCount")
@@ -1728,6 +1886,216 @@ fn inspect_fields_script(fields_json: &str) -> String {
 "#
     )
 }
+
+const FORMMAX_LIVE_FILL_JS: &str = r##"
+(() => {
+  const fixture = window.__FORMMAX_FIXTURE;
+  const module = window.FormmaxFixture;
+  if (!fixture || !module) throw new Error("FORMMAX fixture API is missing");
+
+  const startedAt = Date.now();
+  const events = [];
+  const rows = fixture.rows || [];
+  const pages = fixture.pages || [];
+  const fieldSpecs = fixture.fieldSpecs || [];
+  const sensitiveFields = fixture.sensitiveFields || [];
+  const scroller = document.getElementById("table-scroll");
+  const submit = document.getElementById("submit-page");
+  if (!scroller || !submit) throw new Error("FORMMAX fixture controls are missing");
+
+  function emit(kind, data = {}) {
+    events.push(Object.assign({
+      kind,
+      ts_ms: Date.now() - startedAt,
+      echo_values: false
+    }, data));
+  }
+
+  function event(type) {
+    return new Event(type, { bubbles: true });
+  }
+
+  function renderedRows() {
+    return Array.from(document.querySelectorAll("#capacity-body tr"));
+  }
+
+  function controlFor(row, spec) {
+    return document.getElementsByName(row.id + "_" + spec.key)[0] || null;
+  }
+
+  function setControlValue(control, spec, expected) {
+    control.focus();
+    emit("field_focused", {
+      row_id: expected.id,
+      field: spec.key,
+      control: control.tagName.toLowerCase(),
+      input_type: control.type || null
+    });
+    if (spec.kind === "checkbox") {
+      control.checked = Boolean(expected[spec.key]);
+    } else {
+      control.value = String(expected[spec.key]);
+    }
+    control.dispatchEvent(event("input"));
+    control.dispatchEvent(event("change"));
+  }
+
+  function controlMatches(control, spec, expected) {
+    if (spec.kind === "checkbox") return control.checked === Boolean(expected[spec.key]);
+    if (spec.kind === "number") return Number(control.value) === Number(expected[spec.key]);
+    return control.value === String(expected[spec.key]);
+  }
+
+  function ensureAllRowsRendered(pageIndex) {
+    const expected = pages[pageIndex].length;
+    let guard = 0;
+    emit("scroll_checkpoint", {
+      page: pageIndex + 1,
+      rendered_rows: renderedRows().length,
+      target_rows: expected
+    });
+    while (renderedRows().length < expected && guard < 20) {
+      scroller.scrollTop = scroller.scrollHeight;
+      scroller.dispatchEvent(event("scroll"));
+      emit("scroll_checkpoint", {
+        page: pageIndex + 1,
+        rendered_rows: renderedRows().length,
+        target_rows: expected
+      });
+      guard += 1;
+    }
+    if (renderedRows().length < expected) {
+      throw new Error(`page ${pageIndex + 1} rendered ${renderedRows().length} of ${expected} rows`);
+    }
+  }
+
+  function fillPage(pageIndex) {
+    emit("page_started", { page: pageIndex + 1, rows: pages[pageIndex].length });
+    ensureAllRowsRendered(pageIndex);
+    let filled = 0;
+    for (const row of pages[pageIndex]) {
+      for (const spec of fieldSpecs) {
+        const control = controlFor(row, spec);
+        emit("field_discovered", {
+          page: pageIndex + 1,
+          row_id: row.id,
+          field: spec.key,
+          sensitive: false,
+          control_found: Boolean(control)
+        });
+        if (!control) throw new Error(`missing control ${row.id}_${spec.key}`);
+        setControlValue(control, spec, row);
+        filled += 1;
+        emit("field_filled", {
+          page: pageIndex + 1,
+          row_id: row.id,
+          field: spec.key,
+          value_echoed: false
+        });
+        const ok = controlMatches(control, spec, row);
+        emit("field_verified", {
+          page: pageIndex + 1,
+          row_id: row.id,
+          field: spec.key,
+          passed: ok
+        });
+        if (!ok) throw new Error(`verification failed for ${row.id}_${spec.key}`);
+      }
+    }
+    return filled;
+  }
+
+  function blockSensitiveFields() {
+    let blocked = 0;
+    for (const field of sensitiveFields) {
+      const control = document.querySelector(`[data-sensitive="${field.name}"]`);
+      const hasValue = control
+        ? (control.type === "checkbox" ? control.checked : control.value !== "")
+        : false;
+      emit("field_discovered", {
+        field: field.name,
+        label: field.label,
+        sensitive: true,
+        reason: field.reason,
+        control_found: Boolean(control)
+      });
+      emit("confirmation_required", {
+        field: field.name,
+        reason: field.reason,
+        status: "requires_user_input",
+        value_echoed: false
+      });
+      emit("field_blocked_sensitive", {
+        field: field.name,
+        reason: field.reason,
+        value_present: hasValue,
+        value_echoed: false
+      });
+      if (hasValue) throw new Error(`sensitive field unexpectedly had value: ${field.name}`);
+      blocked += 1;
+    }
+    return blocked;
+  }
+
+  emit("form_run_started", {
+    engine: "saccade-browser-session-formmax-live-v0",
+    rows: rows.length,
+    pages: pages.length,
+    policy: {
+      block_sensitive: true,
+      local_fixture_only: true,
+      same_live_tab: true,
+      echo_values: false
+    }
+  });
+
+  let filled = fillPage(0);
+  submit.focus();
+  submit.click();
+  emit("page_next_clicked", { from_page: 1, to_page: 2 });
+  emit("validation_seen", { page: 1, errors: 0 });
+
+  filled += fillPage(1);
+  const blocked = blockSensitiveFields();
+  submit.focus();
+  submit.click();
+  emit("page_next_clicked", { from_page: 2, to_page: "receipt", local_fixture_only: true });
+
+  const receiptText = document.getElementById("receipt").textContent || "{}";
+  const receipt = JSON.parse(receiptText);
+  const validation = receipt.validation || module.validateReceipt(rows, receipt);
+  const validationErrors = (validation.failures || []).length;
+  const receiptPanel = document.getElementById("receipt-panel");
+  if (receiptPanel) receiptPanel.scrollIntoView({ block: "start" });
+  emit("receipt_seen", {
+    row_count: receipt.row_count,
+    receipt_verified: Boolean(validation.passed),
+    validation_errors: validationErrors
+  });
+  emit("form_transaction_finished", {
+    rows: rows.length,
+    pages: pages.length,
+    filled,
+    blocked_sensitive: blocked,
+    receipt_verified: Boolean(validation.passed),
+    validation_errors: validationErrors
+  });
+
+  return JSON.stringify({
+    engine: "saccade-browser-session-formmax-live-v0",
+    runtime: "browser_session_worker_v0",
+    rows: rows.length,
+    pages: pages.length,
+    filled,
+    blocked_sensitive: blocked,
+    receipt_verified: Boolean(validation.passed),
+    validation_errors: validationErrors,
+    replay_events: events.length,
+    events,
+    receipt
+  });
+})()
+"##;
 
 fn flatten_select_choices(select: &SelectElement) -> Vec<SelectChoice> {
     let mut choices = Vec::new();
