@@ -122,6 +122,10 @@ enum ActiveRequest {
         id: Value,
         requested: usize,
     },
+    InspectFields {
+        id: Value,
+        requested: usize,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -797,6 +801,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
         }
         "act" => start_act_request(state, webview, id, request.params),
         "fill_agent_fields" => start_fill_agent_fields_request(state, webview, id, request.params),
+        "inspect_fields" => start_inspect_fields_request(state, webview, id, request.params),
         "close" => {
             respond_ok(
                 state,
@@ -975,6 +980,25 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                 }
             }
         }
+        ActiveRequest::InspectFields { id, requested } => {
+            match finish_probe(&state.pending_probe) {
+                Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                    Ok(value) => {
+                        respond_ok(state, id, inspect_fields_response(state, requested, &value))
+                    }
+                    Err(error) => respond_error(
+                        state,
+                        id,
+                        format!("failed to parse inspect result: {error}"),
+                    ),
+                },
+                Some(Err(error)) => respond_error(state, id, error),
+                None => {
+                    *state.current.borrow_mut() =
+                        Some(ActiveRequest::InspectFields { id, requested });
+                }
+            }
+        }
     }
 }
 
@@ -1020,6 +1044,54 @@ fn start_fill_agent_fields_request(
         });
     });
     *state.current.borrow_mut() = Some(ActiveRequest::FillAgentFields { id, requested });
+}
+
+fn start_inspect_fields_request(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    id: Value,
+    params: Value,
+) {
+    let Some(fields) = params.get("fields").and_then(Value::as_array) else {
+        respond_error(
+            state,
+            id,
+            "inspect_fields requires array params.fields".into(),
+        );
+        return;
+    };
+    let requested = fields.len();
+    if requested == 0 {
+        respond_error(
+            state,
+            id,
+            "inspect_fields requires at least one field".into(),
+        );
+        return;
+    }
+    if fields.iter().any(|field| field.as_str().is_none()) {
+        respond_error(state, id, "inspect_fields field ids must be strings".into());
+        return;
+    }
+    let fields_json = match serde_json::to_string(fields) {
+        Ok(value) => value,
+        Err(error) => {
+            respond_error(state, id, format!("failed to serialize field ids: {error}"));
+            return;
+        }
+    };
+    let script = inspect_fields_script(&fields_json);
+    let script: &'static str = Box::leak(script.into_boxed_str());
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(script, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
+    });
+    *state.current.borrow_mut() = Some(ActiveRequest::InspectFields { id, requested });
 }
 
 fn request_probe(state: &Rc<WorkerState>, webview: &WebView) {
@@ -1234,6 +1306,67 @@ fn fill_agent_fields_response(
         "filled": fill_result.get("filled").cloned().unwrap_or_else(|| json!([])),
         "rejected": fill_result.get("rejected").cloned().unwrap_or_else(|| json!([])),
         "sensitive_fields_seen": fill_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+        "artifacts": artifact_paths(state),
+    })
+}
+
+fn inspect_fields_response(
+    state: &Rc<WorkerState>,
+    requested: usize,
+    inspect_result: &Value,
+) -> Value {
+    let fields = inspect_result
+        .get("fields")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let inspected_field_ids: Vec<Value> = fields
+        .iter()
+        .filter_map(|field| field.get("id").and_then(Value::as_str))
+        .map(|id| json!(id))
+        .collect();
+    let values_returned = fields
+        .iter()
+        .filter(|field| {
+            field
+                .get("value_returned")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count();
+    let redacted = fields
+        .iter()
+        .filter(|field| {
+            field
+                .get("value_redacted")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count();
+    log_replay(
+        state,
+        json!({
+            "kind": "fields_inspected",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "requested": requested,
+            "inspected_field_ids": inspected_field_ids,
+            "values_returned": values_returned,
+            "values_redacted": redacted,
+            "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+            "values_logged": false,
+        }),
+    );
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-worker-v0",
+        "summary": "explicitly requested field inspection completed with sensitive values masked",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "page_revision": state.page_revision.get(),
+        "requested": requested,
+        "fields": inspect_result.get("fields").cloned().unwrap_or_else(|| json!([])),
+        "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
         "artifacts": artifact_paths(state),
     })
 }
@@ -1519,6 +1652,78 @@ fn fill_agent_fields_script(fields_json: &str) -> String {
     pageRevision: body && body.dataset ? Number(body.dataset.sessionRevision || "0") || 0 : 0,
     sensitiveFieldsSeen
   }});
+}})()
+"#
+    )
+}
+
+fn inspect_fields_script(fields_json: &str) -> String {
+    format!(
+        r#"
+(() => {{
+  const requested = {fields_json};
+  const fields = [];
+
+  function sensitivityOf(el) {{
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || ""
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }}
+
+  function fieldValue(el) {{
+    if (el.type === "checkbox") return Boolean(el.checked);
+    return String(el.value || "");
+  }}
+
+  function hasValue(el) {{
+    if (el.type === "checkbox") return Boolean(el.checked);
+    return String(el.value || "").trim().length > 0;
+  }}
+
+  for (const id of requested) {{
+    const el = document.getElementById(id);
+    if (!el) {{
+      fields.push({{ id, status: "not_found" }});
+      continue;
+    }}
+    const owner = el.getAttribute("data-owner") || "";
+    const declaredSensitivity = el.getAttribute("data-sensitive") || "none";
+    const sensitivity = sensitivityOf(el);
+    const completionState = sensitivity === "none" && declaredSensitivity === "none"
+      ? (hasValue(el) ? "value_present" : "empty")
+      : (hasValue(el) ? "completed_without_value" : "requires_user_input");
+    const record = {{
+      id,
+      status: "ok",
+      owner,
+      declared_sensitivity: declaredSensitivity,
+      sensitivity,
+      completion_state: completionState
+    }};
+    if (sensitivity === "none" && declaredSensitivity === "none") {{
+      record.value = fieldValue(el);
+      record.value_returned = true;
+    }} else {{
+      record.value_redacted = true;
+    }}
+    fields.push(record);
+  }}
+
+  const sensitiveFieldsSeen = Array.from(document.querySelectorAll("input, select, textarea"))
+    .filter((el) => sensitivityOf(el) !== "none" || (el.getAttribute("data-sensitive") || "none") !== "none")
+    .length;
+  return JSON.stringify({{ fields, sensitiveFieldsSeen }});
 }})()
 "#
     )

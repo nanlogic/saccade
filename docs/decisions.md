@@ -293,3 +293,11 @@
 - The worker rejects human-owned or sensitive fields even when the caller explicitly requests values for them. Rejections expose only field ID, owner, and sensitivity kind.
 - Replay for fill events records field IDs and rejection metadata only; it sets `values_logged=false`.
 - Probe result: `task-1` and `task-2` filled, `ssn` and `tax-id-empty` rejected, `sensitive_fields_seen=3`, screenshots skipped by sensitive-field policy.
+
+## DECISION_USER_FLOW_003 - Explicit inspect allows non-sensitive user-value checks
+
+- Added `inspect_fields` to the worker JSONL protocol for explicit, named field checks.
+- The worker returns values only when the target field is recomputed as non-sensitive and declared `data-sensitive="none"`, regardless of whether the field owner is Human or Agent.
+- Sensitive fields return `completion_state` and `value_redacted=true`, never raw values.
+- Replay records inspected field IDs, value-returned/redacted counts, and `values_logged=false`; it does not log returned values.
+- Probe result: `agent-page2-code` and `agent-page2-owner` returned values, `user-quantity` returned a non-sensitive value, while `signature` and `tax-id-empty` returned redacted status only.

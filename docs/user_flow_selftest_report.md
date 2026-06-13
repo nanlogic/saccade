@@ -63,12 +63,16 @@ The browser worker can now keep the same visible Servo tab alive while accepting
 3. Sensitive or human-owned fields are rejected with metadata only.
 4. Wayne can navigate to the next page and fill part of the form.
 5. Agent can continue in the same tab, preserve Wayne's values, and check sensitive completion status without raw sensitive values.
+6. Agent can explicitly inspect named non-sensitive fields, such as `user-quantity`, while sensitive fields still return only completion status.
 
 The first worker-level probe filled `task-1` and `task-2`, rejected `ssn` and `tax-id-empty`, skipped screenshots because sensitive fields were present, and logged `values_logged=false`.
+
+The follow-up inspect probe returned values for explicitly named non-sensitive fields and returned only redacted status for `signature` and `tax-id-empty`. Replay recorded `fields_inspected`, field IDs, return/redaction counts, and `values_logged=false`.
 
 ## Remaining Product Work
 
 - Manual Wayne-in-the-loop dogfood session.
+- MCP tool wrappers for `fill_agent_fields` and `inspect_fields`.
 - Product UI for Human/Agent tab badges and handoff.
 - Replay events with `tab_id`, `owner`, `actor`, `basis_revision`, and masked user-action boundaries.
 - Live FORMMAX integration into the browser-backed Agent tab instead of a separate runner.
