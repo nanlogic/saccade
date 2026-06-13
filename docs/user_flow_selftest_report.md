@@ -1,6 +1,6 @@
 # Saccade User Flow Selftest Report
 
-Date: 2026-06-12
+Date: 2026-06-13
 
 ## Result
 
@@ -53,6 +53,18 @@ The agent receives mediated truth:
 - sensitive values are masked,
 - sensitive fields expose completion and format status only,
 - agent input to the Human-owned login tab stays blocked.
+
+## Manual Dogfood Readiness
+
+The browser worker can now keep the same visible Servo tab alive while accepting real user input and constrained agent fill requests. A manual session can reproduce Wayne's flow:
+
+1. Wayne inspects or edits the page directly in the worker window.
+2. Agent fills only agent-owned, non-sensitive fields through `fill_agent_fields`.
+3. Sensitive or human-owned fields are rejected with metadata only.
+4. Wayne can navigate to the next page and fill part of the form.
+5. Agent can continue in the same tab, preserve Wayne's values, and check sensitive completion status without raw sensitive values.
+
+The first worker-level probe filled `task-1` and `task-2`, rejected `ssn` and `tax-id-empty`, skipped screenshots because sensitive fields were present, and logged `values_logged=false`.
 
 ## Remaining Product Work
 

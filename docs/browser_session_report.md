@@ -1,6 +1,6 @@
 # Browser Session Smoke Report
 
-Date: 2026-06-12
+Date: 2026-06-13
 
 ## What Was Added
 
@@ -14,6 +14,8 @@ The worker now writes compact artifacts under `runs/browser_session_worker/worke
 
 Live worker audit is intentionally compact. It converts the current live probe into action counts, screenshot policy, and findings for blank pages, offscreen actions, blocked actions, and sensitive fields that require user handling. Static or non-live audits still use DEVMAX as fallback.
 
+The live worker is now interactive enough for Wayne-in-the-loop dogfood. It forwards real mouse, wheel, keyboard, browser back/forward/reload shortcuts, and simple native select control input into the Servo WebView. It also accepts a constrained `fill_agent_fields` JSONL request: only fields marked `data-owner="agent"` and `data-sensitive="none"` can be filled, sensitivity is recomputed in-page before writing, and replay records only field IDs plus rejection reasons.
+
 ## Evidence
 
 Command:
@@ -26,6 +28,26 @@ Expected shape:
 
 ```text
 BROWSER_SESSION PASS run_id=... session=... tab=agent-tab-1 actions_seen=1 revision=0=>1 report=... replay=...
+```
+
+Safe fill worker probe:
+
+```bash
+printf '%s\n' \
+  '{"id":1,"method":"truth"}' \
+  '{"id":2,"method":"fill_agent_fields","params":{"fields":{"task-1":"agent-one","task-2":"agent-two","ssn":"SHOULD-NOT-WRITE","tax-id-empty":"SHOULD-NOT-WRITE"}}}' \
+  '{"id":3,"method":"truth"}' \
+  '{"id":4,"method":"close"}' \
+| RUST_LOG=error cargo run -q -p saccade-shell -- browser-session-worker --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/login_handoff/user_flow.html
+```
+
+Observed safe-fill result:
+
+```text
+filled=["task-1","task-2"]
+rejected=["ssn","tax-id-empty"]
+sensitive_fields_seen=3
+values_logged=false
 ```
 
 Artifacts are written under:
@@ -45,9 +67,13 @@ runs/browser_session_worker/worker_*/replay.jsonl
 - Saves screenshot PNG artifacts for pages without sensitive fields.
 - Skips screenshot capture when sensitive fields are present, instead logging `screenshot_skipped_sensitive_fields`.
 - Redacts arbitrary page form values from worker truth/actions. Sensitive fields expose `sensitivity.kind` and `completion_state`.
+- Supports manual user input in the same live worker window.
+- Supports constrained agent fill for agent-owned, non-sensitive fields.
+- Rejects human-owned or sensitive fields even if a caller asks to fill them.
 - Uses the existing Servo event-loop/input/evaluate APIs already recorded in `docs/servo_api_map.md`.
 
 ## Still Pending
 
-- MCP still uses DEVMAX/FORMMAX child tools for static audit fallback, click-all verification, and form workflows.
+- MCP still uses DEVMAX/FORMMAX child tools for static audit fallback, click-all verification, and bulk form workflows.
 - The worker is one Agent tab per child process; multi-tab shared browser process and FORMMAX live-tab integration remain next hardening steps.
+- Product UI still needs explicit Human/Agent badges and a polished handoff surface around the worker capability.

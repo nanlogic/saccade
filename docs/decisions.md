@@ -285,3 +285,11 @@
 - Added `saccade-shell selftest-user-flow` and `test_pages/login_handoff/user_flow.html`.
 - The gate proves the product flow Wayne identified: Human login, explicit handoff, Agent-owned tab continuation, agent fills normal fields, user sees agent-filled values, sensitive fields stay unfilled/unread by the agent, user changes page and fills part, agent fills the remaining normal fields, and agent checks user input without receiving raw sensitive values.
 - Current result passes with `round1_agent_filled=4`, `round1_requires_user_input=3`, `user_page_change_seen=true`, `user_normal_checked=true`, `sensitive_status_checked_without_value=true`, `agent_completed_remaining=2`, `preserved_user_values=true`, `same_agent_tab_continued=true`, `final_sensitive_completed_without_value=4`, and `sensitive_values_exposed=false`.
+
+## DECISION_USER_FLOW_002 - Manual worker supports safe user/agent co-presence
+
+- The live `browser-session-worker` now forwards real mouse, wheel, keyboard, browser shortcut, and select-control input into the visible Servo WebView so Wayne can directly inspect, edit, and navigate during dogfood.
+- Added `fill_agent_fields` to the worker JSONL protocol. It writes only fields that are both `data-owner="agent"` and `data-sensitive="none"`, then recomputes sensitivity in the page before writing.
+- The worker rejects human-owned or sensitive fields even when the caller explicitly requests values for them. Rejections expose only field ID, owner, and sensitivity kind.
+- Replay for fill events records field IDs and rejection metadata only; it sets `values_logged=false`.
+- Probe result: `task-1` and `task-2` filled, `ssn` and `tax-id-empty` rejected, `sensitive_fields_seen=3`, screenshots skipped by sensitive-field policy.

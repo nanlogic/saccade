@@ -13,15 +13,20 @@ use euclid::{Point2D, Scale};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use servo::{
-    CSSPixel, DeviceIntRect, DeviceIntSize, InputEvent, JSValue, LoadStatus, MouseButton,
-    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext, Servo, ServoBuilder,
-    WebView, WebViewBuilder, WebViewDelegate, WebViewPoint, WindowRenderingContext,
+    CSSPixel, DeviceIntRect, DeviceIntSize, EmbedderControl, InputEvent, JSValue, Key as ServoKey,
+    KeyState, KeyboardEvent, LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent,
+    MouseMoveEvent, NamedKey as ServoNamedKey, RenderingContext, SelectElement,
+    SelectElementOptionOrOptgroup, Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate,
+    WebViewPoint, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::WindowEvent;
+use winit::event::{
+    ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent,
+};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
@@ -113,6 +118,10 @@ enum ActiveRequest {
         before_probe: Value,
         before_revision: u64,
     },
+    FillAgentFields {
+        id: Value,
+        requested: usize,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -141,15 +150,147 @@ struct WorkerState {
     pending_probe: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     latest_probe: RefCell<Option<Value>>,
     current: RefCell<Option<ActiveRequest>>,
+    cursor_x: Cell<f32>,
+    cursor_y: Cell<f32>,
+    modifiers: Cell<ModifiersState>,
+    active_select: RefCell<Option<ActiveSelect>>,
     screenshots: RefCell<Vec<String>>,
     screenshot_skipped_sensitive: Cell<u64>,
     rendering_settings: RenderingProfileSettings,
     stdout: RefCell<io::Stdout>,
 }
 
+#[derive(Debug, Clone)]
+struct SelectChoice {
+    id: usize,
+    label: String,
+    disabled: bool,
+}
+
+struct ActiveSelect {
+    control: SelectElement,
+    choices: Vec<SelectChoice>,
+    cursor: usize,
+}
+
+impl WorkerState {
+    fn page_point(&self) -> WebViewPoint {
+        WebViewPoint::Page(Point2D::<f32, CSSPixel>::new(
+            self.cursor_x.get(),
+            self.cursor_y.get(),
+        ))
+    }
+
+    fn handle_active_select_key(&self, event: &KeyEvent) -> bool {
+        if event.state != ElementState::Pressed || self.active_select.borrow().is_none() {
+            return false;
+        }
+
+        match &event.logical_key {
+            WinitKey::Named(WinitNamedKey::ArrowDown) => {
+                self.move_active_select(1);
+                true
+            }
+            WinitKey::Named(WinitNamedKey::ArrowUp) => {
+                self.move_active_select(-1);
+                true
+            }
+            WinitKey::Named(WinitNamedKey::Enter) | WinitKey::Named(WinitNamedKey::Tab) => {
+                self.submit_active_select();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::Escape) => {
+                self.dismiss_active_select();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_browser_shortcut(&self, event: &KeyEvent) -> bool {
+        if event.state != ElementState::Pressed || !self.modifiers.get().super_key() {
+            return false;
+        }
+        let Some(webview) = self.webview.borrow().as_ref().cloned() else {
+            return false;
+        };
+        match character_key(event).as_deref() {
+            Some("r") | Some("R") => {
+                webview.reload();
+                true
+            }
+            Some("[") => {
+                if webview.can_go_back() {
+                    webview.go_back(1);
+                }
+                true
+            }
+            Some("]") => {
+                if webview.can_go_forward() {
+                    webview.go_forward(1);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn move_active_select(&self, direction: isize) {
+        let mut active_select = self.active_select.borrow_mut();
+        let Some(active) = active_select.as_mut() else {
+            return;
+        };
+        let Some(next) = next_selectable_choice(&active.choices, active.cursor, direction) else {
+            return;
+        };
+        active.cursor = next;
+        active.control.select(vec![active.choices[next].id]);
+        self.window.set_title(&format!(
+            "Saccade worker select | {}",
+            active.choices[next].label
+        ));
+    }
+
+    fn submit_active_select(&self) {
+        let Some(mut active) = self.active_select.borrow_mut().take() else {
+            return;
+        };
+        if let Some(choice) = active.choices.get(active.cursor) {
+            active.control.select(vec![choice.id]);
+        }
+        active.control.submit();
+    }
+
+    fn dismiss_active_select(&self) {
+        self.active_select.borrow_mut().take();
+    }
+}
+
 impl WebViewDelegate for WorkerState {
     fn notify_new_frame_ready(&self, _webview: WebView) {
         self.window.request_redraw();
+    }
+
+    fn show_embedder_control(&self, _webview: WebView, embedder_control: EmbedderControl) {
+        if let EmbedderControl::SelectElement(mut select) = embedder_control {
+            let choices = flatten_select_choices(&select);
+            let selected_options = select.selected_options();
+            let cursor = choices
+                .iter()
+                .position(|choice| selected_options.contains(&choice.id) && !choice.disabled)
+                .or_else(|| choices.iter().position(|choice| !choice.disabled))
+                .unwrap_or(0);
+            if let Some(choice) = choices.get(cursor) {
+                select.select(vec![choice.id]);
+                self.window
+                    .set_title(&format!("Saccade worker select | {}", choice.label));
+            }
+            *self.active_select.borrow_mut() = Some(ActiveSelect {
+                control: select,
+                choices,
+                cursor,
+            });
+        }
     }
 }
 
@@ -357,6 +498,10 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             pending_probe: Rc::new(RefCell::new(None)),
             latest_probe: RefCell::new(None),
             current: RefCell::new(None),
+            cursor_x: Cell::new(0.0),
+            cursor_y: Cell::new(0.0),
+            modifiers: Cell::new(ModifiersState::empty()),
+            active_select: RefCell::new(None),
             screenshots: RefCell::new(Vec::new()),
             screenshot_skipped_sensitive: Cell::new(0),
             rendering_settings: rendering_settings.clone(),
@@ -423,6 +568,54 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                     state.rendering_context.resize(new_size);
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         webview.resize(new_size);
+                    }
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    state.cursor_x.set(position.x as f32);
+                    state.cursor_y.set(position.y as f32);
+                    if let Some(webview) = state.webview.borrow().as_ref() {
+                        webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(
+                            state.page_point(),
+                        )));
+                    }
+                }
+                WindowEvent::MouseInput {
+                    state: button_state,
+                    button,
+                    ..
+                } => {
+                    if let Some(webview) = state.webview.borrow().as_ref() {
+                        webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+                            mouse_button_action(button_state),
+                            servo_mouse_button(button),
+                            state.page_point(),
+                        )));
+                    }
+                }
+                WindowEvent::MouseWheel { delta, .. } => {
+                    if let Some(webview) = state.webview.borrow().as_ref() {
+                        let (x, y, mode) = wheel_delta(delta);
+                        webview.notify_input_event(InputEvent::Wheel(WheelEvent::new(
+                            WheelDelta { x, y, z: 0.0, mode },
+                            state.page_point(),
+                        )));
+                    }
+                }
+                WindowEvent::ModifiersChanged(modifiers) => {
+                    state.modifiers.set(modifiers.state());
+                }
+                WindowEvent::KeyboardInput { event, .. } => {
+                    if state.handle_active_select_key(&event)
+                        || state.handle_browser_shortcut(&event)
+                    {
+                        return;
+                    }
+
+                    if let (Some(webview), Some(keyboard_event)) = (
+                        state.webview.borrow().as_ref().cloned(),
+                        servo_keyboard_event(&event),
+                    ) {
+                        webview.notify_input_event(InputEvent::Keyboard(keyboard_event));
                     }
                 }
                 _ => {}
@@ -603,6 +796,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
             });
         }
         "act" => start_act_request(state, webview, id, request.params),
+        "fill_agent_fields" => start_fill_agent_fields_request(state, webview, id, request.params),
         "close" => {
             respond_ok(
                 state,
@@ -752,7 +946,80 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                 });
             }
         },
+        ActiveRequest::FillAgentFields { id, requested } => {
+            match finish_probe(&state.pending_probe) {
+                Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                    Ok(value) => {
+                        let filled = value
+                            .get("filled")
+                            .and_then(Value::as_array)
+                            .map(Vec::len)
+                            .unwrap_or(0);
+                        if filled > 0 {
+                            state.page_revision.set(state.page_revision.get() + 1);
+                        }
+                        respond_ok(
+                            state,
+                            id,
+                            fill_agent_fields_response(state, requested, &value),
+                        );
+                    }
+                    Err(error) => {
+                        respond_error(state, id, format!("failed to parse fill result: {error}"))
+                    }
+                },
+                Some(Err(error)) => respond_error(state, id, error),
+                None => {
+                    *state.current.borrow_mut() =
+                        Some(ActiveRequest::FillAgentFields { id, requested });
+                }
+            }
+        }
     }
+}
+
+fn start_fill_agent_fields_request(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    id: Value,
+    params: Value,
+) {
+    let Some(fields) = params.get("fields").and_then(Value::as_object) else {
+        respond_error(
+            state,
+            id,
+            "fill_agent_fields requires object params.fields".into(),
+        );
+        return;
+    };
+    let requested = fields.len();
+    if requested == 0 {
+        respond_error(
+            state,
+            id,
+            "fill_agent_fields requires at least one field".into(),
+        );
+        return;
+    }
+    let fields_json = match serde_json::to_string(fields) {
+        Ok(value) => value,
+        Err(error) => {
+            respond_error(state, id, format!("failed to serialize fields: {error}"));
+            return;
+        }
+    };
+    let script = fill_agent_fields_script(&fields_json);
+    let script: &'static str = Box::leak(script.into_boxed_str());
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(script, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
+    });
+    *state.current.borrow_mut() = Some(ActiveRequest::FillAgentFields { id, requested });
 }
 
 fn request_probe(state: &Rc<WorkerState>, webview: &WebView) {
@@ -924,6 +1191,49 @@ fn act_response(
             "dom_page_revision_before": before_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
             "dom_page_revision_after": after_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
         },
+        "artifacts": artifact_paths(state),
+    })
+}
+
+fn fill_agent_fields_response(
+    state: &Rc<WorkerState>,
+    requested: usize,
+    fill_result: &Value,
+) -> Value {
+    let filled = fill_result
+        .get("filled")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let rejected = fill_result
+        .get("rejected")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    log_replay(
+        state,
+        json!({
+            "kind": "agent_fields_filled",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "requested": requested,
+            "filled": filled.len(),
+            "filled_field_ids": filled,
+            "rejected": rejected,
+            "values_logged": false,
+        }),
+    );
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-worker-v0",
+        "summary": "agent-owned non-sensitive fields filled in live Servo browser session",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "page_revision": state.page_revision.get(),
+        "requested": requested,
+        "filled": fill_result.get("filled").cloned().unwrap_or_else(|| json!([])),
+        "rejected": fill_result.get("rejected").cloned().unwrap_or_else(|| json!([])),
+        "sensitive_fields_seen": fill_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
         "artifacts": artifact_paths(state),
     })
 }
@@ -1145,6 +1455,208 @@ fn click_action(state: &Rc<WorkerState>, webview: &WebView, action: &Value) {
         page_point,
     )));
     state.window.request_redraw();
+}
+
+fn fill_agent_fields_script(fields_json: &str) -> String {
+    format!(
+        r#"
+(() => {{
+  const requested = {fields_json};
+  const filled = [];
+  const rejected = [];
+
+  function sensitivityOf(el) {{
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || ""
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }}
+
+  for (const [id, value] of Object.entries(requested)) {{
+    const el = document.getElementById(id);
+    if (!el) {{
+      rejected.push({{ id, reason: "not_found" }});
+      continue;
+    }}
+    const owner = el.getAttribute("data-owner") || "";
+    const declaredSensitivity = el.getAttribute("data-sensitive") || "none";
+    const sensitivity = sensitivityOf(el);
+    if (owner !== "agent" || declaredSensitivity !== "none" || sensitivity !== "none") {{
+      rejected.push({{ id, reason: "not_agent_owned_non_sensitive", owner, sensitivity }});
+      continue;
+    }}
+    if (el.type === "checkbox") {{
+      el.checked = Boolean(value);
+    }} else {{
+      el.value = String(value);
+    }}
+    el.dispatchEvent(new Event("input", {{ bubbles: true }}));
+    el.dispatchEvent(new Event("change", {{ bubbles: true }}));
+    filled.push(id);
+  }}
+
+  const body = document.body;
+  const previousRevision = Number(body && body.dataset ? (body.dataset.sessionRevision || "0") : "0") || 0;
+  if (filled.length && body && body.dataset) {{
+    body.dataset.sessionRevision = String(previousRevision + 1);
+  }}
+  const sensitiveFieldsSeen = Array.from(document.querySelectorAll("input, select, textarea"))
+    .filter((el) => sensitivityOf(el) !== "none" || (el.getAttribute("data-sensitive") || "none") !== "none")
+    .length;
+  return JSON.stringify({{
+    filled,
+    rejected,
+    pageRevision: body && body.dataset ? Number(body.dataset.sessionRevision || "0") || 0 : 0,
+    sensitiveFieldsSeen
+  }});
+}})()
+"#
+    )
+}
+
+fn flatten_select_choices(select: &SelectElement) -> Vec<SelectChoice> {
+    let mut choices = Vec::new();
+    for option_or_group in select.options() {
+        match option_or_group {
+            SelectElementOptionOrOptgroup::Option(option) => {
+                choices.push(SelectChoice {
+                    id: option.id,
+                    label: option.label.clone(),
+                    disabled: option.is_disabled,
+                });
+            }
+            SelectElementOptionOrOptgroup::Optgroup { label, options } => {
+                for option in options {
+                    choices.push(SelectChoice {
+                        id: option.id,
+                        label: format!("{label} / {}", option.label),
+                        disabled: option.is_disabled,
+                    });
+                }
+            }
+        }
+    }
+    choices
+}
+
+fn next_selectable_choice(
+    choices: &[SelectChoice],
+    cursor: usize,
+    direction: isize,
+) -> Option<usize> {
+    if choices.is_empty() {
+        return None;
+    }
+
+    let len = choices.len();
+    for step in 1..=len {
+        let next = if direction >= 0 {
+            (cursor + step) % len
+        } else {
+            (cursor + len - step) % len
+        };
+        if !choices[next].disabled {
+            return Some(next);
+        }
+    }
+    None
+}
+
+fn wheel_delta(delta: MouseScrollDelta) -> (f64, f64, WheelMode) {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => {
+            ((x * 76.0) as f64, (y * 76.0) as f64, WheelMode::DeltaLine)
+        }
+        MouseScrollDelta::PixelDelta(delta) => (delta.x, delta.y, WheelMode::DeltaPixel),
+    }
+}
+
+fn mouse_button_action(state: ElementState) -> MouseButtonAction {
+    match state {
+        ElementState::Pressed => MouseButtonAction::Down,
+        ElementState::Released => MouseButtonAction::Up,
+    }
+}
+
+fn servo_mouse_button(button: WinitMouseButton) -> MouseButton {
+    match button {
+        WinitMouseButton::Left => MouseButton::Left,
+        WinitMouseButton::Right => MouseButton::Right,
+        WinitMouseButton::Middle => MouseButton::Middle,
+        WinitMouseButton::Back => MouseButton::Back,
+        WinitMouseButton::Forward => MouseButton::Forward,
+        WinitMouseButton::Other(value) => MouseButton::Other(value),
+    }
+}
+
+fn servo_keyboard_event(event: &KeyEvent) -> Option<KeyboardEvent> {
+    let state = match event.state {
+        ElementState::Pressed => KeyState::Down,
+        ElementState::Released => KeyState::Up,
+    };
+    let key = servo_key(event)?;
+    Some(KeyboardEvent::from_state_and_key(state, key))
+}
+
+fn servo_key(event: &KeyEvent) -> Option<ServoKey> {
+    if event.state == ElementState::Pressed {
+        if let Some(text) = event.text.as_ref() {
+            let text = text.to_string();
+            if !text.is_empty() && !text.chars().any(char::is_control) {
+                return Some(ServoKey::Character(text));
+            }
+        }
+    }
+
+    match &event.logical_key {
+        WinitKey::Character(text) => {
+            let text = text.to_string();
+            if text.is_empty() {
+                None
+            } else {
+                Some(ServoKey::Character(text))
+            }
+        }
+        WinitKey::Named(WinitNamedKey::Space) => Some(ServoKey::Character(" ".to_string())),
+        WinitKey::Named(named) => map_named_key(*named).map(ServoKey::Named),
+        WinitKey::Unidentified(_) | WinitKey::Dead(_) => None,
+    }
+}
+
+fn character_key(event: &KeyEvent) -> Option<String> {
+    match &event.logical_key {
+        WinitKey::Character(text) => Some(text.to_string()),
+        _ => None,
+    }
+}
+
+fn map_named_key(key: WinitNamedKey) -> Option<ServoNamedKey> {
+    match key {
+        WinitNamedKey::Enter => Some(ServoNamedKey::Enter),
+        WinitNamedKey::Tab => Some(ServoNamedKey::Tab),
+        WinitNamedKey::Escape => Some(ServoNamedKey::Escape),
+        WinitNamedKey::Backspace => Some(ServoNamedKey::Backspace),
+        WinitNamedKey::Delete => Some(ServoNamedKey::Delete),
+        WinitNamedKey::ArrowDown => Some(ServoNamedKey::ArrowDown),
+        WinitNamedKey::ArrowLeft => Some(ServoNamedKey::ArrowLeft),
+        WinitNamedKey::ArrowRight => Some(ServoNamedKey::ArrowRight),
+        WinitNamedKey::ArrowUp => Some(ServoNamedKey::ArrowUp),
+        WinitNamedKey::End => Some(ServoNamedKey::End),
+        WinitNamedKey::Home => Some(ServoNamedKey::Home),
+        WinitNamedKey::PageDown => Some(ServoNamedKey::PageDown),
+        WinitNamedKey::PageUp => Some(ServoNamedKey::PageUp),
+        _ => None,
+    }
 }
 
 fn respond_ok(state: &Rc<WorkerState>, id: Value, result: Value) {
