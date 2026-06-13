@@ -26,7 +26,9 @@ pub use dogfood::{DogfoodBrowserConfig, run_dogfood_browser};
 pub use formmax_run::{
     FormmaxRunConfig, FormmaxRunReport, run_formmax_fixture, run_formmax_fixture_with_config,
 };
-pub use native_input::{NativeInputProfile, selftest_native_input};
+pub use native_input::{
+    NativeInputConfig, NativeInputProfile, selftest_native_input, selftest_native_input_with_config,
+};
 pub use page_selftest::{SelftestPageOutcome, SelftestPagesReport, selftest_pages};
 pub use real_run::{RealRunConfig, RealRunReport, run_real};
 pub use recon::{RealSiteRecon, real_site_recon};

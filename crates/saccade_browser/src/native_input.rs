@@ -1,15 +1,18 @@
 use std::cell::{Cell, RefCell};
+use std::fs;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use euclid::{Point2D, Scale};
-use serde_json::Value;
+use serde::Serialize;
+use serde_json::{Value, json};
 use servo::{
-    CSSPixel, EmbedderControl, InputEvent, InputEventId, InputEventResult, JSValue, Key, KeyState,
-    KeyboardEvent, LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent,
-    RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate, WebViewPoint,
-    WindowRenderingContext,
+    CSSPixel, DeviceIntRect, DeviceIntSize, EmbedderControl, InputEvent, InputEventId,
+    InputEventResult, JSValue, Key, KeyState, KeyboardEvent, LoadStatus, MouseButton,
+    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext, Servo, ServoBuilder,
+    WebView, WebViewBuilder, WebViewDelegate, WebViewPoint, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -29,7 +32,7 @@ const FOCUS_SETTLE: Duration = Duration::from_millis(140);
 const VALUE_SETTLE: Duration = Duration::from_millis(180);
 const RETRY_SETTLE: Duration = Duration::from_millis(80);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NativeInputProfile {
     pub focused: bool,
     pub value: String,
@@ -52,12 +55,28 @@ pub struct NativeInputProfile {
     pub select_requested_index: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct NativeInputConfig {
+    pub url: Url,
+    pub artifact_dir: Option<PathBuf>,
+}
+
 pub fn selftest_native_input(url: Url) -> Result<NativeInputProfile> {
+    selftest_native_input_with_config(NativeInputConfig {
+        url,
+        artifact_dir: None,
+    })
+}
+
+pub fn selftest_native_input_with_config(config: NativeInputConfig) -> Result<NativeInputProfile> {
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
     let result = Rc::new(RefCell::new(None));
-    let mut app = NativeInputApp::new(&event_loop, url, result.clone());
+    if let Some(dir) = config.artifact_dir.as_ref() {
+        fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    }
+    let mut app = NativeInputApp::new(&event_loop, config, result.clone());
 
     event_loop
         .run_app(&mut app)
@@ -110,6 +129,8 @@ struct NativeInputState {
     select_controls_shown: Cell<usize>,
     select_options_seen: Cell<usize>,
     select_requested_index: Cell<usize>,
+    artifact_dir: Option<PathBuf>,
+    screenshots: RefCell<Vec<String>>,
     pending_probe: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     result: Rc<RefCell<Option<std::result::Result<NativeInputProfile, String>>>>,
 }
@@ -154,7 +175,7 @@ impl WebViewDelegate for NativeInputState {
 enum NativeInputApp {
     Initial {
         waker: Waker,
-        url: Url,
+        config: NativeInputConfig,
         result: Rc<RefCell<Option<std::result::Result<NativeInputProfile, String>>>>,
     },
     Running {
@@ -166,12 +187,12 @@ enum NativeInputApp {
 impl NativeInputApp {
     fn new(
         event_loop: &EventLoop<WakerEvent>,
-        url: Url,
+        config: NativeInputConfig,
         result: Rc<RefCell<Option<std::result::Result<NativeInputProfile, String>>>>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
-            url,
+            config,
             result,
         }
     }
@@ -201,6 +222,7 @@ impl NativeInputApp {
                 if webview.load_status() == LoadStatus::Complete
                     && webview.page_title().as_deref() == Some("Native Input")
                 {
+                    save_artifact_screenshot(&state, &webview, "01_loaded.png");
                     request_text_probe(&state, &webview);
                     set_phase(&state, Phase::WaitReadyProbe);
                 }
@@ -328,6 +350,7 @@ impl NativeInputApp {
                     return;
                 };
 
+                save_artifact_screenshot(&state, &webview, "02_before_select.png");
                 click_probe_input(&state, &webview, x, y);
                 set_phase(&state, Phase::WaitSelectValue);
             }
@@ -362,6 +385,8 @@ impl NativeInputApp {
                     && profile.select_input_events >= 1
                     && profile.select_change_events >= 1
                 {
+                    save_artifact_screenshot(&state, &webview, "03_after_select.png");
+                    write_artifact_report(&state, &profile);
                     finish_ok(&state, event_loop, profile);
                     state.phase.set(Phase::Done);
                     *self = Self::Finished;
@@ -388,7 +413,12 @@ impl NativeInputApp {
 
 impl ApplicationHandler<WakerEvent> for NativeInputApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let Self::Initial { waker, url, result } = self else {
+        let Self::Initial {
+            waker,
+            config,
+            result,
+        } = self
+        else {
             return;
         };
 
@@ -454,7 +484,7 @@ impl ApplicationHandler<WakerEvent> for NativeInputApp {
             window,
             servo,
             rendering_context,
-            url: url.clone(),
+            url: config.url.clone(),
             webview: RefCell::new(None),
             started_at: Instant::now(),
             phase: Cell::new(Phase::WaitPage),
@@ -466,6 +496,8 @@ impl ApplicationHandler<WakerEvent> for NativeInputApp {
             select_controls_shown: Cell::new(0),
             select_options_seen: Cell::new(0),
             select_requested_index: Cell::new(usize::MAX),
+            artifact_dir: config.artifact_dir.clone(),
+            screenshots: RefCell::new(Vec::new()),
             pending_probe: Rc::new(RefCell::new(None)),
             result: result.clone(),
         });
@@ -706,6 +738,72 @@ fn probe_input_center(probe: &Value) -> Option<(f32, f32)> {
         return None;
     }
     Some((left + width / 2.0, top + height / 2.0))
+}
+
+fn save_artifact_screenshot(state: &Rc<NativeInputState>, webview: &WebView, filename: &str) {
+    let Some(artifact_dir) = state.artifact_dir.as_ref() else {
+        return;
+    };
+    webview.paint();
+    let rect = DeviceIntRect::from_size(DeviceIntSize::new(
+        WINDOW_WIDTH as i32,
+        WINDOW_HEIGHT as i32,
+    ));
+    let path = artifact_dir.join(filename);
+    match state.rendering_context.read_to_image(rect) {
+        Some(image) => {
+            if image.save(&path).is_ok() {
+                state
+                    .screenshots
+                    .borrow_mut()
+                    .push(path.display().to_string());
+            }
+        }
+        None => {}
+    }
+}
+
+fn write_artifact_report(state: &Rc<NativeInputState>, profile: &NativeInputProfile) {
+    let Some(artifact_dir) = state.artifact_dir.as_ref() else {
+        return;
+    };
+    let report_path = artifact_dir.join("report.json");
+    let report = json!({
+        "engine": "saccade-native-input-demo-v0",
+        "summary": "native keyboard input and native dropdown selection completed through Servo input/embedder paths",
+        "url": state.url.as_str(),
+        "text_input": {
+            "expected": profile.expected_value,
+            "value_length": profile.value.len(),
+            "focused": profile.focused,
+            "keydown_events": profile.keydown_events,
+            "keypress_events": profile.keypress_events,
+            "beforeinput_events": profile.beforeinput_events,
+            "input_events": profile.input_events,
+            "keyup_events": profile.keyup_events,
+            "dispatch_failed_keyboard_events": profile.dispatch_failed_keyboard_events,
+        },
+        "dropdown": {
+            "expected_value": profile.expected_select_value,
+            "selected_value": profile.select_value,
+            "focused": profile.select_focused,
+            "embedder_controls_shown": profile.select_controls_shown,
+            "options_seen": profile.select_options_seen,
+            "requested_index": profile.select_requested_index,
+            "input_events": profile.select_input_events,
+            "change_events": profile.select_change_events,
+            "selection_path": "Servo EmbedderControl::SelectElement -> select(index) -> submit()",
+        },
+        "profile": profile,
+        "artifacts": {
+            "run_dir": artifact_dir.display().to_string(),
+            "report": report_path.display().to_string(),
+            "screenshots": state.screenshots.borrow().clone(),
+        }
+    });
+    if let Ok(bytes) = serde_json::to_vec_pretty(&report) {
+        let _ = fs::write(report_path, bytes);
+    }
 }
 
 fn finish_ok(

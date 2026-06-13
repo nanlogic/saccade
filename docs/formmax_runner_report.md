@@ -93,6 +93,6 @@ FORMMAX VALIDATION PASS run=runs/formmax/run_1781266239027 rows=96 pages=2 fille
 
 The runner now proves native keyboard text entry for one real FORMMAX text field, then uses the trusted fixture DOM transaction path for the remaining full-table fill. It proves rendered-page transaction behavior, scroll/page coverage, receipt validation, screenshot artifacts, replay shape, sensitive-field policy, and a small native input bridge.
 
-The dropdown/select path is separately covered by `saccade-shell selftest-native-input`, which verifies `select_value=gamma`, `select_input=1`, `select_change=1`, and `select_controls=1`.
+The dropdown/select path is separately covered by `saccade-shell selftest-native-input`, which verifies `select_value=gamma`, `select_input=1`, `select_change=1`, and `select_controls=1`. `saccade-shell selftest-native-input-demo` also writes before/after screenshots and a review page at `runs/native_input_demo/demo_1781386930568/review.html`.
 
-Next hardening: expand native input coverage to more control types, add visual dropdown-open selection evidence for demos, and add Chrome/Playwright comparison baselines.
+Next hardening: expand native input coverage to more FORMMAX control types, wire native select handling into the FORMMAX `owner` field, and add Chrome/Playwright comparison baselines.

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
@@ -38,6 +38,7 @@ enum Command {
     SelftestSafety,
     SelftestUserFlow,
     SelftestNativeInput,
+    SelftestNativeInputDemo,
     SelftestBrowserSession,
     SelftestFormmaxLive,
     BrowserSessionWorker {
@@ -63,6 +64,7 @@ fn main() -> Result<()> {
         Command::SelftestSafety => selftest_safety(),
         Command::SelftestUserFlow => selftest_user_flow(),
         Command::SelftestNativeInput => selftest_native_input(),
+        Command::SelftestNativeInputDemo => selftest_native_input_demo(),
         Command::SelftestBrowserSession => selftest_browser_session(),
         Command::SelftestFormmaxLive => selftest_formmax_live(),
         Command::BrowserSessionWorker {
@@ -271,6 +273,113 @@ fn selftest_native_input() -> Result<()> {
         profile.select_controls_shown,
     );
     Ok(())
+}
+
+fn selftest_native_input_demo() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("native_input"))?;
+    let output_dir = workspace
+        .join("runs")
+        .join("native_input_demo")
+        .join(format!("demo_{}", unix_ms()?));
+    let profile =
+        saccade_browser::selftest_native_input_with_config(saccade_browser::NativeInputConfig {
+            url: base_url,
+            artifact_dir: Some(output_dir.clone()),
+        })?;
+
+    if profile.select_value != profile.expected_select_value
+        || profile.select_controls_shown < 1
+        || profile.select_input_events < 1
+        || profile.select_change_events < 1
+    {
+        bail!("native input demo failed: {profile:?}");
+    }
+
+    let report_path = output_dir.join("report.json");
+    for filename in [
+        "01_loaded.png",
+        "02_before_select.png",
+        "03_after_select.png",
+    ] {
+        let path = output_dir.join(filename);
+        if !path.exists() {
+            bail!("native input demo did not write {}", path.display());
+        }
+    }
+    let review_path = output_dir.join("review.html");
+    write_native_input_demo_review(&review_path, &profile)?;
+
+    println!(
+        "NATIVE_INPUT_DEMO PASS select_value={} select_input={} select_change={} select_controls={} report={} review={}",
+        profile.select_value,
+        profile.select_input_events,
+        profile.select_change_events,
+        profile.select_controls_shown,
+        report_path.display(),
+        review_path.display(),
+    );
+    Ok(())
+}
+
+fn write_native_input_demo_review(
+    path: &Path,
+    profile: &saccade_browser::NativeInputProfile,
+) -> Result<()> {
+    let html = format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saccade Native Dropdown Demo</title>
+  <style>
+    body {{ margin: 0; background: #f6f7f9; color: #101418; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    main {{ max-width: 1120px; margin: 0 auto; padding: 28px; }}
+    h1 {{ margin: 0 0 8px; font-size: 26px; }}
+    p {{ margin: 0 0 20px; color: #4b5563; }}
+    .grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }}
+    figure {{ margin: 0; border: 1px solid #d1d5db; background: #fff; border-radius: 8px; overflow: hidden; }}
+    figcaption {{ padding: 10px 12px; font-weight: 650; border-bottom: 1px solid #e5e7eb; }}
+    img {{ display: block; width: 100%; height: auto; }}
+    pre {{ margin-top: 18px; padding: 14px; background: #111827; color: #e5e7eb; border-radius: 8px; overflow: auto; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Saccade Native Dropdown Demo</h1>
+    <p>Servo embedder select control was opened, option index {requested_index} was submitted, and the page emitted input/change events.</p>
+    <div class="grid">
+      <figure>
+        <figcaption>Before select</figcaption>
+        <img src="02_before_select.png" alt="Select before Saccade chooses Gamma">
+      </figure>
+      <figure>
+        <figcaption>After select</figcaption>
+        <img src="03_after_select.png" alt="Select after Saccade chooses Gamma">
+      </figure>
+    </div>
+    <pre>{{
+  "selected_value": "{selected}",
+  "expected_value": "{expected}",
+  "embedder_controls_shown": {controls},
+  "options_seen": {options},
+  "input_events": {input_events},
+  "change_events": {change_events}
+}}</pre>
+  </main>
+</body>
+</html>
+"#,
+        requested_index = profile.select_requested_index,
+        selected = profile.select_value,
+        expected = profile.expected_select_value,
+        controls = profile.select_controls_shown,
+        options = profile.select_options_seen,
+        input_events = profile.select_input_events,
+        change_events = profile.select_change_events,
+    );
+    std::fs::write(path, html).with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn selftest_browser_session() -> Result<()> {
@@ -493,4 +602,11 @@ fn workspace_root() -> Result<PathBuf> {
         .and_then(Path::parent)
         .map(Path::to_path_buf)
         .context("failed to resolve workspace root")
+}
+
+fn unix_ms() -> Result<u128> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system time is before UNIX_EPOCH")?
+        .as_millis())
 }
