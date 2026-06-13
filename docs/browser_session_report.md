@@ -8,7 +8,7 @@ Date: 2026-06-13
 
 It opens a local page in Servo, collects browser truth and an action map, dispatches one native Servo mouse click, then collects post-action truth from the same WebView path. The fixture advances `data-session-revision` from `0` to `1`, so the gate verifies a visible page-state change rather than only an input event.
 
-The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.dev.audit_page(engine=servo)`, `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, and `saccade.tabs.close` talk to that worker over JSONL.
+The MCP path now has a live worker as well: Agent-owned local tabs spawn `saccade-shell browser-session-worker --url ...`, and `saccade.dev.audit_page(engine=servo)`, `saccade.web.truth`, `saccade.web.actions`, `saccade.web.act`, `saccade.web.fill_agent_fields`, `saccade.web.inspect_fields`, and `saccade.tabs.close` talk to that worker over JSONL.
 
 The worker now writes compact artifacts under `runs/browser_session_worker/worker_*/` and redacts field values before data leaves the browser process. Sensitive fields expose type and completion status, not raw values. Non-sensitive pages also receive screenshot PNG artifacts; pages with sensitive fields skip screenshots and record that policy decision in replay.
 
@@ -96,6 +96,6 @@ runs/browser_session_worker/worker_*/replay.jsonl
 ## Still Pending
 
 - MCP still uses DEVMAX/FORMMAX child tools for static audit fallback, click-all verification, and bulk form workflows.
-- MCP has not yet exposed `fill_agent_fields` and `inspect_fields` as first-class tools; direct worker protocol is the current dogfood path.
+- MCP exposes `fill_agent_fields` and `inspect_fields` as first-class live-worker tools; direct worker protocol remains useful for low-level debugging.
 - The worker is one Agent tab per child process; multi-tab shared browser process and FORMMAX live-tab integration remain next hardening steps.
 - Product UI still needs explicit Human/Agent badges and a polished handoff surface around the worker capability.

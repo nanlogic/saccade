@@ -90,8 +90,6 @@ Result:
 
 ## Remaining Product Work
 
-- Manual Wayne-in-the-loop dogfood session.
-- MCP tool wrappers for `fill_agent_fields` and `inspect_fields`.
 - Product UI for Human/Agent tab badges and handoff.
 - Replay events with `tab_id`, `owner`, `actor`, `basis_revision`, and masked user-action boundaries.
 - Live FORMMAX integration into the browser-backed Agent tab instead of a separate runner.

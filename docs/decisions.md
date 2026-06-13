@@ -301,3 +301,11 @@
 - Sensitive fields return `completion_state` and `value_redacted=true`, never raw values.
 - Replay records inspected field IDs, value-returned/redacted counts, and `values_logged=false`; it does not log returned values.
 - Probe result: `agent-page2-code` and `agent-page2-owner` returned values, `user-quantity` returned a non-sensitive value, while `signature` and `tax-id-empty` returned redacted status only.
+
+## DECISION_USER_FLOW_004 - MCP exposes live safe fill and inspect
+
+- Added first-class MCP tools `saccade.web.fill_agent_fields` and `saccade.web.inspect_fields`.
+- `fill_agent_fields` requires an Agent-owned live worker tab and a fresh `basis_page_revision`; it rejects stale fill attempts before reaching the worker.
+- `inspect_fields` requires explicit field IDs and uses live worker redaction, so sensitive fields expose status only.
+- MCP selftest now opens the user-flow fixture, fills `task-1`, rejects `ssn`, inspects `task-1`, and verifies `ssn` remains redacted through the MCP surface.
+- Latest evidence: `MCP PASS tools_registered=19` with report `/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781363828594/report.json`.

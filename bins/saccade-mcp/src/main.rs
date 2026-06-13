@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 12;
+const REQUIRED_TOOL_COUNT: usize = 19;
 
 #[derive(Parser)]
 #[command(name = "saccade-mcp")]
@@ -98,6 +98,8 @@ struct SelftestEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    web_fill_agent_fields: bool,
+    web_inspect_fields: bool,
     live_worker_audit: bool,
     dev_click_all_primary_actions: bool,
     dev_fill_smoke_form: bool,
@@ -222,6 +224,8 @@ fn selftest() -> Result<()> {
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
         && stdio_evidence.web_act
+        && stdio_evidence.web_fill_agent_fields
+        && stdio_evidence.web_inspect_fields
         && stdio_evidence.live_worker_audit
         && stdio_evidence.dev_click_all_primary_actions
         && stdio_evidence.dev_fill_smoke_form
@@ -245,6 +249,8 @@ fn selftest() -> Result<()> {
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
+        web_fill_agent_fields: stdio_evidence.web_fill_agent_fields,
+        web_inspect_fields: stdio_evidence.web_inspect_fields,
         live_worker_audit: stdio_evidence.live_worker_audit,
         dev_click_all_primary_actions: stdio_evidence.dev_click_all_primary_actions,
         dev_fill_smoke_form: stdio_evidence.dev_fill_smoke_form,
@@ -419,6 +425,24 @@ fn registry() -> ToolRegistry {
                 true,
             ),
             tool(
+                "saccade.web.fill_agent_fields",
+                ToolNamespace::Web,
+                ToolRisk::PolicyGated,
+                "Fill explicitly requested Agent-owned non-sensitive fields in a live browser tab.",
+                true,
+                true,
+                true,
+            ),
+            tool(
+                "saccade.web.inspect_fields",
+                ToolNamespace::Web,
+                ToolRisk::PolicyGated,
+                "Inspect explicitly named fields while redacting sensitive values.",
+                true,
+                true,
+                true,
+            ),
+            tool(
                 "saccade.web.fill_form",
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
@@ -530,6 +554,8 @@ struct JsonRpcEvidence {
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
+    web_fill_agent_fields: bool,
+    web_inspect_fields: bool,
     live_worker_audit: bool,
     dev_click_all_primary_actions: bool,
     dev_fill_smoke_form: bool,
@@ -818,6 +844,52 @@ fn input_schema(name: &str) -> Value {
             "required": ["tab_id", "action_id", "basis_page_revision"],
             "additionalProperties": false
         }),
+        "saccade.web.fill_agent_fields" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "basis_page_revision": {"type": "integer"},
+                "fields": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": ["string", "number", "boolean"]
+                    }
+                },
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "agent_owned_only": {"type": "boolean", "const": true},
+                        "block_sensitive": {"type": "boolean", "const": true},
+                        "live_worker_only": {"type": "boolean", "const": true}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["tab_id", "basis_page_revision", "fields"],
+            "additionalProperties": false
+        }),
+        "saccade.web.inspect_fields" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1
+                },
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "redact_sensitive": {"type": "boolean", "const": true},
+                        "explicit_fields_only": {"type": "boolean", "const": true},
+                        "live_worker_only": {"type": "boolean", "const": true}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["tab_id", "fields"],
+            "additionalProperties": false
+        }),
         "saccade.web.fill_form" => json!({
             "type": "object",
             "properties": {
@@ -886,6 +958,8 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.web.truth" => web_truth_tool(state, arguments),
         "saccade.web.actions" => web_actions_tool(state, arguments),
         "saccade.web.act" => web_act_tool(state, arguments),
+        "saccade.web.fill_agent_fields" => web_fill_agent_fields_tool(state, arguments),
+        "saccade.web.inspect_fields" => web_inspect_fields_tool(state, arguments),
         "saccade.web.fill_form" => web_fill_form_tool(arguments),
         "saccade.report.validate_run" => report_validate_run_tool(arguments),
         "saccade.report.replay_summary" => report_replay_summary_tool(arguments),
@@ -1478,6 +1552,195 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
     }))
 }
 
+fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let basis_page_revision = arguments
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("tool arguments must include integer field basis_page_revision")?;
+    let Some(fields) = arguments.get("fields").and_then(Value::as_object) else {
+        bail!("tool arguments must include object field fields");
+    };
+    if fields.is_empty() {
+        bail!("fields must contain at least one field");
+    }
+    if let Some(policy) = arguments.get("policy") {
+        if policy
+            .get("agent_owned_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.fill_agent_fields requires agent_owned_only=true");
+        }
+        if policy
+            .get("block_sensitive")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.fill_agent_fields requires block_sensitive=true");
+        }
+        if policy
+            .get("live_worker_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.fill_agent_fields requires live_worker_only=true");
+        }
+    }
+
+    ensure_agent_input_allowed(state, tab_id)?;
+    if !state.browser_workers.contains_key(&tab_id.0) {
+        bail!("saccade.web.fill_agent_fields requires a live browser worker tab");
+    }
+    let current_revision = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .page_revision;
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale fill basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+
+    let live_fill = call_browser_worker(
+        state,
+        tab_id,
+        "fill_agent_fields",
+        json!({
+            "fields": Value::Object(fields.clone()),
+        }),
+    )?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &live_fill);
+    }
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    Ok(json!({
+        "status": "ok",
+        "summary": "agent-owned non-sensitive fields filled through live Saccade browser session",
+        "runtime": "browser_session_worker_v0",
+        "tab_id": tab_id.0,
+        "basis_page_revision": basis_page_revision,
+        "new_page_revision": tab.info.page_revision,
+        "filled": live_fill.get("filled").cloned().unwrap_or_else(|| json!([])),
+        "rejected": live_fill.get("rejected").cloned().unwrap_or_else(|| json!([])),
+        "sensitive_fields_seen": live_fill.get("sensitive_fields_seen").cloned().unwrap_or(Value::Null),
+        "policy": {
+            "agent_owned_only": true,
+            "block_sensitive": true,
+            "live_worker_only": true,
+            "values_logged": false,
+        },
+        "artifacts": {
+            "report": tab.last_report_path,
+            "replay": tab.last_replay_path,
+        },
+    }))
+}
+
+fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let Some(fields) = arguments.get("fields").and_then(Value::as_array) else {
+        bail!("tool arguments must include array field fields");
+    };
+    if fields.is_empty() {
+        bail!("fields must contain at least one field");
+    }
+    if fields.iter().any(|field| field.as_str().is_none()) {
+        bail!("fields must contain only string field IDs");
+    }
+    if let Some(policy) = arguments.get("policy") {
+        if policy
+            .get("redact_sensitive")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.inspect_fields requires redact_sensitive=true");
+        }
+        if policy
+            .get("explicit_fields_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.inspect_fields requires explicit_fields_only=true");
+        }
+        if policy
+            .get("live_worker_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.web.inspect_fields requires live_worker_only=true");
+        }
+    }
+
+    ensure_truth_allowed(state, tab_id)?;
+    if !state.browser_workers.contains_key(&tab_id.0) {
+        bail!("saccade.web.inspect_fields requires a live browser worker tab");
+    }
+    let live_inspect = call_browser_worker(
+        state,
+        tab_id,
+        "inspect_fields",
+        json!({
+            "fields": Value::Array(fields.clone()),
+        }),
+    )?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &live_inspect);
+    }
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    let inspected = live_inspect
+        .get("fields")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let values_returned = inspected
+        .iter()
+        .filter(|field| {
+            field
+                .get("value_returned")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count();
+    let values_redacted = inspected
+        .iter()
+        .filter(|field| {
+            field
+                .get("value_redacted")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count();
+    Ok(json!({
+        "status": "ok",
+        "summary": "explicit field inspection completed through live Saccade browser session",
+        "runtime": "browser_session_worker_v0",
+        "tab_id": tab_id.0,
+        "page_revision": tab.info.page_revision,
+        "fields": inspected,
+        "values_returned": values_returned,
+        "values_redacted": values_redacted,
+        "sensitive_fields_seen": live_inspect.get("sensitive_fields_seen").cloned().unwrap_or(Value::Null),
+        "policy": {
+            "redact_sensitive": true,
+            "explicit_fields_only": true,
+            "live_worker_only": true,
+            "values_logged": false,
+        },
+        "artifacts": {
+            "report": tab.last_report_path,
+            "replay": tab.last_replay_path,
+        },
+    }))
+}
+
 fn web_fill_form_tool(arguments: Value) -> Result<Value> {
     let fixture = arguments
         .get("fixture")
@@ -1938,12 +2201,10 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
         .get("summary")
         .and_then(Value::as_str)
         .map(ToOwned::to_owned);
-    tab.last_actions = result
-        .get("actions")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    tab.last_findings = result
+    if let Some(actions) = result.get("actions").and_then(Value::as_array).cloned() {
+        tab.last_actions = actions;
+    }
+    if let Some(findings) = result
         .get("findings")
         .and_then(Value::as_array)
         .cloned()
@@ -1953,7 +2214,9 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
                 .and_then(Value::as_array)
                 .cloned()
         })
-        .unwrap_or_default();
+    {
+        tab.last_findings = findings;
+    }
     tab.last_report_path = result
         .pointer("/artifacts/report")
         .and_then(Value::as_str)
@@ -2416,6 +2679,146 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 .map(|status| status == "ok")
         })
         .unwrap_or(false);
+    let flow_base_url =
+        start_test_server(workspace_root()?.join("test_pages").join("login_handoff"))?;
+    let flow_url = flow_base_url
+        .join("user_flow.html")
+        .context("failed to build user flow selftest URL")?;
+    let flow_open_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(82)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.dev.open_local",
+                "arguments": {
+                    "url": flow_url.as_str(),
+                    "owner": "agent"
+                }
+            }),
+        },
+    );
+    let flow_tab_id = flow_open_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("tab"))
+                .and_then(|tab| tab.get("tab_id"))
+                .and_then(Value::as_u64)
+        })
+        .context("flow open selftest did not return tab_id")?;
+    let flow_basis_page_revision = flow_open_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("tab"))
+                .and_then(|tab| tab.get("page_revision"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(1);
+    let web_fill_agent_fields_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(83)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.fill_agent_fields",
+                "arguments": {
+                    "tab_id": flow_tab_id,
+                    "basis_page_revision": flow_basis_page_revision,
+                    "fields": {
+                        "task-1": "mcp-agent-task",
+                        "ssn": "SHOULD-NOT-WRITE"
+                    },
+                    "policy": {
+                        "agent_owned_only": true,
+                        "block_sensitive": true,
+                        "live_worker_only": true
+                    }
+                }
+            }),
+        },
+    );
+    let web_fill_agent_fields = web_fill_agent_fields_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    let filled_task = content
+                        .get("filled")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .any(|field| field.as_str() == Some("task-1"));
+                    let rejected_ssn = content
+                        .get("rejected")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .any(|field| field.get("id").and_then(Value::as_str) == Some("ssn"));
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && filled_task
+                        && rejected_ssn
+                })
+        })
+        .unwrap_or(false);
+    let web_inspect_fields_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(84)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.inspect_fields",
+                "arguments": {
+                    "tab_id": flow_tab_id,
+                    "fields": ["task-1", "ssn"],
+                    "policy": {
+                        "redact_sensitive": true,
+                        "explicit_fields_only": true,
+                        "live_worker_only": true
+                    }
+                }
+            }),
+        },
+    );
+    let web_inspect_fields = web_inspect_fields_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    let fields = content
+                        .get("fields")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let task_returned = fields.iter().any(|field| {
+                        field.get("id").and_then(Value::as_str) == Some("task-1")
+                            && field.get("value_returned").and_then(Value::as_bool) == Some(true)
+                            && field.get("value").and_then(Value::as_str) == Some("mcp-agent-task")
+                    });
+                    let ssn_redacted = fields.iter().any(|field| {
+                        field.get("id").and_then(Value::as_str) == Some("ssn")
+                            && field.get("value_redacted").and_then(Value::as_bool) == Some(true)
+                            && field.get("value").is_none()
+                    });
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && task_returned
+                        && ssn_redacted
+                })
+        })
+        .unwrap_or(false);
     let dev_click_all_primary_actions = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -2549,6 +2952,8 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         web_truth,
         web_actions,
         web_act,
+        web_fill_agent_fields,
+        web_inspect_fields,
         live_worker_audit,
         dev_click_all_primary_actions,
         dev_fill_smoke_form,
