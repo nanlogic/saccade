@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Focused Type Fixture</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f7f9;
+        color: #101418;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        padding: 64px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 12px;
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      textarea {
+        box-sizing: border-box;
+        width: 560px;
+        min-height: 180px;
+        border: 2px solid #6b7280;
+        border-radius: 6px;
+        padding: 12px;
+        background: #ffffff;
+        color: #111827;
+        font: 18px/1.45 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      }
+
+      textarea:focus {
+        border-color: #1668e3;
+        outline: 3px solid rgba(22, 104, 227, 0.25);
+      }
+
+      output {
+        display: block;
+        margin-top: 16px;
+        color: #4b5563;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <label for="draft">Human-focused draft field</label>
+      <textarea id="draft" name="draft_body" autocomplete="off" spellcheck="false"></textarea>
+      <output id="status">Ready</output>
+    </main>
+    <script>
+      (() => {
+        const draft = document.getElementById("draft");
+        const status = document.getElementById("status");
+        const state = { inputEvents: 0, changeEvents: 0 };
+
+        draft.addEventListener("input", () => {
+          state.inputEvents += 1;
+          status.textContent = `Length ${draft.value.length}`;
+        });
+        draft.addEventListener("change", () => {
+          state.changeEvents += 1;
+        });
+        window.__FOCUSED_TYPE = state;
+        window.addEventListener("load", () => draft.focus());
+      })();
+    </script>
+  </body>
+</html>

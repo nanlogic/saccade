@@ -126,6 +126,21 @@ enum ActiveRequest {
         id: Value,
         requested: usize,
     },
+    TypeFocusedPreflight {
+        id: Value,
+        text: String,
+    },
+    TypeFocusedWait {
+        id: Value,
+        chars_requested: usize,
+        before_probe: Value,
+        dispatched_at: Instant,
+    },
+    TypeFocusedVerify {
+        id: Value,
+        chars_requested: usize,
+        before_probe: Value,
+    },
     FormmaxLiveFill {
         id: Value,
     },
@@ -805,6 +820,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
         "act" => start_act_request(state, webview, id, request.params),
         "fill_agent_fields" => start_fill_agent_fields_request(state, webview, id, request.params),
         "inspect_fields" => start_inspect_fields_request(state, webview, id, request.params),
+        "type_focused_text" => start_type_focused_text_request(state, webview, id, request.params),
         "formmax_live_fill" => start_formmax_live_fill_request(state, webview, id, request.params),
         "close" => {
             write_response(
@@ -875,6 +891,82 @@ fn start_act_request(state: &Rc<WorkerState>, webview: &WebView, id: Value, para
         before_probe,
         before_revision: current_revision,
         dispatched_at: Instant::now(),
+    });
+}
+
+fn start_type_focused_text_request(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    id: Value,
+    params: Value,
+) {
+    let Some(text) = params.get("text").and_then(Value::as_str) else {
+        respond_error(state, id, "type_focused_text requires string text".into());
+        return;
+    };
+    if text.is_empty() {
+        respond_error(
+            state,
+            id,
+            "type_focused_text requires non-empty text".into(),
+        );
+        return;
+    }
+    let max_chars = params
+        .get("max_chars")
+        .and_then(Value::as_u64)
+        .unwrap_or(4000) as usize;
+    if text.chars().count() > max_chars {
+        respond_error(
+            state,
+            id,
+            format!("type_focused_text text exceeds max_chars={max_chars}"),
+        );
+        return;
+    }
+    if let Some(policy) = params.get("policy") {
+        if policy
+            .get("active_element_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            respond_error(
+                state,
+                id,
+                "type_focused_text requires active_element_only=true".into(),
+            );
+            return;
+        }
+        if policy
+            .get("block_sensitive")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            respond_error(
+                state,
+                id,
+                "type_focused_text requires block_sensitive=true".into(),
+            );
+            return;
+        }
+    }
+
+    request_type_focused_probe(state, webview);
+    *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedPreflight {
+        id,
+        text: text.to_string(),
+    });
+}
+
+fn request_type_focused_probe(state: &Rc<WorkerState>, webview: &WebView) {
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(TYPE_FOCUSED_PROBE_JS, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
     });
 }
 
@@ -1006,6 +1098,109 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
                 }
             }
         }
+        ActiveRequest::TypeFocusedPreflight { id, text } => {
+            match finish_probe(&state.pending_probe) {
+                Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                    Ok(value) => {
+                        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+                            let reason = value
+                                .get("reason")
+                                .and_then(Value::as_str)
+                                .unwrap_or("focused field is not writable");
+                            respond_error(
+                                state,
+                                id,
+                                format!("type_focused_text blocked: {reason}"),
+                            );
+                            return;
+                        }
+                        let chars_requested = text.chars().count();
+                        type_text_into_focused_field(state, webview, &text);
+                        *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedWait {
+                            id,
+                            chars_requested,
+                            before_probe: value,
+                            dispatched_at: Instant::now(),
+                        });
+                    }
+                    Err(error) => respond_error(
+                        state,
+                        id,
+                        format!("failed to parse focused type preflight: {error}"),
+                    ),
+                },
+                Some(Err(error)) => respond_error(state, id, error),
+                None => {
+                    *state.current.borrow_mut() =
+                        Some(ActiveRequest::TypeFocusedPreflight { id, text });
+                }
+            }
+        }
+        ActiveRequest::TypeFocusedWait {
+            id,
+            chars_requested,
+            before_probe,
+            dispatched_at,
+        } => {
+            if dispatched_at.elapsed() >= ACT_VERIFY_DELAY {
+                request_type_focused_probe(state, webview);
+                *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedVerify {
+                    id,
+                    chars_requested,
+                    before_probe,
+                });
+            } else {
+                *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedWait {
+                    id,
+                    chars_requested,
+                    before_probe,
+                    dispatched_at,
+                });
+            }
+        }
+        ActiveRequest::TypeFocusedVerify {
+            id,
+            chars_requested,
+            before_probe,
+        } => match finish_probe(&state.pending_probe) {
+            Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                Ok(value) => {
+                    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+                        let reason = value
+                            .get("reason")
+                            .and_then(Value::as_str)
+                            .unwrap_or("focused field verification failed");
+                        respond_error(
+                            state,
+                            id,
+                            format!("type_focused_text verify blocked: {reason}"),
+                        );
+                        return;
+                    }
+                    if value.get("changed").and_then(Value::as_bool) == Some(true) {
+                        state.page_revision.set(state.page_revision.get() + 1);
+                    }
+                    respond_ok(
+                        state,
+                        id,
+                        type_focused_text_response(state, chars_requested, &before_probe, &value),
+                    );
+                }
+                Err(error) => respond_error(
+                    state,
+                    id,
+                    format!("failed to parse focused type verification: {error}"),
+                ),
+            },
+            Some(Err(error)) => respond_error(state, id, error),
+            None => {
+                *state.current.borrow_mut() = Some(ActiveRequest::TypeFocusedVerify {
+                    id,
+                    chars_requested,
+                    before_probe,
+                });
+            }
+        },
         ActiveRequest::FormmaxLiveFill { id } => match finish_probe(&state.pending_probe) {
             Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
                 Ok(value) => {
@@ -1445,6 +1640,64 @@ fn inspect_fields_response(
     })
 }
 
+fn type_focused_text_response(
+    state: &Rc<WorkerState>,
+    chars_requested: usize,
+    before_probe: &Value,
+    after_probe: &Value,
+) -> Value {
+    let before_length = before_probe
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let after_length = after_probe
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let changed = after_length > before_length;
+    let field = json!({
+        "tag": after_probe.get("tag").cloned().unwrap_or(Value::Null),
+        "type": after_probe.get("type").cloned().unwrap_or(Value::Null),
+        "id_present": after_probe.get("idPresent").cloned().unwrap_or(Value::Null),
+        "name_present": after_probe.get("namePresent").cloned().unwrap_or(Value::Null),
+        "contenteditable": after_probe.get("contentEditable").cloned().unwrap_or(Value::Null),
+        "sensitivity": after_probe.get("sensitivity").cloned().unwrap_or(Value::Null),
+    });
+    log_replay(
+        state,
+        json!({
+            "kind": "focused_text_typed",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "chars_requested": chars_requested,
+            "before_length": before_length,
+            "after_length": after_length,
+            "changed": changed,
+            "field": field,
+            "values_logged": false,
+        }),
+    );
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-worker-v0",
+        "summary": "text typed into the current focused non-sensitive field",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "page_revision": state.page_revision.get(),
+        "chars_requested": chars_requested,
+        "before_length": before_length,
+        "after_length": after_length,
+        "changed": changed,
+        "field": field,
+        "policy": {
+            "active_element_only": true,
+            "block_sensitive": true,
+            "values_logged": false,
+        },
+        "artifacts": artifact_paths(state),
+    })
+}
+
 fn formmax_live_fill_response(state: &Rc<WorkerState>, result: &Value) -> Value {
     let events = result
         .get("events")
@@ -1747,6 +2000,108 @@ fn click_action(state: &Rc<WorkerState>, webview: &WebView, action: &Value) {
     )));
     state.window.request_redraw();
 }
+
+fn type_text_into_focused_field(state: &Rc<WorkerState>, webview: &WebView, text: &str) {
+    for character in text.chars() {
+        let Some(key) = servo_key_for_command_char(character) else {
+            continue;
+        };
+        webview.notify_input_event(InputEvent::Keyboard(KeyboardEvent::from_state_and_key(
+            KeyState::Down,
+            key.clone(),
+        )));
+        webview.notify_input_event(InputEvent::Keyboard(KeyboardEvent::from_state_and_key(
+            KeyState::Up,
+            key,
+        )));
+    }
+    state.window.request_redraw();
+}
+
+fn servo_key_for_command_char(character: char) -> Option<ServoKey> {
+    match character {
+        '\n' => Some(ServoKey::Named(ServoNamedKey::Enter)),
+        '\t' => Some(ServoKey::Named(ServoNamedKey::Tab)),
+        character if character.is_control() => None,
+        character => Some(ServoKey::Character(character.to_string())),
+    }
+}
+
+const TYPE_FOCUSED_PROBE_JS: &str = r#"
+(() => {
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) {
+    return JSON.stringify({ ok: false, reason: "no_focused_field" });
+  }
+
+  function sensitivityOf(el) {
+    const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || "",
+      labelText
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  function writableKind(el) {
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (tag === "textarea") return "textarea";
+    if (tag === "input") {
+      const allowed = new Set(["text", "search", "url", "email", "tel", "number"]);
+      return allowed.has(type) ? "input" : "";
+    }
+    if (el.isContentEditable) return "contenteditable";
+    return "";
+  }
+
+  function valueLength(el, kind) {
+    if (kind === "contenteditable") return String(el.textContent || "").length;
+    return String(el.value || "").length;
+  }
+
+  const sensitivity = sensitivityOf(el);
+  if (sensitivity !== "none") {
+    return JSON.stringify({
+      ok: false,
+      reason: "focused_field_sensitive",
+      sensitivity
+    });
+  }
+  const kind = writableKind(el);
+  if (!kind) {
+    return JSON.stringify({
+      ok: false,
+      reason: "focused_element_not_text_writable",
+      tag: el.tagName ? el.tagName.toLowerCase() : "",
+      type: (el.getAttribute("type") || "").toLowerCase()
+    });
+  }
+
+  return JSON.stringify({
+    ok: true,
+    tag: el.tagName ? el.tagName.toLowerCase() : "",
+    type: (el.getAttribute("type") || "").toLowerCase(),
+    contentEditable: Boolean(el.isContentEditable),
+    idPresent: Boolean(el.id),
+    namePresent: Boolean(el.getAttribute("name")),
+    sensitivity,
+    valueLength: valueLength(el, kind)
+  });
+})()
+"#;
 
 fn fill_agent_fields_script(fields_json: &str) -> String {
     format!(

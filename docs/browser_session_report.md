@@ -18,6 +18,8 @@ The live worker is now interactive enough for Wayne-in-the-loop dogfood. It forw
 
 FORMMAX live fill is now connected to the same worker tab. The worker can fill the 96-row, two-page local capacity fixture inside the visible browser session, block three sensitive fields, submit the receipt, and write replay evidence without raw table values.
 
+Focused typing is now available for real-site human-in-the-loop dogfood. The user focuses a destination field in the live browser, then the worker sends text only to the current focused element after classifying the field as non-sensitive. Password, OTP, government/tax ID, payment, signature, and legal attestation fields are blocked. Replay records field metadata and before/after lengths, not the typed text.
+
 ## Evidence
 
 Command:
@@ -86,6 +88,13 @@ RUST_LOG=error cargo run -q -p saccade-mcp -- selftest
 MCP PASS tools_registered=19 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781368050809/report.json
 ```
 
+Focused typing evidence:
+
+```text
+RUST_LOG=error cargo run -q -p saccade-shell -- selftest-focused-type
+FOCUSED_TYPE PASS chars=22 after_length=22 sensitive_blocked=true replay=runs/browser_session_worker/worker_1781387505146_27892/replay.jsonl
+```
+
 Artifacts are written under:
 
 ```text
@@ -108,6 +117,7 @@ runs/browser_session_worker/worker_*/replay.jsonl
 - Rejects human-owned or sensitive fields even if a caller asks to fill them.
 - Supports explicit field inspection for user review flows: non-sensitive values can be checked only when named, sensitive values stay masked.
 - Supports live FORMMAX fill through `saccade.web.fill_form` when called with a live Agent tab, `basis_page_revision`, and `live_worker_only=true`.
+- Supports focused text typing for real-site dogfood: the user chooses the field by focusing it, agent text is typed only if the active element is non-sensitive, and replay avoids typed-text logging.
 - Worker run directories include the process ID in addition to a millisecond timestamp to avoid concurrent artifact collisions.
 - Uses the existing Servo event-loop/input/evaluate APIs already recorded in `docs/servo_api_map.md`.
 

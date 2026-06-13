@@ -39,6 +39,7 @@ enum Command {
     SelftestUserFlow,
     SelftestNativeInput,
     SelftestNativeInputDemo,
+    SelftestFocusedType,
     SelftestBrowserSession,
     SelftestFormmaxLive,
     BrowserSessionWorker {
@@ -65,6 +66,7 @@ fn main() -> Result<()> {
         Command::SelftestUserFlow => selftest_user_flow(),
         Command::SelftestNativeInput => selftest_native_input(),
         Command::SelftestNativeInputDemo => selftest_native_input_demo(),
+        Command::SelftestFocusedType => selftest_focused_type(),
         Command::SelftestBrowserSession => selftest_browser_session(),
         Command::SelftestFormmaxLive => selftest_formmax_live(),
         Command::BrowserSessionWorker {
@@ -380,6 +382,131 @@ fn write_native_input_demo_review(
         change_events = profile.select_change_events,
     );
     std::fs::write(path, html).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn selftest_focused_type() -> Result<()> {
+    let workspace = workspace_root()?;
+    let text = "Saccade focused draft.";
+    let normal_url = start_test_server(workspace.join("test_pages").join("focused_type"))?;
+    let normal_response = run_type_focused_worker(&workspace, normal_url.as_str(), text)?;
+    if normal_response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("type_focused_text normal response was not ok: {normal_response}");
+    }
+    let result = normal_response
+        .get("result")
+        .context("type_focused_text response missing result")?;
+    let after_length = result
+        .get("after_length")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let changed = result
+        .get("changed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let replay_path = result
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .context("type_focused_text response missing replay artifact")?;
+    let replay_text = std::fs::read_to_string(replay_path)
+        .with_context(|| format!("failed to read replay artifact {replay_path}"))?;
+    if !changed || after_length < text.len() {
+        bail!("focused type selftest failed: {result}");
+    }
+    if replay_text.contains(text) {
+        bail!("focused type replay leaked typed text");
+    }
+
+    let sensitive_url = start_test_server(workspace.join("test_pages").join("focused_sensitive"))?;
+    let sensitive_response = run_type_focused_worker(&workspace, sensitive_url.as_str(), text)?;
+    let sensitive_blocked = sensitive_response.get("ok").and_then(Value::as_bool) == Some(false)
+        && sensitive_response
+            .get("error")
+            .and_then(Value::as_str)
+            .is_some_and(|error| error.contains("focused_field_sensitive"));
+    if !sensitive_blocked {
+        bail!("focused type sensitive field was not blocked: {sensitive_response}");
+    }
+
+    println!(
+        "FOCUSED_TYPE PASS chars={} after_length={} sensitive_blocked=true replay={}",
+        text.len(),
+        after_length,
+        replay_path
+    );
+    Ok(())
+}
+
+fn run_type_focused_worker(workspace: &Path, url: &str, text: &str) -> Result<Value> {
+    let current_exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let mut child = ProcessCommand::new(current_exe)
+        .current_dir(&workspace)
+        .arg("browser-session-worker")
+        .arg("--url")
+        .arg(url)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("failed to spawn browser-session-worker")?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("browser-session-worker stdin was not piped")?;
+        writeln!(
+            stdin,
+            "{}",
+            json!({
+                "id": 1,
+                "method": "type_focused_text",
+                "params": {
+                    "text": text,
+                    "policy": {
+                        "active_element_only": true,
+                        "block_sensitive": true
+                    }
+                }
+            })
+        )
+        .context("failed to send type_focused_text request")?;
+        writeln!(stdin, "{}", json!({"id": 2, "method": "close"}))
+            .context("failed to send close request")?;
+    }
+
+    let started = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .context("failed to poll browser-session-worker")?
+            .is_some()
+        {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(20) {
+            let _ = child.kill();
+            bail!("focused type worker selftest timed out");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout)
+            .context("failed to read browser-session-worker stdout")?;
+    }
+    let status = child
+        .wait()
+        .context("failed to wait for browser-session-worker")?;
+    if !status.success() {
+        bail!("browser-session-worker exited with {status}");
+    }
+
+    stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|value| value.get("id").and_then(Value::as_u64) == Some(1))
+        .with_context(|| format!("missing type_focused_text response in stdout: {stdout}"))
 }
 
 fn selftest_browser_session() -> Result<()> {
