@@ -24,3 +24,13 @@ Status: workaround verified by `cargo check -p mousemax` and `cargo run -p mouse
 A non-engineering viewer can see that the current Servo window does not look like Chrome/Safari on `mouseaccuracy.com`. The mismatch may come from browser engine support, CSS/layout differences, font metrics, viewport/device-scale behavior, and site JavaScript choosing a different code path.
 
 Status: deferred. The current MOUSEMAX evidence proves replayable action correctness on the real public URL, not Chrome visual equivalence. Before public marketing, resolve this through Chrome adapter v0 or a visual parity layer, then capture Chrome/Safari URL-bar references and an explicit comparison artifact.
+
+## Dogfood browser shell UX gaps
+
+During the first real GitHub Gist human-in-the-loop dogfood run, the Saccade worker was usable but uncomfortable as a human-facing browser:
+
+- Page content did not reflow/resize with the enlarged macOS window, leaving large blank areas and making the useful page region hard to read.
+- The worker shell has no browser chrome: URL bar, Back, Forward, Reload, visible current URL, or page title/status controls.
+- GitHub's user menu popover could remain open and cover page content; the shell needs better Esc/click-outside handling and visible focus state.
+
+Status: deferred. Do not mix these product-shell fixes into the current focused-typing or safety gates. Treat them as browser-shell productization work before broader dogfood or public demos.
