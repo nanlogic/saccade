@@ -60,6 +60,16 @@ tax-id-empty -> requires_user_input, value_redacted=true
 replay fields_inspected -> values_logged=false
 ```
 
+Manual dogfood evidence:
+
+```text
+runs/browser_session_worker/worker_1781353129472
+fill page 1: 4 filled, ssn/tax-id rejected
+fill page 2: 2 filled, user-quantity/signature rejected
+inspect: 3 non-sensitive values returned, 3 sensitive values redacted
+artifact grep: no field values or sensitive fixture value found
+```
+
 Artifacts are written under:
 
 ```text

@@ -69,6 +69,25 @@ The first worker-level probe filled `task-1` and `task-2`, rejected `ssn` and `t
 
 The follow-up inspect probe returned values for explicitly named non-sensitive fields and returned only redacted status for `signature` and `tax-id-empty`. Replay recorded `fields_inspected`, field IDs, return/redaction counts, and `values_logged=false`.
 
+## Manual Wayne-In-The-Loop Run
+
+Run:
+
+```text
+runs/browser_session_worker/worker_1781353129472
+```
+
+Result:
+
+- Agent filled four page-one normal fields.
+- Agent was denied writes to `ssn` and `tax-id-empty`.
+- Wayne changed to page two and completed Human-owned fields.
+- Agent filled `agent-page2-code` and `agent-page2-owner`.
+- Agent was denied writes to `user-quantity` and `signature`.
+- Explicit inspect returned named non-sensitive values and redacted `signature`, `tax-id-empty`, and `ssn`.
+- Replay recorded `values_logged=false` for both fill and inspect events.
+- Artifact search found no requested write sentinel, returned field values, or fixture SSN in the run directory.
+
 ## Remaining Product Work
 
 - Manual Wayne-in-the-loop dogfood session.
