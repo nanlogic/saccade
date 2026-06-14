@@ -1915,6 +1915,11 @@ fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> 
                 .is_some_and(|sensitivity| sensitivity != "none")
         })
         .count();
+    let visible_writable_count = editors
+        .iter()
+        .filter(|editor| editor_is_visible_writable(editor))
+        .count();
+    let route = editor_route(editors.len(), zero_rect_count, visible_writable_count);
     log_replay(
         state,
         json!({
@@ -1923,7 +1928,9 @@ fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> 
             "page_revision": state.page_revision.get(),
             "editor_count": editors.len(),
             "zero_rect_count": zero_rect_count,
+            "visible_writable_count": visible_writable_count,
             "sensitive_count": sensitive_count,
+            "route_decision": route.get("decision").cloned().unwrap_or(Value::Null),
             "values_logged": false,
         }),
     );
@@ -1936,9 +1943,78 @@ fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> 
         "page_revision": state.page_revision.get(),
         "editor_count": editors.len(),
         "zero_rect_count": zero_rect_count,
+        "visible_writable_count": visible_writable_count,
         "sensitive_count": sensitive_count,
+        "route": route,
         "editors": editors,
         "artifacts": artifact_paths(state),
+    })
+}
+
+fn editor_is_visible_writable(editor: &Value) -> bool {
+    let width = editor
+        .pointer("/rect/width")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let height = editor
+        .pointer("/rect/height")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let hidden = editor
+        .get("hidden")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let disabled = editor
+        .get("disabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let read_only = editor
+        .get("readOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let sensitivity = editor
+        .get("sensitivity")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+
+    width > 0.0 && height > 0.0 && !hidden && !disabled && !read_only && sensitivity == "none"
+}
+
+fn editor_route(
+    editor_count: usize,
+    zero_rect_count: usize,
+    visible_writable_count: usize,
+) -> Value {
+    let (decision, summary) = if editor_count == 0 {
+        ("no_editors", "No editor-like fields were found.")
+    } else if visible_writable_count == 0 && zero_rect_count > 0 {
+        (
+            "route_user_focus_or_chrome_live",
+            "Only zero-rect or hidden editor candidates are available; do not target them automatically.",
+        )
+    } else if visible_writable_count > 0 && zero_rect_count > 0 {
+        (
+            "usable_ignore_hidden_backing_fields",
+            "Visible writable editor candidates exist; hidden zero-rect backing fields should be ignored.",
+        )
+    } else if visible_writable_count > 0 {
+        (
+            "usable_visible_editors",
+            "Visible writable editor candidates exist.",
+        )
+    } else {
+        (
+            "needs_review",
+            "Editor candidates exist but none are clearly writable and visible.",
+        )
+    };
+
+    json!({
+        "decision": decision,
+        "summary": summary,
+        "editor_count": editor_count,
+        "zero_rect_count": zero_rect_count,
+        "visible_writable_count": visible_writable_count,
     })
 }
 

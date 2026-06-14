@@ -603,6 +603,10 @@ fn selftest_editor_reduction() -> Result<()> {
         .get("sensitive_count")
         .and_then(Value::as_u64)
         .unwrap_or(0);
+    let route_decision = result
+        .pointer("/route/decision")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let replay_path = result
         .pointer("/artifacts/replay")
         .and_then(Value::as_str)
@@ -631,9 +635,10 @@ fn selftest_editor_reduction() -> Result<()> {
         || !has_visible_body
         || !has_visible_shell
         || !has_hidden_shadow
+        || route_decision != "usable_ignore_hidden_backing_fields"
     {
         bail!(
-            "editor reduction selftest failed: editor_count={editor_count} zero_rect_count={zero_rect_count} sensitive_count={sensitive_count} result={result}"
+            "editor reduction selftest failed: editor_count={editor_count} zero_rect_count={zero_rect_count} sensitive_count={sensitive_count} route_decision={route_decision} result={result}"
         );
     }
     if replay_text.contains("LEAK_SENTINEL_DO_NOT_RETURN") {
@@ -641,8 +646,8 @@ fn selftest_editor_reduction() -> Result<()> {
     }
 
     println!(
-        "EDITOR_REDUCTION PASS editors={} zero_rect={} sensitive={} visible_body=true visible_shell=true replay={}",
-        editor_count, zero_rect_count, sensitive_count, replay_path
+        "EDITOR_REDUCTION PASS editors={} zero_rect={} sensitive={} route={} visible_body=true visible_shell=true replay={}",
+        editor_count, zero_rect_count, sensitive_count, route_decision, replay_path
     );
     Ok(())
 }

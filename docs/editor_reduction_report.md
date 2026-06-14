@@ -30,13 +30,14 @@ cargo run -q -p saccade-shell -- selftest-editor-reduction
 Latest pass:
 
 ```text
-EDITOR_REDUCTION PASS editors=6 zero_rect=2 sensitive=1 visible_body=true visible_shell=true replay=runs/browser_session_worker/worker_1781437343123_80312/replay.jsonl
+EDITOR_REDUCTION PASS editors=6 zero_rect=2 sensitive=1 route=usable_ignore_hidden_backing_fields visible_body=true visible_shell=true replay=runs/browser_session_worker/worker_1781438229505_20098/replay.jsonl
 ```
 
 ## Interpretation
 
 - Local `inspect_editors` can distinguish visible editor surfaces from hidden backing fields.
 - Zero-rect editor candidates are counted rather than treated as safe targets.
+- `inspect_editors` now returns a route decision. The local reduction classifies as `usable_ignore_hidden_backing_fields`, meaning visible writable editors exist and hidden zero-rect backing fields should be ignored.
 - Sensitive editor-like fields are counted without exposing values.
 - The remaining BP-004 question is real-site behavior: if real Gist exposes only a zero-rect writable target, Saccade should route to user focus handoff or Chrome-live rather than pretending the action map is safe.
 
