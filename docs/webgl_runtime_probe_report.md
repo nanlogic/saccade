@@ -45,6 +45,44 @@ Observation:
 - Saccade shows the HUD/title/background but misses the gameplay canvas layer in the captured frame.
 - The Saccade run still produces an audit response and screenshot, so this is not a total browser crash. It is a rendering/runtime correctness blocker.
 
+## Scripted Live-Game Pixel Probe
+
+Added:
+
+```sh
+python3 scripts/probe_webgl_game_runtime.py \
+  --url http://127.0.0.1:4173/ \
+  --wait-sec 3 \
+  --timeout-sec 75
+```
+
+The probe:
+
+- captures Saccade and Chrome at the same viewport and wait time,
+- copies both screenshots into one run directory,
+- checks the gameplay ROI for high-frequency edge structure and saturated visual content,
+- records whether Saccade emitted GL texture warnings,
+- writes a machine-readable `report.json`.
+
+Latest result:
+
+```text
+WEBGL_GAME_PROBE route=blocked_missing_gameplay_layer chrome_edge=0.035431 saccade_edge=0.005130 chrome_sat=0.001770 saccade_sat=0.018365 gl_warning=True report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/game_probe_1781447440755/report.json
+```
+
+Artifacts:
+
+- Report: `runs/webgl_runtime/game_probe_1781447440755/report.json`
+- Chrome screenshot: `runs/webgl_runtime/game_probe_1781447440755/chrome_page.png`
+- Saccade screenshot: `runs/webgl_runtime/game_probe_1781447440755/saccade_page.png`
+
+Observation:
+
+- Chrome gameplay ROI has `edge_ratio=0.035431`; Saccade has `edge_ratio=0.005130`.
+- Chrome layer is classified present; Saccade layer is classified missing.
+- The latest Saccade run again captured `GLD_TEXTURE` / texture unloadable output.
+- This gives BP-011 a repeatable red gate for the real game path.
+
 ## Minimal Fixture
 
 Added:
@@ -124,6 +162,7 @@ Current evidence says:
 
 - 2D canvas is healthy on the minimal fixture.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
+- The live-game pixel probe now reproduces the missing gameplay layer after the same viewport and wait as Chrome.
 - The macOS GL path can still emit texture unloadable warnings under some Saccade/WebRender page paths.
 - The real local game loses important gameplay visual layers in Saccade while Chrome shows them.
 
@@ -131,7 +170,7 @@ Current evidence says:
 
 Debug the Saccade/Servo GL runtime path before broad game/canvas dogfood:
 
-1. Add a live-game runtime probe or adapter for `http://127.0.0.1:4173/` so Saccade can distinguish "minimal WebGL healthy" from "complex gameplay layer missing."
-2. Compare Saccade versus Chrome screenshot pixels for gameplay-layer presence after the same wait.
-3. Inspect whether the warning is tied to page composition, CSS transforms, multiple canvases, animation timing, `WindowRenderingContext`, HiDPI scale, `preserveDrawingBuffer`, texture target choice, or WebRender/macOS backend behavior.
+1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
+2. Inspect the game DOM/CSS/canvas stack: canvas count, CSS size versus backing size, transforms, DPR, context attributes, and `preserveDrawingBuffer`.
+3. Add small reductions for the likely triggers: one canvas versus layered DOM, transform off, DPR/backing-scale variants, animation timing, texture target choice, and WebRender/macOS backend behavior.
 4. Keep routing WebGL-heavy product judgement to Chrome/reference until the real game path is green too.

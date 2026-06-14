@@ -346,3 +346,10 @@
 - Added `saccade-shell selftest-webgl-runtime`; it opens the minimal fixture, waits for frames, captures runtime status, runs an audit for screenshot/replay artifacts, and checks for GL texture warnings in worker output.
 - Latest minimal fixture result is green: `canvas2d=ok`, `webgl_context=ok`, `texture=ok`, `read_pixels=ok_132_204_22`, `frames=30`, `avg_frame_ms=18.38`, `last_error=none`, `gl_warning=false`.
 - Therefore BP-011 is now narrowed: simple WebGL is healthy under the scripted gate, while the live game still fails. Next isolate game/composition-specific behavior.
+
+## DECISION_BROWSER_006 - Live WebGL game has a scripted red gate
+
+- Added `scripts/probe_webgl_game_runtime.py` to capture the same local game in Saccade and Chrome, compare gameplay-layer pixels, record GL texture warnings, and write a machine-readable report.
+- Latest live-game probe on `http://127.0.0.1:4173/` routes `blocked_missing_gameplay_layer`: Chrome `edge_ratio=0.035431`, Saccade `edge_ratio=0.005130`, `gl_warning=True`.
+- The probe artifacts live at `runs/webgl_runtime/game_probe_1781447440755/`.
+- BP-011 is now a repeatable live-game gate: keep using Chrome/reference for WebGL-heavy dogfood until reductions identify and fix the complex game/composition trigger.

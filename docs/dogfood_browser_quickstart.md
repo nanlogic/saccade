@@ -83,6 +83,12 @@ Check the minimal WebGL runtime fixture:
 RUST_LOG=error cargo run -q -p saccade-shell -- selftest-webgl-runtime
 ```
 
+Check the live local WebGL game against Chrome:
+
+```bash
+python3 scripts/probe_webgl_game_runtime.py --url http://127.0.0.1:4173/ --wait-sec 3 --timeout-sec 75
+```
+
 ## Current controls
 
 - Mouse move, click, and wheel scroll are forwarded into Servo.
