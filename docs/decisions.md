@@ -394,3 +394,13 @@
 - Midpoints are unstable: `bare-size-1024x576` flipped from red to green, and `bare-size-1088x612` flipped from green to red.
 - `--repeat 2` on `bare-size-1024x576` produced two green runs in `runs/webgl_runtime/canvas_reductions_1781456029665/report.json`.
 - Therefore BP-011 should treat the current failure as size/backing plus screenshot readback or presentation timing, not a clean monotonic canvas-size threshold.
+
+## DECISION_BROWSER_011 - Large Canvas2D gradient fill is the stable red path
+
+- Added Canvas2D fill-mode variants and `scripts/probe_canvas_reductions.py --preset fill`.
+- Latest fill run: `CANVAS_REDUCTIONS variants=12 blocked=2 green_or_review=10 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781457595886/report.json`.
+- At `960x540`, gradient, solid, and transparent foreground variants are all green across two repeats.
+- At `1152x648`, the gradient-backed variant is red across two repeats with Saccade `edge_ratio=0.0` and `saturated_ratio=0.0`.
+- At the same `1152x648` size, solid full-canvas fill and transparent foreground drawing are green across two repeats.
+- This narrows BP-011 from "large Canvas2D" to large Canvas2D gradient/background paint plus screenshot readback/presentation timing.
+- The GL warning remains inverted and unreliable: the red gradient runs had no warning, while the green solid/transparent runs did.

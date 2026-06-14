@@ -36,11 +36,20 @@ BARE_THRESHOLD_VARIANTS = [
     "dpr-bare-size-360x210",
     "dpr-bare-size-480x270",
 ]
+FILL_VARIANTS = [
+    "bare-size-960x540",
+    "bare-solid-size-960x540",
+    "bare-transparent-size-960x540",
+    "bare-size-1152x648",
+    "bare-solid-size-1152x648",
+    "bare-transparent-size-1152x648",
+]
 VARIANT_PRESETS = {
     "base": DEFAULT_VARIANTS,
     "sizing": SIZING_VARIANTS,
     "threshold": THRESHOLD_VARIANTS,
     "threshold-bare": BARE_THRESHOLD_VARIANTS,
+    "fill": FILL_VARIANTS,
     "all": (
         DEFAULT_VARIANTS
         + [variant for variant in SIZING_VARIANTS if variant not in DEFAULT_VARIANTS]
@@ -53,6 +62,12 @@ VARIANT_PRESETS = {
             variant
             for variant in BARE_THRESHOLD_VARIANTS
             if variant not in DEFAULT_VARIANTS + SIZING_VARIANTS + THRESHOLD_VARIANTS
+        ]
+        + [
+            variant
+            for variant in FILL_VARIANTS
+            if variant
+            not in DEFAULT_VARIANTS + SIZING_VARIANTS + THRESHOLD_VARIANTS + BARE_THRESHOLD_VARIANTS
         ]
     ),
 }

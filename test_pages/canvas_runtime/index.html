@@ -149,9 +149,9 @@
           attributeHeight: 420,
           bare: false,
           backing: "css",
+          backgroundMode: "gradient",
           cssWidth: 720,
           cssHeight: 420,
-          drawBackground: true,
           layout: "full",
           loop: false,
           setTransform: true,
@@ -166,17 +166,22 @@
           "small-dpr": { layout: "small", backing: "dpr" },
           "small-attribute": { layout: "small", sizing: "attribute" },
           "alpha-false": { alpha: false },
-          "dom-background": { drawBackground: false },
+          "dom-background": { backgroundMode: "none" },
           "dpr-no-transform": { backing: "dpr", setTransform: false },
         };
-        const sizeMatch = name.match(/^(dpr-)?(bare-)?size-(\d+)x(\d+)$/);
+        const sizeMatch = name.match(/^(dpr-)?(bare-)?(?:(solid|transparent|gradient)-)?size-(\d+)x(\d+)$/);
         if (sizeMatch) {
           return {
             ...base,
             backing: sizeMatch[1] ? "dpr" : "css",
             bare: Boolean(sizeMatch[2]),
-            cssWidth: Number(sizeMatch[3]),
-            cssHeight: Number(sizeMatch[4]),
+            backgroundMode: sizeMatch[3] === "solid"
+              ? "solid"
+              : sizeMatch[3] === "transparent"
+                ? "none"
+                : "gradient",
+            cssWidth: Number(sizeMatch[4]),
+            cssHeight: Number(sizeMatch[5]),
             layout: "small",
           };
         }
@@ -300,12 +305,15 @@
         const moving = config.loop;
         const t = moving ? frame * 1.6 : 0;
         ctx.clearRect(0, 0, width, height);
-        if (config.drawBackground) {
+        if (config.backgroundMode === "gradient") {
           const gradient = ctx.createLinearGradient(0, 0, width, height);
           gradient.addColorStop(0, "#ecfdf5");
           gradient.addColorStop(0.52, "#fff7ed");
           gradient.addColorStop(1, "#eff6ff");
           ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, width, height);
+        } else if (config.backgroundMode === "solid") {
+          ctx.fillStyle = "#ecfdf5";
           ctx.fillRect(0, 0, width, height);
         }
         drawGrid(width, height, t);

@@ -277,6 +277,50 @@ Observation:
 - The failure should now be treated as size/backing plus presentation/readback timing, not a clean monotonic size threshold yet.
 - The GL warning remains an unreliable classifier: it appeared in several green runs and was absent in several red runs.
 
+### Fill-Mode Matrix
+
+Added:
+
+- Background variants for parametric canvas sizes:
+  - default `gradient` background,
+  - `solid` full-canvas fill,
+  - `transparent` foreground drawing over DOM background.
+- Runner preset `--preset fill`.
+
+Runner:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --preset fill \
+  --repeat 2 \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Latest fill result:
+
+```text
+CANVAS_REDUCTIONS variants=12 blocked=2 green_or_review=10 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781457595886/report.json
+```
+
+Result matrix:
+
+| Variant | Repeat | Route | Saccade backing | Saccade edge | Saccade saturation | GL warning |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| `bare-size-960x540` | 2/2 | `green_or_needs_review` | `960x540` | `0.025286` | `0.007344` | true |
+| `bare-solid-size-960x540` | 2/2 | `green_or_needs_review` | `960x540` | `0.022429` | `0.007772` | true |
+| `bare-transparent-size-960x540` | 2/2 | `green_or_needs_review` | `960x540` | `0.022759` | `0.007615` | true |
+| `bare-size-1152x648` | 2/2 | `blocked_missing_gameplay_layer` | `1152x648` | `0.0` | `0.0` | false |
+| `bare-solid-size-1152x648` | 2/2 | `green_or_needs_review` | `1152x648` | `0.027869` | `0.007582` | true |
+| `bare-transparent-size-1152x648` | 2/2 | `green_or_needs_review` | `1152x648` | `0.028254` | `0.00746` | true |
+
+Observation:
+
+- At the previously stable red size (`1152x648`), only the gradient-backed variant is red.
+- Solid full-canvas fill and transparent foreground drawing are both captured at `1152x648`.
+- This narrows BP-011 from "large Canvas2D" to the large Canvas2D gradient/background paint path plus screenshot readback/presentation timing.
+- The GL warning is inverted in this matrix: the red gradient runs have no warning, while the green solid/transparent runs do have warnings.
+
 ## Minimal Fixture
 
 Added:
@@ -356,7 +400,7 @@ Current evidence says:
 
 - 2D canvas is healthy on the small minimal fixture, but full-window Canvas2D is red in the new reductions.
 - Small 1x Canvas2D reductions are captured correctly, which narrows BP-011 away from "all Canvas2D is broken."
-- Full-window opaque/background-painted Canvas2D and DPR-backed Canvas2D are the current minimal red triggers.
+- Large gradient-backed Canvas2D and DPR-backed Canvas2D are the current minimal red triggers; solid fill and transparent foreground drawing can capture at `1152x648`.
 - 1x opaque Canvas2D goes red between about `962x542` and `1154x650` backing pixels in the current screenshot path.
 - Bare repeatability checks show mid-size results can flip, so BP-011 must treat screenshot readback/presentation timing as part of the bug.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
@@ -373,7 +417,7 @@ Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
 2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
 3. Use `--repeat` for BP-011 reduction gates and classify only stable red/green results.
-4. Split the background trigger into solid fill, gradient fill, transparent canvas plus shapes, and full-canvas clear/fill behavior.
+4. Split the gradient trigger further: linear gradient size, number of color stops, gradient-only without foreground, and full-window solid versus gradient.
 5. Inspect screenshot readback flushing/settle timing and compare Saccade screenshot readback versus live window presentation if measurable.
 6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
 7. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.
