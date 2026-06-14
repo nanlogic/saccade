@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "name": "saccade-agent-compare-v1",
+  "description": "Codex vs Claude comparison tasks for Saccade local gauntlet gates.",
+  "workspace": "/Users/waynema/Documents/GitHub/SACCADE",
+  "tasks": [
+    {
+      "id": "trusted_tabs_runtime",
+      "suite": "safety",
+      "title": "Trusted Tabs runtime isolation",
+      "risk": "local",
+      "timeout_sec": 90,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p saccade-shell -- selftest-tabs"
+      ],
+      "success_regex": "TABS PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "login_handoff_protocol",
+      "suite": "safety",
+      "title": "Human login handoff",
+      "risk": "local",
+      "timeout_sec": 90,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p saccade-shell -- selftest-login-handoff"
+      ],
+      "success_regex": "LOGIN_HANDOFF PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "safety_truth_redaction",
+      "suite": "safety",
+      "title": "Agent truth redacts sensitive values",
+      "risk": "local",
+      "timeout_sec": 90,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p saccade-shell -- selftest-safety"
+      ],
+      "success_regex": "SAFETY PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "user_flow_handoff",
+      "suite": "forms",
+      "title": "Full user-flow selftest",
+      "risk": "local",
+      "timeout_sec": 120,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p saccade-shell -- selftest-user-flow"
+      ],
+      "success_regex": "USER FLOW PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "native_input_probe",
+      "suite": "forms",
+      "title": "Native keyboard and select probe",
+      "risk": "local",
+      "timeout_sec": 120,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p saccade-shell -- selftest-native-input"
+      ],
+      "success_regex": "NATIVE INPUT PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "browser_session_worker",
+      "suite": "browser",
+      "title": "Browser session worker audit/action loop",
+      "risk": "local",
+      "timeout_sec": 150,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p saccade-shell -- selftest-browser-session"
+      ],
+      "success_regex": "BROWSER SESSION PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "mcp_end_to_end",
+      "suite": "mcp",
+      "title": "MCP tools, live worker, fill and inspect",
+      "risk": "local",
+      "timeout_sec": 180,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p saccade-mcp -- selftest"
+      ],
+      "success_regex": "MCP PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "devmax_static_fixtures",
+      "suite": "devmax",
+      "title": "DEVMAX static fixture corpus",
+      "risk": "local",
+      "timeout_sec": 120,
+      "commands": [
+        "cargo run -q -p devmax -- selftest-fixtures"
+      ],
+      "success_regex": "DEVMAX FIXTURES PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "devmax_servo_fixtures",
+      "suite": "devmax",
+      "title": "DEVMAX Servo-rendered fixtures",
+      "risk": "local",
+      "timeout_sec": 240,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p devmax -- selftest-servo-fixtures"
+      ],
+      "success_regex": "DEVMAX SERVO FIXTURES PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "formmax_fixture",
+      "suite": "formmax",
+      "title": "FORMMAX scrolling capacity fixture",
+      "risk": "local",
+      "timeout_sec": 240,
+      "commands": [
+        "RUST_LOG=error cargo run -q -p formmax -- run --fixture test_pages/formmax/index.html --replay",
+        "Parse the run directory from the FORMMax replay path or result path, then run: RUST_LOG=error cargo run -q -p formmax -- validate-run <run_dir>"
+      ],
+      "success_regex": "FORMMAX RUNNER PASS.*FORMMAX VALIDATION PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "chrome_reference_local",
+      "suite": "chrome_adapter",
+      "title": "Chrome CDP reference capture",
+      "risk": "local_chrome",
+      "timeout_sec": 180,
+      "commands": [
+        "scripts/selftest_chrome_reference.sh"
+      ],
+      "success_regex": "CHROME REFERENCE PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "visual_parity_local",
+      "suite": "visual_parity",
+      "title": "Chrome vs Saccade visual parity fixtures",
+      "risk": "local_chrome",
+      "timeout_sec": 600,
+      "commands": [
+        "scripts/selftest_visual_parity.sh"
+      ],
+      "success_regex": "VISUAL PARITY PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    },
+    {
+      "id": "mousemax_arena_epic_tiny",
+      "suite": "mousemax",
+      "title": "MOUSEMAX local arena replay",
+      "risk": "local",
+      "timeout_sec": 180,
+      "commands": [
+        "cargo run -q -p mousemax -- run --site arena --spawn-speed Epic --target-size Tiny --duration 15 --seed 42 --replay"
+      ],
+      "success_regex": "MOUSEMAX PASS|RUN PASS|VALIDATOR PASS",
+      "metrics": ["verdict", "wall_time_sec", "commands_run", "artifacts"]
+    }
+  ]
+}

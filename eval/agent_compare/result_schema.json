@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Saccade Agent Compare Task Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "verdict",
+    "commands_run",
+    "observations",
+    "artifact_paths",
+    "errors"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "fail", "blocked", "error"]
+    },
+    "commands_run": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifact_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

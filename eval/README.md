@@ -22,6 +22,7 @@ eval/
   08_trusted_tabs_safety/
   09_chrome_adapter/
   10_baselines/
+  agent_compare/
 ```
 
 Every conquered target should emit:
@@ -49,3 +50,17 @@ Minimum result schema:
   "replay_file": "replay.jsonl"
 }
 ```
+
+## Agent Compare
+
+`agent_compare/` is the current Codex-vs-Claude benchmark scaffold.
+
+```bash
+python3 scripts/agent_compare.py list-tasks
+python3 scripts/agent_compare.py run --agent both --tasks all
+python3 scripts/agent_compare.py run --agent both --tasks trusted_tabs_runtime safety_truth_redaction --execute
+```
+
+The default `run` command writes a dry plan only. Add `--execute` when the
+machine is ready to launch real agent CLI sessions. Reports and SVG charts are
+written under `runs/agent_compare/<run_id>/`.
