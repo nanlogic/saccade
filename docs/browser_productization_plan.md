@@ -134,6 +134,7 @@ Rules:
 - Never publish, pay, sign, or submit legally meaningful content without user confirmation.
 - Sensitive fields stay human-only; agent receives status, not value.
 - Record whether the failure is visual, action-map, auth/session, editor, network, or policy.
+- For WebGL/game pages, try Saccade first. If Saccade emits GL unsupported/texture warnings or becomes too slow to judge, stop it and route to Chrome/reference. Do not change the app's CSS or game code to work around Saccade's GL runtime issue.
 
 Current auth/session state:
 
@@ -171,6 +172,7 @@ The product should tell the user why it routed:
 | BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
 | BP-009 | Default textarea height causes vertical click drift | Textarea report: default textarea is `54px` in Chrome and `32px` in Saccade at 768/1280; stacked variants produce max click escape `52px`; explicit heights make own rects match | Use explicit local textarea sizing; re-audit after resize; route unsafe third-party pages |
 | BP-010 | Independent Saccade workers did not inherit logged-in real-site session | `docs/profile_persistence_report.md`; `cargo run -q -p saccade-shell -- selftest-profile-persistence` proves shared `--profile-dir` cookie persistence across worker processes after fixing WebView shutdown cycle | Use persistent Saccade profile for authenticated real-site dogfood; add friendly profile picker later |
+| BP-011 | WebGL/GL texture path can block Saccade dogfood on this machine | Manual web-game dogfood hit `GLD_TEXTURE_INDEX_2D is unloadable` warning and severe runtime drag | Route WebGL-heavy validation to Chrome/reference after recording Saccade blocker; later isolate with a minimal WebGL fixture |
 
 ## Acceptance Order
 
