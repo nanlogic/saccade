@@ -413,3 +413,12 @@
 - Full-window `static` gradient plus foreground is red across two repeats, while full-window `full-solid` plus the same foreground is green across two repeats.
 - Three-stop `bare-size-1152x648` remains unstable, flipping green/red in this run.
 - Gradient-only variants cannot be classified by the current gameplay-layer edge gate because Chrome's smooth gradient has too little edge structure. The next BP-011 step should add a smooth-gradient metric rather than treating those as green.
+
+## DECISION_BROWSER_013 - Smooth-gradient metric classifies gradient-only capture
+
+- Added smooth metrics to `scripts/probe_webgl_game_runtime.py`: `max_channel_range`, `luma_range`, and `luma_stdev`.
+- The classifier uses smooth thresholds only when Chrome lacks enough edge/saturation signal for the normal gameplay-layer gate.
+- Latest focused run: `CANVAS_REDUCTIONS variants=4 blocked=2 green_or_review=2 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781461281103/report.json`.
+- `bare-gradient2-only-size-1152x648` is green across two repeats: Chrome smooth signal is `channel_range=39`, `luma_range=14.666667`; Saccade smooth signal is `channel_range=19`, `luma_range=8.333333`.
+- `bare-gradient2-size-1152x648` remains red across two repeats: Chrome has foreground edge/saturation; Saccade has `channel_range=0` and `luma_range=0`.
+- BP-011 is now narrowed to gradient plus foreground/presentation ordering, not smooth gradient alone.

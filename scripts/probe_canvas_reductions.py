@@ -189,6 +189,10 @@ def run_variant(args, fixture, run_dir, variant, iteration):
             "saccade_edge": report.get("metrics", {}).get("saccade", {}).get("edge_ratio"),
             "chrome_sat": report.get("metrics", {}).get("chrome", {}).get("saturated_ratio"),
             "saccade_sat": report.get("metrics", {}).get("saccade", {}).get("saturated_ratio"),
+            "chrome_channel_range": report.get("metrics", {}).get("chrome", {}).get("max_channel_range"),
+            "saccade_channel_range": report.get("metrics", {}).get("saccade", {}).get("max_channel_range"),
+            "chrome_luma_range": report.get("metrics", {}).get("chrome", {}).get("luma_range"),
+            "saccade_luma_range": report.get("metrics", {}).get("saccade", {}).get("luma_range"),
         }
         diagnosis = report.get("diagnosis", {})
         summary["canvas"] = {

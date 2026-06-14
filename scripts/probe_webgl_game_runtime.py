@@ -82,6 +82,8 @@ def parse_args():
     parser.add_argument("--saturation-threshold", type=int, default=45)
     parser.add_argument("--min-edge-ratio", type=float, default=0.010)
     parser.add_argument("--min-saturated-ratio", type=float, default=0.0015)
+    parser.add_argument("--min-smooth-channel-range", type=float, default=10.0)
+    parser.add_argument("--min-smooth-luma-range", type=float, default=4.0)
     return parser.parse_args()
 
 
@@ -285,16 +287,41 @@ def compare_gameplay_layer(chrome_path, saccade_path, args):
         chrome_metrics["edge_ratio"] >= args.min_edge_ratio
         and chrome_metrics["saturated_ratio"] >= args.min_saturated_ratio
     )
+    chrome_smooth_layer_present = (
+        chrome_metrics["max_channel_range"] >= args.min_smooth_channel_range
+        and chrome_metrics["luma_range"] >= args.min_smooth_luma_range
+    )
+    saccade_smooth_layer_present = (
+        saccade_metrics["max_channel_range"] >= args.min_smooth_channel_range
+        and saccade_metrics["luma_range"] >= args.min_smooth_luma_range
+    )
     missing = chrome_layer_present and not saccade_layer_present
+    smooth_missing = (
+        not chrome_layer_present
+        and chrome_smooth_layer_present
+        and not saccade_smooth_layer_present
+    )
     severe_delta = (
         chrome_layer_present
         and saccade_metrics["edge_ratio"] < chrome_metrics["edge_ratio"] * 0.55
         and saccade_metrics["saturated_ratio"] < chrome_metrics["saturated_ratio"] * 0.65
     )
-    route = "blocked_missing_gameplay_layer" if missing or severe_delta else "green_or_needs_review"
+    severe_smooth_delta = (
+        not chrome_layer_present
+        and chrome_smooth_layer_present
+        and saccade_metrics["max_channel_range"] < chrome_metrics["max_channel_range"] * 0.35
+        and saccade_metrics["luma_range"] < chrome_metrics["luma_range"] * 0.45
+    )
+    route = (
+        "blocked_missing_gameplay_layer"
+        if missing or severe_delta or smooth_missing or severe_smooth_delta
+        else "green_or_needs_review"
+    )
     summary = (
         "Chrome gameplay layer has high-frequency structure that Saccade is missing."
-        if route == "blocked_missing_gameplay_layer"
+        if missing or severe_delta
+        else "Chrome smooth gradient has color variation that Saccade is missing."
+        if smooth_missing or severe_smooth_delta
         else "Saccade gameplay-layer metrics are not clearly missing versus Chrome."
     )
     return {
@@ -307,11 +334,15 @@ def compare_gameplay_layer(chrome_path, saccade_path, args):
         "saturated_ratio_delta": round(saturated_ratio_delta, 6),
         "chrome_layer_present": chrome_layer_present,
         "saccade_layer_present": saccade_layer_present,
+        "chrome_smooth_layer_present": chrome_smooth_layer_present,
+        "saccade_smooth_layer_present": saccade_smooth_layer_present,
         "thresholds": {
             "edge_threshold": args.edge_threshold,
             "saturation_threshold": args.saturation_threshold,
             "min_edge_ratio": args.min_edge_ratio,
             "min_saturated_ratio": args.min_saturated_ratio,
+            "min_smooth_channel_range": args.min_smooth_channel_range,
+            "min_smooth_luma_range": args.min_smooth_luma_range,
         },
     }
 
@@ -405,10 +436,31 @@ def gameplay_metrics(rgb, width, height, roi, args):
     dark = 0
     edge = 0
     samples = 0
+    min_r = 255
+    min_g = 255
+    min_b = 255
+    max_r = 0
+    max_g = 0
+    max_b = 0
+    min_luma = 255.0
+    max_luma = 0.0
+    sum_luma = 0.0
+    sum_luma_sq = 0.0
     for y in range(top, bottom):
         for x in range(left, right):
             i = (y * width + x) * 3
             r, g, b = rgb[i], rgb[i + 1], rgb[i + 2]
+            min_r = min(min_r, r)
+            min_g = min(min_g, g)
+            min_b = min(min_b, b)
+            max_r = max(max_r, r)
+            max_g = max(max_g, g)
+            max_b = max(max_b, b)
+            luma = (r + g + b) / 3.0
+            min_luma = min(min_luma, luma)
+            max_luma = max(max_luma, luma)
+            sum_luma += luma
+            sum_luma_sq += luma * luma
             if max(r, g, b) - min(r, g, b) >= args.saturation_threshold:
                 saturated += 1
             if r + g + b < 210:
@@ -427,10 +479,16 @@ def gameplay_metrics(rgb, width, height, roi, args):
                 if delta >= args.edge_threshold:
                     edge += 1
                 samples += 1
+    luma_mean = sum_luma / pixels
+    luma_variance = max(0.0, (sum_luma_sq / pixels) - (luma_mean * luma_mean))
+    channel_ranges = [max_r - min_r, max_g - min_g, max_b - min_b]
     return {
         "edge_ratio": round(edge / max(1, samples), 6),
         "saturated_ratio": round(saturated / pixels, 6),
         "dark_ratio": round(dark / pixels, 6),
+        "max_channel_range": round(max(channel_ranges), 6),
+        "luma_range": round(max_luma - min_luma, 6),
+        "luma_stdev": round(luma_variance**0.5, 6),
         "pixels": pixels,
     }
 
