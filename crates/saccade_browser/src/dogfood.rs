@@ -409,6 +409,22 @@ impl DogfoodBrowserState {
         self.update_window_title();
     }
 
+    fn recover_page_focus_from_pointer(&self) {
+        let mut changed = false;
+        if self.address_entry.borrow().is_some() {
+            self.address_entry.borrow_mut().take();
+            self.address_error.set(false);
+            changed = true;
+        }
+        if self.active_select.borrow().is_some() {
+            self.active_select.borrow_mut().take();
+            changed = true;
+        }
+        if changed {
+            self.update_window_title();
+        }
+    }
+
     fn close_webview(&self) {
         self.active_select.borrow_mut().take();
         self.webview.borrow_mut().take();
@@ -657,6 +673,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                     button,
                     ..
                 } => {
+                    if button_state == ElementState::Pressed {
+                        state.recover_page_focus_from_pointer();
+                    }
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
                             mouse_button_action(button_state),

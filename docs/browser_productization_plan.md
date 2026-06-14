@@ -85,7 +85,8 @@ Current state:
 
 - First stage shipped in `docs/browser_shell_basics_report.md`: the native window title now exposes current URL, page title, load state, Back/Forward availability, and Reload shortcut without squeezing the page.
 - Existing shortcuts: `Cmd+L` opens a keyboard address command, `Cmd+R` reloads, `Cmd+[` goes back, and `Cmd+]` goes forward.
-- Not done: clickable editable URL bar, clickable Back/Forward/Reload/Stop controls, and explicit focus recovery UI.
+- Page mouse press now recovers from active address-entry/select shell modes and still forwards the click to Servo.
+- Not done: clickable editable URL bar, clickable Back/Forward/Reload/Stop controls, and visible focus-recovery chrome.
 
 ### P2 - CSS Layout Compatibility
 
@@ -177,7 +178,7 @@ The product should tell the user why it routed:
 | BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
 | BP-009 | Default textarea height causes vertical click drift | Textarea report: default textarea is `54px` in Chrome and `32px` in Saccade at 768/1280; stacked variants produce max click escape `52px`; explicit heights make own rects match | Use explicit local textarea sizing; re-audit after resize; route unsafe third-party pages |
 | BP-010 | Independent Saccade workers did not inherit logged-in real-site session | `docs/profile_persistence_report.md`; `cargo run -q -p saccade-shell -- selftest-profile-persistence` proves shared `--profile-dir` cookie persistence across worker processes after fixing WebView shutdown cycle | Use persistent Saccade profile for authenticated real-site dogfood; add friendly profile picker later |
-| BP-011 | Canvas/WebGL/GL texture path blocks default dogfood for games/canvas-heavy pages | `docs/webgl_runtime_probe_report.md`; `scripts/probe_webgl_game_runtime.py` routes the live local game as `blocked_missing_gameplay_layer`; page-side Canvas2D backing has foreground-like pixels in red Saccade runs, while the audit screenshot loses them; scripted minimal fixture gate is green with small 2D OK, WebGL texture OK, `frames=30`, and no warning | P1: use the live-game and Canvas2D reduction probes as gates, then compare Servo `WebView::take_screenshot()` with manual `paint()+read_to_image()` and test `present()` / frame-ready sequencing |
+| BP-011 | Canvas/WebGL/GL texture path blocks default dogfood for games/canvas-heavy pages | `docs/webgl_runtime_probe_report.md`; `scripts/probe_webgl_game_runtime.py` routes the live local game as `blocked_missing_gameplay_layer`; page-side Canvas2D backing has foreground-like pixels in red Saccade runs, while the audit screenshot loses them; `present()` before manual readback did not fix the reductions | Park active debugging for now; keep live-game and Canvas2D reductions as red gates, route canvas-heavy judgement to Chrome/reference, and resume later with Servo `WebView::take_screenshot()` comparison |
 
 ## Acceptance Order
 

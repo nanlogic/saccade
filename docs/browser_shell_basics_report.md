@@ -22,6 +22,10 @@ Date: 2026-06-14
   - localhost-style inputs such as `localhost:3000` become `http://localhost:3000`,
   - Enter opens the URL,
   - Esc cancels.
+- Page mouse presses now recover page focus from shell modes:
+  - clicking the page cancels the title-bar address command,
+  - clicking the page dismisses an active native `<select>` handoff,
+  - the same click is still forwarded to Servo.
 
 This is still a first shell stage, not the final browser chrome. It gives dogfood users enough visible state and direct navigation to know where the agent is acting without squeezing or overlaying page content.
 
@@ -45,7 +49,7 @@ Saccade [servo-modern] load=complete back=n fwd=n | Parity Form Controls | file:
 
 - Clickable editable URL bar. The temporary address command is keyboard-only through `Cmd+L`.
 - Clickable Back, Forward, Reload, and Stop controls.
-- Visible page/chrome focus recovery.
+- Visible chrome affordance for focus recovery and active shell mode.
 - Error state beyond load-state text.
 
 Ledger: BP-003 remains `investigating` until the clickable toolbar exists.

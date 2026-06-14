@@ -439,3 +439,17 @@
 - `bare-gradient2-size-1152x648` is red in the Saccade screenshot (`edge=0.0`, `sat=0.0`) while Saccade page backing has foreground signal (`edge=0.034318`, `sat=0.011096`, `maxChannelRange=237`, `lumaRange=165.666667`).
 - `bare-gradient2-delayed-foreground-size-1152x648` has the same split: screenshot foreground is missing, but page backing has foreground signal (`edge=0.034173`, `sat=0.01105`).
 - BP-011 is now narrowed past page script, DOM readiness, and Canvas2D drawing. Next compare Servo `WebView::take_screenshot()` with our manual `paint()+read_to_image()` path and test `present()` / frame-ready sequencing.
+
+## DECISION_BROWSER_016 - Park BP-011 after present readback attempt
+
+- Tried the minimal embedder fix of calling `RenderingContext::present()` between `WebView::paint()` and manual `read_to_image()`.
+- Focused run stayed red: `CANVAS_REDUCTIONS variants=2 blocked=2 green_or_review=0 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781465527374/report.json`.
+- Both variants still routed `screenshot_readback_after_canvas_backing`.
+- The runtime code change was reverted because it did not improve the red gate.
+- BP-011 stays documented with red gates, but active debugging is parked while browser productization continues elsewhere. Resume with Servo `WebView::take_screenshot()` versus manual readback when canvas-heavy dogfood becomes the launch blocker again.
+
+## DECISION_BROWSER_017 - Page click recovers from shell modes
+
+- Added a dogfood browser focus-recovery step for active shell modes.
+- A page mouse press now cancels title-bar address entry and dismisses active native `<select>` handoff before forwarding the original click to Servo.
+- This keeps `Cmd+L` and select handoff from trapping ordinary page interaction while the full clickable browser toolbar is still pending.

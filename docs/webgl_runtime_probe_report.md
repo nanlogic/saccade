@@ -478,6 +478,33 @@ Observation:
 - The audit screenshot drops those foreground pixels.
 - BP-011 is now narrowed past page script, DOM readiness, and Canvas2D drawing into the embedder screenshot/readback/presentation path.
 
+### Present Before Readback Attempt
+
+Attempted a minimal worker change that called `RenderingContext::present()` after `WebView::paint()` and before manual `read_to_image()`.
+
+Verification:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --variants bare-gradient2-size-1152x648 \
+    bare-gradient2-delayed-foreground-size-1152x648 \
+  --repeat 1 \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Result:
+
+```text
+CANVAS_REDUCTIONS variants=2 blocked=2 green_or_review=0 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781465527374/report.json
+```
+
+Observation:
+
+- `present()` did not fix the red reductions.
+- The attempted runtime change was reverted.
+- BP-011 remains actionable but should be parked while other browser productization work continues. The next BP-011 step, when resumed, is Servo `WebView::take_screenshot()` versus the manual `paint()+read_to_image()` audit path.
+
 ## Minimal Fixture
 
 Added:
@@ -576,7 +603,7 @@ Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
 2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
 3. Use `--repeat` for BP-011 reduction gates and classify only stable red/green results.
-4. Compare Servo `WebView::take_screenshot()` against the current manual `paint()+read_to_image()` audit path.
-5. Test whether calling `RenderingContext::present()` or waiting for `notify_new_frame_ready` before readback fixes the missing layer.
+4. Park active BP-011 debugging unless a canvas-heavy dogfood task blocks launch work.
+5. When resumed, compare Servo `WebView::take_screenshot()` against the current manual `paint()+read_to_image()` audit path.
 6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
 7. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.
