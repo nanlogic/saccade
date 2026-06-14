@@ -174,6 +174,9 @@ enum ActiveRequest {
     WebglRuntimeProbe {
         id: Value,
     },
+    WebglPageProbe {
+        id: Value,
+    },
     TypeFocusedPreflight {
         id: Value,
         text: String,
@@ -955,6 +958,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
         "inspect_fields" => start_inspect_fields_request(state, webview, id, request.params),
         "inspect_editors" => start_inspect_editors_request(state, webview, id),
         "webgl_runtime_probe" => start_webgl_runtime_probe_request(state, webview, id),
+        "webgl_page_probe" => start_webgl_page_probe_request(state, webview, id),
         "type_focused_text" => start_type_focused_text_request(state, webview, id, request.params),
         "formmax_live_fill" => start_formmax_live_fill_request(state, webview, id, request.params),
         "close" => {
@@ -1287,6 +1291,20 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
             Some(Err(error)) => respond_error(state, id, error),
             None => {
                 *state.current.borrow_mut() = Some(ActiveRequest::WebglRuntimeProbe { id });
+            }
+        },
+        ActiveRequest::WebglPageProbe { id } => match finish_probe(&state.pending_probe) {
+            Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                Ok(value) => respond_ok(state, id, webgl_page_probe_response(state, &value)),
+                Err(error) => respond_error(
+                    state,
+                    id,
+                    format!("failed to parse WebGL page probe result: {error}"),
+                ),
+            },
+            Some(Err(error)) => respond_error(state, id, error),
+            None => {
+                *state.current.borrow_mut() = Some(ActiveRequest::WebglPageProbe { id });
             }
         },
         ActiveRequest::TypeFocusedPreflight { id, text } => {
@@ -1636,6 +1654,19 @@ fn start_webgl_runtime_probe_request(state: &Rc<WorkerState>, webview: &WebView,
         });
     });
     *state.current.borrow_mut() = Some(ActiveRequest::WebglRuntimeProbe { id });
+}
+
+fn start_webgl_page_probe_request(state: &Rc<WorkerState>, webview: &WebView, id: Value) {
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(WEBGL_PAGE_PROBE_JS, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
+    });
+    *state.current.borrow_mut() = Some(ActiveRequest::WebglPageProbe { id });
 }
 
 fn request_probe(state: &Rc<WorkerState>, webview: &WebView) {
@@ -2018,6 +2049,59 @@ fn webgl_runtime_probe_response(state: &Rc<WorkerState>, runtime_result: &Value)
         "source_url": runtime_result.get("url").cloned().unwrap_or(Value::Null),
         "source_title": runtime_result.get("title").cloned().unwrap_or(Value::Null),
         "runtime_status": runtime_result.get("runtime").cloned().unwrap_or(Value::Null),
+        "artifacts": artifact_paths(state),
+    })
+}
+
+fn webgl_page_probe_response(state: &Rc<WorkerState>, page_probe: &Value) -> Value {
+    let canvases = page_probe
+        .get("canvases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let visible_canvas_count = canvases
+        .iter()
+        .filter(|canvas| {
+            canvas
+                .get("visible")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count();
+    let webgl_canvas_count = canvases
+        .iter()
+        .filter(|canvas| {
+            canvas
+                .pointer("/context/type")
+                .and_then(Value::as_str)
+                .is_some_and(|context_type| context_type == "webgl" || context_type == "webgl2")
+        })
+        .count();
+    log_replay(
+        state,
+        json!({
+            "kind": "webgl_page_probed",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "canvas_count": canvases.len(),
+            "visible_canvas_count": visible_canvas_count,
+            "webgl_canvas_count": webgl_canvas_count,
+            "values_logged": false,
+        }),
+    );
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-webgl-page-v0",
+        "summary": "Canvas/WebGL page structure collected from live Servo tab without reading form values",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "page_revision": state.page_revision.get(),
+        "source_url": page_probe.get("url").cloned().unwrap_or(Value::Null),
+        "source_title": page_probe.get("title").cloned().unwrap_or(Value::Null),
+        "canvas_count": canvases.len(),
+        "visible_canvas_count": visible_canvas_count,
+        "webgl_canvas_count": webgl_canvas_count,
+        "page_probe": page_probe,
         "artifacts": artifact_paths(state),
     })
 }
@@ -2800,6 +2884,8 @@ const WEBGL_RUNTIME_PROBE_JS: &str = r##"
   });
 })()
 "##;
+
+const WEBGL_PAGE_PROBE_JS: &str = include_str!("../../../scripts/webgl_page_probe.js");
 
 fn type_focused_contenteditable_insert_script(text_json: &str) -> String {
     format!(

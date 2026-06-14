@@ -31,7 +31,14 @@ def main():
     try:
         saccade = capture_saccade(args, run_dir)
         chrome = capture_chrome(args, run_dir)
-        metrics = compare_gameplay_layer(chrome["screenshot"], saccade["screenshot"], args)
+        metric_images = normalize_metric_images(chrome, saccade, run_dir)
+        metrics = compare_gameplay_layer(
+            metric_images["chrome_screenshot"],
+            metric_images["saccade_screenshot"],
+            args,
+        )
+        metrics["normalization"] = metric_images
+        diagnosis = diagnose_game_probe(chrome, saccade, metrics)
         result.update(
             {
                 "status": metrics["route"],
@@ -39,6 +46,7 @@ def main():
                 "saccade": saccade,
                 "chrome": chrome,
                 "metrics": metrics,
+                "diagnosis": diagnosis,
             }
         )
         report_path = write_report(run_dir, result)
@@ -50,6 +58,7 @@ def main():
             f"chrome_sat={metrics['chrome']['saturated_ratio']:.6f} "
             f"saccade_sat={metrics['saccade']['saturated_ratio']:.6f} "
             f"gl_warning={saccade['gl_warning']} "
+            f"diagnosis={diagnosis['route']} "
             f"report={report_path}"
         )
     except Exception as error:
@@ -98,8 +107,9 @@ def capture_saccade(args, run_dir):
     env["RUST_LOG"] = "error"
     input_text = (
         f'{{"id":1,"method":"ping"}}\n'
-        f'{{"id":2,"method":"audit"}}\n'
-        f'{{"id":3,"method":"close"}}\n'
+        f'{{"id":2,"method":"webgl_page_probe"}}\n'
+        f'{{"id":3,"method":"audit"}}\n'
+        f'{{"id":4,"method":"close"}}\n'
     )
     proc = subprocess.Popen(
         cmd,
@@ -123,7 +133,14 @@ def capture_saccade(args, run_dir):
         raise RuntimeError(
             f"Saccade worker failed with {proc.returncode}\nstdout={stdout}\nstderr={stderr}"
         )
-    audit = json_response_by_id(stdout, 2)
+    page_probe_response = json_response_by_id(stdout, 2)
+    if not page_probe_response or page_probe_response.get("ok") is not True:
+        raise RuntimeError(f"Saccade worker output did not include an ok WebGL page probe\n{stdout}")
+    saccade_page_probe = page_probe_response.get("result", {})
+    saccade_page_probe_path = run_dir / "saccade_webgl_page_probe.json"
+    saccade_page_probe_path.write_text(json.dumps(saccade_page_probe, indent=2, sort_keys=True) + "\n")
+
+    audit = json_response_by_id(stdout, 3)
     if not audit or audit.get("ok") is not True:
         raise RuntimeError(f"Saccade worker output did not include an ok audit response\n{stdout}")
     screenshot = audit.get("result", {}).get("visual_health", {}).get("screenshot")
@@ -139,6 +156,8 @@ def capture_saccade(args, run_dir):
         "screenshot": str(copied),
         "source_screenshot": str(screenshot_path),
         "response": audit.get("result", {}),
+        "webgl_page_probe": str(saccade_page_probe_path),
+        "webgl_page_probe_summary": summarize_page_probe(saccade_page_probe),
         "gl_warning": "GLD_TEXTURE" in output or "texture unloadable" in output,
         "stdout": str(run_dir / "saccade_stdout.log"),
         "stderr": str(run_dir / "saccade_stderr.log"),
@@ -160,6 +179,7 @@ def capture_chrome(args, run_dir):
         str(int(max(0.0, args.wait_sec) * 1000)),
         "--block-mode",
         "none",
+        "--webgl-page-probe",
     ]
     subprocess.run(cmd, cwd=WORKSPACE, check=True, text=True, capture_output=True)
     screenshot = chrome_dir / "chrome_page.png"
@@ -172,6 +192,73 @@ def capture_chrome(args, run_dir):
         "manifest": str(chrome_dir / "chrome_reference_manifest.json"),
         "truth": str(chrome_dir / "chrome_truth.json"),
         "network": str(chrome_dir / "chrome_network.json"),
+        "webgl_page_probe": str(chrome_dir / "chrome_webgl_page_probe.json"),
+        "webgl_page_probe_summary": summarize_page_probe_path(chrome_dir / "chrome_webgl_page_probe.json"),
+    }
+
+
+def summarize_page_probe_path(path):
+    probe_path = pathlib.Path(path)
+    if not probe_path.exists():
+        return {"status": "missing", "path": str(probe_path)}
+    return summarize_page_probe(json.loads(probe_path.read_text()))
+
+
+def summarize_page_probe(response):
+    page_probe = response.get("page_probe") if isinstance(response, dict) else None
+    if not isinstance(page_probe, dict):
+        page_probe = response if isinstance(response, dict) else {}
+    canvases = page_probe.get("canvases") or []
+    visible_canvases = [canvas for canvas in canvases if canvas.get("visible")]
+    webgl_canvases = [
+        canvas
+        for canvas in canvases
+        if ((canvas.get("context") or {}).get("type") in ("webgl", "webgl2"))
+    ]
+    largest_canvas = None
+    for canvas in canvases:
+        rect = canvas.get("rect") or {}
+        area = float(rect.get("width") or 0) * float(rect.get("height") or 0)
+        if largest_canvas is None or area > largest_canvas["area"]:
+            largest_canvas = {
+                "area": round(area, 2),
+                "label": canvas.get("label", ""),
+                "rect": rect,
+                "backing": canvas.get("backing") or {},
+                "context_type": (canvas.get("context") or {}).get("type", "unknown"),
+            }
+    return {
+        "status": "ok" if page_probe.get("ok") else "unknown",
+        "viewport": page_probe.get("viewport") or {},
+        "canvas_count": len(canvases),
+        "visible_canvas_count": len(visible_canvases),
+        "webgl_canvas_count": len(webgl_canvases),
+        "largest_canvas": largest_canvas,
+        "visible_layer_count": len(page_probe.get("visibleLayers") or []),
+    }
+
+
+def diagnose_game_probe(chrome, saccade, metrics):
+    chrome_summary = chrome.get("webgl_page_probe_summary") or {}
+    saccade_summary = saccade.get("webgl_page_probe_summary") or {}
+    route = "no_clear_dom_diagnosis"
+    reasons = []
+    if metrics.get("route") != "blocked_missing_gameplay_layer":
+        route = "pixels_not_missing"
+        reasons.append("pixel gate did not classify the gameplay layer as missing")
+    elif chrome_summary.get("visible_canvas_count", 0) > 0 and saccade_summary.get("visible_canvas_count", 0) == 0:
+        route = "dom_or_script_not_ready"
+        reasons.append("Chrome has visible canvas nodes while Saccade reports none")
+    elif chrome_summary.get("visible_canvas_count", 0) > 0 and saccade_summary.get("visible_canvas_count", 0) > 0:
+        route = "render_pipeline_after_dom_ready"
+        reasons.append("both engines report visible canvas nodes, but Saccade gameplay pixels are missing")
+    if saccade.get("gl_warning"):
+        reasons.append("Saccade emitted GL texture warning")
+    return {
+        "route": route,
+        "reasons": reasons,
+        "chrome_page_probe_summary": chrome_summary,
+        "saccade_page_probe_summary": saccade_summary,
     }
 
 
@@ -227,6 +314,85 @@ def compare_gameplay_layer(chrome_path, saccade_path, args):
             "min_saturated_ratio": args.min_saturated_ratio,
         },
     }
+
+
+def normalize_metric_images(chrome, saccade, run_dir):
+    chrome_summary = chrome.get("webgl_page_probe_summary") or {}
+    saccade_summary = saccade.get("webgl_page_probe_summary") or {}
+    chrome_viewport = chrome_summary.get("viewport") or {}
+    saccade_viewport = saccade_summary.get("viewport") or {}
+    common_width = int(
+        min(
+            positive_number(chrome_viewport.get("width")),
+            positive_number(saccade_viewport.get("width")),
+        )
+    )
+    common_height = int(
+        min(
+            positive_number(chrome_viewport.get("height")),
+            positive_number(saccade_viewport.get("height")),
+        )
+    )
+    if common_width <= 0 or common_height <= 0:
+        return {
+            "applied": False,
+            "reason": "missing_viewport_probe",
+            "chrome_screenshot": chrome["screenshot"],
+            "saccade_screenshot": saccade["screenshot"],
+        }
+
+    chrome_metric = run_dir / "chrome_page_metric.png"
+    saccade_metric = run_dir / "saccade_page_metric.png"
+    write_css_metric_image(chrome["screenshot"], chrome_metric, chrome_viewport, common_width, common_height)
+    write_css_metric_image(
+        saccade["screenshot"],
+        saccade_metric,
+        saccade_viewport,
+        common_width,
+        common_height,
+    )
+    return {
+        "applied": True,
+        "mode": "css_viewport_common_crop",
+        "common_css": {"width": common_width, "height": common_height},
+        "chrome_viewport": chrome_viewport,
+        "saccade_viewport": saccade_viewport,
+        "chrome_screenshot": str(chrome_metric),
+        "saccade_screenshot": str(saccade_metric),
+    }
+
+
+def positive_number(value):
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def write_css_metric_image(source_path, target_path, viewport, common_width, common_height):
+    source_width, source_height, rgb = parity.read_png_rgb(source_path)
+    viewport_width = max(1, int(round(positive_number(viewport.get("width")))))
+    viewport_height = max(1, int(round(positive_number(viewport.get("height")))))
+    css_rgb = resize_source_to_css(rgb, source_width, source_height, viewport_width, viewport_height)
+    cropped = crop_rgb(css_rgb, viewport_width, viewport_height, common_width, common_height)
+    parity.write_png_rgb(target_path, common_width, common_height, cropped)
+
+
+def resize_source_to_css(rgb, source_width, source_height, css_width, css_height):
+    if source_width == css_width and source_height == css_height:
+        return bytes(rgb)
+    return parity.resize_rgb_nearest(rgb, source_width, source_height, css_width, css_height)
+
+
+def crop_rgb(rgb, source_width, source_height, target_width, target_height):
+    target_width = min(source_width, target_width)
+    target_height = min(source_height, target_height)
+    output = bytearray(target_width * target_height * 3)
+    for y in range(target_height):
+        source_i = y * source_width * 3
+        target_i = y * target_width * 3
+        output[target_i : target_i + target_width * 3] = rgb[source_i : source_i + target_width * 3]
+    return bytes(output)
 
 
 def gameplay_metrics(rgb, width, height, roi, args):

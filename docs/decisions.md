@@ -338,7 +338,7 @@
 - Local game dogfood at `http://127.0.0.1:4173/` reproduced the macOS GL warning `GLD_TEXTURE_INDEX_2D is unloadable` and Saccade missed the gameplay canvas layer that Chrome rendered.
 - Added `test_pages/webgl_runtime/index.html` as a minimal repeatable fixture with 2D canvas, WebGL texture drawing, `readPixels`, and visible frame timing status.
 - The minimal fixture reproduced a related `GLD_TEXTURE_INDEX_RECTANGLE is unloadable` warning. It showed 2D canvas OK and simple WebGL texture OK, but slow frame progress.
-- BP-011 is now P1: route WebGL-heavy judgement to Chrome/reference until a scripted Saccade runtime selftest is green and the adapter/backend root cause is known.
+- BP-011 is now P1: route canvas/WebGL-heavy judgement to Chrome/reference until a scripted Saccade runtime selftest is green and the adapter/backend root cause is known.
 
 ## DECISION_BROWSER_005 - Minimal WebGL fixture has a scripted green baseline
 
@@ -350,6 +350,8 @@
 ## DECISION_BROWSER_006 - Live WebGL game has a scripted red gate
 
 - Added `scripts/probe_webgl_game_runtime.py` to capture the same local game in Saccade and Chrome, compare gameplay-layer pixels, record GL texture warnings, and write a machine-readable report.
-- Latest live-game probe on `http://127.0.0.1:4173/` routes `blocked_missing_gameplay_layer`: Chrome `edge_ratio=0.035431`, Saccade `edge_ratio=0.005130`, `gl_warning=True`.
-- The probe artifacts live at `runs/webgl_runtime/game_probe_1781447440755/`.
-- BP-011 is now a repeatable live-game gate: keep using Chrome/reference for WebGL-heavy dogfood until reductions identify and fix the complex game/composition trigger.
+- Added shared `scripts/webgl_page_probe.js` and worker method `webgl_page_probe` so the gate now records canvas count, CSS rects, backing sizes, DPR, visible layers, and context type without reading form values.
+- Latest live-game probe on `http://127.0.0.1:4173/` routes `blocked_missing_gameplay_layer` after CSS viewport normalization: Chrome `edge_ratio=0.036279`, Saccade `edge_ratio=0.000754`, `gl_warning=True`, diagnosis `render_pipeline_after_dom_ready`.
+- Both engines report one visible `canvas#game`; the current game canvas reports `context_type=none_or_2d`, so the next reductions should target Canvas2D/compositor/HiDPI texture behavior as well as WebGL.
+- The probe artifacts live at `runs/webgl_runtime/game_probe_1781449261494/`.
+- BP-011 is now a repeatable live-game gate: keep using Chrome/reference for canvas/WebGL-heavy dogfood until reductions identify and fix the complex game/composition trigger.

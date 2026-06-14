@@ -105,6 +105,6 @@ python3 scripts/probe_webgl_game_runtime.py --url http://127.0.0.1:4173/ --wait-
 - There is no clickable address bar or tabs yet; use `Cmd+L` for keyboard URL entry.
 - File picker, native context menu, clipboard, downloads, and password-manager UX are not implemented.
 - Persistent `--profile-dir` is supported for Saccade-owned session reuse, but there is not yet a friendly profile picker or password-manager flow.
-- WebGL-heavy pages can hit current Saccade/Servo GL texture issues on this machine. If logs show `GLD_TEXTURE_INDEX_2D is unloadable`, WebGL is extremely slow, or the page cannot be judged in Saccade, stop that run, record it as a Saccade runtime blocker, and validate with Chrome/reference instead.
+- Canvas/WebGL-heavy pages can hit current Saccade/Servo GL texture issues on this machine. If logs show `GLD_TEXTURE_INDEX_2D is unloadable`, canvas/WebGL is extremely slow, or the page cannot be judged in Saccade, stop that run, record it as a Saccade runtime blocker, and validate with Chrome/reference instead.
 - Visual parity with Chrome/Safari is still tracked separately. Use this shell for dogfood, and use Chrome reference captures when exact mainstream rendering matters.
 - `servo-modern` improves action/layout correctness for current local gates, but it is not a claim that Servo renders like Chrome.

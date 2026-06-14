@@ -142,6 +142,11 @@ Current auth/session state:
 - `selftest-profile-persistence` proves one worker can write a persistent cookie and a second worker can read it from the same profile.
 - This does not import external browser cookies. Real Google/GitHub login should be done inside Saccade, then reused through the same profile dir.
 
+Browser chrome architecture note:
+
+- Pinned Servo `WebView::resize` resizes every WebView sharing the same `RenderingContext`; a WebView is always as large as its rendering context.
+- Therefore a Chrome-like visible toolbar should not be implemented as a second same-context WebView. It needs a native overlay, separate rendering context, or offscreen composition path that preserves the page viewport/action map.
+
 ### P5 - Routing And Fallback
 
 Add an explicit page decision:
@@ -172,7 +177,7 @@ The product should tell the user why it routed:
 | BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
 | BP-009 | Default textarea height causes vertical click drift | Textarea report: default textarea is `54px` in Chrome and `32px` in Saccade at 768/1280; stacked variants produce max click escape `52px`; explicit heights make own rects match | Use explicit local textarea sizing; re-audit after resize; route unsafe third-party pages |
 | BP-010 | Independent Saccade workers did not inherit logged-in real-site session | `docs/profile_persistence_report.md`; `cargo run -q -p saccade-shell -- selftest-profile-persistence` proves shared `--profile-dir` cookie persistence across worker processes after fixing WebView shutdown cycle | Use persistent Saccade profile for authenticated real-site dogfood; add friendly profile picker later |
-| BP-011 | WebGL/GL texture path blocks default dogfood for games/canvas-heavy pages | `docs/webgl_runtime_probe_report.md`; `scripts/probe_webgl_game_runtime.py` routes the live local game as `blocked_missing_gameplay_layer` with Chrome `edge_ratio=0.035431`, Saccade `edge_ratio=0.005130`, and `gl_warning=True`; scripted minimal fixture gate is green with 2D OK, WebGL texture OK, `frames=30`, and no warning | P1: use the live-game probe as the gate, then isolate the complex game/composition trigger |
+| BP-011 | Canvas/WebGL/GL texture path blocks default dogfood for games/canvas-heavy pages | `docs/webgl_runtime_probe_report.md`; `scripts/probe_webgl_game_runtime.py` routes the live local game as `blocked_missing_gameplay_layer` after CSS viewport normalization with Chrome `edge_ratio=0.036279`, Saccade `edge_ratio=0.000754`, `gl_warning=True`, and diagnosis `render_pipeline_after_dom_ready`; both engines report one visible `canvas#game`; scripted minimal fixture gate is green with 2D OK, WebGL texture OK, `frames=30`, and no warning | P1: use the live-game probe as the gate, then isolate full-window Canvas2D, DPR/backing scale, animation timing, DOM HUD over canvas, and WebRender/macOS texture behavior |
 
 ## Acceptance Order
 

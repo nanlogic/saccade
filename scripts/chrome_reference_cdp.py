@@ -16,6 +16,8 @@ import urllib.parse
 import urllib.request
 
 
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+
 DEFAULT_BLOCK_PATTERNS = [
     "*://*.2mdn.net/*",
     "*://*.adform.net/*",
@@ -592,6 +594,11 @@ def parse_args():
         "--verify-actions-file",
         help="Optional JSON file containing Saccade actions to hit-test against the Chrome DOM without dispatching clicks.",
     )
+    parser.add_argument(
+        "--webgl-page-probe",
+        action="store_true",
+        help="Also write chrome_webgl_page_probe.json using scripts/webgl_page_probe.js.",
+    )
     return parser.parse_args()
 
 
@@ -642,6 +649,12 @@ def main():
         )
         truth_json = truth_result.get("result", {}).get("value", "{}")
         truth = json.loads(truth_json)
+        webgl_page_probe = None
+        if args.webgl_page_probe:
+            webgl_page_probe = evaluate_webgl_page_probe(client)
+            (output_dir / "chrome_webgl_page_probe.json").write_text(
+                json.dumps(webgl_page_probe, indent=2, sort_keys=True) + "\n"
+            )
         click_verification = None
         if args.verify_actions_file:
             actions = json.loads(pathlib.Path(args.verify_actions_file).read_text())
@@ -680,6 +693,7 @@ def main():
             "CHROME REFERENCE READY "
             f"screenshot={screenshot_path} manifest={manifest_path} "
             f"actions={len(truth.get('actions', []))} blocked={network['blocked_requests']}"
+            f" webgl_page_probe={bool(webgl_page_probe)}"
             f"{verify_summary}"
         )
         print("Use only with local fixtures or non-sensitive pages; screenshots capture visible page values.")
@@ -803,6 +817,17 @@ def capture_screenshot(client):
     except CdpError:
         params.pop("optimizeForSpeed", None)
         return client.call("Page.captureScreenshot", params, timeout=15)["data"]
+
+
+def evaluate_webgl_page_probe(client):
+    expression = (SCRIPT_DIR / "webgl_page_probe.js").read_text()
+    result = client.call(
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True, "awaitPromise": True},
+        timeout=10,
+    )
+    value = result.get("result", {}).get("value", "{}")
+    return json.loads(value)
 
 
 def verify_actions(client, actions):
@@ -957,6 +982,9 @@ def build_manifest(
             "stderr_log": "chrome_stderr.log",
             "click_verification": "chrome_click_verification.json"
             if click_verification
+            else None,
+            "webgl_page_probe": "chrome_webgl_page_probe.json"
+            if getattr(args, "webgl_page_probe", False)
             else None,
         },
         "click_verification": compact_click_verification(click_verification),
