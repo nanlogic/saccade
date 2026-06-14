@@ -32,6 +32,8 @@ enum Command {
         smoke_seconds: Option<u64>,
         #[arg(long)]
         rendering_profile: Option<String>,
+        #[arg(long)]
+        profile_dir: Option<PathBuf>,
     },
     SelftestTabs,
     SelftestLoginHandoff,
@@ -41,6 +43,7 @@ enum Command {
     SelftestNativeInputDemo,
     SelftestFocusedType,
     SelftestEditorReduction,
+    SelftestProfilePersistence,
     SelftestBrowserSession,
     SelftestFormmaxLive,
     BrowserSessionWorker {
@@ -52,6 +55,8 @@ enum Command {
         height: u32,
         #[arg(long)]
         rendering_profile: Option<String>,
+        #[arg(long)]
+        profile_dir: Option<PathBuf>,
     },
 }
 
@@ -64,7 +69,15 @@ fn main() -> Result<()> {
             height,
             smoke_seconds,
             rendering_profile,
-        } => browse(url, width, height, smoke_seconds, rendering_profile),
+            profile_dir,
+        } => browse(
+            url,
+            width,
+            height,
+            smoke_seconds,
+            rendering_profile,
+            profile_dir,
+        ),
         Command::SelftestTabs => selftest_tabs(),
         Command::SelftestLoginHandoff => selftest_login_handoff(),
         Command::SelftestSafety => selftest_safety(),
@@ -73,6 +86,7 @@ fn main() -> Result<()> {
         Command::SelftestNativeInputDemo => selftest_native_input_demo(),
         Command::SelftestFocusedType => selftest_focused_type(),
         Command::SelftestEditorReduction => selftest_editor_reduction(),
+        Command::SelftestProfilePersistence => selftest_profile_persistence(),
         Command::SelftestBrowserSession => selftest_browser_session(),
         Command::SelftestFormmaxLive => selftest_formmax_live(),
         Command::BrowserSessionWorker {
@@ -80,12 +94,14 @@ fn main() -> Result<()> {
             width,
             height,
             rendering_profile,
+            profile_dir,
         } => {
             let mut config =
                 saccade_browser::BrowserSessionWorkerConfig::new(parse_user_url(&url)?);
             config.width = width;
             config.height = height;
             config.rendering_profile = parse_rendering_profile(rendering_profile)?;
+            config.profile_dir = profile_dir;
             saccade_browser::run_browser_session_worker_with_config(config)
         }
     }
@@ -97,12 +113,14 @@ fn browse(
     height: u32,
     smoke_seconds: Option<u64>,
     rendering_profile: Option<String>,
+    profile_dir: Option<PathBuf>,
 ) -> Result<()> {
     let mut config = saccade_browser::DogfoodBrowserConfig::new(parse_user_url(&url)?);
     config.width = width;
     config.height = height;
     config.auto_close_after = smoke_seconds.map(Duration::from_secs);
     config.rendering_profile = parse_rendering_profile(rendering_profile)?;
+    config.profile_dir = profile_dir;
     saccade_browser::run_dogfood_browser(config)
 }
 
@@ -702,6 +720,147 @@ fn run_inspect_editors_worker(workspace: &Path, url: &str) -> Result<Value> {
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .find(|value| value.get("id").and_then(Value::as_u64) == Some(1))
         .with_context(|| format!("missing inspect_editors response in stdout: {stdout}"))
+}
+
+fn selftest_profile_persistence() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("profile_persistence"))?;
+    let stamp = unix_ms()?;
+    let profile_dir = workspace
+        .join("runs")
+        .join("profile_persistence")
+        .join(format!("profile_{stamp}"));
+    std::fs::create_dir_all(&profile_dir)
+        .with_context(|| format!("failed to create {}", profile_dir.display()))?;
+
+    let write_response = run_worker_request_with_profile(
+        &workspace,
+        base_url.as_str(),
+        &profile_dir,
+        json!({
+            "id": 1,
+            "method": "inspect_fields",
+            "params": {
+                "fields": ["cookie-status"]
+            }
+        }),
+        Duration::from_secs(25),
+    )?;
+    if write_response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("profile write worker response was not ok: {write_response}");
+    }
+    let write_status_value = write_response
+        .pointer("/result/fields/0/value")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if write_status_value != "present" {
+        bail!("profile persistence writer did not set cookie: {write_response}");
+    }
+
+    let check_url = base_url
+        .join("check.html")
+        .context("failed to form profile persistence check URL")?;
+    let read_response = run_worker_request_with_profile(
+        &workspace,
+        check_url.as_str(),
+        &profile_dir,
+        json!({
+            "id": 1,
+            "method": "inspect_fields",
+            "params": {
+                "fields": ["cookie-status"]
+            }
+        }),
+        Duration::from_secs(25),
+    )?;
+    if read_response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("profile read worker response was not ok: {read_response}");
+    }
+    let status_value = read_response
+        .pointer("/result/fields/0/value")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let replay_path = read_response
+        .pointer("/result/artifacts/replay")
+        .and_then(Value::as_str)
+        .context("profile persistence response missing replay artifact")?;
+    if status_value != "present" {
+        bail!("profile persistence cookie was not shared: {read_response}");
+    }
+
+    println!(
+        "PROFILE_PERSISTENCE PASS cookie_status={} profile_dir={} replay={}",
+        status_value,
+        profile_dir.display(),
+        replay_path
+    );
+    Ok(())
+}
+
+fn run_worker_request_with_profile(
+    workspace: &Path,
+    url: &str,
+    profile_dir: &Path,
+    request: Value,
+    timeout: Duration,
+) -> Result<Value> {
+    let current_exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let mut child = ProcessCommand::new(current_exe)
+        .current_dir(&workspace)
+        .arg("browser-session-worker")
+        .arg("--url")
+        .arg(url)
+        .arg("--profile-dir")
+        .arg(profile_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("failed to spawn browser-session-worker")?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("browser-session-worker stdin was not piped")?;
+        writeln!(stdin, "{request}").context("failed to send worker request")?;
+        writeln!(stdin, "{}", json!({"id": 2, "method": "close"}))
+            .context("failed to send close request")?;
+    }
+
+    let started = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .context("failed to poll browser-session-worker")?
+            .is_some()
+        {
+            break;
+        }
+        if started.elapsed() > timeout {
+            let _ = child.kill();
+            bail!("profile persistence worker timed out");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout)
+            .context("failed to read browser-session-worker stdout")?;
+    }
+    let status = child
+        .wait()
+        .context("failed to wait for browser-session-worker")?;
+    if !status.success() {
+        bail!("browser-session-worker exited with {status}");
+    }
+
+    stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|value| value.get("id").and_then(Value::as_u64) == Some(1))
+        .with_context(|| format!("missing worker response in stdout: {stdout}"))
 }
 
 fn selftest_browser_session() -> Result<()> {

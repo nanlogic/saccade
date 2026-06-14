@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Profile Persistence Writer</title>
+  </head>
+  <body data-session-revision="1">
+    <main>
+      <h1>Profile Persistence Writer</h1>
+      <p id="status">Writing cookie</p>
+      <label for="cookie-status">Cookie status</label>
+      <input id="cookie-status" name="cookie_status" value="missing">
+    </main>
+    <script>
+      document.cookie = "saccade_profile_shared=present; Path=/; Max-Age=3600";
+      const present = document.cookie.includes("saccade_profile_shared=present");
+      document.getElementById("status").textContent = present ? "Cookie written" : "Cookie missing";
+      document.getElementById("cookie-status").value = present ? "present" : "missing";
+    </script>
+  </body>
+</html>

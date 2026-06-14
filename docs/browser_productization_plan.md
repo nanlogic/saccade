@@ -135,6 +135,12 @@ Rules:
 - Sensitive fields stay human-only; agent receives status, not value.
 - Record whether the failure is visual, action-map, auth/session, editor, network, or policy.
 
+Current auth/session state:
+
+- `--profile-dir` lets dogfood browser and browser-session-worker share Saccade-owned cookies/storage across processes.
+- `selftest-profile-persistence` proves one worker can write a persistent cookie and a second worker can read it from the same profile.
+- This does not import external browser cookies. Real Google/GitHub login should be done inside Saccade, then reused through the same profile dir.
+
 ### P5 - Routing And Fallback
 
 Add an explicit page decision:
@@ -164,6 +170,7 @@ The product should tell the user why it routed:
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |
 | BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
 | BP-009 | Default textarea height causes vertical click drift | Textarea report: default textarea is `54px` in Chrome and `32px` in Saccade at 768/1280; stacked variants produce max click escape `52px`; explicit heights make own rects match | Use explicit local textarea sizing; re-audit after resize; route unsafe third-party pages |
+| BP-010 | Independent Saccade workers did not inherit logged-in real-site session | `docs/profile_persistence_report.md`; `cargo run -q -p saccade-shell -- selftest-profile-persistence` proves shared `--profile-dir` cookie persistence across worker processes after fixing WebView shutdown cycle | Use persistent Saccade profile for authenticated real-site dogfood; add friendly profile picker later |
 
 ## Acceptance Order
 

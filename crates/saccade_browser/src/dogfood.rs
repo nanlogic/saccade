@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -7,8 +8,8 @@ use euclid::{Point2D, Scale};
 use servo::{
     CSSPixel, EmbedderControl, InputEvent, Key as ServoKey, KeyState, KeyboardEvent, LoadStatus,
     MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey as ServoNamedKey,
-    RenderingContext, SelectElement, SelectElementOptionOrOptgroup, Servo, ServoBuilder, WebView,
-    WebViewBuilder, WebViewDelegate, WebViewPoint, WheelDelta, WheelEvent, WheelMode,
+    Opts, RenderingContext, SelectElement, SelectElementOptionOrOptgroup, Servo, ServoBuilder,
+    WebView, WebViewBuilder, WebViewDelegate, WebViewPoint, WheelDelta, WheelEvent, WheelMode,
     WindowRenderingContext,
 };
 use url::Url;
@@ -34,6 +35,7 @@ pub struct DogfoodBrowserConfig {
     pub height: u32,
     pub auto_close_after: Option<Duration>,
     pub rendering_profile: Option<RenderingProfile>,
+    pub profile_dir: Option<PathBuf>,
 }
 
 impl DogfoodBrowserConfig {
@@ -44,6 +46,7 @@ impl DogfoodBrowserConfig {
             height: DEFAULT_HEIGHT,
             auto_close_after: None,
             rendering_profile: None,
+            profile_dir: None,
         }
     }
 }
@@ -57,6 +60,10 @@ pub fn run_dogfood_browser(config: DogfoodBrowserConfig) -> Result<()> {
         anyhow::bail!(
             "chrome-reference is a configuration stub; use the Chrome reference capture path for UI parity"
         );
+    }
+    if let Some(profile_dir) = config.profile_dir.as_ref() {
+        std::fs::create_dir_all(profile_dir)
+            .with_context(|| format!("failed to create profile dir {}", profile_dir.display()))?;
     }
     let event_loop = EventLoop::with_user_event()
         .build()
@@ -294,6 +301,11 @@ impl DogfoodBrowserState {
         self.active_select.borrow_mut().take();
         self.update_window_title();
     }
+
+    fn close_webview(&self) {
+        self.active_select.borrow_mut().take();
+        self.webview.borrow_mut().take();
+    }
 }
 
 impl WebViewDelegate for DogfoodBrowserState {
@@ -379,6 +391,7 @@ impl DogfoodBrowserApp {
             .auto_close_after
             .is_some_and(|timeout| state.started_at.elapsed() >= timeout)
         {
+            state.close_webview();
             event_loop.exit();
             *self = Self::Finished;
         }
@@ -445,10 +458,16 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             return;
         }
 
-        let servo = ServoBuilder::default()
+        let mut servo_builder = ServoBuilder::default()
             .preferences(rendering_settings.servo_preferences())
-            .event_loop_waker(Box::new(waker.clone()))
-            .build();
+            .event_loop_waker(Box::new(waker.clone()));
+        if let Some(profile_dir) = config.profile_dir.clone() {
+            let mut opts = Opts::default();
+            opts.config_dir = Some(profile_dir);
+            opts.temporary_storage = false;
+            servo_builder = servo_builder.opts(opts);
+        }
+        let servo = servo_builder.build();
         servo.setup_logging();
 
         let state = Rc::new(DogfoodBrowserState {
@@ -498,6 +517,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
 
             match event {
                 WindowEvent::CloseRequested => {
+                    state.close_webview();
                     event_loop.exit();
                     *self = Self::Finished;
                 }

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Profile Persistence Reader</title>
+  </head>
+  <body data-session-revision="1">
+    <main>
+      <h1>Profile Persistence Reader</h1>
+      <label for="cookie-status">Cookie status</label>
+      <input id="cookie-status" name="cookie_status" value="missing">
+    </main>
+    <script>
+      document.getElementById("cookie-status").value = document.cookie.includes("saccade_profile_shared=present")
+        ? "present"
+        : "missing";
+    </script>
+  </body>
+</html>

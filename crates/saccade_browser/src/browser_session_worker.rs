@@ -43,6 +43,7 @@ pub struct BrowserSessionWorkerConfig {
     pub rendering_profile: Option<RenderingProfile>,
     pub width: u32,
     pub height: u32,
+    pub profile_dir: Option<PathBuf>,
 }
 
 impl BrowserSessionWorkerConfig {
@@ -52,6 +53,7 @@ impl BrowserSessionWorkerConfig {
             rendering_profile: None,
             width: DEFAULT_WINDOW_WIDTH,
             height: DEFAULT_WINDOW_HEIGHT,
+            profile_dir: None,
         }
     }
 }
@@ -73,6 +75,10 @@ pub fn run_browser_session_worker_with_config(config: BrowserSessionWorkerConfig
     if rendering_settings.profile == RenderingProfile::ChromeReference {
         return run_unsupported_worker(config.url, rendering_settings);
     }
+    if let Some(profile_dir) = config.profile_dir.as_ref() {
+        fs::create_dir_all(profile_dir)
+            .with_context(|| format!("failed to create profile dir {}", profile_dir.display()))?;
+    }
 
     let artifacts = WorkerArtifacts::new()?;
     let event_loop = EventLoop::with_user_event()
@@ -90,6 +96,7 @@ pub fn run_browser_session_worker_with_config(config: BrowserSessionWorkerConfig
         rendering_settings,
         config.width,
         config.height,
+        config.profile_dir,
     );
     event_loop
         .run_app(&mut app)
@@ -368,6 +375,7 @@ enum WorkerApp {
         rendering_settings: RenderingProfileSettings,
         width: u32,
         height: u32,
+        profile_dir: Option<PathBuf>,
     },
     Running {
         state: Rc<WorkerState>,
@@ -384,6 +392,7 @@ impl WorkerApp {
         rendering_settings: RenderingProfileSettings,
         width: u32,
         height: u32,
+        profile_dir: Option<PathBuf>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
@@ -393,6 +402,7 @@ impl WorkerApp {
             rendering_settings,
             width,
             height,
+            profile_dir,
         }
     }
 
@@ -433,7 +443,9 @@ impl WorkerApp {
             && state.queue.borrow().is_empty()
             && state.current.borrow().is_none()
         {
-            event_loop.exit();
+            shutdown_worker(&state, event_loop);
+            *self = Self::Finished;
+            return;
         }
         state.window.request_redraw();
     }
@@ -449,6 +461,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             rendering_settings,
             width,
             height,
+            profile_dir,
         } = self
         else {
             return;
@@ -530,10 +543,16 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             return;
         }
 
-        let servo = ServoBuilder::default()
+        let mut servo_builder = ServoBuilder::default()
             .preferences(rendering_settings.servo_preferences())
-            .event_loop_waker(Box::new(waker.clone()))
-            .build();
+            .event_loop_waker(Box::new(waker.clone()));
+        if let Some(profile_dir) = profile_dir.clone() {
+            let mut opts = servo::Opts::default();
+            opts.config_dir = Some(profile_dir);
+            opts.temporary_storage = false;
+            servo_builder = servo_builder.opts(opts);
+        }
+        let servo = servo_builder.build();
         servo.setup_logging();
 
         let state = Rc::new(WorkerState {
@@ -629,7 +648,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             state.servo.spin_event_loop();
             match event {
                 WindowEvent::CloseRequested => {
-                    event_loop.exit();
+                    shutdown_worker(state, event_loop);
                     *self = Self::Finished;
                 }
                 WindowEvent::RedrawRequested => {
@@ -946,10 +965,16 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
                     },
                 }),
             );
-            event_loop.exit();
+            shutdown_worker(state, event_loop);
         }
         other => respond_error(state, id, format!("unknown worker method {other:?}")),
     }
+}
+
+fn shutdown_worker(state: &Rc<WorkerState>, event_loop: &ActiveEventLoop) {
+    state.active_select.borrow_mut().take();
+    state.webview.borrow_mut().take();
+    event_loop.exit();
 }
 
 fn start_act_request(state: &Rc<WorkerState>, webview: &WebView, id: Value, params: Value) {

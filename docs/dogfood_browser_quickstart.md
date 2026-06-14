@@ -42,6 +42,21 @@ Open a larger window:
 RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://example.com --width 1920 --height 1080
 ```
 
+Open with a persistent Saccade profile:
+
+```bash
+mkdir -p runs/dogfood_profile/default
+RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://gist.github.com --profile-dir runs/dogfood_profile/default
+```
+
+Use the same profile for an agent worker:
+
+```bash
+RUST_LOG=error cargo run -q -p saccade-shell -- browser-session-worker --url https://gist.github.com/new --profile-dir runs/dogfood_profile/default
+```
+
+This shares Saccade-owned cookies/storage across Saccade processes. It does not import Chrome/Safari/Firefox cookies. For Google/GitHub login, log in inside Saccade with the persistent profile, then reuse that same profile path for later worker sessions.
+
 Open the pinned-default baseline profile:
 
 ```bash
@@ -68,5 +83,6 @@ RUST_LOG=error cargo run -q -p saccade-shell -- browse --url about:blank --smoke
 - This is a Saccade dogfood shell, not a packaged `.app` yet.
 - There is no address bar or tabs yet; launch with a URL.
 - File picker, native context menu, clipboard, downloads, and password-manager UX are not implemented.
+- Persistent `--profile-dir` is supported for Saccade-owned session reuse, but there is not yet a friendly profile picker or password-manager flow.
 - Visual parity with Chrome/Safari is still tracked separately. Use this shell for dogfood, and use Chrome reference captures when exact mainstream rendering matters.
 - `servo-modern` improves action/layout correctness for current local gates, but it is not a claim that Servo renders like Chrome.
