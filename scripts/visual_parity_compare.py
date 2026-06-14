@@ -27,6 +27,7 @@ DEFAULT_FIXTURES = [
 ACTION_CLICK_ESCAPE_FAIL_PX = 8
 ACTION_RECT_WARNING_PX = 24
 LAYOUT_RECT_FAIL_PX = 8
+FLOW_DRIFT_WARNING_PX = 16
 LAYOUT_STYLE_KEYS = [
     "boxSizing",
     "width",
@@ -361,7 +362,8 @@ def compare_layout_probes(chrome_truth, saccade_truth):
             missing += 1
             items.append({"name": name, "missing": "chrome" if not c else "saccade"})
             continue
-        rect_delta = rect_max_delta(c.get("rect", {}), s.get("rect", {}))
+        rect_deltas = rect_deltas_of(c.get("rect", {}), s.get("rect", {}))
+        rect_delta = max(rect_deltas.values())
         max_rect_delta = max(max_rect_delta, rect_delta)
         display_match = c.get("display") == s.get("display")
         grid_match = c.get("gridTemplateColumns") == s.get("gridTemplateColumns")
@@ -376,6 +378,7 @@ def compare_layout_probes(chrome_truth, saccade_truth):
             {
                 "name": name,
                 "rect_max_delta": round(rect_delta, 3),
+                "rect_deltas": {key: round(value, 3) for key, value in rect_deltas.items()},
                 "chrome_display": c.get("display", ""),
                 "saccade_display": s.get("display", ""),
                 "chrome_grid_template_columns": c.get("gridTemplateColumns", ""),
@@ -393,6 +396,7 @@ def compare_layout_probes(chrome_truth, saccade_truth):
         "grid_template_mismatches": grid_template_mismatches,
         "style_mismatches": style_mismatches,
         "style_compare_keys": LAYOUT_STYLE_KEYS,
+        "flow_drift": summarize_flow_drift(items),
         "items": items,
     }
 
@@ -410,10 +414,40 @@ def extract_layout_probes(truth):
 
 
 def rect_max_delta(a, b):
-    return max(
-        abs(float(a.get(key, 0) or 0) - float(b.get(key, 0) or 0))
+    return max(rect_deltas_of(a, b).values())
+
+
+def rect_deltas_of(a, b):
+    return {
+        key: abs(float(a.get(key, 0) or 0) - float(b.get(key, 0) or 0))
         for key in ("left", "top", "width", "height")
-    )
+    }
+
+
+def summarize_flow_drift(items):
+    candidates = []
+    max_top_delta = 0.0
+    max_size_delta = 0.0
+    for item in items:
+        deltas = item.get("rect_deltas") or {}
+        top_delta = float(deltas.get("top", 0) or 0)
+        size_delta = max(float(deltas.get("width", 0) or 0), float(deltas.get("height", 0) or 0))
+        max_top_delta = max(max_top_delta, top_delta)
+        max_size_delta = max(max_size_delta, size_delta)
+        if top_delta >= FLOW_DRIFT_WARNING_PX and top_delta > size_delta + LAYOUT_RECT_FAIL_PX:
+            candidates.append(
+                {
+                    "name": item.get("name", ""),
+                    "top_delta": round(top_delta, 3),
+                    "size_delta": round(size_delta, 3),
+                }
+            )
+    return {
+        "suspected": bool(candidates),
+        "max_top_delta": round(max_top_delta, 3),
+        "max_size_delta": round(max_size_delta, 3),
+        "examples": candidates[:5],
+    }
 
 
 def style_diff(chrome_probe, saccade_probe):
@@ -529,6 +563,7 @@ def classify_diff(result):
         "raster_canvas_diff": [],
         "action_map_diff": [],
         "action_geometry_warning": [],
+        "flow_drift": [],
         "viewport_dpr_diff": [],
         "policy_diff": [],
     }
@@ -581,6 +616,12 @@ def classify_diff(result):
     if layout.get("max_rect_delta", 0) > LAYOUT_RECT_FAIL_PX:
         diff_classes["layout_rect_style_diff"].append(
             f"Max layout probe rect delta {layout.get('max_rect_delta')}px"
+        )
+    flow = layout.get("flow_drift") or {}
+    if flow.get("suspected"):
+        examples = [item.get("name", "") for item in flow.get("examples", []) if item.get("name")]
+        diff_classes["flow_drift"].append(
+            f"Possible cumulative flow drift: max_top_delta={flow.get('max_top_delta')}px, max_size_delta={flow.get('max_size_delta')}px, examples={examples[:3]}"
         )
 
     diff_ratio = metrics.get("diff_ratio", 0)
@@ -801,7 +842,8 @@ def write_html(run_dir, results, args):
             f"max rect {lp.get('max_rect_delta', 0):.1f}px, "
             f"display {lp.get('display_mismatches', 0)}, "
             f"grid {lp.get('grid_template_mismatches', 0)}, "
-            f"style {lp.get('style_mismatches', 0)}"
+            f"style {lp.get('style_mismatches', 0)}, "
+            f"flow {bool((lp.get('flow_drift') or {}).get('suspected'))}"
         )
         action_summary = (
             f"{result['chrome_actions']} / {result['saccade_actions']}, "

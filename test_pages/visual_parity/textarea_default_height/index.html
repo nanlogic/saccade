@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Textarea Default Height</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .stack { display: grid; gap: 14px; max-width: 820px; }
+    .case { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; align-items: start; padding: 14px; }
+    .case h2 { margin: 0; font-size: 14px; }
+    .case p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    textarea { width: 100%; min-width: 0; border: 1px solid #b8c3d4; border-radius: 6px; padding: 8px 10px; color: var(--ink); background: #fff; resize: none; }
+    .min82 { min-height: 82px; }
+    .height82 { height: 82px; min-height: 0; }
+    .height97 { height: 97px; min-height: 0; }
+    .line20 { line-height: 20px; }
+    .contentbox { box-sizing: content-box; height: 82px; min-height: 0; }
+    @media (max-width: 560px) {
+      .case { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Textarea Height Probe</h1>
+    <span class="muted">default / rows / min-height / explicit height</span>
+  </header>
+  <main>
+    <section class="stack">
+      <section class="panel case" data-saccade-probe="case_textarea_default">
+        <div>
+          <h2>Default textarea</h2>
+          <p>No rows or height CSS.</p>
+        </div>
+        <textarea aria-label="textarea default" data-saccade-probe="textarea_default">Need launch rehearsal capacity.</textarea>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_textarea_rows2">
+        <div>
+          <h2>Rows 2</h2>
+          <p>Native rows attribute.</p>
+        </div>
+        <textarea rows="2" aria-label="textarea rows 2" data-saccade-probe="textarea_rows2">Need launch rehearsal capacity.</textarea>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_textarea_rows3">
+        <div>
+          <h2>Rows 3</h2>
+          <p>Native rows attribute.</p>
+        </div>
+        <textarea rows="3" aria-label="textarea rows 3" data-saccade-probe="textarea_rows3">Need launch rehearsal capacity.</textarea>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_textarea_min82">
+        <div>
+          <h2>min-height 82</h2>
+          <p>Minimum only.</p>
+        </div>
+        <textarea class="min82" aria-label="textarea min height 82" data-saccade-probe="textarea_min82">Need launch rehearsal capacity.</textarea>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_textarea_height82">
+        <div>
+          <h2>height 82</h2>
+          <p>Explicit border-box height.</p>
+        </div>
+        <textarea class="height82" aria-label="textarea height 82" data-saccade-probe="textarea_height82">Need launch rehearsal capacity.</textarea>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_textarea_height97">
+        <div>
+          <h2>height 97</h2>
+          <p>Explicit height matching Chrome default from form width probe.</p>
+        </div>
+        <textarea class="height97" aria-label="textarea height 97" data-saccade-probe="textarea_height97">Need launch rehearsal capacity.</textarea>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_textarea_line20">
+        <div>
+          <h2>line-height 20</h2>
+          <p>Explicit line-height without fixed height.</p>
+        </div>
+        <textarea class="line20" aria-label="textarea line height 20" data-saccade-probe="textarea_line20">Need launch rehearsal capacity.</textarea>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_textarea_contentbox">
+        <div>
+          <h2>content-box height 82</h2>
+          <p>Overrides global border-box.</p>
+        </div>
+        <textarea class="contentbox" aria-label="textarea content box height 82" data-saccade-probe="textarea_contentbox">Need launch rehearsal capacity.</textarea>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

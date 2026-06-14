@@ -157,13 +157,13 @@ The product should tell the user why it routed:
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |
 | BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
-| BP-009 | Default textarea height causes vertical click drift | Width modes report: Chrome non-strict textarea is `97px`, Saccade is `82px`; later click points drift by `31-49px`; explicit textarea height removes strict-section click escape | Add explicit local textarea heights and investigate Servo/UA sizing |
+| BP-009 | Default textarea height causes vertical click drift | Textarea report: default textarea is `54px` in Chrome and `32px` in Saccade at 768/1280; stacked variants produce max click escape `52px`; explicit heights make own rects match | Use explicit local textarea sizing; re-audit after resize; route unsafe third-party pages |
 
 ## Acceptance Order
 
 1. Land this plan and ledger.
 2. Implement P1 browser shell basics.
 3. Keep the local form CSS workaround from `docs/form_control_width_modes_report.md` as a regression.
-4. Work BP-002 and BP-009 until third-party native-control/textarea drift is either fixed or explicitly routed.
+4. Add a classifier bucket for cumulative vertical drift from default control sizing.
 5. Re-test GitHub/Gist editor and record BP-004 result.
 6. Only then resume broad real-site dogfood.

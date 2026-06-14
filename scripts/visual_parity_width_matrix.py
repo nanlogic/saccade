@@ -13,6 +13,7 @@ DEFAULT_FIXTURES = [
     "grid_percent_100_50",
     "form_controls",
     "form_control_width_modes",
+    "textarea_default_height",
     "responsive_cards",
 ]
 DEFAULT_WIDTHS = [390, 768, 1000, 1280, 1600]
@@ -118,6 +119,7 @@ def row_from_fixture(width, parity_dir, fixture):
         "layout_display_mismatches": layout.get("display_mismatches"),
         "layout_grid_template_mismatches": layout.get("grid_template_mismatches"),
         "layout_style_mismatches": layout.get("style_mismatches"),
+        "layout_flow_drift": layout.get("flow_drift", {}).get("suspected"),
         "saccade_normalized": normalized,
         "parity_report": rel(parity_dir / "index.html", case_dir=parity_dir.parent.parent),
         "case_result": rel(case_dir / "case_result.json", case_dir=parity_dir.parent.parent),
@@ -163,7 +165,7 @@ def write_html(run_dir, manifest):
             f"<td>{pct(row.get('diff_ratio'))}</td>"
             f"<td>{esc(actions)}</td>"
             f"<td>{fmt(row.get('action_rect_delta'))} px<br>escape {fmt(row.get('click_escape_delta'))} px</td>"
-            f"<td>{fmt(row.get('layout_rect_delta'))} px<br>display {row.get('layout_display_mismatches')} grid {row.get('layout_grid_template_mismatches')} style {row.get('layout_style_mismatches')}</td>"
+            f"<td>{fmt(row.get('layout_rect_delta'))} px<br>display {row.get('layout_display_mismatches')} grid {row.get('layout_grid_template_mismatches')} style {row.get('layout_style_mismatches')} flow {row.get('layout_flow_drift')}</td>"
             f"<td>{capture_summary(row)}</td>"
             "<td><div class='thumbs'>"
             f"<a href='{html_path(run_dir, row['chrome_screenshot'])}'><img src='{html_path(run_dir, row['chrome_screenshot'])}' alt='Chrome'></a>"
