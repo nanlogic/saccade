@@ -61,13 +61,12 @@ Do these in order:
 
 1. Browser productization P1: add true editable URL bar, clickable Back/Forward/Reload/Stop, and focus recovery. First-stage title-bar URL/title/loading/nav state is done.
 2. Browser compatibility P1: retest authenticated GitHub/Gist editor through shared `--profile-dir` login handoff using the local BP-004 reduction as the oracle.
-3. Add a minimal WebGL runtime fixture for BP-011, then decide whether the current issue is Saccade adapter, Servo/WebRender, or machine-specific GL.
-4. Configure Claude Code access with an Anthropic API key or organization enablement, then rerun the small Codex-vs-Claude smoke.
-5. Harden FORMMAX runner v1: expand native input-event typing to more controls and add a comparison baseline. Visual dropdown selection evidence now exists for the native input fixture.
-6. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: Chrome and Safari URL-bar screenshots are complete; next add Firefox URL-bar screenshot and optional Chrome result screenshot.
-7. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, live-worker/Chrome finding parity, and HTTP status awareness for resource loads.
-8. Harden browser-backed MCP sessions: shared multi-tab process. Worker report/replay, live audit, screenshot policy, sensitive-value redaction, manual input forwarding, constrained agent fill, explicit non-sensitive inspect, live FORMMAX fill, and MCP wrappers are in place.
-9. Add replay metadata for masked status and user action boundaries without sensitive values.
+3. Configure Claude Code access with an Anthropic API key or organization enablement, then rerun the small Codex-vs-Claude smoke.
+4. Harden FORMMAX runner v1: expand native input-event typing to more controls and add a comparison baseline. Visual dropdown selection evidence now exists for the native input fixture.
+5. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: Chrome and Safari URL-bar screenshots are complete; next add Firefox URL-bar screenshot and optional Chrome result screenshot.
+6. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, live-worker/Chrome finding parity, and HTTP status awareness for resource loads.
+7. Harden browser-backed MCP sessions: shared multi-tab process. Worker report/replay, live audit, screenshot policy, sensitive-value redaction, manual input forwarding, constrained agent fill, explicit non-sensitive inspect, live FORMMAX fill, and MCP wrappers are in place.
+8. Add replay metadata for masked status and user action boundaries without sensitive values.
 
 ## Parking Lot
 
@@ -76,5 +75,6 @@ Do not start these until DEVMAX gauntlet bar, FORMMAX runner, and safety selftes
 - real third-party website automation,
 - Playwright comparison benchmark,
 - public release push.
+- BP-011 minimal WebGL runtime fixture and GL backend investigation. It is important for canvas/WebGL dogfood, but current route-to-Chrome policy is enough for near-term web-game validation.
 
 Chrome adapter work is allowed as a comparison/runtime gate, but not as a replacement for the Servo evidence layer.
