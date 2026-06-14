@@ -43,6 +43,16 @@ This is the fastest way to dogfood against the same browser binary that already
 runs the local game. It may be weaker for trusted-tab safety and native input
 ownership, but it can quickly validate browser/runtime parity.
 
+2026-06-14 result: WebDriver is viable for the first adapter gate. Saccade can
+create a session, execute JavaScript, click a button, observe the resulting DOM
+change, and capture a screenshot through official ServoShell.
+
+Probe script:
+
+```sh
+python3 scripts/probe_servoshell_webdriver.py
+```
+
 ### Route B: Fork Official ServoShell
 
 Build official ServoShell source and add Saccade's agent bridge inside that app:
@@ -70,10 +80,8 @@ mapping updates and a heavier local build.
    `Servo 0.3.0-302457869`.
 2. Build `servoshell` locally with the official build path.
 3. Verify it runs `http://127.0.0.1:4173/` like the downloaded app.
-4. Try the least invasive bridge first: `servoshell --webdriver` or
-   `servoshell --devtools`.
-5. If that works, add a Saccade adapter around official ServoShell before
-   attempting a deeper fork.
+4. Add a Saccade adapter around official ServoShell WebDriver before attempting
+   a deeper fork.
 
 ## Build Note
 
