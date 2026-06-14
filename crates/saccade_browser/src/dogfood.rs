@@ -14,7 +14,7 @@ use servo::{
 };
 use url::Url;
 use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{
     ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent,
 };
@@ -27,6 +27,12 @@ use crate::{RenderingProfile, RenderingProfileSettings};
 
 const DEFAULT_WIDTH: u32 = 1440;
 const DEFAULT_HEIGHT: u32 = 1000;
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
 
 #[derive(Debug, Clone)]
 pub struct DogfoodBrowserConfig {
@@ -177,6 +183,8 @@ struct DogfoodBrowserState {
     webview: RefCell<Option<WebView>>,
     cursor_x: Cell<f32>,
     cursor_y: Cell<f32>,
+    cursor_move_count: Cell<u64>,
+    last_cursor_move_at: Cell<Option<Instant>>,
     modifiers: Cell<ModifiersState>,
     load_state: Cell<BrowserLoadState>,
     page_title: RefCell<Option<String>>,
@@ -186,6 +194,7 @@ struct DogfoodBrowserState {
     started_at: Instant,
     auto_close_after: Option<Duration>,
     rendering_settings: RenderingProfileSettings,
+    pointer_trace: bool,
 }
 
 impl DogfoodBrowserState {
@@ -228,6 +237,47 @@ impl DogfoodBrowserState {
             }),
             active_select_label: active_select_label.as_deref(),
         }));
+    }
+
+    fn trace_cursor_moved(&self, position: PhysicalPosition<f64>) {
+        if !self.pointer_trace {
+            return;
+        }
+        let scale = self.window.scale_factor();
+        let logical = position.to_logical::<f64>(scale);
+        let inner = self.window.inner_size();
+        eprintln!(
+            "SACCADE_POINTER_TRACE runtime=dogfood event=cursor_moved raw_physical=({:.1},{:.1}) logical_if_css=({:.1},{:.1}) stored_page=({:.1},{:.1}) hidpi={:.3} inner_device={}x{} move_count={}",
+            position.x,
+            position.y,
+            logical.x,
+            logical.y,
+            self.cursor_x.get(),
+            self.cursor_y.get(),
+            scale,
+            inner.width,
+            inner.height,
+            self.cursor_move_count.get(),
+        );
+    }
+
+    fn trace_pointer_event(&self, event: &str, detail: std::fmt::Arguments<'_>) {
+        if !self.pointer_trace {
+            return;
+        }
+        let age_ms = self
+            .last_cursor_move_at
+            .get()
+            .map(|instant| instant.elapsed().as_millis());
+        eprintln!(
+            "SACCADE_POINTER_TRACE runtime=dogfood event={} stored_page=({:.1},{:.1}) cursor_age_ms={:?} move_count={} detail={}",
+            event,
+            self.cursor_x.get(),
+            self.cursor_y.get(),
+            age_ms,
+            self.cursor_move_count.get(),
+            detail,
+        );
     }
 
     fn begin_address_entry(&self) {
@@ -637,6 +687,8 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             webview: RefCell::new(None),
             cursor_x: Cell::new(0.0),
             cursor_y: Cell::new(0.0),
+            cursor_move_count: Cell::new(0),
+            last_cursor_move_at: Cell::new(None),
             modifiers: Cell::new(ModifiersState::empty()),
             load_state: Cell::new(BrowserLoadState::Starting),
             page_title: RefCell::new(None),
@@ -646,6 +698,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             started_at: Instant::now(),
             auto_close_after: config.auto_close_after,
             rendering_settings: rendering_settings.clone(),
+            pointer_trace: env_flag("SACCADE_TRACE_POINTER"),
         });
 
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
@@ -697,6 +750,11 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                 WindowEvent::CursorMoved { position, .. } => {
                     state.cursor_x.set(position.x as f32);
                     state.cursor_y.set(position.y as f32);
+                    state
+                        .cursor_move_count
+                        .set(state.cursor_move_count.get().saturating_add(1));
+                    state.last_cursor_move_at.set(Some(Instant::now()));
+                    state.trace_cursor_moved(position);
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(
                             state.page_point(),
@@ -708,6 +766,10 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                     button,
                     ..
                 } => {
+                    state.trace_pointer_event(
+                        "mouse_input",
+                        format_args!("state={button_state:?} button={button:?}"),
+                    );
                     if button_state == ElementState::Pressed {
                         if state.handle_mouse_navigation_button(button) {
                             return;
@@ -723,6 +785,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                     }
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
+                    state.trace_pointer_event("mouse_wheel", format_args!("delta={delta:?}"));
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         let (x, y, mode) = wheel_delta(delta);
                         webview.notify_input_event(InputEvent::Wheel(WheelEvent::new(

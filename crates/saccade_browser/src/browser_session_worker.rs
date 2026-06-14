@@ -21,7 +21,7 @@ use servo::{
 };
 use url::Url;
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalSize};
+use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{
     ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent,
 };
@@ -36,6 +36,12 @@ const DEFAULT_WINDOW_WIDTH: u32 = 1600;
 const DEFAULT_WINDOW_HEIGHT: u32 = 1000;
 const LOAD_SETTLE_DELAY: Duration = Duration::from_millis(300);
 const ACT_VERIFY_DELAY: Duration = Duration::from_millis(160);
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
 
 #[derive(Clone)]
 pub struct BrowserSessionWorkerConfig {
@@ -230,11 +236,14 @@ struct WorkerState {
     current: RefCell<Option<ActiveRequest>>,
     cursor_x: Cell<f32>,
     cursor_y: Cell<f32>,
+    cursor_move_count: Cell<u64>,
+    last_cursor_move_at: Cell<Option<Instant>>,
     modifiers: Cell<ModifiersState>,
     active_select: RefCell<Option<ActiveSelect>>,
     screenshots: RefCell<Vec<String>>,
     screenshot_skipped_sensitive: Cell<u64>,
     rendering_settings: RenderingProfileSettings,
+    pointer_trace: bool,
     stdout: RefCell<io::Stdout>,
 }
 
@@ -283,6 +292,47 @@ impl WorkerState {
             }
             _ => false,
         }
+    }
+
+    fn trace_cursor_moved(&self, position: PhysicalPosition<f64>) {
+        if !self.pointer_trace {
+            return;
+        }
+        let scale = self.window.scale_factor();
+        let logical = position.to_logical::<f64>(scale);
+        let inner = self.window.inner_size();
+        eprintln!(
+            "SACCADE_POINTER_TRACE runtime=browser_session_worker event=cursor_moved raw_physical=({:.1},{:.1}) logical_if_css=({:.1},{:.1}) stored_page=({:.1},{:.1}) hidpi={:.3} inner_device={}x{} move_count={}",
+            position.x,
+            position.y,
+            logical.x,
+            logical.y,
+            self.cursor_x.get(),
+            self.cursor_y.get(),
+            scale,
+            inner.width,
+            inner.height,
+            self.cursor_move_count.get(),
+        );
+    }
+
+    fn trace_pointer_event(&self, event: &str, detail: std::fmt::Arguments<'_>) {
+        if !self.pointer_trace {
+            return;
+        }
+        let age_ms = self
+            .last_cursor_move_at
+            .get()
+            .map(|instant| instant.elapsed().as_millis());
+        eprintln!(
+            "SACCADE_POINTER_TRACE runtime=browser_session_worker event={} stored_page=({:.1},{:.1}) cursor_age_ms={:?} move_count={} detail={}",
+            event,
+            self.cursor_x.get(),
+            self.cursor_y.get(),
+            age_ms,
+            self.cursor_move_count.get(),
+            detail,
+        );
     }
 
     fn handle_browser_shortcut(&self, event: &KeyEvent) -> bool {
@@ -599,11 +649,14 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
             current: RefCell::new(None),
             cursor_x: Cell::new(0.0),
             cursor_y: Cell::new(0.0),
+            cursor_move_count: Cell::new(0),
+            last_cursor_move_at: Cell::new(None),
             modifiers: Cell::new(ModifiersState::empty()),
             active_select: RefCell::new(None),
             screenshots: RefCell::new(Vec::new()),
             screenshot_skipped_sensitive: Cell::new(0),
             rendering_settings: rendering_settings.clone(),
+            pointer_trace: env_flag("SACCADE_TRACE_POINTER"),
             stdout: RefCell::new(io::stdout()),
         });
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
@@ -671,6 +724,11 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                 WindowEvent::CursorMoved { position, .. } => {
                     state.cursor_x.set(position.x as f32);
                     state.cursor_y.set(position.y as f32);
+                    state
+                        .cursor_move_count
+                        .set(state.cursor_move_count.get().saturating_add(1));
+                    state.last_cursor_move_at.set(Some(Instant::now()));
+                    state.trace_cursor_moved(position);
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(
                             state.page_point(),
@@ -682,6 +740,10 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                     button,
                     ..
                 } => {
+                    state.trace_pointer_event(
+                        "mouse_input",
+                        format_args!("state={button_state:?} button={button:?}"),
+                    );
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
                             mouse_button_action(button_state),
@@ -691,6 +753,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                     }
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
+                    state.trace_pointer_event("mouse_wheel", format_args!("delta={delta:?}"));
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         let (x, y, mode) = wheel_delta(delta);
                         webview.notify_input_event(InputEvent::Wheel(WheelEvent::new(
