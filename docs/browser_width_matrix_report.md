@@ -63,3 +63,7 @@ Next we should split this into a smaller fixture with `auto`, `width:100%`, `min
 2. Add computed-style fields to parity reports: width, min/max width, box sizing, overflow, grid template, and font metrics.
 3. Fix or route the 390-width action-map failure first, because that is the current red safety gate.
 4. Add a worker/fullscreen or display-boundary probe for widths above 1440 CSS px before using 1600/1920 as product benchmarks.
+
+## Follow-Up
+
+`docs/form_control_width_modes_report.md` completes steps 1 and 2 for form controls. It shows `width:100%` fixes horizontal rect width for Saccade-owned controls, while default textarea height still differs from Chrome and can create cumulative vertical click drift. The immediate fix path is local CSS: `width:100%`, `min-width:0`, and explicit textarea heights.

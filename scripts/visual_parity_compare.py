@@ -27,6 +27,31 @@ DEFAULT_FIXTURES = [
 ACTION_CLICK_ESCAPE_FAIL_PX = 8
 ACTION_RECT_WARNING_PX = 24
 LAYOUT_RECT_FAIL_PX = 8
+LAYOUT_STYLE_KEYS = [
+    "boxSizing",
+    "width",
+    "height",
+    "minWidth",
+    "maxWidth",
+    "minHeight",
+    "maxHeight",
+    "overflowX",
+    "overflowY",
+    "paddingLeft",
+    "paddingRight",
+    "borderLeftWidth",
+    "borderRightWidth",
+    "fontSize",
+    "lineHeight",
+    "flexDirection",
+    "flexBasis",
+    "flexGrow",
+    "flexShrink",
+    "alignSelf",
+    "justifySelf",
+    "gridColumnStart",
+    "gridColumnEnd",
+]
 
 
 def main():
@@ -327,6 +352,7 @@ def compare_layout_probes(chrome_truth, saccade_truth):
     max_rect_delta = 0.0
     display_mismatches = 0
     grid_template_mismatches = 0
+    style_mismatches = 0
     missing = 0
     for name in names:
         c = chrome.get(name)
@@ -343,6 +369,9 @@ def compare_layout_probes(chrome_truth, saccade_truth):
             display_mismatches += 1
         if not grid_match:
             grid_template_mismatches += 1
+        style_diffs = style_diff(c, s)
+        if style_diffs:
+            style_mismatches += 1
         items.append(
             {
                 "name": name,
@@ -351,6 +380,7 @@ def compare_layout_probes(chrome_truth, saccade_truth):
                 "saccade_display": s.get("display", ""),
                 "chrome_grid_template_columns": c.get("gridTemplateColumns", ""),
                 "saccade_grid_template_columns": s.get("gridTemplateColumns", ""),
+                "style_diffs": style_diffs,
                 "chrome_rect": c.get("rect", {}),
                 "saccade_rect": s.get("rect", {}),
             }
@@ -361,6 +391,8 @@ def compare_layout_probes(chrome_truth, saccade_truth):
         "max_rect_delta": round(max_rect_delta, 3),
         "display_mismatches": display_mismatches,
         "grid_template_mismatches": grid_template_mismatches,
+        "style_mismatches": style_mismatches,
+        "style_compare_keys": LAYOUT_STYLE_KEYS,
         "items": items,
     }
 
@@ -382,6 +414,16 @@ def rect_max_delta(a, b):
         abs(float(a.get(key, 0) or 0) - float(b.get(key, 0) or 0))
         for key in ("left", "top", "width", "height")
     )
+
+
+def style_diff(chrome_probe, saccade_probe):
+    diffs = {}
+    for key in LAYOUT_STYLE_KEYS:
+        chrome_value = chrome_probe.get(key, "")
+        saccade_value = saccade_probe.get(key, "")
+        if chrome_value != saccade_value:
+            diffs[key] = {"chrome": chrome_value, "saccade": saccade_value}
+    return diffs
 
 
 def compare_action_maps(chrome_truth, saccade_truth):
@@ -758,7 +800,8 @@ def write_html(run_dir, results, args):
         layout_summary = (
             f"max rect {lp.get('max_rect_delta', 0):.1f}px, "
             f"display {lp.get('display_mismatches', 0)}, "
-            f"grid {lp.get('grid_template_mismatches', 0)}"
+            f"grid {lp.get('grid_template_mismatches', 0)}, "
+            f"style {lp.get('style_mismatches', 0)}"
         )
         action_summary = (
             f"{result['chrome_actions']} / {result['saccade_actions']}, "

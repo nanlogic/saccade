@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Form Control Width Modes</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .stack { display: grid; gap: 18px; max-width: 980px; }
+    .section { padding: 16px; display: grid; gap: 14px; overflow: hidden; }
+    .section h2 { margin: 0; font-size: 15px; }
+    .fixed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .min0-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+    .flex-row { display: flex; gap: 14px; }
+    .flex-row .case { flex: 1 1 0; min-width: 0; }
+    .case { min-width: 0; padding: 12px; display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+    label { min-width: 0; display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
+    input, select, textarea { min-height: 40px; border: 1px solid #b8c3d4; border-radius: 6px; padding: 8px 10px; color: var(--ink); background: #fff; }
+    textarea { min-height: 82px; resize: none; }
+    .full input, .full select, .full textarea { width: 100%; }
+    .min0 label, .min0 input, .min0 select, .min0 textarea { min-width: 0; }
+    .strict input, .strict select { height: 40px; min-height: 0; }
+    .strict textarea { height: 82px; min-height: 0; }
+    .wide-box { width: 100%; }
+    .half-box { width: 50%; }
+    .footer { display: flex; justify-content: flex-end; gap: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Control Width Modes</h1>
+    <span class="muted">auto / width 100 / min-width 0 / grid / flex</span>
+  </header>
+  <main>
+    <section class="stack">
+      <section class="panel section full min0 strict" data-saccade-probe="section_strict_full">
+        <h2>Strict sizes, minmax grid, width 100 controls</h2>
+        <div class="min0-grid" data-saccade-probe="grid_strict_full">
+          <div class="case" data-saccade-probe="case_strict_full_a">
+            <label data-saccade-probe="label_strict_full_input">Input strict full
+              <input name="strict_full_input" aria-label="strict full input" value="Platform Reliability" data-saccade-probe="input_strict_full">
+            </label>
+            <label data-saccade-probe="label_strict_full_select">Select strict full
+              <select name="strict_full_select" aria-label="strict full select" data-saccade-probe="select_strict_full"><option>us-east</option><option>eu-central</option></select>
+            </label>
+          </div>
+          <div class="case" data-saccade-probe="case_strict_full_b">
+            <label data-saccade-probe="label_strict_full_textarea">Textarea strict full
+              <textarea name="strict_full_textarea" aria-label="strict full textarea" data-saccade-probe="textarea_strict_full">Need launch rehearsal capacity.</textarea>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel section" data-saccade-probe="section_fixed_auto">
+        <h2>Fixed 1fr grid, auto controls</h2>
+        <div class="fixed-grid" data-saccade-probe="grid_fixed_auto">
+          <div class="case" data-saccade-probe="case_fixed_auto_a">
+            <label data-saccade-probe="label_fixed_auto_input">Input auto
+              <input name="fixed_auto_input" aria-label="fixed auto input" value="Platform Reliability" data-saccade-probe="input_fixed_auto">
+            </label>
+            <label data-saccade-probe="label_fixed_auto_select">Select auto
+              <select name="fixed_auto_select" aria-label="fixed auto select" data-saccade-probe="select_fixed_auto"><option>us-east</option><option>eu-central</option></select>
+            </label>
+          </div>
+          <div class="case" data-saccade-probe="case_fixed_auto_b">
+            <label data-saccade-probe="label_fixed_auto_textarea">Textarea auto
+              <textarea name="fixed_auto_textarea" aria-label="fixed auto textarea" data-saccade-probe="textarea_fixed_auto">Need launch rehearsal capacity.</textarea>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel section full" data-saccade-probe="section_fixed_full">
+        <h2>Fixed 1fr grid, width 100 controls</h2>
+        <div class="fixed-grid" data-saccade-probe="grid_fixed_full">
+          <div class="case" data-saccade-probe="case_fixed_full_a">
+            <label data-saccade-probe="label_fixed_full_input">Input full
+              <input name="fixed_full_input" aria-label="fixed full input" value="Platform Reliability" data-saccade-probe="input_fixed_full">
+            </label>
+            <label data-saccade-probe="label_fixed_full_select">Select full
+              <select name="fixed_full_select" aria-label="fixed full select" data-saccade-probe="select_fixed_full"><option>us-east</option><option>eu-central</option></select>
+            </label>
+          </div>
+          <div class="case" data-saccade-probe="case_fixed_full_b">
+            <label data-saccade-probe="label_fixed_full_textarea">Textarea full
+              <textarea name="fixed_full_textarea" aria-label="fixed full textarea" data-saccade-probe="textarea_fixed_full">Need launch rehearsal capacity.</textarea>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel section full min0" data-saccade-probe="section_min0_full">
+        <h2>minmax(0, 1fr) grid, width 100 controls</h2>
+        <div class="min0-grid" data-saccade-probe="grid_min0_full">
+          <div class="case" data-saccade-probe="case_min0_full_a">
+            <label data-saccade-probe="label_min0_full_input">Input min0 full
+              <input name="min0_full_input" aria-label="min0 full input" value="Platform Reliability" data-saccade-probe="input_min0_full">
+            </label>
+            <label data-saccade-probe="label_min0_full_date">Date min0 full
+              <input name="min0_full_date" aria-label="min0 full date" type="date" value="2026-07-15" data-saccade-probe="date_min0_full">
+            </label>
+          </div>
+          <div class="case" data-saccade-probe="case_min0_full_b">
+            <label data-saccade-probe="label_min0_full_textarea">Textarea min0 full
+              <textarea name="min0_full_textarea" aria-label="min0 full textarea" data-saccade-probe="textarea_min0_full">Need launch rehearsal capacity.</textarea>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel section full min0" data-saccade-probe="section_flex_full">
+        <h2>Flex row, width 100 controls</h2>
+        <div class="flex-row" data-saccade-probe="flex_full">
+          <div class="case" data-saccade-probe="case_flex_full_a">
+            <label data-saccade-probe="label_flex_full_input">Input flex full
+              <input name="flex_full_input" aria-label="flex full input" value="Platform Reliability" data-saccade-probe="input_flex_full">
+            </label>
+          </div>
+          <div class="case" data-saccade-probe="case_flex_full_b">
+            <label data-saccade-probe="label_flex_full_select">Select flex full
+              <select name="flex_full_select" aria-label="flex full select" data-saccade-probe="select_flex_full"><option>us-east</option><option>eu-central</option></select>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel section full min0" data-saccade-probe="section_block_percent">
+        <h2>Block width 100 and 50</h2>
+        <div class="case wide-box" data-saccade-probe="case_block_wide">
+          <label data-saccade-probe="label_block_wide">Block 100 input
+            <input name="block_wide_input" aria-label="block wide input" value="Platform Reliability" data-saccade-probe="input_block_wide">
+          </label>
+        </div>
+        <div class="case half-box" data-saccade-probe="case_block_half">
+          <label data-saccade-probe="label_block_half">Block 50 input
+            <input name="block_half_input" aria-label="block half input" value="Platform Reliability" data-saccade-probe="input_block_half">
+          </label>
+        </div>
+        <div class="footer" data-saccade-probe="width_modes_footer">
+          <button type="button" data-saccade-probe="button_width_modes_save">Save Draft</button>
+          <button class="primary" type="button" data-saccade-probe="button_width_modes_continue">Continue</button>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

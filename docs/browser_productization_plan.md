@@ -150,19 +150,20 @@ The product should tell the user why it routed:
 
 | ID | Issue | Current Evidence | Next Step |
 | --- | --- | --- | --- |
-| BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Width matrix report: at 390px, `form_controls` is `FAIL_ACTION_MAP` with Chrome hit-test `5/7` and max click escape `52.899px` | Add `form_control_width_modes`; decide fixture CSS bug versus Servo sizing |
-| BP-002 | Native form controls have large rect deltas versus Chrome | Width matrix report: at 768-1280px, hit-tests pass but inputs stay about `136.5px` in Saccade while Chrome expands them to `318-406px`; textarea stays `168px` versus up to `830px` | Split per-control metrics and classify `YELLOW_CONTROL` or `FAIL_LAYOUT` |
+| BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Fixed for the local fixture: after strict local form CSS, 390px `form_controls` has Chrome hit-test `8/8` and max click escape `1.0px` | Keep as regression |
+| BP-002 | Native form controls have large rect deltas versus Chrome | Width modes report: auto input/textarea stay about `136.5px` in Saccade while Chrome expands to `302-440px`; `width:100%` makes rect widths match | Use `width:100%` plus `min-width:0` in Saccade-owned forms; route third-party pages by measured action safety |
 | BP-003 | Browser shell lacks URL/back/forward/reload | `docs/blockers.md` dogfood UX gap | Implement P1 shell basics |
 | BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Real dogfood: editor candidate had zero rect | Build local editor reduction and inspect real page again |
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |
 | BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
+| BP-009 | Default textarea height causes vertical click drift | Width modes report: Chrome non-strict textarea is `97px`, Saccade is `82px`; later click points drift by `31-49px`; explicit textarea height removes strict-section click escape | Add explicit local textarea heights and investigate Servo/UA sizing |
 
 ## Acceptance Order
 
 1. Land this plan and ledger.
 2. Implement P1 browser shell basics.
-3. Add `form_control_width_modes` and computed-style fields.
-4. Work BP-001 and BP-002 until form/grid behavior is explained.
+3. Keep the local form CSS workaround from `docs/form_control_width_modes_report.md` as a regression.
+4. Work BP-002 and BP-009 until third-party native-control/textarea drift is either fixed or explicitly routed.
 5. Re-test GitHub/Gist editor and record BP-004 result.
 6. Only then resume broad real-site dogfood.
