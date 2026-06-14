@@ -93,6 +93,29 @@ Artifacts:
 - Saccade screenshot: `runs/browser_session_worker/worker_1781443347692_12895/audit_completed_rev1.png`
 - Saccade replay: `runs/browser_session_worker/worker_1781443347692_12895/replay.jsonl`
 
+## Scripted Runtime Gate
+
+Added:
+
+```sh
+RUST_LOG=error cargo run -q -p saccade-shell -- selftest-webgl-runtime
+```
+
+The gate:
+
+- opens the minimal fixture in the live `browser-session-worker`,
+- waits for the page to draw frames,
+- calls `webgl_runtime_probe`,
+- runs an audit for screenshot/replay artifacts,
+- captures GL texture warnings from worker stderr/stdout,
+- prints `route=green` or `route=blocked`.
+
+Latest result:
+
+```text
+WEBGL_RUNTIME DIAG route=green canvas2d=ok webgl_context=ok texture=ok read_pixels=ok_132_204_22 frames=30 avg_frame_ms=18.38 last_error=none gl_warning=false screenshot=runs/browser_session_worker/worker_1781445119728_26509/audit_completed_rev1.png replay=runs/browser_session_worker/worker_1781445119728_26509/replay.jsonl
+```
+
 ## Interpretation
 
 BP-011 is now a P1 dogfood blocker, not P2 polish.
@@ -100,16 +123,15 @@ BP-011 is now a P1 dogfood blocker, not P2 polish.
 Current evidence says:
 
 - 2D canvas is healthy on the minimal fixture.
-- Simple WebGL can create a context, upload a texture, draw, and read pixels.
-- The macOS GL path still emits texture unloadable warnings.
-- Frame progress is too slow for game dogfood on the minimal fixture.
+- Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
+- The macOS GL path can still emit texture unloadable warnings under some Saccade/WebRender page paths.
 - The real local game loses important gameplay visual layers in Saccade while Chrome shows them.
 
 ## Next Step
 
 Debug the Saccade/Servo GL runtime path before broad game/canvas dogfood:
 
-1. Add a scripted selftest around `test_pages/webgl_runtime/index.html` that extracts `window.__saccadeWebglRuntime`.
-2. Compare Saccade versus Chrome frame count and screenshot pixels after the same wait.
-3. Inspect whether the warning is tied to `WindowRenderingContext`, HiDPI scale, `preserveDrawingBuffer`, texture target choice, or WebRender/macOS backend behavior.
-4. Keep routing WebGL-heavy product judgement to Chrome/reference until the selftest is green.
+1. Add a live-game runtime probe or adapter for `http://127.0.0.1:4173/` so Saccade can distinguish "minimal WebGL healthy" from "complex gameplay layer missing."
+2. Compare Saccade versus Chrome screenshot pixels for gameplay-layer presence after the same wait.
+3. Inspect whether the warning is tied to page composition, CSS transforms, multiple canvases, animation timing, `WindowRenderingContext`, HiDPI scale, `preserveDrawingBuffer`, texture target choice, or WebRender/macOS backend behavior.
+4. Keep routing WebGL-heavy product judgement to Chrome/reference until the real game path is green too.

@@ -171,6 +171,9 @@ enum ActiveRequest {
     InspectEditors {
         id: Value,
     },
+    WebglRuntimeProbe {
+        id: Value,
+    },
     TypeFocusedPreflight {
         id: Value,
         text: String,
@@ -951,6 +954,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
         "fill_agent_fields" => start_fill_agent_fields_request(state, webview, id, request.params),
         "inspect_fields" => start_inspect_fields_request(state, webview, id, request.params),
         "inspect_editors" => start_inspect_editors_request(state, webview, id),
+        "webgl_runtime_probe" => start_webgl_runtime_probe_request(state, webview, id),
         "type_focused_text" => start_type_focused_text_request(state, webview, id, request.params),
         "formmax_live_fill" => start_formmax_live_fill_request(state, webview, id, request.params),
         "close" => {
@@ -1269,6 +1273,20 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
             Some(Err(error)) => respond_error(state, id, error),
             None => {
                 *state.current.borrow_mut() = Some(ActiveRequest::InspectEditors { id });
+            }
+        },
+        ActiveRequest::WebglRuntimeProbe { id } => match finish_probe(&state.pending_probe) {
+            Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                Ok(value) => respond_ok(state, id, webgl_runtime_probe_response(state, &value)),
+                Err(error) => respond_error(
+                    state,
+                    id,
+                    format!("failed to parse WebGL runtime result: {error}"),
+                ),
+            },
+            Some(Err(error)) => respond_error(state, id, error),
+            None => {
+                *state.current.borrow_mut() = Some(ActiveRequest::WebglRuntimeProbe { id });
             }
         },
         ActiveRequest::TypeFocusedPreflight { id, text } => {
@@ -1605,6 +1623,19 @@ fn start_inspect_editors_request(state: &Rc<WorkerState>, webview: &WebView, id:
         });
     });
     *state.current.borrow_mut() = Some(ActiveRequest::InspectEditors { id });
+}
+
+fn start_webgl_runtime_probe_request(state: &Rc<WorkerState>, webview: &WebView, id: Value) {
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    webview.evaluate_javascript(WEBGL_RUNTIME_PROBE_JS, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(JSValue::String(value)) => Ok(value),
+            Ok(value) => Ok(format!("{value:?}")),
+            Err(error) => Err(format!("{error:?}")),
+        });
+    });
+    *state.current.borrow_mut() = Some(ActiveRequest::WebglRuntimeProbe { id });
 }
 
 fn request_probe(state: &Rc<WorkerState>, webview: &WebView) {
@@ -1962,6 +1993,31 @@ fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> 
         "sensitive_count": sensitive_count,
         "route": route,
         "editors": editors,
+        "artifacts": artifact_paths(state),
+    })
+}
+
+fn webgl_runtime_probe_response(state: &Rc<WorkerState>, runtime_result: &Value) -> Value {
+    log_replay(
+        state,
+        json!({
+            "kind": "webgl_runtime_probed",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "runtime_found": runtime_result.get("runtime").is_some(),
+            "values_logged": false,
+        }),
+    );
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-webgl-runtime-v0",
+        "summary": "WebGL runtime status collected from live Servo tab",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "page_revision": state.page_revision.get(),
+        "source_url": runtime_result.get("url").cloned().unwrap_or(Value::Null),
+        "source_title": runtime_result.get("title").cloned().unwrap_or(Value::Null),
+        "runtime_status": runtime_result.get("runtime").cloned().unwrap_or(Value::Null),
         "artifacts": artifact_paths(state),
     })
 }
@@ -2729,6 +2785,18 @@ const INSPECT_EDITORS_JS: &str = r##"
     editorCount: editors.length,
     sensitiveFieldsSeen: editors.filter((editor) => editor.sensitivity !== "none").length,
     editors
+  });
+})()
+"##;
+
+const WEBGL_RUNTIME_PROBE_JS: &str = r##"
+(() => {
+  const runtime = window.__saccadeWebglRuntime || null;
+  return JSON.stringify({
+    ok: true,
+    url: location.href,
+    title: document.title || "",
+    runtime
   });
 })()
 "##;

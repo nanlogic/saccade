@@ -77,6 +77,12 @@ Compile/smoke check without leaving a window open:
 RUST_LOG=error cargo run -q -p saccade-shell -- browse --url about:blank --smoke-seconds 1
 ```
 
+Check the minimal WebGL runtime fixture:
+
+```bash
+RUST_LOG=error cargo run -q -p saccade-shell -- selftest-webgl-runtime
+```
+
 ## Current controls
 
 - Mouse move, click, and wheel scroll are forwarded into Servo.

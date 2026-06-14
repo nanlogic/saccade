@@ -339,3 +339,10 @@
 - Added `test_pages/webgl_runtime/index.html` as a minimal repeatable fixture with 2D canvas, WebGL texture drawing, `readPixels`, and visible frame timing status.
 - The minimal fixture reproduced a related `GLD_TEXTURE_INDEX_RECTANGLE is unloadable` warning. It showed 2D canvas OK and simple WebGL texture OK, but slow frame progress.
 - BP-011 is now P1: route WebGL-heavy judgement to Chrome/reference until a scripted Saccade runtime selftest is green and the adapter/backend root cause is known.
+
+## DECISION_BROWSER_005 - Minimal WebGL fixture has a scripted green baseline
+
+- Added worker method `webgl_runtime_probe` to read `window.__saccadeWebglRuntime` without scraping visible text.
+- Added `saccade-shell selftest-webgl-runtime`; it opens the minimal fixture, waits for frames, captures runtime status, runs an audit for screenshot/replay artifacts, and checks for GL texture warnings in worker output.
+- Latest minimal fixture result is green: `canvas2d=ok`, `webgl_context=ok`, `texture=ok`, `read_pixels=ok_132_204_22`, `frames=30`, `avg_frame_ms=18.38`, `last_error=none`, `gl_warning=false`.
+- Therefore BP-011 is now narrowed: simple WebGL is healthy under the scripted gate, while the live game still fails. Next isolate game/composition-specific behavior.

@@ -46,6 +46,7 @@ enum Command {
     SelftestProfilePersistence,
     SelftestBrowserSession,
     SelftestFormmaxLive,
+    SelftestWebglRuntime,
     InspectEditors {
         #[arg(long)]
         url: String,
@@ -101,6 +102,7 @@ fn main() -> Result<()> {
         Command::SelftestProfilePersistence => selftest_profile_persistence(),
         Command::SelftestBrowserSession => selftest_browser_session(),
         Command::SelftestFormmaxLive => selftest_formmax_live(),
+        Command::SelftestWebglRuntime => selftest_webgl_runtime(),
         Command::InspectEditors {
             url,
             width,
@@ -669,6 +671,208 @@ fn selftest_editor_reduction() -> Result<()> {
         editor_count, zero_rect_count, sensitive_count, route_decision, replay_path
     );
     Ok(())
+}
+
+fn selftest_webgl_runtime() -> Result<()> {
+    let workspace = workspace_root()?;
+    let fixture = workspace
+        .join("test_pages")
+        .join("webgl_runtime")
+        .join("index.html");
+    let url = Url::from_file_path(&fixture).map_err(|_| {
+        anyhow!(
+            "failed to convert fixture path to file URL: {}",
+            fixture.display()
+        )
+    })?;
+    let result =
+        run_webgl_runtime_worker(&workspace, url.as_str(), 1000, 760, Duration::from_secs(3))?;
+
+    let runtime = result
+        .webgl_response
+        .pointer("/result/runtime_status")
+        .context("webgl_runtime_probe response missing runtime_status")?;
+    let canvas2d = runtime
+        .get("canvas2d")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let webgl_context = runtime
+        .get("webglContext")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let texture = runtime.get("texture").and_then(Value::as_str).unwrap_or("");
+    let read_pixels = runtime
+        .get("readPixels")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let frames = runtime.get("frames").and_then(Value::as_u64).unwrap_or(0);
+    let avg_frame_ms = value_as_f64(runtime.get("avgFrameMs")).unwrap_or(0.0);
+    let last_error = runtime
+        .get("lastError")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let screenshot = result
+        .audit_response
+        .pointer("/result/visual_health/screenshot")
+        .and_then(Value::as_str)
+        .context("webgl runtime audit missing screenshot")?;
+    if !workspace.join(screenshot).exists() {
+        bail!("webgl runtime screenshot was not written: {screenshot}");
+    }
+    if canvas2d != "ok" {
+        bail!("2D canvas probe did not draw: {runtime}");
+    }
+    if webgl_context != "ok" {
+        bail!("WebGL context probe did not initialize: {runtime}");
+    }
+    if !read_pixels.starts_with("ok_") {
+        bail!("WebGL readPixels probe did not return colored pixels: {runtime}");
+    }
+
+    let gl_warning = result.output_contains_gl_texture_warning();
+    let route = if gl_warning || frames < 20 || avg_frame_ms > 50.0 {
+        "blocked"
+    } else {
+        "green"
+    };
+
+    println!(
+        "WEBGL_RUNTIME DIAG route={} canvas2d={} webgl_context={} texture={} read_pixels={} frames={} avg_frame_ms={:.2} last_error={} gl_warning={} screenshot={} replay={}",
+        route,
+        canvas2d,
+        webgl_context,
+        texture,
+        read_pixels,
+        frames,
+        avg_frame_ms,
+        last_error,
+        gl_warning,
+        screenshot,
+        result
+            .audit_response
+            .pointer("/result/artifacts/replay")
+            .and_then(Value::as_str)
+            .unwrap_or("(missing replay)")
+    );
+    Ok(())
+}
+
+struct WebglRuntimeWorkerResult {
+    webgl_response: Value,
+    audit_response: Value,
+    stdout: String,
+    stderr: String,
+}
+
+impl WebglRuntimeWorkerResult {
+    fn output_contains_gl_texture_warning(&self) -> bool {
+        self.stdout.contains("GLD_TEXTURE") || self.stderr.contains("GLD_TEXTURE")
+    }
+}
+
+fn run_webgl_runtime_worker(
+    workspace: &Path,
+    url: &str,
+    width: u32,
+    height: u32,
+    wait_before_probe: Duration,
+) -> Result<WebglRuntimeWorkerResult> {
+    let current_exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let mut child = ProcessCommand::new(current_exe)
+        .current_dir(workspace)
+        .arg("browser-session-worker")
+        .arg("--url")
+        .arg(url)
+        .arg("--width")
+        .arg(width.to_string())
+        .arg("--height")
+        .arg(height.to_string())
+        .arg("--rendering-profile")
+        .arg("servo-modern")
+        .env("RUST_LOG", "error")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("failed to spawn browser-session-worker")?;
+
+    thread::sleep(wait_before_probe);
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("browser-session-worker stdin was not piped")?;
+        writeln!(
+            stdin,
+            "{}",
+            json!({"id": 1, "method": "webgl_runtime_probe"})
+        )
+        .context("failed to send webgl_runtime_probe request")?;
+        writeln!(stdin, "{}", json!({"id": 2, "method": "audit"}))
+            .context("failed to send audit request")?;
+        writeln!(stdin, "{}", json!({"id": 3, "method": "close"}))
+            .context("failed to send close request")?;
+    }
+    drop(child.stdin.take());
+
+    let started = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .context("failed to poll browser-session-worker")?
+            .is_some()
+        {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            bail!("webgl runtime worker timed out");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout)
+            .context("failed to read browser-session-worker stdout")?;
+    }
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_string(&mut stderr)
+            .context("failed to read browser-session-worker stderr")?;
+    }
+    let status = child
+        .wait()
+        .context("failed to wait for browser-session-worker")?;
+    if !status.success() {
+        bail!("browser-session-worker exited with {status}\nstdout={stdout}\nstderr={stderr}");
+    }
+
+    let webgl_response = json_response_by_id(&stdout, 1)
+        .with_context(|| format!("missing webgl_runtime_probe response in stdout: {stdout}"))?;
+    let audit_response = json_response_by_id(&stdout, 2)
+        .with_context(|| format!("missing audit response in stdout: {stdout}"))?;
+    Ok(WebglRuntimeWorkerResult {
+        webgl_response,
+        audit_response,
+        stdout,
+        stderr,
+    })
+}
+
+fn value_as_f64(value: Option<&Value>) -> Option<f64> {
+    match value {
+        Some(Value::Number(number)) => number.as_f64(),
+        Some(Value::String(text)) => text.parse().ok(),
+        _ => None,
+    }
+}
+
+fn json_response_by_id(stdout: &str, id: u64) -> Option<Value> {
+    stdout.lines().find_map(|line| {
+        let value = serde_json::from_str::<Value>(line.trim()).ok()?;
+        (value.get("id").and_then(Value::as_u64) == Some(id)).then_some(value)
+    })
 }
 
 fn inspect_editors(
