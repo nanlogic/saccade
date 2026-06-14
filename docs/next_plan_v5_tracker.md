@@ -60,7 +60,7 @@ The new gauntlet file is now the product scoreboard:
 Do these in order:
 
 1. Browser productization P1: add true editable URL bar, clickable Back/Forward/Reload/Stop, and focus recovery. First-stage title-bar URL/title/loading/nav state is done.
-2. Browser compatibility P1: retest real GitHub/Gist editor using the local BP-004 reduction as the oracle.
+2. Browser compatibility P1: retest authenticated GitHub/Gist editor through shared profile/login handoff using the local BP-004 reduction as the oracle.
 3. Move Chrome/Firefox visual parity earlier: Chrome CDP capture, Chrome-vs-Saccade compare, Chrome-side click verification, native Chrome/Safari UI capture, and a seven-fixture demo comparison pack exist; next is Firefox capture on a machine with Firefox installed.
 4. Configure Claude Code access with an Anthropic API key or organization enablement, then rerun the small Codex-vs-Claude smoke.
 5. Harden FORMMAX runner v1: expand native input-event typing to more controls and add a comparison baseline. Visual dropdown selection evidence now exists for the native input fixture.

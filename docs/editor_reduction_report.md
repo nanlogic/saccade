@@ -39,3 +39,19 @@ EDITOR_REDUCTION PASS editors=6 zero_rect=2 sensitive=1 visible_body=true visibl
 - Zero-rect editor candidates are counted rather than treated as safe targets.
 - Sensitive editor-like fields are counted without exposing values.
 - The remaining BP-004 question is real-site behavior: if real Gist exposes only a zero-rect writable target, Saccade should route to user focus handoff or Chrome-live rather than pretending the action map is safe.
+
+## Real-Site Probe
+
+Safe GET-only probes were run against GitHub Gist without publishing or typing:
+
+```text
+https://gist.github.com/     -> editor_count=1 zero_rect_count=0 label="Search Gists"
+https://gist.github.com/new  -> editor_count=1 zero_rect_count=0 label="Search Gists"
+```
+
+Artifacts:
+
+- `runs/browser_session_worker/worker_1781437457716_88455/replay.jsonl`
+- `runs/browser_session_worker/worker_1781437482073_88545/replay.jsonl`
+
+Interpretation: the independent worker did not inherit the earlier logged-in Gist session, so it never reached the authenticated new-Gist editor. Authenticated real-site BP-004 remains pending on shared profile/login handoff.
