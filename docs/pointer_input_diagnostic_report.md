@@ -55,20 +55,35 @@ hidpi=2.000
 
 The page title stayed `not clicked`. If Saccade had used the logical/CSS point `(220,243)`, the click would have landed inside the button. It instead sent `(440,486)` as a CSS page point.
 
+After the official conversion patch, a dogfood-window CGEvent trace showed the
+same Retina conversion working at the input boundary:
+
+```text
+raw_physical=(330.0,494.0)
+logical_if_css=(165.0,247.0)
+stored_page=(165.0,247.0)
+hidpi=2.000
+event=mouse_input stored_page=(165.0,247.0)
+```
+
 ## Related Observation
 
 `MouseInput` has no position payload in winit 0.30. Saccade currently reuses the last stored cursor position, so a click after focus changes can also use a stale point if no fresh `CursorMoved` was delivered.
 
 ## Current Decision
 
-Do not patch behavior yet. Keep this as BP-012 and gather 2-3 traces from manual dogfood windows first, especially on:
+Official docs confirmed the root cause: winit reports physical pixels, while
+Servo `WebViewPoint::Page` expects CSS/page pixels. Saccade now converts
+`CursorMoved` positions through `PhysicalPosition::to_logical(window.scale_factor())`
+before storing the cursor point used by manual mouse, wheel, and click events.
 
-- `https://www.nanmesh.ai/`
-- `https://www.mysterypartynow.com/`
-- a local fixed-button fixture
+Research record:
 
-Likely fix candidates after confirmation:
+- `docs/pointer_input_official_research.md`
 
-- Convert winit physical cursor coordinates to CSS/page coordinates before using `WebViewPoint::Page`.
-- Or send `WebViewPoint::Device` only if Servo's current embedder path proves it handles device points correctly on this platform.
-- Add stale-cursor protection for first click after focus/raise.
+Remaining follow-up:
+
+- Re-run a real manual dogfood click trace on `nanmesh.ai`, `mysterypartynow.com`,
+  or a local fixed-button fixture.
+- If misses remain, investigate stale cursor state because winit `MouseInput`
+  still has no position payload.

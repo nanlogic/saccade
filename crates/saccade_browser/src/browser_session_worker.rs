@@ -39,7 +39,12 @@ const ACT_VERIFY_DELAY: Duration = Duration::from_millis(160);
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -261,6 +266,12 @@ struct ActiveSelect {
 }
 
 impl WorkerState {
+    fn store_cursor_page_position(&self, position: PhysicalPosition<f64>) {
+        let logical = position.to_logical::<f64>(self.window.scale_factor());
+        self.cursor_x.set(logical.x as f32);
+        self.cursor_y.set(logical.y as f32);
+    }
+
     fn page_point(&self) -> WebViewPoint {
         WebViewPoint::Page(Point2D::<f32, CSSPixel>::new(
             self.cursor_x.get(),
@@ -722,8 +733,7 @@ impl ApplicationHandler<WakerEvent> for WorkerApp {
                     }
                 }
                 WindowEvent::CursorMoved { position, .. } => {
-                    state.cursor_x.set(position.x as f32);
-                    state.cursor_y.set(position.y as f32);
+                    state.store_cursor_page_position(position);
                     state
                         .cursor_move_count
                         .set(state.cursor_move_count.get().saturating_add(1));
