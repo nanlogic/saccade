@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Editor Reduction Fixture</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f8fa;
+        color: #24292f;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+
+      h1 {
+        margin: 0 0 20px;
+        font-size: 28px;
+      }
+
+      label {
+        display: block;
+        margin: 16px 0 8px;
+        font-weight: 600;
+      }
+
+      input,
+      textarea,
+      .github-editor,
+      .CodeMirror-code {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        background: #ffffff;
+        color: #24292f;
+        font: 14px/1.5 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      }
+
+      input {
+        height: 38px;
+        padding: 8px 12px;
+      }
+
+      textarea {
+        min-height: 96px;
+        padding: 10px 12px;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        margin: 16px 0 0;
+        padding: 8px;
+        border: 1px solid #d0d7de;
+        border-bottom: 0;
+        border-radius: 6px 6px 0 0;
+        background: #f6f8fa;
+      }
+
+      .toolbar button,
+      .actions button {
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        background: #ffffff;
+        padding: 6px 10px;
+        font: inherit;
+      }
+
+      .github-editor {
+        min-height: 220px;
+        padding: 12px;
+        border-radius: 0 0 6px 6px;
+        white-space: pre-wrap;
+      }
+
+      .CodeMirror-code {
+        min-height: 64px;
+        margin-top: 16px;
+        padding: 12px;
+      }
+
+      .shadow-editor,
+      .ace_text-input {
+        position: absolute;
+        left: -10000px;
+        top: 0;
+        width: 0;
+        height: 0;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        opacity: 0;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Gist-like Editor Reduction</h1>
+
+      <label for="gist-title">Gist description</label>
+      <input id="gist-title" name="gist_title" value="Draft release note">
+
+      <div class="toolbar" aria-label="Markdown toolbar">
+        <button type="button">Bold</button>
+        <button type="button">Italic</button>
+      </div>
+      <div
+        id="gist-body-visible"
+        class="github-editor cm-content CodeMirror"
+        role="textbox"
+        aria-label="Gist body editor"
+        contenteditable="true"
+        spellcheck="false"
+      >LEAK_SENTINEL_DO_NOT_RETURN</div>
+
+      <textarea
+        id="gist-body-shadow"
+        class="shadow-editor"
+        name="gist_body_shadow"
+        aria-label="Hidden Gist backing textarea"
+      >LEAK_SENTINEL_DO_NOT_RETURN</textarea>
+
+      <div
+        id="codemirror-shell"
+        class="CodeMirror-code"
+        aria-label="CodeMirror visible shell"
+        tabindex="0"
+      ></div>
+
+      <input
+        id="ace-hidden-input"
+        class="ace_text-input"
+        name="ace_hidden_input"
+        value="LEAK_SENTINEL_DO_NOT_RETURN"
+      >
+
+      <label for="legal-attestation">Legal attestation notes</label>
+      <textarea
+        id="legal-attestation"
+        name="legal_attestation_notes"
+        data-sensitive="legal_attestation"
+      ></textarea>
+
+      <div class="actions">
+        <button type="button">Save draft</button>
+        <button type="button">Create secret gist</button>
+      </div>
+    </main>
+  </body>
+</html>

@@ -159,7 +159,7 @@ The product should tell the user why it routed:
 | BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Fixed for the local fixture: after strict local form CSS, 390px `form_controls` has Chrome hit-test `8/8` and max click escape `1.0px` | Keep as regression |
 | BP-002 | Native form controls have large rect deltas versus Chrome | Width modes report: auto input/textarea stay about `136.5px` in Saccade while Chrome expands to `302-440px`; `width:100%` makes rect widths match | Use `width:100%` plus `min-width:0` in Saccade-owned forms; route third-party pages by measured action safety |
 | BP-003 | Browser shell lacks clickable URL/back/forward/reload UI | First-stage shell state landed: title bar shows URL/title/load/nav state and existing keyboard shortcuts; see `docs/browser_shell_basics_report.md` | Add true editable URL bar and clickable navigation controls |
-| BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Real dogfood: editor candidate had zero rect | Build local editor reduction and inspect real page again |
+| BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Local editor reduction passes: visible contenteditable and CodeMirror-like shell have positive rects; hidden backing fields produce `zero_rect_count=2`; sensitive textarea is counted without value leakage | Inspect real Gist again and route if the writable body remains zero-rect |
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |
 | BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
@@ -171,5 +171,5 @@ The product should tell the user why it routed:
 2. Implement P1 browser shell basics.
 3. Keep the local form CSS workaround from `docs/form_control_width_modes_report.md` as a regression.
 4. Add a classifier bucket for cumulative vertical drift from default control sizing.
-5. Re-test GitHub/Gist editor and record BP-004 result.
+5. Re-test GitHub/Gist editor and record BP-004 real-site result; local reduction is now in place.
 6. Only then resume broad real-site dogfood.

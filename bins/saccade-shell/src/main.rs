@@ -40,6 +40,7 @@ enum Command {
     SelftestNativeInput,
     SelftestNativeInputDemo,
     SelftestFocusedType,
+    SelftestEditorReduction,
     SelftestBrowserSession,
     SelftestFormmaxLive,
     BrowserSessionWorker {
@@ -71,6 +72,7 @@ fn main() -> Result<()> {
         Command::SelftestNativeInput => selftest_native_input(),
         Command::SelftestNativeInputDemo => selftest_native_input_demo(),
         Command::SelftestFocusedType => selftest_focused_type(),
+        Command::SelftestEditorReduction => selftest_editor_reduction(),
         Command::SelftestBrowserSession => selftest_browser_session(),
         Command::SelftestFormmaxLive => selftest_formmax_live(),
         Command::BrowserSessionWorker {
@@ -555,6 +557,151 @@ fn run_type_focused_worker(workspace: &Path, url: &str, text: &str) -> Result<Va
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .find(|value| value.get("id").and_then(Value::as_u64) == Some(1))
         .with_context(|| format!("missing type_focused_text response in stdout: {stdout}"))
+}
+
+fn selftest_editor_reduction() -> Result<()> {
+    let workspace = workspace_root()?;
+    let url = start_test_server(workspace.join("test_pages").join("editor_reduction"))?;
+    let response = run_inspect_editors_worker(&workspace, url.as_str())?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("inspect_editors response was not ok: {response}");
+    }
+    let result = response
+        .get("result")
+        .context("inspect_editors response missing result")?;
+    let editors = result
+        .get("editors")
+        .and_then(Value::as_array)
+        .context("inspect_editors response missing editors array")?;
+    let editor_count = result
+        .get("editor_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let zero_rect_count = result
+        .get("zero_rect_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let sensitive_count = result
+        .get("sensitive_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let replay_path = result
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .context("inspect_editors response missing replay artifact")?;
+    let replay_text = std::fs::read_to_string(replay_path)
+        .with_context(|| format!("failed to read replay artifact {replay_path}"))?;
+
+    let has_visible_body = editors.iter().any(|editor| {
+        editor.get("id").and_then(Value::as_str) == Some("gist-body-visible")
+            && editor.get("kind").and_then(Value::as_str) == Some("contenteditable")
+            && editor_rect_positive(editor)
+    });
+    let has_visible_shell = editors.iter().any(|editor| {
+        editor.get("id").and_then(Value::as_str) == Some("codemirror-shell")
+            && editor.get("kind").and_then(Value::as_str) == Some("js_editor_shell")
+            && editor_rect_positive(editor)
+    });
+    let has_hidden_shadow = editors.iter().any(|editor| {
+        editor.get("id").and_then(Value::as_str) == Some("gist-body-shadow")
+            && !editor_rect_positive(editor)
+    });
+
+    if editor_count < 5
+        || zero_rect_count < 2
+        || sensitive_count < 1
+        || !has_visible_body
+        || !has_visible_shell
+        || !has_hidden_shadow
+    {
+        bail!(
+            "editor reduction selftest failed: editor_count={editor_count} zero_rect_count={zero_rect_count} sensitive_count={sensitive_count} result={result}"
+        );
+    }
+    if replay_text.contains("LEAK_SENTINEL_DO_NOT_RETURN") {
+        bail!("inspect_editors replay leaked editor sentinel text");
+    }
+
+    println!(
+        "EDITOR_REDUCTION PASS editors={} zero_rect={} sensitive={} visible_body=true visible_shell=true replay={}",
+        editor_count, zero_rect_count, sensitive_count, replay_path
+    );
+    Ok(())
+}
+
+fn editor_rect_positive(editor: &Value) -> bool {
+    editor
+        .pointer("/rect/width")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        > 0.0
+        && editor
+            .pointer("/rect/height")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            > 0.0
+}
+
+fn run_inspect_editors_worker(workspace: &Path, url: &str) -> Result<Value> {
+    let current_exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let mut child = ProcessCommand::new(current_exe)
+        .current_dir(&workspace)
+        .arg("browser-session-worker")
+        .arg("--url")
+        .arg(url)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("failed to spawn browser-session-worker")?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("browser-session-worker stdin was not piped")?;
+        writeln!(stdin, "{}", json!({"id": 1, "method": "inspect_editors"}))
+            .context("failed to send inspect_editors request")?;
+        writeln!(stdin, "{}", json!({"id": 2, "method": "close"}))
+            .context("failed to send close request")?;
+    }
+
+    let started = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .context("failed to poll browser-session-worker")?
+            .is_some()
+        {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(25) {
+            let _ = child.kill();
+            bail!("inspect_editors worker selftest timed out");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout)
+            .context("failed to read browser-session-worker stdout")?;
+    }
+    let status = child
+        .wait()
+        .context("failed to wait for browser-session-worker")?;
+    if !status.success() {
+        bail!("browser-session-worker exited with {status}");
+    }
+    if stdout.contains("LEAK_SENTINEL_DO_NOT_RETURN") {
+        bail!("inspect_editors stdout leaked editor sentinel text");
+    }
+
+    stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|value| value.get("id").and_then(Value::as_u64) == Some(1))
+        .with_context(|| format!("missing inspect_editors response in stdout: {stdout}"))
 }
 
 fn selftest_browser_session() -> Result<()> {
