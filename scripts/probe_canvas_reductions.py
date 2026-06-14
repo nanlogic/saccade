@@ -44,12 +44,22 @@ FILL_VARIANTS = [
     "bare-solid-size-1152x648",
     "bare-transparent-size-1152x648",
 ]
+GRADIENT_VARIANTS = [
+    "bare-gradient2-size-1152x648",
+    "bare-size-1152x648",
+    "bare-gradient2-only-size-1152x648",
+    "bare-gradient3-only-size-1152x648",
+    "bare-solid-size-1152x648",
+    "static",
+    "full-solid",
+]
 VARIANT_PRESETS = {
     "base": DEFAULT_VARIANTS,
     "sizing": SIZING_VARIANTS,
     "threshold": THRESHOLD_VARIANTS,
     "threshold-bare": BARE_THRESHOLD_VARIANTS,
     "fill": FILL_VARIANTS,
+    "gradient": GRADIENT_VARIANTS,
     "all": (
         DEFAULT_VARIANTS
         + [variant for variant in SIZING_VARIANTS if variant not in DEFAULT_VARIANTS]
@@ -68,6 +78,16 @@ VARIANT_PRESETS = {
             for variant in FILL_VARIANTS
             if variant
             not in DEFAULT_VARIANTS + SIZING_VARIANTS + THRESHOLD_VARIANTS + BARE_THRESHOLD_VARIANTS
+        ]
+        + [
+            variant
+            for variant in GRADIENT_VARIANTS
+            if variant
+            not in DEFAULT_VARIANTS
+            + SIZING_VARIANTS
+            + THRESHOLD_VARIANTS
+            + BARE_THRESHOLD_VARIANTS
+            + FILL_VARIANTS
         ]
     ),
 }

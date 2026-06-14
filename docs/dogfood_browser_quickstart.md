@@ -97,6 +97,7 @@ python3 scripts/probe_canvas_reductions.py --preset sizing --wait-sec 2 --timeou
 python3 scripts/probe_canvas_reductions.py --preset threshold --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset threshold-bare --repeat 2 --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset fill --repeat 2 --wait-sec 2 --timeout-sec 75
+python3 scripts/probe_canvas_reductions.py --preset gradient --repeat 2 --wait-sec 2 --timeout-sec 75
 ```
 
 ## Current controls

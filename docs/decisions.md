@@ -404,3 +404,12 @@
 - At the same `1152x648` size, solid full-canvas fill and transparent foreground drawing are green across two repeats.
 - This narrows BP-011 from "large Canvas2D" to large Canvas2D gradient/background paint plus screenshot readback/presentation timing.
 - The GL warning remains inverted and unreliable: the red gradient runs had no warning, while the green solid/transparent runs did.
+
+## DECISION_BROWSER_012 - Two-stop gradient plus foreground is enough to trigger BP-011
+
+- Added `gradient2`, `gradient3`, gradient-only, and full-window solid/gradient variants plus `scripts/probe_canvas_reductions.py --preset gradient`.
+- Latest gradient run: `CANVAS_REDUCTIONS variants=14 blocked=5 green_or_review=9 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781459417372/report.json`.
+- `bare-gradient2-size-1152x648` is red across two repeats with Saccade `edge_ratio=0.0` and `saturated_ratio=0.0`, so the failure does not require a three-stop gradient.
+- Full-window `static` gradient plus foreground is red across two repeats, while full-window `full-solid` plus the same foreground is green across two repeats.
+- Three-stop `bare-size-1152x648` remains unstable, flipping green/red in this run.
+- Gradient-only variants cannot be classified by the current gameplay-layer edge gate because Chrome's smooth gradient has too little edge structure. The next BP-011 step should add a smooth-gradient metric rather than treating those as green.

@@ -321,6 +321,51 @@ Observation:
 - This narrows BP-011 from "large Canvas2D" to the large Canvas2D gradient/background paint path plus screenshot readback/presentation timing.
 - The GL warning is inverted in this matrix: the red gradient runs have no warning, while the green solid/transparent runs do have warnings.
 
+### Gradient Split Matrix
+
+Added:
+
+- `gradient2` and `gradient3` size variants.
+- `gradient-only` variants without foreground shapes.
+- Full-window `static` gradient versus `full-solid`.
+- Runner preset `--preset gradient`.
+
+Runner:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --preset gradient \
+  --repeat 2 \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Latest gradient result:
+
+```text
+CANVAS_REDUCTIONS variants=14 blocked=5 green_or_review=9 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781459417372/report.json
+```
+
+Result matrix:
+
+| Variant | Repeat | Route | Saccade backing | Saccade edge | Saccade saturation | GL warning |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| `bare-gradient2-size-1152x648` | 2/2 | `blocked_missing_gameplay_layer` | `1152x648` | `0.0` | `0.0` | false |
+| `bare-size-1152x648` | 1/2 | mixed | `1152x648` | `0.031669` / `0.0` | `0.007234` / `0.0` | mixed |
+| `bare-gradient2-only-size-1152x648` | 2/2 | `green_or_needs_review` | `1152x648` | `0.0` | `0.0` | true |
+| `bare-gradient3-only-size-1152x648` | 2/2 | `green_or_needs_review` | `1152x648` | `0.0` | `0.0` | true |
+| `bare-solid-size-1152x648` | 2/2 | `green_or_needs_review` | `1152x648` | `0.027869` | `0.007582` | true |
+| `static` | 2/2 | `blocked_missing_gameplay_layer` | `1440x759` | `0.0` | `0.0` | false |
+| `full-solid` | 2/2 | `green_or_needs_review` | `1440x759` | `0.032745` | `0.006468` | true |
+
+Observation:
+
+- Two-stop linear gradient plus foreground is enough to produce stable red at `1152x648`.
+- Full-window gradient plus foreground is stable red; full-window solid plus the same foreground is stable green.
+- The three-stop gradient at `1152x648` is still unstable, flipping green/red across two repeats.
+- Gradient-only variants are not proven green by the current gate. Chrome's gradient-only image has too little edge structure for the gameplay-layer classifier, so these variants need a different smooth-gradient metric before they can carry a verdict.
+- The GL warning remains inverted: stable red gradient+foreground runs have no warning, while stable green solid runs do have warnings.
+
 ## Minimal Fixture
 
 Added:
@@ -400,7 +445,7 @@ Current evidence says:
 
 - 2D canvas is healthy on the small minimal fixture, but full-window Canvas2D is red in the new reductions.
 - Small 1x Canvas2D reductions are captured correctly, which narrows BP-011 away from "all Canvas2D is broken."
-- Large gradient-backed Canvas2D and DPR-backed Canvas2D are the current minimal red triggers; solid fill and transparent foreground drawing can capture at `1152x648`.
+- Large linear-gradient-backed Canvas2D with foreground drawing and DPR-backed Canvas2D are the current minimal red triggers; solid fill and transparent foreground drawing can capture at `1152x648`.
 - 1x opaque Canvas2D goes red between about `962x542` and `1154x650` backing pixels in the current screenshot path.
 - Bare repeatability checks show mid-size results can flip, so BP-011 must treat screenshot readback/presentation timing as part of the bug.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
@@ -417,7 +462,7 @@ Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
 2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
 3. Use `--repeat` for BP-011 reduction gates and classify only stable red/green results.
-4. Split the gradient trigger further: linear gradient size, number of color stops, gradient-only without foreground, and full-window solid versus gradient.
+4. Add a smooth-gradient metric so gradient-only variants can be classified without foreground edges.
 5. Inspect screenshot readback flushing/settle timing and compare Saccade screenshot readback versus live window presentation if measurable.
 6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
 7. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.

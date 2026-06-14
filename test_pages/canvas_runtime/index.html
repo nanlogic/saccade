@@ -149,9 +149,10 @@
           attributeHeight: 420,
           bare: false,
           backing: "css",
-          backgroundMode: "gradient",
+          backgroundMode: "gradient3",
           cssWidth: 720,
           cssHeight: 420,
+          drawForeground: true,
           layout: "full",
           loop: false,
           setTransform: true,
@@ -159,6 +160,10 @@
         };
         const variants = {
           "static": {},
+          "full-solid": { backgroundMode: "solid" },
+          "full-transparent": { backgroundMode: "none" },
+          "full-gradient-only": { drawForeground: false },
+          "full-solid-only": { backgroundMode: "solid", drawForeground: false },
           "dpr": { backing: "dpr" },
           "animated": { loop: true },
           "hud": { backing: "dpr" },
@@ -169,19 +174,23 @@
           "dom-background": { backgroundMode: "none" },
           "dpr-no-transform": { backing: "dpr", setTransform: false },
         };
-        const sizeMatch = name.match(/^(dpr-)?(bare-)?(?:(solid|transparent|gradient)-)?size-(\d+)x(\d+)$/);
+        const sizeMatch = name.match(/^(dpr-)?(bare-)?(?:(solid|transparent|gradient2|gradient3|gradient)(?:-(only))?-)?size-(\d+)x(\d+)$/);
         if (sizeMatch) {
+          const mode = sizeMatch[3] || "gradient3";
           return {
             ...base,
             backing: sizeMatch[1] ? "dpr" : "css",
             bare: Boolean(sizeMatch[2]),
-            backgroundMode: sizeMatch[3] === "solid"
+            backgroundMode: mode === "solid"
               ? "solid"
-              : sizeMatch[3] === "transparent"
+              : mode === "transparent"
                 ? "none"
-                : "gradient",
-            cssWidth: Number(sizeMatch[4]),
-            cssHeight: Number(sizeMatch[5]),
+                : mode === "gradient2"
+                  ? "gradient2"
+                  : "gradient3",
+            cssWidth: Number(sizeMatch[5]),
+            cssHeight: Number(sizeMatch[6]),
+            drawForeground: sizeMatch[4] !== "only",
             layout: "small",
           };
         }
@@ -305,10 +314,12 @@
         const moving = config.loop;
         const t = moving ? frame * 1.6 : 0;
         ctx.clearRect(0, 0, width, height);
-        if (config.backgroundMode === "gradient") {
+        if (config.backgroundMode === "gradient2" || config.backgroundMode === "gradient3") {
           const gradient = ctx.createLinearGradient(0, 0, width, height);
           gradient.addColorStop(0, "#ecfdf5");
-          gradient.addColorStop(0.52, "#fff7ed");
+          if (config.backgroundMode === "gradient3") {
+            gradient.addColorStop(0.52, "#fff7ed");
+          }
           gradient.addColorStop(1, "#eff6ff");
           ctx.fillStyle = gradient;
           ctx.fillRect(0, 0, width, height);
@@ -316,22 +327,24 @@
           ctx.fillStyle = "#ecfdf5";
           ctx.fillRect(0, 0, width, height);
         }
-        drawGrid(width, height, t);
-        drawCup(width * 0.5 + Math.sin(frame / 18) * 42, height * 0.53);
-        const positions = [
-          [0.16, 0.15, 16],
-          [0.84, 0.32, 18],
-          [0.18, 0.82, 14],
-          [0.54, 0.92, 17],
-        ];
-        for (const [px, py, r] of positions) {
-          drawBerry(width * px + Math.sin(frame / 12 + px * 8) * 16, height * py, r);
-        }
-        ctx.fillStyle = "#fb7185";
-        for (let i = 0; i < 12; i += 1) {
-          ctx.beginPath();
-          ctx.arc(width * (0.48 + i * 0.018), height * (0.55 + Math.sin(i + frame / 8) * 0.055), 5, 0, Math.PI * 2);
-          ctx.fill();
+        if (config.drawForeground) {
+          drawGrid(width, height, t);
+          drawCup(width * 0.5 + Math.sin(frame / 18) * 42, height * 0.53);
+          const positions = [
+            [0.16, 0.15, 16],
+            [0.84, 0.32, 18],
+            [0.18, 0.82, 14],
+            [0.54, 0.92, 17],
+          ];
+          for (const [px, py, r] of positions) {
+            drawBerry(width * px + Math.sin(frame / 12 + px * 8) * 16, height * py, r);
+          }
+          ctx.fillStyle = "#fb7185";
+          for (let i = 0; i < 12; i += 1) {
+            ctx.beginPath();
+            ctx.arc(width * (0.48 + i * 0.018), height * (0.55 + Math.sin(i + frame / 8) * 0.055), 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
         frame += 1;
         frameLabel.textContent = String(frame);
