@@ -226,6 +226,57 @@ Observation:
 - The full-window live-game failure is consistent with the 1x size threshold: Saccade reports `1440x759` for the static reduction and captures no gameplay ROI pixels.
 - The current matrix measures screenshot/pixel evidence, not whether the live human window visually presents the layer.
 
+### Bare Threshold / Repeatability Matrix
+
+Added:
+
+- Borderless/no-shadow variants such as `bare-size-1024x576`.
+- Runner preset `--preset threshold-bare`.
+- Runner option `--repeat N` to catch presentation/readback flakes without hand-running the same variant.
+
+Runner:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --preset threshold-bare \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Latest bare result:
+
+```text
+CANVAS_REDUCTIONS variants=6 blocked=2 green_or_review=4 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781455791930/report.json
+```
+
+Bare matrix:
+
+| Variant | Route | Saccade backing | Saccade edge | Saccade saturation | GL warning |
+| --- | --- | ---: | ---: | ---: | --- |
+| `bare-size-960x540` | `green_or_needs_review` | `960x540` | `0.025286` | `0.007344` | true |
+| `bare-size-1024x576` | `blocked_missing_gameplay_layer` | `1024x576` | `0.0` | `0.0` | false |
+| `bare-size-1088x612` | `green_or_needs_review` | `1088x612` | `0.029584` | `0.007261` | true |
+| `bare-size-1152x648` | `blocked_missing_gameplay_layer` | `1152x648` | `0.0` | `0.0` | false |
+| `dpr-bare-size-360x210` | `green_or_needs_review` | `720x420` | `0.007457` | `0.007156` | true |
+| `dpr-bare-size-480x270` | `green_or_needs_review` | `960x540` | `0.011096` | `0.007284` | true |
+
+Repeatability check:
+
+```text
+CANVAS_REDUCTIONS variants=3 blocked=2 green_or_review=1 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781455904824/report.json
+CANVAS_REDUCTIONS variants=2 blocked=0 green_or_review=2 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781456029665/report.json
+```
+
+Observation:
+
+- Removing border/shadow makes canvas rect and backing size exact.
+- `1152x648` is red across both bare-threshold passes.
+- `960x540` is green in the bare-threshold pass.
+- Midpoints are not stable: `1024x576` flipped from red to green, and `1088x612` flipped from green to red.
+- `--repeat 2` on `bare-size-1024x576` produced two green runs in the latest smoke.
+- The failure should now be treated as size/backing plus presentation/readback timing, not a clean monotonic size threshold yet.
+- The GL warning remains an unreliable classifier: it appeared in several green runs and was absent in several red runs.
+
 ## Minimal Fixture
 
 Added:
@@ -307,6 +358,7 @@ Current evidence says:
 - Small 1x Canvas2D reductions are captured correctly, which narrows BP-011 away from "all Canvas2D is broken."
 - Full-window opaque/background-painted Canvas2D and DPR-backed Canvas2D are the current minimal red triggers.
 - 1x opaque Canvas2D goes red between about `962x542` and `1154x650` backing pixels in the current screenshot path.
+- Bare repeatability checks show mid-size results can flip, so BP-011 must treat screenshot readback/presentation timing as part of the bug.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
 - The live-game pixel probe now reproduces the missing gameplay layer after CSS viewport normalization.
 - The Canvas2D reductions reproduce the same missing gameplay-layer symptom without requiring WebGL context creation or GL texture warnings.
@@ -320,8 +372,8 @@ Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 
 1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
 2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
-3. Refine the threshold around `960x540` to `1152x648`, then repeat without border/shadow so the threshold is pure canvas backing size.
+3. Use `--repeat` for BP-011 reduction gates and classify only stable red/green results.
 4. Split the background trigger into solid fill, gradient fill, transparent canvas plus shapes, and full-canvas clear/fill behavior.
-5. Compare Saccade screenshot readback versus live window presentation if measurable.
+5. Inspect screenshot readback flushing/settle timing and compare Saccade screenshot readback versus live window presentation if measurable.
 6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
 7. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.

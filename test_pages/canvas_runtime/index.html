@@ -51,6 +51,11 @@
         box-shadow: 0 20px 60px rgba(15, 23, 42, 0.16);
       }
 
+      .shell.small.bare canvas {
+        border: 0;
+        box-shadow: none;
+      }
+
       .shell.small canvas.attribute-sized {
         width: auto;
         height: auto;
@@ -124,6 +129,9 @@
         hud.classList.add("visible");
       }
       shell.classList.add(config.layout);
+      if (config.bare) {
+        shell.classList.add("bare");
+      }
       if (config.sizing === "attribute") {
         canvas.classList.add("attribute-sized");
         canvas.setAttribute("width", String(config.attributeWidth));
@@ -139,6 +147,7 @@
           alpha: true,
           attributeWidth: 720,
           attributeHeight: 420,
+          bare: false,
           backing: "css",
           cssWidth: 720,
           cssHeight: 420,
@@ -160,13 +169,14 @@
           "dom-background": { drawBackground: false },
           "dpr-no-transform": { backing: "dpr", setTransform: false },
         };
-        const sizeMatch = name.match(/^(dpr-)?size-(\d+)x(\d+)$/);
+        const sizeMatch = name.match(/^(dpr-)?(bare-)?size-(\d+)x(\d+)$/);
         if (sizeMatch) {
           return {
             ...base,
             backing: sizeMatch[1] ? "dpr" : "css",
-            cssWidth: Number(sizeMatch[2]),
-            cssHeight: Number(sizeMatch[3]),
+            bare: Boolean(sizeMatch[2]),
+            cssWidth: Number(sizeMatch[3]),
+            cssHeight: Number(sizeMatch[4]),
             layout: "small",
           };
         }

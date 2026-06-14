@@ -384,3 +384,13 @@
 - 1x opaque Canvas2D goes red at `size-1152x648` with Saccade backing `1154x650`, `edge_ratio=0.0`, and `saturated_ratio=0.0`.
 - DPR backing remains risky at small CSS size: `dpr-size-360x210` routes red with backing `724x424`, just below the edge threshold, and `small-dpr` is fully red with backing `1444x844`.
 - Next reductions should refine the 1x threshold between `960x540` and `1152x648`, remove border/shadow from the threshold fixture, and then split fill style from backing size.
+
+## DECISION_BROWSER_010 - Canvas2D mid-size reductions are readback-unstable
+
+- Added borderless/no-shadow variants such as `bare-size-1024x576`, runner preset `--preset threshold-bare`, and runner option `--repeat N`.
+- Bare threshold run: `CANVAS_REDUCTIONS variants=6 blocked=2 green_or_review=4 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781455791930/report.json`.
+- The bare variants give exact canvas rect/backing sizes, removing the border drift from the prior matrix.
+- `bare-size-960x540` was green; `bare-size-1152x648` was red in both bare-threshold passes.
+- Midpoints are unstable: `bare-size-1024x576` flipped from red to green, and `bare-size-1088x612` flipped from green to red.
+- `--repeat 2` on `bare-size-1024x576` produced two green runs in `runs/webgl_runtime/canvas_reductions_1781456029665/report.json`.
+- Therefore BP-011 should treat the current failure as size/backing plus screenshot readback or presentation timing, not a clean monotonic canvas-size threshold.
