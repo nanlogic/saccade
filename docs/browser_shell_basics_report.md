@@ -16,6 +16,7 @@ Date: 2026-06-14
   - `Cmd+R`: reload,
   - `Cmd+[`: back,
   - `Cmd+]`: forward.
+- Mouse Back/Forward buttons now navigate browser history when the hardware exposes them.
 - Address command mode keeps page layout untouched:
   - type a URL in the title bar prompt,
   - bare domains such as `ign.com` become `https://ign.com`,
@@ -48,7 +49,7 @@ Saccade [servo-modern] load=complete back=n fwd=n | Parity Form Controls | file:
 ## Still Open
 
 - Clickable editable URL bar. The temporary address command is keyboard-only through `Cmd+L`.
-- Clickable Back, Forward, Reload, and Stop controls.
+- Visible clickable Back, Forward, Reload, and Stop controls.
 - Visible chrome affordance for focus recovery and active shell mode.
 - Error state beyond load-state text.
 

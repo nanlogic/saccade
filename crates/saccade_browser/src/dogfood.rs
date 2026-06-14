@@ -265,6 +265,51 @@ impl DogfoodBrowserState {
         self.update_window_title();
     }
 
+    fn reload_current_page(&self) {
+        let Some(webview) = self.webview.borrow().as_ref().cloned() else {
+            return;
+        };
+        self.load_state.set(BrowserLoadState::Loading);
+        webview.reload();
+        self.update_window_title();
+    }
+
+    fn navigate_back(&self) {
+        let Some(webview) = self.webview.borrow().as_ref().cloned() else {
+            return;
+        };
+        if webview.can_go_back() {
+            self.load_state.set(BrowserLoadState::Loading);
+            webview.go_back(1);
+        }
+        self.update_window_title();
+    }
+
+    fn navigate_forward(&self) {
+        let Some(webview) = self.webview.borrow().as_ref().cloned() else {
+            return;
+        };
+        if webview.can_go_forward() {
+            self.load_state.set(BrowserLoadState::Loading);
+            webview.go_forward(1);
+        }
+        self.update_window_title();
+    }
+
+    fn handle_mouse_navigation_button(&self, button: WinitMouseButton) -> bool {
+        match button {
+            WinitMouseButton::Back => {
+                self.navigate_back();
+                true
+            }
+            WinitMouseButton::Forward => {
+                self.navigate_forward();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn handle_address_entry_key(&self, event: &KeyEvent) -> bool {
         if self.address_entry.borrow().is_none() {
             return false;
@@ -318,9 +363,9 @@ impl DogfoodBrowserState {
             return false;
         }
 
-        let Some(webview) = self.webview.borrow().as_ref().cloned() else {
+        if self.webview.borrow().is_none() {
             return false;
-        };
+        }
 
         match character_key(event).as_deref() {
             Some("l") | Some("L") => {
@@ -328,25 +373,15 @@ impl DogfoodBrowserState {
                 true
             }
             Some("r") | Some("R") => {
-                self.load_state.set(BrowserLoadState::Loading);
-                webview.reload();
-                self.update_window_title();
+                self.reload_current_page();
                 true
             }
             Some("[") => {
-                if webview.can_go_back() {
-                    self.load_state.set(BrowserLoadState::Loading);
-                    webview.go_back(1);
-                }
-                self.update_window_title();
+                self.navigate_back();
                 true
             }
             Some("]") => {
-                if webview.can_go_forward() {
-                    self.load_state.set(BrowserLoadState::Loading);
-                    webview.go_forward(1);
-                }
-                self.update_window_title();
+                self.navigate_forward();
                 true
             }
             _ => false,
@@ -674,6 +709,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                     ..
                 } => {
                     if button_state == ElementState::Pressed {
+                        if state.handle_mouse_navigation_button(button) {
+                            return;
+                        }
                         state.recover_page_focus_from_pointer();
                     }
                     if let Some(webview) = state.webview.borrow().as_ref() {

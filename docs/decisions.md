@@ -453,3 +453,9 @@
 - Added a dogfood browser focus-recovery step for active shell modes.
 - A page mouse press now cancels title-bar address entry and dismisses active native `<select>` handoff before forwarding the original click to Servo.
 - This keeps `Cmd+L` and select handoff from trapping ordinary page interaction while the full clickable browser toolbar is still pending.
+
+## DECISION_BROWSER_018 - Mouse history buttons route to browser navigation
+
+- Added dogfood browser handling for hardware mouse Back/Forward buttons.
+- Back/Forward side-button presses now call the same browser history helpers as `Cmd+[` and `Cmd+]` instead of being forwarded as ordinary page mouse events.
+- Visible clickable toolbar buttons are still pending, but users with hardware side buttons can now navigate history without keyboard shortcuts.

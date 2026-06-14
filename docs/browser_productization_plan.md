@@ -85,8 +85,9 @@ Current state:
 
 - First stage shipped in `docs/browser_shell_basics_report.md`: the native window title now exposes current URL, page title, load state, Back/Forward availability, and Reload shortcut without squeezing the page.
 - Existing shortcuts: `Cmd+L` opens a keyboard address command, `Cmd+R` reloads, `Cmd+[` goes back, and `Cmd+]` goes forward.
+- Mouse Back/Forward buttons now navigate browser history when available.
 - Page mouse press now recovers from active address-entry/select shell modes and still forwards the click to Servo.
-- Not done: clickable editable URL bar, clickable Back/Forward/Reload/Stop controls, and visible focus-recovery chrome.
+- Not done: clickable editable URL bar, visible clickable Back/Forward/Reload/Stop controls, and visible focus-recovery chrome.
 
 ### P2 - CSS Layout Compatibility
 
