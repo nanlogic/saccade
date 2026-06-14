@@ -1,0 +1,253 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Saccade Canvas Runtime Reductions</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #eef8f3;
+        color: #17353b;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      .shell {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        min-height: 360px;
+        background:
+          radial-gradient(circle at 32% 24%, rgba(252, 211, 77, 0.24), transparent 32%),
+          radial-gradient(circle at 76% 22%, rgba(244, 114, 182, 0.22), transparent 30%),
+          linear-gradient(135deg, #ecfdf5, #eff6ff);
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .hud {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: none;
+        gap: 10px;
+        align-items: center;
+        pointer-events: none;
+      }
+
+      .hud.visible {
+        display: flex;
+      }
+
+      .tile {
+        min-width: 92px;
+        border: 1px solid rgba(23, 53, 59, 0.16);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 12px 28px rgba(34, 60, 72, 0.12);
+        padding: 8px 12px;
+      }
+
+      .tile span {
+        display: block;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0;
+        color: #64748b;
+      }
+
+      .tile strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 24px;
+        line-height: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <canvas id="game"></canvas>
+      <section id="hud" class="hud" aria-label="Canvas reduction status">
+        <div class="tile"><span>VARIANT</span><strong id="variantLabel">static</strong></div>
+        <div class="tile"><span>FRAME</span><strong id="frameLabel">0</strong></div>
+        <div class="tile"><span>DPR</span><strong id="dprLabel">1</strong></div>
+      </section>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const variant = params.get("variant") || "static";
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d", { alpha: true });
+      const hud = document.getElementById("hud");
+      const variantLabel = document.getElementById("variantLabel");
+      const frameLabel = document.getElementById("frameLabel");
+      const dprLabel = document.getElementById("dprLabel");
+
+      let frame = 0;
+      let lastBacking = "";
+
+      if (variant === "hud") {
+        hud.classList.add("visible");
+      }
+      variantLabel.textContent = variant;
+
+      function cssSize() {
+        return {
+          width: Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1)),
+          height: Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1)),
+        };
+      }
+
+      function backingScale() {
+        return variant === "dpr" || variant === "hud" ? Math.max(1, window.devicePixelRatio || 1) : 1;
+      }
+
+      function resizeCanvas() {
+        const size = cssSize();
+        const scale = backingScale();
+        const key = `${size.width}x${size.height}@${scale}`;
+        if (key === lastBacking) return { ...size, scale };
+        lastBacking = key;
+        canvas.width = Math.max(1, Math.floor(size.width * scale));
+        canvas.height = Math.max(1, Math.floor(size.height * scale));
+        canvas.style.width = `${size.width}px`;
+        canvas.style.height = `${size.height}px`;
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        return { ...size, scale };
+      }
+
+      function drawGrid(width, height, t) {
+        ctx.save();
+        ctx.translate(width / 2, height / 2);
+        ctx.rotate(-0.18);
+        ctx.translate(-width / 2, -height / 2);
+        ctx.strokeStyle = "rgba(45, 212, 191, 0.22)";
+        ctx.lineWidth = 1;
+        for (let x = -width; x <= width * 2; x += 72) {
+          ctx.beginPath();
+          ctx.moveTo(x + (t % 72), -height);
+          ctx.lineTo(x + (t % 72), height * 2);
+          ctx.stroke();
+        }
+        for (let y = -height; y <= height * 2; y += 72) {
+          ctx.beginPath();
+          ctx.moveTo(-width, y + (t % 72));
+          ctx.lineTo(width * 2, y + (t % 72));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function drawBerry(x, y, r) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = "#f43f5e";
+        ctx.strokeStyle = "#be123c";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.78, r, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#22c55e";
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.28, -r * 0.82);
+        ctx.lineTo(0, -r * 1.25);
+        ctx.lineTo(r * 0.24, -r * 0.82);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(-r * 0.22, -r * 0.12, r * 0.1, 0, Math.PI * 2);
+        ctx.arc(r * 0.22, -r * 0.12, r * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawCup(x, y) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.strokeStyle = "#a5f3fc";
+        ctx.fillStyle = "rgba(186, 230, 253, 0.42)";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(-34, -44);
+        ctx.lineTo(34, -44);
+        ctx.lineTo(22, 44);
+        ctx.lineTo(-22, 44);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.strokeStyle = "#fb7185";
+        ctx.beginPath();
+        ctx.moveTo(-18, -88);
+        ctx.lineTo(-8, -46);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawScene() {
+        const { width, height, scale } = resizeCanvas();
+        const moving = variant === "animated";
+        const t = moving ? frame * 1.6 : 0;
+        ctx.clearRect(0, 0, width, height);
+        const gradient = ctx.createLinearGradient(0, 0, width, height);
+        gradient.addColorStop(0, "#ecfdf5");
+        gradient.addColorStop(0.52, "#fff7ed");
+        gradient.addColorStop(1, "#eff6ff");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+        drawGrid(width, height, t);
+        drawCup(width * 0.5 + Math.sin(frame / 18) * 42, height * 0.53);
+        const positions = [
+          [0.16, 0.15, 16],
+          [0.84, 0.32, 18],
+          [0.18, 0.82, 14],
+          [0.54, 0.92, 17],
+        ];
+        for (const [px, py, r] of positions) {
+          drawBerry(width * px + Math.sin(frame / 12 + px * 8) * 16, height * py, r);
+        }
+        ctx.fillStyle = "#fb7185";
+        for (let i = 0; i < 12; i += 1) {
+          ctx.beginPath();
+          ctx.arc(width * (0.48 + i * 0.018), height * (0.55 + Math.sin(i + frame / 8) * 0.055), 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        frame += 1;
+        frameLabel.textContent = String(frame);
+        dprLabel.textContent = String(scale);
+        window.__saccadeCanvasRuntime = {
+          fixture: "saccade-canvas-runtime-reduction-v0",
+          variant,
+          frame,
+          cssWidth: width,
+          cssHeight: height,
+          backingWidth: canvas.width,
+          backingHeight: canvas.height,
+          backingScale: scale,
+          canvas2d: "ok",
+        };
+        if (moving) {
+          requestAnimationFrame(drawScene);
+        }
+      }
+
+      window.addEventListener("resize", () => {
+        lastBacking = "";
+        drawScene();
+      });
+      drawScene();
+    </script>
+  </body>
+</html>

@@ -355,3 +355,12 @@
 - Both engines report one visible `canvas#game`; the current game canvas reports `context_type=none_or_2d`, so the next reductions should target Canvas2D/compositor/HiDPI texture behavior as well as WebGL.
 - The probe artifacts live at `runs/webgl_runtime/game_probe_1781449261494/`.
 - BP-011 is now a repeatable live-game gate: keep using Chrome/reference for canvas/WebGL-heavy dogfood until reductions identify and fix the complex game/composition trigger.
+
+## DECISION_BROWSER_007 - Full-window Canvas2D is the minimal red gate
+
+- Added `test_pages/canvas_runtime/index.html` and `scripts/probe_canvas_reductions.py` to run local Canvas2D reductions through the same Chrome-vs-Saccade pixel gate.
+- Latest reduction run: `CANVAS_REDUCTIONS variants=4 blocked=4 green_or_review=0 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781450500515/report.json`.
+- Static full-window Canvas2D is enough to reproduce the missing-layer failure: Chrome `edge_ratio=0.052731`, Saccade `edge_ratio=0.0`, Chrome `saturated_ratio=0.005621`, Saccade `saturated_ratio=0.0`.
+- DPR backing scale, animation timing, and DOM HUD overlay are not required triggers; all variants are red.
+- The reductions did not emit GL texture warnings, so the warning is not required for the Canvas2D captured-layer failure.
+- BP-011 should now debug the full-window Canvas2D paint/compositor/screenshot-readback path before spending time on game-specific logic or WebGL shader reductions.

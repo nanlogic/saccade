@@ -92,6 +92,52 @@ Observation:
 - The latest Saccade run again captured `GLD_TEXTURE` / texture unloadable output.
 - This gives BP-011 a repeatable red gate for the real game path.
 
+## Canvas2D Reductions
+
+Added:
+
+```text
+test_pages/canvas_runtime/index.html
+```
+
+The fixture draws a full-window Canvas2D scene with variants for:
+
+- `static`: synchronous static draw with CSS-sized backing scale `1`.
+- `dpr`: synchronous static draw with DPR-scaled canvas backing.
+- `animated`: `requestAnimationFrame` redraw loop.
+- `hud`: DPR-scaled canvas plus DOM HUD overlay.
+
+Runner:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --variants static dpr animated hud \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Latest result:
+
+```text
+CANVAS_REDUCTIONS variants=4 blocked=4 green_or_review=0 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781450500515/report.json
+```
+
+Artifacts:
+
+- Aggregate report: `runs/webgl_runtime/canvas_reductions_1781450500515/report.json`
+- Static variant report: `runs/webgl_runtime/game_probe_1781450500546/report.json`
+- Static Chrome metric screenshot: `runs/webgl_runtime/game_probe_1781450500546/chrome_page_metric.png`
+- Static Saccade metric screenshot: `runs/webgl_runtime/game_probe_1781450500546/saccade_page_metric.png`
+
+Observation:
+
+- All four Canvas2D variants route `blocked_missing_gameplay_layer`.
+- The static full-window Canvas2D variant is enough to reproduce the missing-layer failure.
+- Chrome static Canvas2D has `edge_ratio=0.052731` and `saturated_ratio=0.005621`; Saccade has `edge_ratio=0.0` and `saturated_ratio=0.0`.
+- Both engines report one visible `canvas#game`; Saccade still captures a blank gameplay ROI.
+- These reductions did not emit the GL texture warning (`gl_warning=false`), so the warning is correlated with some live-game paths but is not required for the Canvas2D missing-layer failure.
+- DPR backing scale, animation timing, and DOM HUD overlay are not required triggers.
+
 ## Minimal Fixture
 
 Added:
@@ -169,18 +215,20 @@ BP-011 is now a P1 dogfood blocker, not P2 polish.
 
 Current evidence says:
 
-- 2D canvas is healthy on the minimal fixture.
+- 2D canvas is healthy on the small minimal fixture, but full-window Canvas2D is red in the new reductions.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
 - The live-game pixel probe now reproduces the missing gameplay layer after CSS viewport normalization.
+- The Canvas2D reductions reproduce the same missing gameplay-layer symptom without requiring WebGL context creation or GL texture warnings.
 - The live-game page/canvas probe narrows the failure to `render_pipeline_after_dom_ready`: both engines have a visible `canvas#game`, but Saccade misses the rendered gameplay pixels.
 - The macOS GL path can still emit texture unloadable warnings under some Saccade/WebRender page paths.
 - The real local game loses important gameplay visual layers in Saccade while Chrome shows them.
 
 ## Next Step
 
-Debug the Saccade/Servo GL runtime path before broad game/canvas dogfood:
+Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 
 1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
-2. Add small reductions for the likely triggers: full-window Canvas2D, full-window Canvas2D with DPR backing scale, animation timing, CSS background plus canvas, and DOM HUD over canvas.
-3. Keep WebGL reductions too, but classify the current live game as canvas/compositor/GL texture path until a WebGL context is actually observed.
-4. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.
+2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
+3. Add the next reductions: non-full-window canvas versus full-window canvas, CSS-sized versus attribute-sized canvas, `ctx.setTransform` on/off, `alpha:false`, DOM background underneath, `requestAnimationFrame` versus synchronous draw, and Saccade screenshot readback versus live window presentation if measurable.
+4. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
+5. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.
