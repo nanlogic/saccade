@@ -8,6 +8,32 @@ Move BP-011 from a vague backlog warning to a repeatable dogfood blocker with co
 
 Saccade must be able to dogfood local games, visualizations, and canvas-heavy frontend work. If canvas/WebGL pages are slow or partially missing visual layers, Saccade cannot be the default browser for our own development.
 
+## 2026-06-14 Official Servo.app Check
+
+Wayne manually tested the downloaded official Servo.app on the same local game:
+
+```text
+http://127.0.0.1:4173/
+```
+
+Result: official Servo.app can run the game.
+
+This changes the interpretation of BP-011. The local game is not proven to be a
+hard Servo engine limitation. The likely gap is now in Saccade's embedder path:
+rendering context setup, surface/HiDPI sizing, WebView configuration, GL
+initialization, or screenshot/readback/audit capture.
+
+Wayne also checked `ign.com` in official Servo.app and saw the same bad behavior
+as Saccade. Treat IGN as an upstream Servo/site compatibility limitation for now,
+not a Saccade-specific productization blocker.
+
+Next investigation target: make Saccade's embedded Servo path match official
+Servo.app on the local game before spending time on broad real-site fixes.
+
+Strategy record:
+
+- `docs/servoshell_source_strategy.md`
+
 ## Live Game Probe
 
 Target:
