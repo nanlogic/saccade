@@ -422,3 +422,11 @@
 - `bare-gradient2-only-size-1152x648` is green across two repeats: Chrome smooth signal is `channel_range=39`, `luma_range=14.666667`; Saccade smooth signal is `channel_range=19`, `luma_range=8.333333`.
 - `bare-gradient2-size-1152x648` remains red across two repeats: Chrome has foreground edge/saturation; Saccade has `channel_range=0` and `luma_range=0`.
 - BP-011 is now narrowed to gradient plus foreground/presentation ordering, not smooth gradient alone.
+
+## DECISION_BROWSER_014 - Draw order does not explain gradient plus foreground loss
+
+- Added gradient ordering reductions to `test_pages/canvas_runtime/index.html` and the `gradient` preset.
+- Latest ordering run: `CANVAS_REDUCTIONS variants=8 blocked=6 green_or_review=2 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781463104679/report.json`.
+- `bare-gradient2-foreground-first-size-1152x648` is red across two repeats, despite drawing foreground first and then painting the gradient behind it with `destination-over`.
+- `bare-gradient2-delayed-foreground-size-1152x648` is also red across two repeats. One run preserved the Saccade smooth gradient signal (`channel_range=19`, `luma_range=8.333333`) while still missing foreground edge/saturation; the other was fully black (`channel_range=0`, `luma_range=0`).
+- The next BP-011 split should compare in-page canvas backing/readPixels or checksum against the audit screenshot to prove whether pixels exist inside the page but disappear in screenshot readback.

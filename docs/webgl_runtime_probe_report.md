@@ -399,6 +399,47 @@ Observation:
 - `bare-gradient2-size-1152x648` remains red across two repeats: Chrome has foreground edge/saturation, while Saccade has `channel_range=0` and `luma_range=0`.
 - This proves the gradient-only layer can be captured in Saccade. The stable red path is gradient plus foreground drawing, not smooth gradient alone.
 
+### Gradient Ordering Matrix
+
+Added to `test_pages/canvas_runtime/index.html` and the `gradient` preset:
+
+- `bare-gradient2-foreground-first-size-1152x648`: draws foreground first, then paints the gradient behind it with `destination-over`.
+- `bare-gradient2-delayed-foreground-size-1152x648`: paints the gradient first, then waits one animation frame before drawing foreground.
+
+Verification:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --variants bare-gradient2-size-1152x648 \
+    bare-gradient2-only-size-1152x648 \
+    bare-gradient2-foreground-first-size-1152x648 \
+    bare-gradient2-delayed-foreground-size-1152x648 \
+  --repeat 2 \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Result:
+
+```text
+CANVAS_REDUCTIONS variants=8 blocked=6 green_or_review=2 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781463104679/report.json
+```
+
+Result matrix:
+
+| Variant | Repeat | Route | Saccade edge | Saccade saturation | Saccade channel range | Saccade luma range | GL warning |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | --- |
+| `bare-gradient2-size-1152x648` | 2/2 | `blocked_missing_gameplay_layer` | `0.0` | `0.0` | `0` | `0.0` | false |
+| `bare-gradient2-only-size-1152x648` | 2/2 | `green_or_needs_review` | `0.0` | `0.0` | `19` | `8.333333` | true |
+| `bare-gradient2-foreground-first-size-1152x648` | 2/2 | `blocked_missing_gameplay_layer` | `0.0` | `0.0` | `0` | `0.0` | false |
+| `bare-gradient2-delayed-foreground-size-1152x648` | 2/2 | `blocked_missing_gameplay_layer` | `0.0` | `0.0` | `19` / `0` | `8.333333` / `0.0` | mixed |
+
+Observation:
+
+- Reversing draw order does not fix the captured-layer failure.
+- Delaying foreground by one animation frame does not make foreground edge/saturation appear in the Saccade screenshot.
+- One delayed-foreground run preserved the smooth gradient signal while still missing foreground, so the next useful split is page canvas backing/readPixels versus audit screenshot readback.
+
 ## Minimal Fixture
 
 Added:
@@ -479,6 +520,7 @@ Current evidence says:
 - 2D canvas is healthy on the small minimal fixture, but full-window Canvas2D is red in the new reductions.
 - Small 1x Canvas2D reductions are captured correctly, which narrows BP-011 away from "all Canvas2D is broken."
 - Large linear-gradient-backed Canvas2D with foreground drawing and DPR-backed Canvas2D are the current minimal red triggers; solid fill, transparent foreground drawing, and gradient-only drawing can capture at `1152x648`.
+- Foreground-first and delayed-foreground reductions are still red, so BP-011 is not explained by simple gradient-before-foreground ordering.
 - 1x opaque Canvas2D goes red between about `962x542` and `1154x650` backing pixels in the current screenshot path.
 - Bare repeatability checks show mid-size results can flip, so BP-011 must treat screenshot readback/presentation timing as part of the bug.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
@@ -496,6 +538,6 @@ Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
 3. Use `--repeat` for BP-011 reduction gates and classify only stable red/green results.
 4. Inspect screenshot readback flushing/settle timing and compare Saccade screenshot readback versus live window presentation if measurable.
-5. Reduce gradient-plus-foreground ordering: gradient-before-foreground versus foreground-before-gradient and delayed audit after extra frames.
+5. Compare in-page canvas backing/readPixels or checksum against the audit screenshot for delayed foreground variants; the page may hold the pixels even when screenshot readback drops them.
 6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
 7. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.

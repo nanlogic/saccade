@@ -48,6 +48,8 @@ GRADIENT_VARIANTS = [
     "bare-gradient2-size-1152x648",
     "bare-size-1152x648",
     "bare-gradient2-only-size-1152x648",
+    "bare-gradient2-foreground-first-size-1152x648",
+    "bare-gradient2-delayed-foreground-size-1152x648",
     "bare-gradient3-only-size-1152x648",
     "bare-solid-size-1152x648",
     "static",

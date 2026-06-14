@@ -153,6 +153,8 @@
           cssWidth: 720,
           cssHeight: 420,
           drawForeground: true,
+          drawOrder: "background-first",
+          foregroundDelayFrames: 0,
           layout: "full",
           loop: false,
           setTransform: true,
@@ -174,6 +176,21 @@
           "dom-background": { backgroundMode: "none" },
           "dpr-no-transform": { backing: "dpr", setTransform: false },
         };
+        const orderMatch = name.match(/^(dpr-)?(bare-)?(gradient2|gradient3|gradient)-(foreground-first|delayed-foreground)-size-(\d+)x(\d+)$/);
+        if (orderMatch) {
+          return {
+            ...base,
+            backing: orderMatch[1] ? "dpr" : "css",
+            bare: Boolean(orderMatch[2]),
+            backgroundMode: orderMatch[3] === "gradient2" ? "gradient2" : "gradient3",
+            cssWidth: Number(orderMatch[5]),
+            cssHeight: Number(orderMatch[6]),
+            drawForeground: true,
+            drawOrder: orderMatch[4] === "foreground-first" ? "foreground-first" : "background-first",
+            foregroundDelayFrames: orderMatch[4] === "delayed-foreground" ? 1 : 0,
+            layout: "small",
+          };
+        }
         const sizeMatch = name.match(/^(dpr-)?(bare-)?(?:(solid|transparent|gradient2|gradient3|gradient)(?:-(only))?-)?size-(\d+)x(\d+)$/);
         if (sizeMatch) {
           const mode = sizeMatch[3] || "gradient3";
@@ -309,11 +326,7 @@
         ctx.restore();
       }
 
-      function drawScene() {
-        const { width, height, scale } = resizeCanvas();
-        const moving = config.loop;
-        const t = moving ? frame * 1.6 : 0;
-        ctx.clearRect(0, 0, width, height);
+      function drawBackground(width, height) {
         if (config.backgroundMode === "gradient2" || config.backgroundMode === "gradient3") {
           const gradient = ctx.createLinearGradient(0, 0, width, height);
           gradient.addColorStop(0, "#ecfdf5");
@@ -327,23 +340,44 @@
           ctx.fillStyle = "#ecfdf5";
           ctx.fillRect(0, 0, width, height);
         }
-        if (config.drawForeground) {
-          drawGrid(width, height, t);
-          drawCup(width * 0.5 + Math.sin(frame / 18) * 42, height * 0.53);
-          const positions = [
-            [0.16, 0.15, 16],
-            [0.84, 0.32, 18],
-            [0.18, 0.82, 14],
-            [0.54, 0.92, 17],
-          ];
-          for (const [px, py, r] of positions) {
-            drawBerry(width * px + Math.sin(frame / 12 + px * 8) * 16, height * py, r);
-          }
-          ctx.fillStyle = "#fb7185";
-          for (let i = 0; i < 12; i += 1) {
-            ctx.beginPath();
-            ctx.arc(width * (0.48 + i * 0.018), height * (0.55 + Math.sin(i + frame / 8) * 0.055), 5, 0, Math.PI * 2);
-            ctx.fill();
+      }
+
+      function drawForeground(width, height, t) {
+        drawGrid(width, height, t);
+        drawCup(width * 0.5 + Math.sin(frame / 18) * 42, height * 0.53);
+        const positions = [
+          [0.16, 0.15, 16],
+          [0.84, 0.32, 18],
+          [0.18, 0.82, 14],
+          [0.54, 0.92, 17],
+        ];
+        for (const [px, py, r] of positions) {
+          drawBerry(width * px + Math.sin(frame / 12 + px * 8) * 16, height * py, r);
+        }
+        ctx.fillStyle = "#fb7185";
+        for (let i = 0; i < 12; i += 1) {
+          ctx.beginPath();
+          ctx.arc(width * (0.48 + i * 0.018), height * (0.55 + Math.sin(i + frame / 8) * 0.055), 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function drawScene() {
+        const { width, height, scale } = resizeCanvas();
+        const moving = config.loop;
+        const t = moving ? frame * 1.6 : 0;
+        const delayForeground = config.foregroundDelayFrames > 0 && frame < config.foregroundDelayFrames;
+        ctx.clearRect(0, 0, width, height);
+        if (config.drawOrder === "foreground-first" && config.drawForeground) {
+          drawForeground(width, height, t);
+          ctx.save();
+          ctx.globalCompositeOperation = "destination-over";
+          drawBackground(width, height);
+          ctx.restore();
+        } else {
+          drawBackground(width, height);
+          if (config.drawForeground && !delayForeground) {
+            drawForeground(width, height, t);
           }
         }
         frame += 1;
@@ -361,7 +395,7 @@
           canvas2d: "ok",
           config,
         };
-        if (moving) {
+        if (moving || delayForeground) {
           requestAnimationFrame(drawScene);
         }
       }
