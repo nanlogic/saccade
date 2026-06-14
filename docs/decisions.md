@@ -318,3 +318,10 @@
 - Runtime resize now calls `webview.set_hidpi_scale_factor(...)` and `webview.resize(...)` without pre-resizing the rendering context, so Servo owns render-surface and page-viewport synchronization.
 - Verification on `https://example.com/` with `browser-session-worker --width 1280 --height 800`: startup runtime geometry was `2560x1518`, HiDPI `2.0`, JS viewport `1280x759`; macOS resize expanded it to runtime `2720x1518` and JS viewport `1360x759`; shrinking to `1000x700` produced runtime `2000x1336` and JS viewport `1000x668`.
 - `cargo check -q -p saccade-shell`, `selftest-focused-type`, and `selftest-browser-session` passed after the fix.
+
+## DECISION_BROWSER_002 - Dogfood shell adds keyboard URL entry
+
+- `saccade-shell browse` now supports a keyboard address command with `Cmd+L`.
+- The command is displayed in the native title bar, so it does not inject DOM, resize the page, or squeeze third-party layouts.
+- Address entry swallows keyboard events while active. Enter opens the parsed URL, Esc cancels, bare domains default to `https://`, and local addresses such as `localhost:3000` default to `http://`.
+- This improves daily dogfood but does not close the final browser chrome gap. Clickable URL/back/forward/reload/stop controls remain BP-003 work.

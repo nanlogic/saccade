@@ -12,11 +12,18 @@ Date: 2026-06-14
   - current URL.
 - Active `<select>` popovers keep the current URL visible while showing the selected option and shortcut hint.
 - Existing keyboard browser controls remain:
+  - `Cmd+L`: focus the address command in the native title bar,
   - `Cmd+R`: reload,
   - `Cmd+[`: back,
   - `Cmd+]`: forward.
+- Address command mode keeps page layout untouched:
+  - type a URL in the title bar prompt,
+  - bare domains such as `ign.com` become `https://ign.com`,
+  - localhost-style inputs such as `localhost:3000` become `http://localhost:3000`,
+  - Enter opens the URL,
+  - Esc cancels.
 
-This is a first shell stage, not the final browser chrome. It gives dogfood users enough visible state to know where the agent is acting without squeezing or overlaying page content.
+This is still a first shell stage, not the final browser chrome. It gives dogfood users enough visible state and direct navigation to know where the agent is acting without squeezing or overlaying page content.
 
 ## Verification
 
@@ -36,7 +43,7 @@ Saccade [servo-modern] load=complete back=n fwd=n | Parity Form Controls | file:
 
 ## Still Open
 
-- Editable URL bar.
+- Clickable editable URL bar. The temporary address command is keyboard-only through `Cmd+L`.
 - Clickable Back, Forward, Reload, and Stop controls.
 - Visible page/chrome focus recovery.
 - Error state beyond load-state text.

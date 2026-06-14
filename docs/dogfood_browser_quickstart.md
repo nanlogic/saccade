@@ -10,7 +10,7 @@ Saccade now has a macOS-friendly dogfood browser shell:
 RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://example.com
 ```
 
-It opens one Servo-backed Saccade window at `1440x1000` by default. Dogfood uses the `servo-modern` rendering profile, which currently enables Servo's measured CSS Grid pref. You can click, scroll, type into ordinary fields, and use basic `<select>` controls. Close the window to exit.
+It opens one Servo-backed Saccade window at `1440x1000` by default. Dogfood uses the `servo-modern` rendering profile, which currently enables Servo's measured CSS Grid pref. You can click, scroll, type into ordinary fields, use basic `<select>` controls, and open another URL from the same window with `Cmd+L`. Close the window to exit.
 
 ## Easy mac launcher
 
@@ -73,6 +73,7 @@ RUST_LOG=error cargo run -q -p saccade-shell -- browse --url about:blank --smoke
 
 - Mouse move, click, and wheel scroll are forwarded into Servo.
 - Keyboard text entry is forwarded into focused inputs.
+- `Cmd+L` opens the address command in the native title bar. Type a URL, press Enter to open it, or press Esc to cancel.
 - `Cmd+R` reloads.
 - `Cmd+[` goes back.
 - `Cmd+]` goes forward.
@@ -81,7 +82,7 @@ RUST_LOG=error cargo run -q -p saccade-shell -- browse --url about:blank --smoke
 ## Known limits
 
 - This is a Saccade dogfood shell, not a packaged `.app` yet.
-- There is no address bar or tabs yet; launch with a URL.
+- There is no clickable address bar or tabs yet; use `Cmd+L` for keyboard URL entry.
 - File picker, native context menu, clipboard, downloads, and password-manager UX are not implemented.
 - Persistent `--profile-dir` is supported for Saccade-owned session reuse, but there is not yet a friendly profile picker or password-manager flow.
 - WebGL-heavy pages can hit current Saccade/Servo GL texture issues on this machine. If logs show `GLD_TEXTURE_INDEX_2D is unloadable`, WebGL is extremely slow, or the page cannot be judged in Saccade, stop that run, record it as a Saccade runtime blocker, and validate with Chrome/reference instead.

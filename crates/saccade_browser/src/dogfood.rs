@@ -124,12 +124,30 @@ struct ShellTitleParts<'a> {
     can_go_forward: bool,
     page_title: Option<&'a str>,
     current_url: &'a str,
+    address_entry: Option<AddressEntryTitle<'a>>,
     active_select_label: Option<&'a str>,
+}
+
+struct AddressEntryTitle<'a> {
+    input: &'a str,
+    invalid: bool,
 }
 
 fn format_shell_title(parts: ShellTitleParts<'_>) -> String {
     let back = if parts.can_go_back { "y" } else { "n" };
     let forward = if parts.can_go_forward { "y" } else { "n" };
+
+    if let Some(address_entry) = parts.address_entry {
+        let mode = if address_entry.invalid {
+            "location invalid>"
+        } else {
+            "location>"
+        };
+        return format!(
+            "Saccade [{}] {mode} {} | Enter open Esc cancel | {}",
+            parts.profile, address_entry.input, parts.current_url
+        );
+    }
 
     if let Some(label) = parts.active_select_label {
         return format!(
@@ -162,6 +180,8 @@ struct DogfoodBrowserState {
     modifiers: Cell<ModifiersState>,
     load_state: Cell<BrowserLoadState>,
     page_title: RefCell<Option<String>>,
+    address_entry: RefCell<Option<String>>,
+    address_error: Cell<bool>,
     active_select: RefCell<Option<ActiveSelect>>,
     started_at: Instant,
     auto_close_after: Option<Duration>,
@@ -187,6 +207,7 @@ impl DogfoodBrowserState {
         });
         let page_title = self.page_title.borrow().clone();
         let current_url = self.current_url.borrow().to_string();
+        let address_entry = self.address_entry.borrow().clone();
         let (can_go_back, can_go_forward) = self
             .webview
             .borrow()
@@ -201,8 +222,90 @@ impl DogfoodBrowserState {
             can_go_forward,
             page_title: page_title.as_deref(),
             current_url: current_url.as_str(),
+            address_entry: address_entry.as_deref().map(|input| AddressEntryTitle {
+                input,
+                invalid: self.address_error.get(),
+            }),
             active_select_label: active_select_label.as_deref(),
         }));
+    }
+
+    fn begin_address_entry(&self) {
+        self.active_select.borrow_mut().take();
+        *self.address_entry.borrow_mut() = Some(self.current_url.borrow().to_string());
+        self.address_error.set(false);
+        self.update_window_title();
+    }
+
+    fn cancel_address_entry(&self) {
+        self.address_entry.borrow_mut().take();
+        self.address_error.set(false);
+        self.update_window_title();
+    }
+
+    fn submit_address_entry(&self) {
+        let Some(input) = self.address_entry.borrow().clone() else {
+            return;
+        };
+        let Ok(url) = parse_location_input(&input) else {
+            self.address_error.set(true);
+            self.update_window_title();
+            return;
+        };
+
+        self.address_entry.borrow_mut().take();
+        self.address_error.set(false);
+        self.load_state.set(BrowserLoadState::Loading);
+        *self.page_title.borrow_mut() = None;
+        *self.current_url.borrow_mut() = url.clone();
+
+        if let Some(webview) = self.webview.borrow().as_ref().cloned() {
+            webview.load(url);
+        }
+        self.update_window_title();
+    }
+
+    fn handle_address_entry_key(&self, event: &KeyEvent) -> bool {
+        if self.address_entry.borrow().is_none() {
+            return false;
+        }
+        if event.state != ElementState::Pressed {
+            return true;
+        }
+
+        match &event.logical_key {
+            WinitKey::Named(WinitNamedKey::Enter) => {
+                self.submit_address_entry();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::Escape) => {
+                self.cancel_address_entry();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::Backspace) => {
+                if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                    entry.pop();
+                }
+                self.address_error.set(false);
+                self.update_window_title();
+                true
+            }
+            _ => {
+                let modifiers = self.modifiers.get();
+                if modifiers.super_key() || modifiers.control_key() || modifiers.alt_key() {
+                    return true;
+                }
+                let Some(text) = typed_text(event) else {
+                    return true;
+                };
+                if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                    entry.push_str(&text);
+                }
+                self.address_error.set(false);
+                self.update_window_title();
+                true
+            }
+        }
     }
 
     fn handle_browser_shortcut(&self, event: &KeyEvent) -> bool {
@@ -220,6 +323,10 @@ impl DogfoodBrowserState {
         };
 
         match character_key(event).as_deref() {
+            Some("l") | Some("L") => {
+                self.begin_address_entry();
+                true
+            }
             Some("r") | Some("R") => {
                 self.load_state.set(BrowserLoadState::Loading);
                 webview.reload();
@@ -482,6 +589,8 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             modifiers: Cell::new(ModifiersState::empty()),
             load_state: Cell::new(BrowserLoadState::Starting),
             page_title: RefCell::new(None),
+            address_entry: RefCell::new(None),
+            address_error: Cell::new(false),
             active_select: RefCell::new(None),
             started_at: Instant::now(),
             auto_close_after: config.auto_close_after,
@@ -569,7 +678,8 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                     state.modifiers.set(modifiers.state());
                 }
                 WindowEvent::KeyboardInput { event, .. } => {
-                    if state.handle_active_select_key(&event)
+                    if state.handle_address_entry_key(&event)
+                        || state.handle_active_select_key(&event)
                         || state.handle_browser_shortcut(&event)
                     {
                         return;
@@ -709,6 +819,56 @@ fn character_key(event: &KeyEvent) -> Option<String> {
     }
 }
 
+fn typed_text(event: &KeyEvent) -> Option<String> {
+    if let Some(text) = event.text.as_ref() {
+        if !text.is_empty() && !text.chars().any(char::is_control) {
+            return Some(text.to_string());
+        }
+    }
+
+    match &event.logical_key {
+        WinitKey::Character(text) if !text.is_empty() => Some(text.to_string()),
+        WinitKey::Named(WinitNamedKey::Space) => Some(" ".to_string()),
+        _ => None,
+    }
+}
+
+fn parse_location_input(input: &str) -> Result<Url, url::ParseError> {
+    let trimmed = input.trim();
+    if has_url_scheme(trimmed) {
+        return Url::parse(trimmed);
+    }
+
+    let prefix = if looks_like_local_address(trimmed) {
+        "http://"
+    } else {
+        "https://"
+    };
+    Url::parse(&format!("{prefix}{trimmed}"))
+}
+
+fn has_url_scheme(input: &str) -> bool {
+    if input.contains("://") {
+        return true;
+    }
+    let Some(index) = input.find(':') else {
+        return false;
+    };
+    matches!(
+        input[..index].to_ascii_lowercase().as_str(),
+        "about" | "data" | "file" | "http" | "https"
+    )
+}
+
+fn looks_like_local_address(input: &str) -> bool {
+    let lowercase = input.to_ascii_lowercase();
+    lowercase == "localhost"
+        || lowercase.starts_with("localhost:")
+        || lowercase.starts_with("127.")
+        || lowercase.starts_with("0.0.0.0")
+        || lowercase.starts_with("[::1]")
+}
+
 fn map_named_key(key: WinitNamedKey) -> Option<ServoNamedKey> {
     match key {
         WinitNamedKey::Enter => Some(ServoNamedKey::Enter),
@@ -741,6 +901,7 @@ mod tests {
             can_go_forward: false,
             page_title: Some("Example Domain"),
             current_url: "https://example.com/",
+            address_entry: None,
             active_select_label: None,
         });
 
@@ -761,6 +922,7 @@ mod tests {
             can_go_forward: true,
             page_title: Some("Ignored while select is active"),
             current_url: "https://example.com/form",
+            address_entry: None,
             active_select_label: Some("us-east"),
         });
 
@@ -769,6 +931,73 @@ mod tests {
         assert!(title.contains("fwd=y"));
         assert!(title.contains("reload=Cmd+R"));
         assert!(title.contains("https://example.com/form"));
+    }
+
+    #[test]
+    fn shell_title_marks_address_entry_mode() {
+        let title = format_shell_title(ShellTitleParts {
+            profile: "servo-modern",
+            load_state: BrowserLoadState::Complete,
+            can_go_back: true,
+            can_go_forward: true,
+            page_title: Some("Ignored while address entry is active"),
+            current_url: "https://example.com/old",
+            address_entry: Some(AddressEntryTitle {
+                input: "https://example.com/new",
+                invalid: false,
+            }),
+            active_select_label: Some("Ignored"),
+        });
+
+        assert!(title.contains("location> https://example.com/new"));
+        assert!(title.contains("Enter open Esc cancel"));
+        assert!(title.contains("https://example.com/old"));
+        assert!(!title.contains("select="));
+    }
+
+    #[test]
+    fn shell_title_marks_invalid_address_entry() {
+        let title = format_shell_title(ShellTitleParts {
+            profile: "servo-modern",
+            load_state: BrowserLoadState::Complete,
+            can_go_back: false,
+            can_go_forward: false,
+            page_title: None,
+            current_url: "https://example.com/",
+            address_entry: Some(AddressEntryTitle {
+                input: "https://",
+                invalid: true,
+            }),
+            active_select_label: None,
+        });
+
+        assert!(title.contains("location invalid> https://"));
+    }
+
+    #[test]
+    fn location_input_adds_default_scheme() {
+        let url = parse_location_input("ign.com").expect("bare host should parse");
+
+        assert_eq!(url.as_str(), "https://ign.com/");
+    }
+
+    #[test]
+    fn location_input_uses_http_for_localhost() {
+        let url = parse_location_input("localhost:3000/path").expect("local host should parse");
+
+        assert_eq!(url.as_str(), "http://localhost:3000/path");
+    }
+
+    #[test]
+    fn location_input_preserves_explicit_scheme() {
+        let url = parse_location_input("file:///tmp/example.html").expect("file URL should parse");
+
+        assert_eq!(url.as_str(), "file:///tmp/example.html");
+    }
+
+    #[test]
+    fn location_input_rejects_empty_value() {
+        assert!(parse_location_input("   ").is_err());
     }
 }
 
