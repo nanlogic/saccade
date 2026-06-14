@@ -94,6 +94,7 @@ Run the Canvas2D reductions:
 ```bash
 python3 scripts/probe_canvas_reductions.py --variants static dpr animated hud --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset sizing --wait-sec 2 --timeout-sec 75
+python3 scripts/probe_canvas_reductions.py --preset threshold --wait-sec 2 --timeout-sec 75
 ```
 
 ## Current controls

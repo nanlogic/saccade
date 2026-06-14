@@ -184,6 +184,48 @@ Observation:
 - `dom-background` is green despite one GL warning, so the warning is neither required nor sufficient for the captured-layer failure.
 - Attribute-sized small canvas behaves like CSS-sized small canvas at 1x, so CSS sizing alone is not the current red trigger.
 
+### Size Threshold Matrix
+
+Added:
+
+- Parametric variants such as `size-960x540`, `size-1152x648`, and `dpr-size-360x210`.
+- Runner preset `--preset threshold`.
+- Aggregate report fields for largest canvas CSS rect and backing size.
+
+Runner:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --preset threshold \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Latest result:
+
+```text
+CANVAS_REDUCTIONS variants=7 blocked=5 green_or_review=2 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781454026421/report.json
+```
+
+Result matrix:
+
+| Variant | Route | Saccade rect | Saccade backing | Saccade edge | Saccade saturation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `small-static` | `green_or_needs_review` | `724x424` | `722x422` | `0.021242` | `0.007302` |
+| `size-960x540` | `green_or_needs_review` | `964x544` | `962x542` | `0.028963` | `0.007318` |
+| `size-1152x648` | `blocked_missing_gameplay_layer` | `1156x652` | `1154x650` | `0.0` | `0.0` |
+| `size-1280x720` | `blocked_missing_gameplay_layer` | `1284x724` | `1282x722` | `0.0` | `0.0` |
+| `static` | `blocked_missing_gameplay_layer` | `1440x759` | `1440x759` | `0.0` | `0.0` |
+| `dpr-size-360x210` | `blocked_missing_gameplay_layer` | `364x214` | `724x424` | `0.00967` | `0.007117` |
+| `small-dpr` | `blocked_missing_gameplay_layer` | `724x424` | `1444x844` | `0.0` | `0.0` |
+
+Observation:
+
+- The 1x opaque Canvas2D failure threshold is between roughly `962x542` and `1154x650` backing pixels on this machine.
+- DPR backing is a separate risk: even `364x214 CSS` / `724x424 backing` is just below the edge threshold and routes red.
+- The full-window live-game failure is consistent with the 1x size threshold: Saccade reports `1440x759` for the static reduction and captures no gameplay ROI pixels.
+- The current matrix measures screenshot/pixel evidence, not whether the live human window visually presents the layer.
+
 ## Minimal Fixture
 
 Added:
@@ -264,6 +306,7 @@ Current evidence says:
 - 2D canvas is healthy on the small minimal fixture, but full-window Canvas2D is red in the new reductions.
 - Small 1x Canvas2D reductions are captured correctly, which narrows BP-011 away from "all Canvas2D is broken."
 - Full-window opaque/background-painted Canvas2D and DPR-backed Canvas2D are the current minimal red triggers.
+- 1x opaque Canvas2D goes red between about `962x542` and `1154x650` backing pixels in the current screenshot path.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
 - The live-game pixel probe now reproduces the missing gameplay layer after CSS viewport normalization.
 - The Canvas2D reductions reproduce the same missing gameplay-layer symptom without requiring WebGL context creation or GL texture warnings.
@@ -277,7 +320,7 @@ Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 
 1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
 2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
-3. Add a size threshold matrix for opaque/background-painted Canvas2D at 1x and DPR backing.
+3. Refine the threshold around `960x540` to `1152x648`, then repeat without border/shadow so the threshold is pure canvas backing size.
 4. Split the background trigger into solid fill, gradient fill, transparent canvas plus shapes, and full-canvas clear/fill behavior.
 5. Compare Saccade screenshot readback versus live window presentation if measurable.
 6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.

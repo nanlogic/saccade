@@ -19,11 +19,28 @@ SIZING_VARIANTS = [
     "dom-background",
     "dpr-no-transform",
 ]
+THRESHOLD_VARIANTS = [
+    "small-static",
+    "size-960x540",
+    "size-1152x648",
+    "size-1280x720",
+    "static",
+    "dpr-size-360x210",
+    "small-dpr",
+]
 VARIANT_PRESETS = {
     "base": DEFAULT_VARIANTS,
     "sizing": SIZING_VARIANTS,
-    "all": DEFAULT_VARIANTS
-    + [variant for variant in SIZING_VARIANTS if variant not in DEFAULT_VARIANTS],
+    "threshold": THRESHOLD_VARIANTS,
+    "all": (
+        DEFAULT_VARIANTS
+        + [variant for variant in SIZING_VARIANTS if variant not in DEFAULT_VARIANTS]
+        + [
+            variant
+            for variant in THRESHOLD_VARIANTS
+            if variant not in DEFAULT_VARIANTS + SIZING_VARIANTS
+        ]
+    ),
 }
 
 
@@ -79,6 +96,11 @@ def main():
                 "saccade_edge": report.get("metrics", {}).get("saccade", {}).get("edge_ratio"),
                 "chrome_sat": report.get("metrics", {}).get("chrome", {}).get("saturated_ratio"),
                 "saccade_sat": report.get("metrics", {}).get("saccade", {}).get("saturated_ratio"),
+            }
+            diagnosis = report.get("diagnosis", {})
+            summary["canvas"] = {
+                "chrome": largest_canvas_summary(diagnosis.get("chrome_page_probe_summary")),
+                "saccade": largest_canvas_summary(diagnosis.get("saccade_page_probe_summary")),
             }
         if output.returncode != 0:
             summary["status"] = "error"
@@ -141,6 +163,26 @@ def summarize(results):
         "blocked": blocked,
         "green_or_review": green_or_review,
         "errors": errors,
+    }
+
+
+def largest_canvas_summary(page_probe_summary):
+    if not isinstance(page_probe_summary, dict):
+        return None
+    largest = page_probe_summary.get("largest_canvas")
+    if not isinstance(largest, dict):
+        return None
+    rect = largest.get("rect") or {}
+    backing = largest.get("backing") or {}
+    return {
+        "rect": {
+            "width": rect.get("width"),
+            "height": rect.get("height"),
+        },
+        "backing": {
+            "width": backing.get("width"),
+            "height": backing.get("height"),
+        },
     }
 
 

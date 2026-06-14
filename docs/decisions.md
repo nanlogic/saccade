@@ -374,3 +374,13 @@
 - `small-dpr` is red even at `720x420`, so DPR backing is a separate trigger from full-window size.
 - `dom-background` is green despite a GL warning, so the warning remains neither required nor sufficient for the missing captured-layer failure.
 - Next BP-011 reductions should find the opaque-canvas size threshold and split full-canvas background fill from transparent canvas plus foreground drawing.
+
+## DECISION_BROWSER_009 - Canvas2D screenshot red threshold starts near 1154x650 backing pixels
+
+- Added parametric variants such as `size-960x540`, `size-1152x648`, and `dpr-size-360x210`, plus runner preset `scripts/probe_canvas_reductions.py --preset threshold`.
+- The aggregate runner now records largest canvas CSS rect and backing size for each variant.
+- Latest threshold run: `CANVAS_REDUCTIONS variants=7 blocked=5 green_or_review=2 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781454026421/report.json`.
+- 1x opaque Canvas2D remains green at `size-960x540` with Saccade backing `962x542`, `edge_ratio=0.028963`, and `saturated_ratio=0.007318`.
+- 1x opaque Canvas2D goes red at `size-1152x648` with Saccade backing `1154x650`, `edge_ratio=0.0`, and `saturated_ratio=0.0`.
+- DPR backing remains risky at small CSS size: `dpr-size-360x210` routes red with backing `724x424`, just below the edge threshold, and `small-dpr` is fully red with backing `1444x844`.
+- Next reductions should refine the 1x threshold between `960x540` and `1152x648`, remove border/shadow from the threshold fixture, and then split fill style from backing size.

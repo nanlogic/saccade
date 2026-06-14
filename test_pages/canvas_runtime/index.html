@@ -128,6 +128,9 @@
         canvas.classList.add("attribute-sized");
         canvas.setAttribute("width", String(config.attributeWidth));
         canvas.setAttribute("height", String(config.attributeHeight));
+      } else if (config.layout === "small") {
+        canvas.style.width = `${config.cssWidth}px`;
+        canvas.style.height = `${config.cssHeight}px`;
       }
       variantLabel.textContent = variant;
 
@@ -137,6 +140,8 @@
           attributeWidth: 720,
           attributeHeight: 420,
           backing: "css",
+          cssWidth: 720,
+          cssHeight: 420,
           drawBackground: true,
           layout: "full",
           loop: false,
@@ -155,6 +160,16 @@
           "dom-background": { drawBackground: false },
           "dpr-no-transform": { backing: "dpr", setTransform: false },
         };
+        const sizeMatch = name.match(/^(dpr-)?size-(\d+)x(\d+)$/);
+        if (sizeMatch) {
+          return {
+            ...base,
+            backing: sizeMatch[1] ? "dpr" : "css",
+            cssWidth: Number(sizeMatch[2]),
+            cssHeight: Number(sizeMatch[3]),
+            layout: "small",
+          };
+        }
         return { ...base, ...(variants[name] || {}) };
       }
 
