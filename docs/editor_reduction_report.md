@@ -56,3 +56,24 @@ Artifacts:
 - `runs/browser_session_worker/worker_1781437482073_88545/replay.jsonl`
 
 Interpretation: the independent worker did not inherit the earlier logged-in Gist session, so it never reached the authenticated new-Gist editor. Authenticated real-site BP-004 remains pending on shared profile/login handoff.
+
+## Shared-Profile Probe Update
+
+`saccade-shell inspect-editors` now exposes the same editor inspection path as a reusable CLI and supports `--profile-dir`.
+
+Latest shared-profile Gist probe:
+
+```text
+RUST_LOG=error cargo run -q -p saccade-shell -- inspect-editors --url https://gist.github.com/new --profile-dir runs/dogfood_profile/default --width 1440 --height 900
+```
+
+Result:
+
+```text
+INSPECT_EDITORS PASS url=https://gist.github.com/new editors=1 zero_rect=0 visible_writable=1 visible_authoring=0 sensitive=0 route=route_login_or_non_authoring_page replay=runs/browser_session_worker/worker_1781442831330_95838/replay.jsonl
+EDITOR index=0 kind=input tag=input id=q name=q label=Search Gists placeholder=Search... rect=74.0x32.0 hidden=false readonly=false active=false sensitivity=none value_len=0
+```
+
+Interpretation: the default shared Saccade profile is still not authenticated for Gist. The route is now correctly non-green because the only visible writable control is a search box, not an authoring editor.
+
+See `docs/gist_editor_probe_report.md`.

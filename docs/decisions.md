@@ -325,3 +325,10 @@
 - The command is displayed in the native title bar, so it does not inject DOM, resize the page, or squeeze third-party layouts.
 - Address entry swallows keyboard events while active. Enter opens the parsed URL, Esc cancels, bare domains default to `https://`, and local addresses such as `localhost:3000` default to `http://`.
 - This improves daily dogfood but does not close the final browser chrome gap. Clickable URL/back/forward/reload/stop controls remain BP-003 work.
+
+## DECISION_BROWSER_003 - Editor probes distinguish authoring from search/login controls
+
+- Added `saccade-shell inspect-editors` so real-site editor routability can be checked through the live `browser-session-worker` without typing, publishing, or printing editor values.
+- The command supports `--profile-dir`, making it the standard BP-004 retest path after human login inside Saccade.
+- Editor routing now counts visible authoring editors separately from generic writable controls. A lone search box routes as `route_login_or_non_authoring_page`, not `usable_visible_editors`.
+- Shared-profile Gist probe currently reaches only `Search Gists`, so authenticated Gist editor validation is blocked on Wayne logging in inside the Saccade profile.

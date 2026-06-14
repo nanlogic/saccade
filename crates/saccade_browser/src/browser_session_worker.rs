@@ -1919,7 +1919,16 @@ fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> 
         .iter()
         .filter(|editor| editor_is_visible_writable(editor))
         .count();
-    let route = editor_route(editors.len(), zero_rect_count, visible_writable_count);
+    let visible_authoring_count = editors
+        .iter()
+        .filter(|editor| editor_is_visible_authoring(editor))
+        .count();
+    let route = editor_route(
+        editors.len(),
+        zero_rect_count,
+        visible_writable_count,
+        visible_authoring_count,
+    );
     log_replay(
         state,
         json!({
@@ -1929,6 +1938,7 @@ fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> 
             "editor_count": editors.len(),
             "zero_rect_count": zero_rect_count,
             "visible_writable_count": visible_writable_count,
+            "visible_authoring_count": visible_authoring_count,
             "sensitive_count": sensitive_count,
             "route_decision": route.get("decision").cloned().unwrap_or(Value::Null),
             "values_logged": false,
@@ -1941,9 +1951,14 @@ fn inspect_editors_response(state: &Rc<WorkerState>, inspect_result: &Value) -> 
         "summary": "editor candidates inspected without returning text values",
         "rendering_profile": state.rendering_settings.profile.name(),
         "page_revision": state.page_revision.get(),
+        "source_url": inspect_result.get("url").cloned().unwrap_or(Value::Null),
+        "source_title": inspect_result.get("title").cloned().unwrap_or(Value::Null),
+        "active_tag": inspect_result.get("activeTag").cloned().unwrap_or(Value::Null),
+        "active_id": inspect_result.get("activeId").cloned().unwrap_or(Value::Null),
         "editor_count": editors.len(),
         "zero_rect_count": zero_rect_count,
         "visible_writable_count": visible_writable_count,
+        "visible_authoring_count": visible_authoring_count,
         "sensitive_count": sensitive_count,
         "route": route,
         "editors": editors,
@@ -1980,24 +1995,102 @@ fn editor_is_visible_writable(editor: &Value) -> bool {
     width > 0.0 && height > 0.0 && !hidden && !disabled && !read_only && sensitivity == "none"
 }
 
+fn editor_is_visible_authoring(editor: &Value) -> bool {
+    if !editor_is_visible_writable(editor) || editor_is_search_field(editor) {
+        return false;
+    }
+
+    let kind = editor.get("kind").and_then(Value::as_str).unwrap_or("");
+    if matches!(
+        kind,
+        "textarea" | "contenteditable" | "role_textbox" | "js_editor_shell"
+    ) {
+        return true;
+    }
+
+    let haystack = [
+        editor.get("id").and_then(Value::as_str).unwrap_or(""),
+        editor.get("name").and_then(Value::as_str).unwrap_or(""),
+        editor.get("label").and_then(Value::as_str).unwrap_or(""),
+        editor
+            .get("placeholder")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        editor
+            .get("ariaLabel")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    ]
+    .join(" ")
+    .to_ascii_lowercase();
+
+    [
+        "title",
+        "description",
+        "filename",
+        "gist",
+        "body",
+        "content",
+        "comment",
+        "message",
+        "post",
+        "reply",
+        "note",
+        "snippet",
+    ]
+    .iter()
+    .any(|token| haystack.contains(token))
+}
+
+fn editor_is_search_field(editor: &Value) -> bool {
+    let field_type = editor.get("type").and_then(Value::as_str).unwrap_or("");
+    if field_type == "search" {
+        return true;
+    }
+
+    let haystack = [
+        editor.get("id").and_then(Value::as_str).unwrap_or(""),
+        editor.get("name").and_then(Value::as_str).unwrap_or(""),
+        editor.get("label").and_then(Value::as_str).unwrap_or(""),
+        editor
+            .get("placeholder")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        editor
+            .get("ariaLabel")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    ]
+    .join(" ")
+    .to_ascii_lowercase();
+
+    haystack.contains("search")
+}
+
 fn editor_route(
     editor_count: usize,
     zero_rect_count: usize,
     visible_writable_count: usize,
+    visible_authoring_count: usize,
 ) -> Value {
     let (decision, summary) = if editor_count == 0 {
         ("no_editors", "No editor-like fields were found.")
-    } else if visible_writable_count == 0 && zero_rect_count > 0 {
+    } else if visible_authoring_count == 0 && visible_writable_count > 0 {
+        (
+            "route_login_or_non_authoring_page",
+            "Writable controls exist, but none look like a content-authoring editor; this is likely a login, search, or navigation page.",
+        )
+    } else if visible_authoring_count == 0 && zero_rect_count > 0 {
         (
             "route_user_focus_or_chrome_live",
             "Only zero-rect or hidden editor candidates are available; do not target them automatically.",
         )
-    } else if visible_writable_count > 0 && zero_rect_count > 0 {
+    } else if visible_authoring_count > 0 && zero_rect_count > 0 {
         (
             "usable_ignore_hidden_backing_fields",
             "Visible writable editor candidates exist; hidden zero-rect backing fields should be ignored.",
         )
-    } else if visible_writable_count > 0 {
+    } else if visible_authoring_count > 0 {
         (
             "usable_visible_editors",
             "Visible writable editor candidates exist.",
@@ -2015,6 +2108,7 @@ fn editor_route(
         "editor_count": editor_count,
         "zero_rect_count": zero_rect_count,
         "visible_writable_count": visible_writable_count,
+        "visible_authoring_count": visible_authoring_count,
     })
 }
 

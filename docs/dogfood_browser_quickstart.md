@@ -57,6 +57,14 @@ RUST_LOG=error cargo run -q -p saccade-shell -- browser-session-worker --url htt
 
 This shares Saccade-owned cookies/storage across Saccade processes. It does not import Chrome/Safari/Firefox cookies. For Google/GitHub login, log in inside Saccade with the persistent profile, then reuse that same profile path for later worker sessions.
 
+Probe editor routability without typing or publishing:
+
+```bash
+RUST_LOG=error cargo run -q -p saccade-shell -- inspect-editors --url https://gist.github.com/new --profile-dir runs/dogfood_profile/default
+```
+
+If this reports `route_login_or_non_authoring_page`, the profile has probably not reached the real authoring editor yet.
+
 Open the pinned-default baseline profile:
 
 ```bash

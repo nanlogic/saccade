@@ -46,6 +46,18 @@ enum Command {
     SelftestProfilePersistence,
     SelftestBrowserSession,
     SelftestFormmaxLive,
+    InspectEditors {
+        #[arg(long)]
+        url: String,
+        #[arg(long, default_value_t = 1600)]
+        width: u32,
+        #[arg(long, default_value_t = 1000)]
+        height: u32,
+        #[arg(long)]
+        rendering_profile: Option<String>,
+        #[arg(long)]
+        profile_dir: Option<PathBuf>,
+    },
     BrowserSessionWorker {
         #[arg(long)]
         url: String,
@@ -89,6 +101,13 @@ fn main() -> Result<()> {
         Command::SelftestProfilePersistence => selftest_profile_persistence(),
         Command::SelftestBrowserSession => selftest_browser_session(),
         Command::SelftestFormmaxLive => selftest_formmax_live(),
+        Command::InspectEditors {
+            url,
+            width,
+            height,
+            rendering_profile,
+            profile_dir,
+        } => inspect_editors(url, width, height, rendering_profile, profile_dir),
         Command::BrowserSessionWorker {
             url,
             width,
@@ -580,7 +599,7 @@ fn run_type_focused_worker(workspace: &Path, url: &str, text: &str) -> Result<Va
 fn selftest_editor_reduction() -> Result<()> {
     let workspace = workspace_root()?;
     let url = start_test_server(workspace.join("test_pages").join("editor_reduction"))?;
-    let response = run_inspect_editors_worker(&workspace, url.as_str())?;
+    let response = run_inspect_editors_worker(&workspace, url.as_str(), 1600, 1000, None, None)?;
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
         bail!("inspect_editors response was not ok: {response}");
     }
@@ -652,6 +671,116 @@ fn selftest_editor_reduction() -> Result<()> {
     Ok(())
 }
 
+fn inspect_editors(
+    url: String,
+    width: u32,
+    height: u32,
+    rendering_profile: Option<String>,
+    profile_dir: Option<PathBuf>,
+) -> Result<()> {
+    let workspace = workspace_root()?;
+    let parsed_url = parse_user_url(&url)?;
+    let response = run_inspect_editors_worker(
+        &workspace,
+        parsed_url.as_str(),
+        width,
+        height,
+        rendering_profile.as_deref(),
+        profile_dir.as_deref(),
+    )?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("inspect_editors response was not ok: {response}");
+    }
+
+    let result = response
+        .get("result")
+        .context("inspect_editors response missing result")?;
+    let editors = result
+        .get("editors")
+        .and_then(Value::as_array)
+        .context("inspect_editors response missing editors array")?;
+    let editor_count = result
+        .get("editor_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let zero_rect_count = result
+        .get("zero_rect_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let visible_writable_count = result
+        .get("visible_writable_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let visible_authoring_count = result
+        .get("visible_authoring_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let sensitive_count = result
+        .get("sensitive_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let route_decision = result
+        .pointer("/route/decision")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let replay_path = result
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .unwrap_or("(missing replay)");
+
+    println!(
+        "INSPECT_EDITORS PASS url={} editors={} zero_rect={} visible_writable={} visible_authoring={} sensitive={} route={} replay={}",
+        parsed_url.as_str(),
+        editor_count,
+        zero_rect_count,
+        visible_writable_count,
+        visible_authoring_count,
+        sensitive_count,
+        route_decision,
+        replay_path
+    );
+
+    for editor in editors.iter().take(20) {
+        let rect = editor.get("rect").unwrap_or(&Value::Null);
+        println!(
+            "EDITOR index={} kind={} tag={} id={} name={} label={} placeholder={} rect={:.1}x{:.1} hidden={} readonly={} active={} sensitivity={} value_len={}",
+            editor.get("index").and_then(Value::as_u64).unwrap_or(0),
+            editor.get("kind").and_then(Value::as_str).unwrap_or(""),
+            editor.get("tag").and_then(Value::as_str).unwrap_or(""),
+            editor.get("id").and_then(Value::as_str).unwrap_or(""),
+            editor.get("name").and_then(Value::as_str).unwrap_or(""),
+            editor.get("label").and_then(Value::as_str).unwrap_or(""),
+            editor
+                .get("placeholder")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            rect.get("width").and_then(Value::as_f64).unwrap_or(0.0),
+            rect.get("height").and_then(Value::as_f64).unwrap_or(0.0),
+            editor
+                .get("hidden")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            editor
+                .get("readOnly")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            editor
+                .get("active")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            editor
+                .get("sensitivity")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+            editor
+                .get("valueLength")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        );
+    }
+    Ok(())
+}
+
 fn editor_rect_positive(editor: &Value) -> bool {
     editor
         .pointer("/rect/width")
@@ -665,13 +794,32 @@ fn editor_rect_positive(editor: &Value) -> bool {
             > 0.0
 }
 
-fn run_inspect_editors_worker(workspace: &Path, url: &str) -> Result<Value> {
+fn run_inspect_editors_worker(
+    workspace: &Path,
+    url: &str,
+    width: u32,
+    height: u32,
+    rendering_profile: Option<&str>,
+    profile_dir: Option<&Path>,
+) -> Result<Value> {
     let current_exe = std::env::current_exe().context("failed to resolve current executable")?;
-    let mut child = ProcessCommand::new(current_exe)
-        .current_dir(&workspace)
+    let mut command = ProcessCommand::new(current_exe);
+    command
+        .current_dir(workspace)
         .arg("browser-session-worker")
         .arg("--url")
         .arg(url)
+        .arg("--width")
+        .arg(width.to_string())
+        .arg("--height")
+        .arg(height.to_string());
+    if let Some(rendering_profile) = rendering_profile {
+        command.arg("--rendering-profile").arg(rendering_profile);
+    }
+    if let Some(profile_dir) = profile_dir {
+        command.arg("--profile-dir").arg(profile_dir);
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -1029,15 +1177,37 @@ fn parse_user_url(input: &str) -> Result<Url> {
         bail!("--url cannot be empty");
     }
 
-    let with_scheme =
-        if trimmed.contains("://") || trimmed.starts_with("about:") || trimmed.starts_with("file:")
-        {
-            trimmed.to_string()
-        } else {
-            format!("https://{trimmed}")
-        };
+    let with_scheme = if has_explicit_url_scheme(trimmed) {
+        trimmed.to_string()
+    } else if looks_like_local_address(trimmed) {
+        format!("http://{trimmed}")
+    } else {
+        format!("https://{trimmed}")
+    };
 
     Url::parse(&with_scheme).with_context(|| format!("invalid URL: {input}"))
+}
+
+fn has_explicit_url_scheme(input: &str) -> bool {
+    if input.contains("://") {
+        return true;
+    }
+    let Some(index) = input.find(':') else {
+        return false;
+    };
+    matches!(
+        input[..index].to_ascii_lowercase().as_str(),
+        "about" | "data" | "file" | "http" | "https"
+    )
+}
+
+fn looks_like_local_address(input: &str) -> bool {
+    let lowercase = input.to_ascii_lowercase();
+    lowercase == "localhost"
+        || lowercase.starts_with("localhost:")
+        || lowercase.starts_with("127.")
+        || lowercase.starts_with("0.0.0.0")
+        || lowercase.starts_with("[::1]")
 }
 
 fn start_test_server(root: PathBuf) -> Result<Url> {
