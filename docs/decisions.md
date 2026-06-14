@@ -364,3 +364,13 @@
 - DPR backing scale, animation timing, and DOM HUD overlay are not required triggers; all variants are red.
 - The reductions did not emit GL texture warnings, so the warning is not required for the Canvas2D captured-layer failure.
 - BP-011 should now debug the full-window Canvas2D paint/compositor/screenshot-readback path before spending time on game-specific logic or WebGL shader reductions.
+
+## DECISION_BROWSER_008 - Small 1x Canvas2D is captured; DPR and full opaque canvas are red
+
+- Extended the Canvas2D fixture with sizing/backing variants and added `scripts/probe_canvas_reductions.py --preset sizing`.
+- Latest sizing run: `CANVAS_REDUCTIONS variants=7 blocked=4 green_or_review=3 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781452258085/report.json`.
+- `small-static` and `small-attribute` are `green_or_needs_review`, with Saccade `edge_ratio` around `0.021` and `saturated_ratio=0.007302`; Saccade can capture Canvas2D content in this path.
+- `static`, `alpha-false`, and `dpr-no-transform` are red at full-window size with Saccade `edge_ratio=0.0`.
+- `small-dpr` is red even at `720x420`, so DPR backing is a separate trigger from full-window size.
+- `dom-background` is green despite a GL warning, so the warning remains neither required nor sufficient for the missing captured-layer failure.
+- Next BP-011 reductions should find the opaque-canvas size threshold and split full-canvas background fill from transparent canvas plus foreground drawing.

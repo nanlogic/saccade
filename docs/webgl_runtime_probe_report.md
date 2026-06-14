@@ -138,6 +138,52 @@ Observation:
 - These reductions did not emit the GL texture warning (`gl_warning=false`), so the warning is correlated with some live-game paths but is not required for the Canvas2D missing-layer failure.
 - DPR backing scale, animation timing, and DOM HUD overlay are not required triggers.
 
+### Sizing / Backing Matrix
+
+Added variants:
+
+- `small-static`: centered `720x420` CSS canvas with 1x backing.
+- `small-dpr`: centered `720x420` CSS canvas with DPR backing.
+- `small-attribute`: centered `720x420` attribute-sized canvas.
+- `alpha-false`: full-window Canvas2D with `alpha:false`.
+- `dom-background`: full-window transparent Canvas2D over a DOM background.
+- `dpr-no-transform`: full-window DPR backing without `ctx.setTransform`.
+
+Runner:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --preset sizing \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Latest result:
+
+```text
+CANVAS_REDUCTIONS variants=7 blocked=4 green_or_review=3 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781452258085/report.json
+```
+
+Result matrix:
+
+| Variant | Route | Saccade edge | Saccade saturation | GL warning |
+| --- | --- | ---: | ---: | --- |
+| `static` | `blocked_missing_gameplay_layer` | `0.0` | `0.0` | false |
+| `small-static` | `green_or_needs_review` | `0.021242` | `0.007302` | false |
+| `small-dpr` | `blocked_missing_gameplay_layer` | `0.0` | `0.0` | false |
+| `small-attribute` | `green_or_needs_review` | `0.021129` | `0.007302` | false |
+| `alpha-false` | `blocked_missing_gameplay_layer` | `0.0` | `0.0` | false |
+| `dom-background` | `green_or_needs_review` | `0.033431` | `0.006314` | true |
+| `dpr-no-transform` | `blocked_missing_gameplay_layer` | `0.0` | `0.0` | false |
+
+Observation:
+
+- Saccade can capture Canvas2D content: `small-static` and `small-attribute` are green enough for review.
+- Full-window opaque/background-painted Canvas2D remains red even with 1x backing and no GL warning.
+- DPR backing makes the smaller canvas red too, so DPR/backing texture size is a separate trigger.
+- `dom-background` is green despite one GL warning, so the warning is neither required nor sufficient for the captured-layer failure.
+- Attribute-sized small canvas behaves like CSS-sized small canvas at 1x, so CSS sizing alone is not the current red trigger.
+
 ## Minimal Fixture
 
 Added:
@@ -216,6 +262,8 @@ BP-011 is now a P1 dogfood blocker, not P2 polish.
 Current evidence says:
 
 - 2D canvas is healthy on the small minimal fixture, but full-window Canvas2D is red in the new reductions.
+- Small 1x Canvas2D reductions are captured correctly, which narrows BP-011 away from "all Canvas2D is broken."
+- Full-window opaque/background-painted Canvas2D and DPR-backed Canvas2D are the current minimal red triggers.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
 - The live-game pixel probe now reproduces the missing gameplay layer after CSS viewport normalization.
 - The Canvas2D reductions reproduce the same missing gameplay-layer symptom without requiring WebGL context creation or GL texture warnings.
@@ -229,6 +277,8 @@ Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
 
 1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
 2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
-3. Add the next reductions: non-full-window canvas versus full-window canvas, CSS-sized versus attribute-sized canvas, `ctx.setTransform` on/off, `alpha:false`, DOM background underneath, `requestAnimationFrame` versus synchronous draw, and Saccade screenshot readback versus live window presentation if measurable.
-4. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
-5. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.
+3. Add a size threshold matrix for opaque/background-painted Canvas2D at 1x and DPR backing.
+4. Split the background trigger into solid fill, gradient fill, transparent canvas plus shapes, and full-canvas clear/fill behavior.
+5. Compare Saccade screenshot readback versus live window presentation if measurable.
+6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
+7. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.

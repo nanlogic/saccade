@@ -30,10 +30,30 @@
           linear-gradient(135deg, #ecfdf5, #eff6ff);
       }
 
+      .shell.small {
+        display: grid;
+        place-items: center;
+      }
+
       canvas {
         display: block;
+      }
+
+      .shell.full canvas {
         width: 100%;
         height: 100%;
+      }
+
+      .shell.small canvas {
+        width: 720px;
+        height: 420px;
+        border: 1px solid rgba(15, 23, 42, 0.18);
+        box-shadow: 0 20px 60px rgba(15, 23, 42, 0.16);
+      }
+
+      .shell.small canvas.attribute-sized {
+        width: auto;
+        height: auto;
       }
 
       .hud {
@@ -88,8 +108,10 @@
     <script>
       const params = new URLSearchParams(location.search);
       const variant = params.get("variant") || "static";
+      const config = configForVariant(variant);
+      const shell = document.querySelector(".shell");
       const canvas = document.getElementById("game");
-      const ctx = canvas.getContext("2d", { alpha: true });
+      const ctx = canvas.getContext("2d", { alpha: config.alpha });
       const hud = document.getElementById("hud");
       const variantLabel = document.getElementById("variantLabel");
       const frameLabel = document.getElementById("frameLabel");
@@ -101,9 +123,49 @@
       if (variant === "hud") {
         hud.classList.add("visible");
       }
+      shell.classList.add(config.layout);
+      if (config.sizing === "attribute") {
+        canvas.classList.add("attribute-sized");
+        canvas.setAttribute("width", String(config.attributeWidth));
+        canvas.setAttribute("height", String(config.attributeHeight));
+      }
       variantLabel.textContent = variant;
 
+      function configForVariant(name) {
+        const base = {
+          alpha: true,
+          attributeWidth: 720,
+          attributeHeight: 420,
+          backing: "css",
+          drawBackground: true,
+          layout: "full",
+          loop: false,
+          setTransform: true,
+          sizing: "css",
+        };
+        const variants = {
+          "static": {},
+          "dpr": { backing: "dpr" },
+          "animated": { loop: true },
+          "hud": { backing: "dpr" },
+          "small-static": { layout: "small" },
+          "small-dpr": { layout: "small", backing: "dpr" },
+          "small-attribute": { layout: "small", sizing: "attribute" },
+          "alpha-false": { alpha: false },
+          "dom-background": { drawBackground: false },
+          "dpr-no-transform": { backing: "dpr", setTransform: false },
+        };
+        return { ...base, ...(variants[name] || {}) };
+      }
+
       function cssSize() {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          return {
+            width: Math.max(1, Math.floor(rect.width)),
+            height: Math.max(1, Math.floor(rect.height)),
+          };
+        }
         return {
           width: Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1)),
           height: Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1)),
@@ -111,21 +173,33 @@
       }
 
       function backingScale() {
-        return variant === "dpr" || variant === "hud" ? Math.max(1, window.devicePixelRatio || 1) : 1;
+        return config.backing === "dpr" ? Math.max(1, window.devicePixelRatio || 1) : 1;
       }
 
       function resizeCanvas() {
         const size = cssSize();
         const scale = backingScale();
-        const key = `${size.width}x${size.height}@${scale}`;
+        const backingWidth = config.sizing === "attribute"
+          ? config.attributeWidth
+          : Math.max(1, Math.floor(size.width * scale));
+        const backingHeight = config.sizing === "attribute"
+          ? config.attributeHeight
+          : Math.max(1, Math.floor(size.height * scale));
+        const key = `${size.width}x${size.height}@${backingWidth}x${backingHeight}@${scale}`;
         if (key === lastBacking) return { ...size, scale };
         lastBacking = key;
-        canvas.width = Math.max(1, Math.floor(size.width * scale));
-        canvas.height = Math.max(1, Math.floor(size.height * scale));
-        canvas.style.width = `${size.width}px`;
-        canvas.style.height = `${size.height}px`;
-        ctx.setTransform(scale, 0, 0, scale, 0, 0);
-        return { ...size, scale };
+        canvas.width = backingWidth;
+        canvas.height = backingHeight;
+        if (config.sizing !== "attribute") {
+          canvas.style.width = `${size.width}px`;
+          canvas.style.height = `${size.height}px`;
+        }
+        if (config.setTransform) {
+          ctx.setTransform(scale, 0, 0, scale, 0, 0);
+          return { width: size.width, height: size.height, scale };
+        }
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        return { width: backingWidth, height: backingHeight, scale };
       }
 
       function drawGrid(width, height, t) {
@@ -198,15 +272,17 @@
 
       function drawScene() {
         const { width, height, scale } = resizeCanvas();
-        const moving = variant === "animated";
+        const moving = config.loop;
         const t = moving ? frame * 1.6 : 0;
         ctx.clearRect(0, 0, width, height);
-        const gradient = ctx.createLinearGradient(0, 0, width, height);
-        gradient.addColorStop(0, "#ecfdf5");
-        gradient.addColorStop(0.52, "#fff7ed");
-        gradient.addColorStop(1, "#eff6ff");
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
+        if (config.drawBackground) {
+          const gradient = ctx.createLinearGradient(0, 0, width, height);
+          gradient.addColorStop(0, "#ecfdf5");
+          gradient.addColorStop(0.52, "#fff7ed");
+          gradient.addColorStop(1, "#eff6ff");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, width, height);
+        }
         drawGrid(width, height, t);
         drawCup(width * 0.5 + Math.sin(frame / 18) * 42, height * 0.53);
         const positions = [
@@ -237,6 +313,7 @@
           backingHeight: canvas.height,
           backingScale: scale,
           canvas2d: "ok",
+          config,
         };
         if (moving) {
           requestAnimationFrame(drawScene);

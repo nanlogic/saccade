@@ -10,16 +10,32 @@ import urllib.parse
 
 WORKSPACE = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_VARIANTS = ["static", "dpr", "animated", "hud"]
+SIZING_VARIANTS = [
+    "static",
+    "small-static",
+    "small-dpr",
+    "small-attribute",
+    "alpha-false",
+    "dom-background",
+    "dpr-no-transform",
+]
+VARIANT_PRESETS = {
+    "base": DEFAULT_VARIANTS,
+    "sizing": SIZING_VARIANTS,
+    "all": DEFAULT_VARIANTS
+    + [variant for variant in SIZING_VARIANTS if variant not in DEFAULT_VARIANTS],
+}
 
 
 def main():
     args = parse_args()
+    variants = args.variants or VARIANT_PRESETS[args.preset]
     run_dir = (WORKSPACE / "runs" / "webgl_runtime" / f"canvas_reductions_{unix_ms()}").resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
 
     fixture = (WORKSPACE / "test_pages" / "canvas_runtime" / "index.html").resolve()
     results = []
-    for variant in args.variants:
+    for variant in variants:
         url = fixture_url(fixture, variant)
         variant_dir = run_dir / variant
         cmd = [
@@ -75,6 +91,7 @@ def main():
         "engine": "saccade-canvas-reductions-v0",
         "fixture": str(fixture),
         "run_dir": str(run_dir),
+        "variant_count": len(results),
         "variants": results,
         "summary": summarize(results),
     }
@@ -95,7 +112,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Run Chrome-vs-Saccade probes over local Canvas2D runtime reductions."
     )
-    parser.add_argument("--variants", nargs="+", default=DEFAULT_VARIANTS)
+    parser.add_argument("--preset", choices=sorted(VARIANT_PRESETS), default="base")
+    parser.add_argument("--variants", nargs="+")
     parser.add_argument("--width", type=int, default=1440)
     parser.add_argument("--height", type=int, default=900)
     parser.add_argument("--wait-sec", type=float, default=3.0)
