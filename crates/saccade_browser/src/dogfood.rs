@@ -81,15 +81,79 @@ struct ActiveSelect {
     cursor: usize,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum BrowserLoadState {
+    Starting,
+    Loading,
+    HeadParsed,
+    Complete,
+}
+
+impl BrowserLoadState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Starting => "starting",
+            Self::Loading => "loading",
+            Self::HeadParsed => "head",
+            Self::Complete => "complete",
+        }
+    }
+}
+
+impl From<LoadStatus> for BrowserLoadState {
+    fn from(status: LoadStatus) -> Self {
+        match status {
+            LoadStatus::Started => Self::Loading,
+            LoadStatus::HeadParsed => Self::HeadParsed,
+            LoadStatus::Complete => Self::Complete,
+        }
+    }
+}
+
+struct ShellTitleParts<'a> {
+    profile: &'a str,
+    load_state: BrowserLoadState,
+    can_go_back: bool,
+    can_go_forward: bool,
+    page_title: Option<&'a str>,
+    current_url: &'a str,
+    active_select_label: Option<&'a str>,
+}
+
+fn format_shell_title(parts: ShellTitleParts<'_>) -> String {
+    let back = if parts.can_go_back { "y" } else { "n" };
+    let forward = if parts.can_go_forward { "y" } else { "n" };
+
+    if let Some(label) = parts.active_select_label {
+        return format!(
+            "Saccade [{}] select={label} | back={back} fwd={forward} reload=Cmd+R | {}",
+            parts.profile, parts.current_url
+        );
+    }
+
+    let title = parts
+        .page_title
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or(parts.current_url);
+    format!(
+        "Saccade [{}] load={} back={back} fwd={forward} | {title} | {}",
+        parts.profile,
+        parts.load_state.label(),
+        parts.current_url
+    )
+}
+
 struct DogfoodBrowserState {
     window: Window,
     servo: Servo,
     rendering_context: Rc<WindowRenderingContext>,
     url: Url,
+    current_url: RefCell<Url>,
     webview: RefCell<Option<WebView>>,
     cursor_x: Cell<f32>,
     cursor_y: Cell<f32>,
     modifiers: Cell<ModifiersState>,
+    load_state: Cell<BrowserLoadState>,
     page_title: RefCell<Option<String>>,
     active_select: RefCell<Option<ActiveSelect>>,
     started_at: Instant,
@@ -106,27 +170,32 @@ impl DogfoodBrowserState {
     }
 
     fn update_window_title(&self) {
-        if let Some(active) = self.active_select.borrow().as_ref() {
-            let label = active
+        let active_select_label = self.active_select.borrow().as_ref().map(|active| {
+            active
                 .choices
                 .get(active.cursor)
                 .map(|choice| choice.label.as_str())
-                .unwrap_or("(no selectable option)");
-            self.window
-                .set_title(&format!("Saccade select: {label}  |  Up/Down, Enter, Esc"));
-            return;
-        }
-
-        let title = self
-            .page_title
+                .unwrap_or("(no selectable option)")
+                .to_string()
+        });
+        let page_title = self.page_title.borrow().clone();
+        let current_url = self.current_url.borrow().to_string();
+        let (can_go_back, can_go_forward) = self
+            .webview
             .borrow()
-            .clone()
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| self.url.to_string());
-        self.window.set_title(&format!(
-            "Saccade [{}] - {title}",
-            self.rendering_settings.profile.name()
-        ));
+            .as_ref()
+            .map(|webview| (webview.can_go_back(), webview.can_go_forward()))
+            .unwrap_or((false, false));
+
+        self.window.set_title(&format_shell_title(ShellTitleParts {
+            profile: self.rendering_settings.profile.name(),
+            load_state: self.load_state.get(),
+            can_go_back,
+            can_go_forward,
+            page_title: page_title.as_deref(),
+            current_url: current_url.as_str(),
+            active_select_label: active_select_label.as_deref(),
+        }));
     }
 
     fn handle_browser_shortcut(&self, event: &KeyEvent) -> bool {
@@ -145,19 +214,25 @@ impl DogfoodBrowserState {
 
         match character_key(event).as_deref() {
             Some("r") | Some("R") => {
+                self.load_state.set(BrowserLoadState::Loading);
                 webview.reload();
+                self.update_window_title();
                 true
             }
             Some("[") => {
                 if webview.can_go_back() {
+                    self.load_state.set(BrowserLoadState::Loading);
                     webview.go_back(1);
                 }
+                self.update_window_title();
                 true
             }
             Some("]") => {
                 if webview.can_go_forward() {
+                    self.load_state.set(BrowserLoadState::Loading);
                     webview.go_forward(1);
                 }
+                self.update_window_title();
                 true
             }
             _ => false,
@@ -223,7 +298,9 @@ impl DogfoodBrowserState {
 
 impl WebViewDelegate for DogfoodBrowserState {
     fn notify_url_changed(&self, _webview: WebView, url: Url) {
-        *self.page_title.borrow_mut() = Some(url.to_string());
+        *self.current_url.borrow_mut() = url;
+        *self.page_title.borrow_mut() = None;
+        self.load_state.set(BrowserLoadState::Loading);
         self.update_window_title();
     }
 
@@ -233,6 +310,8 @@ impl WebViewDelegate for DogfoodBrowserState {
     }
 
     fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
+        self.load_state.set(status.into());
+        self.update_window_title();
         if status == LoadStatus::Complete {
             self.window.request_redraw();
         }
@@ -377,10 +456,12 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             servo,
             rendering_context,
             url: config.url.clone(),
+            current_url: RefCell::new(config.url.clone()),
             webview: RefCell::new(None),
             cursor_x: Cell::new(0.0),
             cursor_y: Cell::new(0.0),
             modifiers: Cell::new(ModifiersState::empty()),
+            load_state: Cell::new(BrowserLoadState::Starting),
             page_title: RefCell::new(None),
             active_select: RefCell::new(None),
             started_at: Instant::now(),
@@ -394,6 +475,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             .delegate(state.clone())
             .build();
         *state.webview.borrow_mut() = Some(webview);
+        state.update_window_title();
 
         *self = Self::Running { state };
     }
@@ -623,6 +705,50 @@ fn map_named_key(key: WinitNamedKey) -> Option<ServoNamedKey> {
         WinitNamedKey::PageDown => Some(ServoNamedKey::PageDown),
         WinitNamedKey::PageUp => Some(ServoNamedKey::PageUp),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_title_includes_url_load_and_nav_state() {
+        let title = format_shell_title(ShellTitleParts {
+            profile: "servo-modern",
+            load_state: BrowserLoadState::Complete,
+            can_go_back: true,
+            can_go_forward: false,
+            page_title: Some("Example Domain"),
+            current_url: "https://example.com/",
+            active_select_label: None,
+        });
+
+        assert!(title.contains("Saccade [servo-modern]"));
+        assert!(title.contains("load=complete"));
+        assert!(title.contains("back=y"));
+        assert!(title.contains("fwd=n"));
+        assert!(title.contains("Example Domain"));
+        assert!(title.contains("https://example.com/"));
+    }
+
+    #[test]
+    fn shell_title_marks_select_mode_without_hiding_url() {
+        let title = format_shell_title(ShellTitleParts {
+            profile: "servo-modern",
+            load_state: BrowserLoadState::Loading,
+            can_go_back: false,
+            can_go_forward: true,
+            page_title: Some("Ignored while select is active"),
+            current_url: "https://example.com/form",
+            active_select_label: Some("us-east"),
+        });
+
+        assert!(title.contains("select=us-east"));
+        assert!(title.contains("back=n"));
+        assert!(title.contains("fwd=y"));
+        assert!(title.contains("reload=Cmd+R"));
+        assert!(title.contains("https://example.com/form"));
     }
 }
 

@@ -81,6 +81,12 @@ Done when:
 - Wayne can open a URL, navigate back/forward, reload, resize, and recover focus without terminal commands.
 - The shell does not visually squeeze page content with side panels or hidden control overlays.
 
+Current state:
+
+- First stage shipped in `docs/browser_shell_basics_report.md`: the native window title now exposes current URL, page title, load state, Back/Forward availability, and Reload shortcut without squeezing the page.
+- Existing shortcuts: `Cmd+R` reloads, `Cmd+[` goes back, and `Cmd+]` goes forward.
+- Not done: true editable URL bar, clickable Back/Forward/Reload/Stop controls, and explicit focus recovery UI.
+
 ### P2 - CSS Layout Compatibility
 
 Investigate one layout class at a time:
@@ -152,7 +158,7 @@ The product should tell the user why it routed:
 | --- | --- | --- | --- |
 | BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Fixed for the local fixture: after strict local form CSS, 390px `form_controls` has Chrome hit-test `8/8` and max click escape `1.0px` | Keep as regression |
 | BP-002 | Native form controls have large rect deltas versus Chrome | Width modes report: auto input/textarea stay about `136.5px` in Saccade while Chrome expands to `302-440px`; `width:100%` makes rect widths match | Use `width:100%` plus `min-width:0` in Saccade-owned forms; route third-party pages by measured action safety |
-| BP-003 | Browser shell lacks URL/back/forward/reload | `docs/blockers.md` dogfood UX gap | Implement P1 shell basics |
+| BP-003 | Browser shell lacks clickable URL/back/forward/reload UI | First-stage shell state landed: title bar shows URL/title/load/nav state and existing keyboard shortcuts; see `docs/browser_shell_basics_report.md` | Add true editable URL bar and clickable navigation controls |
 | BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Real dogfood: editor candidate had zero rect | Build local editor reduction and inspect real page again |
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |
