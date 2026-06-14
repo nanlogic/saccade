@@ -1,0 +1,248 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Saccade WebGL Runtime Probe</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #eef8f3;
+        color: #17353b;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(300px, 420px) minmax(320px, 1fr);
+        gap: 24px;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+
+      section {
+        border: 1px solid #bfd5d7;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 12px 28px rgba(34, 60, 72, 0.12);
+        padding: 18px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 24px;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 280px;
+        border: 1px solid #94b8bd;
+        border-radius: 6px;
+        background: #10252b;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: #10252b;
+        color: #d9fff3;
+        border-radius: 6px;
+        padding: 12px;
+        min-height: 220px;
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <h1>WebGL Runtime Probe</h1>
+      <p>Minimal local fixture for Saccade GL/canvas dogfood.</p>
+      <pre id="status">starting</pre>
+    </section>
+    <section>
+      <h1>2D Canvas</h1>
+      <canvas id="canvas2d" width="640" height="360"></canvas>
+      <h1>WebGL Texture</h1>
+      <canvas id="webgl" width="640" height="360"></canvas>
+    </section>
+    <script>
+      const statusEl = document.getElementById("status");
+      const report = {
+        fixture: "saccade-webgl-runtime-v0",
+        canvas2d: "pending",
+        webglContext: "pending",
+        shader: "pending",
+        texture: "pending",
+        readPixels: "pending",
+        frames: 0,
+        avgFrameMs: null,
+        lastError: null
+      };
+
+      function update() {
+        statusEl.textContent = Object.entries(report)
+          .map(([key, value]) => `${key}=${value}`)
+          .join("\n");
+        window.__saccadeWebglRuntime = { ...report };
+      }
+
+      function draw2d() {
+        const canvas = document.getElementById("canvas2d");
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          report.canvas2d = "missing";
+          update();
+          return;
+        }
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, "#67e8f9");
+        gradient.addColorStop(1, "#f472b6");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#17353b";
+        ctx.font = "bold 42px sans-serif";
+        ctx.fillText("2D OK", 40, 90);
+        ctx.fillStyle = "#f43f5e";
+        for (let i = 0; i < 9; i += 1) {
+          ctx.beginPath();
+          ctx.arc(80 + i * 58, 220 + Math.sin(i) * 36, 18, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        const pixel = ctx.getImageData(50, 50, 1, 1).data;
+        report.canvas2d = pixel[3] > 0 ? "ok" : "blank";
+        update();
+      }
+
+      function compile(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error(gl.getShaderInfoLog(shader) || "shader compile failed");
+        }
+        return shader;
+      }
+
+      function drawWebgl() {
+        const canvas = document.getElementById("webgl");
+        const gl = canvas.getContext("webgl", {
+          alpha: false,
+          antialias: true,
+          preserveDrawingBuffer: true
+        });
+        if (!gl) {
+          report.webglContext = "missing";
+          update();
+          return;
+        }
+        report.webglContext = "ok";
+
+        const vertex = compile(gl, gl.VERTEX_SHADER, `
+          attribute vec2 a_pos;
+          attribute vec2 a_uv;
+          varying vec2 v_uv;
+          void main() {
+            v_uv = a_uv;
+            gl_Position = vec4(a_pos, 0.0, 1.0);
+          }
+        `);
+        const fragment = compile(gl, gl.FRAGMENT_SHADER, `
+          precision mediump float;
+          varying vec2 v_uv;
+          uniform sampler2D u_tex;
+          void main() {
+            gl_FragColor = texture2D(u_tex, v_uv);
+          }
+        `);
+        const program = gl.createProgram();
+        gl.attachShader(program, vertex);
+        gl.attachShader(program, fragment);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          throw new Error(gl.getProgramInfoLog(program) || "program link failed");
+        }
+        report.shader = "ok";
+
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(
+          gl.ARRAY_BUFFER,
+          new Float32Array([
+            -0.88, -0.72, 0, 0,
+             0.88, -0.72, 1, 0,
+            -0.88,  0.72, 0, 1,
+             0.88,  0.72, 1, 1
+          ]),
+          gl.STATIC_DRAW
+        );
+        gl.useProgram(program);
+        const stride = 4 * 4;
+        const pos = gl.getAttribLocation(program, "a_pos");
+        const uv = gl.getAttribLocation(program, "a_uv");
+        gl.enableVertexAttribArray(pos);
+        gl.enableVertexAttribArray(uv);
+        gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, stride, 0);
+        gl.vertexAttribPointer(uv, 2, gl.FLOAT, false, stride, 8);
+
+        const texture = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          2,
+          2,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          new Uint8Array([
+            255,  59,  92, 255,
+             32, 211, 238, 255,
+            251, 191,  36, 255,
+            132, 204,  22, 255
+          ])
+        );
+        gl.uniform1i(gl.getUniformLocation(program, "u_tex"), 0);
+        report.texture = gl.getError() === gl.NO_ERROR ? "ok" : `error_${gl.getError()}`;
+
+        let last = performance.now();
+        let total = 0;
+        function frame(now) {
+          const dt = now - last;
+          last = now;
+          if (report.frames > 0) total += dt;
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.clearColor(0.04, 0.13, 0.16, 1);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          const pixels = new Uint8Array(4);
+          gl.readPixels(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          report.readPixels = pixels[3] > 0 && (pixels[0] || pixels[1] || pixels[2]) ? `ok_${pixels[0]}_${pixels[1]}_${pixels[2]}` : "blank";
+          const error = gl.getError();
+          report.lastError = error === gl.NO_ERROR ? "none" : String(error);
+          report.frames += 1;
+          report.avgFrameMs = report.frames > 1 ? (total / (report.frames - 1)).toFixed(2) : null;
+          update();
+          if (report.frames < 30) requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      }
+
+      update();
+      draw2d();
+      try {
+        drawWebgl();
+      } catch (error) {
+        report.lastError = String(error && error.message ? error.message : error);
+        update();
+      }
+    </script>
+  </body>
+</html>

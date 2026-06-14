@@ -332,3 +332,10 @@
 - The command supports `--profile-dir`, making it the standard BP-004 retest path after human login inside Saccade.
 - Editor routing now counts visible authoring editors separately from generic writable controls. A lone search box routes as `route_login_or_non_authoring_page`, not `usable_visible_editors`.
 - Shared-profile Gist probe currently reaches only `Search Gists`, so authenticated Gist editor validation is blocked on Wayne logging in inside the Saccade profile.
+
+## DECISION_BROWSER_004 - WebGL is promoted to a P1 dogfood blocker
+
+- Local game dogfood at `http://127.0.0.1:4173/` reproduced the macOS GL warning `GLD_TEXTURE_INDEX_2D is unloadable` and Saccade missed the gameplay canvas layer that Chrome rendered.
+- Added `test_pages/webgl_runtime/index.html` as a minimal repeatable fixture with 2D canvas, WebGL texture drawing, `readPixels`, and visible frame timing status.
+- The minimal fixture reproduced a related `GLD_TEXTURE_INDEX_RECTANGLE is unloadable` warning. It showed 2D canvas OK and simple WebGL texture OK, but slow frame progress.
+- BP-011 is now P1: route WebGL-heavy judgement to Chrome/reference until a scripted Saccade runtime selftest is green and the adapter/backend root cause is known.
