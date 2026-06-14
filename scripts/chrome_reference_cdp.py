@@ -649,12 +649,6 @@ def main():
         )
         truth_json = truth_result.get("result", {}).get("value", "{}")
         truth = json.loads(truth_json)
-        webgl_page_probe = None
-        if args.webgl_page_probe:
-            webgl_page_probe = evaluate_webgl_page_probe(client)
-            (output_dir / "chrome_webgl_page_probe.json").write_text(
-                json.dumps(webgl_page_probe, indent=2, sort_keys=True) + "\n"
-            )
         click_verification = None
         if args.verify_actions_file:
             actions = json.loads(pathlib.Path(args.verify_actions_file).read_text())
@@ -665,6 +659,13 @@ def main():
         screenshot_data = capture_screenshot(client)
         screenshot_path = output_dir / "chrome_page.png"
         screenshot_path.write_bytes(base64.b64decode(screenshot_data))
+
+        webgl_page_probe = None
+        if args.webgl_page_probe:
+            webgl_page_probe = evaluate_webgl_page_probe(client)
+            (output_dir / "chrome_webgl_page_probe.json").write_text(
+                json.dumps(webgl_page_probe, indent=2, sort_keys=True) + "\n"
+            )
 
         truth_path = output_dir / "chrome_truth.json"
         truth_path.write_text(json.dumps(truth, indent=2, sort_keys=True) + "\n")

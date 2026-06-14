@@ -430,3 +430,12 @@
 - `bare-gradient2-foreground-first-size-1152x648` is red across two repeats, despite drawing foreground first and then painting the gradient behind it with `destination-over`.
 - `bare-gradient2-delayed-foreground-size-1152x648` is also red across two repeats. One run preserved the Saccade smooth gradient signal (`channel_range=19`, `luma_range=8.333333`) while still missing foreground edge/saturation; the other was fully black (`channel_range=0`, `luma_range=0`).
 - The next BP-011 split should compare in-page canvas backing/readPixels or checksum against the audit screenshot to prove whether pixels exist inside the page but disappear in screenshot readback.
+
+## DECISION_BROWSER_015 - BP-011 is after Canvas2D backing update
+
+- Added `pixelProbe` to `scripts/webgl_page_probe.js` so Chrome and Saccade record page-side 2D canvas backing metrics without logging page values.
+- Changed `scripts/probe_webgl_game_runtime.py` and `scripts/chrome_reference_cdp.py` to capture screenshots before running the canvas pixel probe, avoiding `getImageData()` as a screenshot warm-up.
+- Latest focused run: `CANVAS_REDUCTIONS variants=2 blocked=2 green_or_review=0 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781464997166/report.json`.
+- `bare-gradient2-size-1152x648` is red in the Saccade screenshot (`edge=0.0`, `sat=0.0`) while Saccade page backing has foreground signal (`edge=0.034318`, `sat=0.011096`, `maxChannelRange=237`, `lumaRange=165.666667`).
+- `bare-gradient2-delayed-foreground-size-1152x648` has the same split: screenshot foreground is missing, but page backing has foreground signal (`edge=0.034173`, `sat=0.01105`).
+- BP-011 is now narrowed past page script, DOM readiness, and Canvas2D drawing. Next compare Servo `WebView::take_screenshot()` with our manual `paint()+read_to_image()` path and test `present()` / frame-ready sequencing.

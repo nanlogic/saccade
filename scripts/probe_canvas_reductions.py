@@ -249,6 +249,7 @@ def largest_canvas_summary(page_probe_summary):
             "width": backing.get("width"),
             "height": backing.get("height"),
         },
+        "pixel_probe": largest.get("pixel_probe") or {},
     }
 
 

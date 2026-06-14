@@ -109,8 +109,8 @@ def capture_saccade(args, run_dir):
     env["RUST_LOG"] = "error"
     input_text = (
         f'{{"id":1,"method":"ping"}}\n'
-        f'{{"id":2,"method":"webgl_page_probe"}}\n'
-        f'{{"id":3,"method":"audit"}}\n'
+        f'{{"id":2,"method":"audit"}}\n'
+        f'{{"id":3,"method":"webgl_page_probe"}}\n'
         f'{{"id":4,"method":"close"}}\n'
     )
     proc = subprocess.Popen(
@@ -135,16 +135,17 @@ def capture_saccade(args, run_dir):
         raise RuntimeError(
             f"Saccade worker failed with {proc.returncode}\nstdout={stdout}\nstderr={stderr}"
         )
-    page_probe_response = json_response_by_id(stdout, 2)
+    audit = json_response_by_id(stdout, 2)
+    if not audit or audit.get("ok") is not True:
+        raise RuntimeError(f"Saccade worker output did not include an ok audit response\n{stdout}")
+
+    page_probe_response = json_response_by_id(stdout, 3)
     if not page_probe_response or page_probe_response.get("ok") is not True:
         raise RuntimeError(f"Saccade worker output did not include an ok WebGL page probe\n{stdout}")
     saccade_page_probe = page_probe_response.get("result", {})
     saccade_page_probe_path = run_dir / "saccade_webgl_page_probe.json"
     saccade_page_probe_path.write_text(json.dumps(saccade_page_probe, indent=2, sort_keys=True) + "\n")
 
-    audit = json_response_by_id(stdout, 3)
-    if not audit or audit.get("ok") is not True:
-        raise RuntimeError(f"Saccade worker output did not include an ok audit response\n{stdout}")
     screenshot = audit.get("result", {}).get("visual_health", {}).get("screenshot")
     if not screenshot:
         raise RuntimeError(f"Saccade audit did not produce a screenshot\n{stdout}")
@@ -228,6 +229,7 @@ def summarize_page_probe(response):
                 "rect": rect,
                 "backing": canvas.get("backing") or {},
                 "context_type": (canvas.get("context") or {}).get("type", "unknown"),
+                "pixel_probe": canvas.get("pixelProbe") or {},
             }
     return {
         "status": "ok" if page_probe.get("ok") else "unknown",
@@ -254,6 +256,10 @@ def diagnose_game_probe(chrome, saccade, metrics):
     elif chrome_summary.get("visible_canvas_count", 0) > 0 and saccade_summary.get("visible_canvas_count", 0) > 0:
         route = "render_pipeline_after_dom_ready"
         reasons.append("both engines report visible canvas nodes, but Saccade gameplay pixels are missing")
+        saccade_pixel_probe = (saccade_summary.get("largest_canvas") or {}).get("pixel_probe") or {}
+        if page_canvas_has_foreground_signal(saccade_pixel_probe, metrics):
+            route = "screenshot_readback_after_canvas_backing"
+            reasons.append("Saccade page canvas backing has foreground-like pixels, but screenshot readback loses them")
     if saccade.get("gl_warning"):
         reasons.append("Saccade emitted GL texture warning")
     return {
@@ -262,6 +268,18 @@ def diagnose_game_probe(chrome, saccade, metrics):
         "chrome_page_probe_summary": chrome_summary,
         "saccade_page_probe_summary": saccade_summary,
     }
+
+
+def page_canvas_has_foreground_signal(pixel_probe, metrics):
+    if not isinstance(pixel_probe, dict) or pixel_probe.get("status") != "ok":
+        return False
+    thresholds = metrics.get("thresholds") or {}
+    min_edge = float(thresholds.get("min_edge_ratio") or 0.010)
+    min_sat = float(thresholds.get("min_saturated_ratio") or 0.0015)
+    return (
+        float(pixel_probe.get("edgeRatio") or 0.0) >= min_edge
+        and float(pixel_probe.get("saturatedRatio") or 0.0) >= min_sat
+    )
 
 
 def compare_gameplay_layer(chrome_path, saccade_path, args):

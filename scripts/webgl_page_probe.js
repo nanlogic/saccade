@@ -122,6 +122,111 @@
     return { type: "none_or_2d", attempts };
   }
 
+  function canvasPixelProbe(canvas) {
+    const width = Number(canvas.width || 0);
+    const height = Number(canvas.height || 0);
+    const totalPixels = width * height;
+    if (!width || !height) {
+      return { status: "empty_backing", width, height };
+    }
+    if (totalPixels > 2500000) {
+      return { status: "too_large", width, height, pixels: totalPixels };
+    }
+    let ctx = null;
+    try {
+      ctx = canvas.getContext("2d", { willReadFrequently: true });
+    } catch (error) {
+      return { status: "context_error", width, height, error: cleanText(error && error.message ? error.message : error) };
+    }
+    if (!ctx) {
+      return { status: "no_2d_context", width, height };
+    }
+
+    let data = null;
+    try {
+      data = ctx.getImageData(0, 0, width, height).data;
+    } catch (error) {
+      return { status: "read_error", width, height, error: cleanText(error && error.message ? error.message : error) };
+    }
+
+    const stride = Math.max(1, Math.floor(Math.sqrt(totalPixels / 200000)));
+    let samples = 0;
+    let saturated = 0;
+    let alphaNonZero = 0;
+    let edge = 0;
+    let edgeSamples = 0;
+    let minR = 255;
+    let minG = 255;
+    let minB = 255;
+    let maxR = 0;
+    let maxG = 0;
+    let maxB = 0;
+    let minLuma = 255;
+    let maxLuma = 0;
+    let sumLuma = 0;
+    let sumLumaSq = 0;
+    let checksum = 2166136261;
+
+    for (let y = 0; y < height; y += stride) {
+      for (let x = 0; x < width; x += stride) {
+        const i = (y * width + x) * 4;
+        const r = data[i] || 0;
+        const g = data[i + 1] || 0;
+        const b = data[i + 2] || 0;
+        const a = data[i + 3] || 0;
+        minR = Math.min(minR, r);
+        minG = Math.min(minG, g);
+        minB = Math.min(minB, b);
+        maxR = Math.max(maxR, r);
+        maxG = Math.max(maxG, g);
+        maxB = Math.max(maxB, b);
+        const luma = (r + g + b) / 3;
+        minLuma = Math.min(minLuma, luma);
+        maxLuma = Math.max(maxLuma, luma);
+        sumLuma += luma;
+        sumLumaSq += luma * luma;
+        if (Math.max(r, g, b) - Math.min(r, g, b) >= 45) saturated += 1;
+        if (a > 0) alphaNonZero += 1;
+        checksum ^= r;
+        checksum = Math.imul(checksum, 16777619);
+        checksum ^= g;
+        checksum = Math.imul(checksum, 16777619);
+        checksum ^= b;
+        checksum = Math.imul(checksum, 16777619);
+        checksum ^= a;
+        checksum = Math.imul(checksum, 16777619);
+
+        if (x + stride < width) {
+          const j = (y * width + x + stride) * 4;
+          const delta = Math.abs(r - (data[j] || 0)) +
+            Math.abs(g - (data[j + 1] || 0)) +
+            Math.abs(b - (data[j + 2] || 0));
+          if (delta >= 18) edge += 1;
+          edgeSamples += 1;
+        }
+        samples += 1;
+      }
+    }
+
+    const lumaMean = sumLuma / Math.max(1, samples);
+    const lumaVariance = Math.max(0, (sumLumaSq / Math.max(1, samples)) - (lumaMean * lumaMean));
+    return {
+      status: "ok",
+      width,
+      height,
+      pixels: totalPixels,
+      sampleStride: stride,
+      samples,
+      edgeRatio: Number((edge / Math.max(1, edgeSamples)).toFixed(6)),
+      saturatedRatio: Number((saturated / Math.max(1, samples)).toFixed(6)),
+      alphaNonZeroRatio: Number((alphaNonZero / Math.max(1, samples)).toFixed(6)),
+      maxChannelRange: Math.max(maxR - minR, maxG - minG, maxB - minB),
+      lumaRange: Number((maxLuma - minLuma).toFixed(6)),
+      lumaStdev: Number(Math.sqrt(lumaVariance).toFixed(6)),
+      checksum: (checksum >>> 0).toString(16).padStart(8, "0"),
+    };
+  }
+
   function canvasInfo(canvas, index) {
     const rect = rectOf(canvas);
     const style = styleOf(canvas);
@@ -144,6 +249,7 @@
       },
       style,
       context: contextInfo(canvas),
+      pixelProbe: canvasPixelProbe(canvas),
       elementsFromCenter,
       ancestors: ancestorChain(canvas),
     };
