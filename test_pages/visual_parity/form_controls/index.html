@@ -20,20 +20,20 @@
     <span class="muted">Form controls parity</span>
   </header>
   <main>
-    <form class="panel" style="padding:24px">
-      <label>Team<input name="team" value="Platform Reliability"></label>
-      <label>Region<select name="region"><option>us-east</option><option>us-west</option><option>eu-central</option></select></label>
-      <label>Instances<input name="instances" type="number" value="24"></label>
-      <label>Launch date<input name="date" type="date" value="2026-07-15"></label>
-      <textarea name="notes">Need blue-green deployment capacity for launch rehearsal.</textarea>
-      <div class="toggles panel">
-        <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" checked> Include staging</label>
-        <label style="display:flex;align-items:center;gap:8px"><input type="radio" checked name="priority"> Normal</label>
-        <label style="display:flex;align-items:center;gap:8px"><input type="radio" name="priority"> Urgent</label>
+    <form class="panel" style="padding:24px" data-saccade-probe="form_panel">
+      <label data-saccade-probe="label_team">Team<input name="team" value="Platform Reliability" data-saccade-probe="input_team"></label>
+      <label data-saccade-probe="label_region">Region<select name="region" data-saccade-probe="select_region"><option>us-east</option><option>us-west</option><option>eu-central</option></select></label>
+      <label data-saccade-probe="label_instances">Instances<input name="instances" type="number" value="24" data-saccade-probe="input_instances"></label>
+      <label data-saccade-probe="label_date">Launch date<input name="date" type="date" value="2026-07-15" data-saccade-probe="input_date"></label>
+      <textarea name="notes" data-saccade-probe="textarea_notes">Need blue-green deployment capacity for launch rehearsal.</textarea>
+      <div class="toggles panel" data-saccade-probe="toggles_panel">
+        <label style="display:flex;align-items:center;gap:8px" data-saccade-probe="checkbox_label"><input type="checkbox" checked data-saccade-probe="checkbox_staging"> Include staging</label>
+        <label style="display:flex;align-items:center;gap:8px" data-saccade-probe="radio_normal_label"><input type="radio" checked name="priority" data-saccade-probe="radio_normal"> Normal</label>
+        <label style="display:flex;align-items:center;gap:8px" data-saccade-probe="radio_urgent_label"><input type="radio" name="priority" data-saccade-probe="radio_urgent"> Urgent</label>
       </div>
-      <div class="footer">
-        <button type="button">Save Draft</button>
-        <button class="primary" type="submit">Submit</button>
+      <div class="footer" data-saccade-probe="footer">
+        <button type="button" data-saccade-probe="button_save">Save Draft</button>
+        <button class="primary" type="submit" data-saccade-probe="button_submit">Submit</button>
       </div>
     </form>
   </main>

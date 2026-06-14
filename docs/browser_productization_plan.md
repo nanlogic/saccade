@@ -150,18 +150,19 @@ The product should tell the user why it routed:
 
 | ID | Issue | Current Evidence | Next Step |
 | --- | --- | --- | --- |
-| BP-001 | Narrow `form_controls` window overflows right column | Manual dogfood screenshot; fixture has unconditional `grid-template-columns: 1fr 1fr` | Add `grid_percent_100_50` and `grid_min_auto`; decide fixture CSS bug versus Servo sizing |
-| BP-002 | Native form controls have large rect deltas versus Chrome | `form_controls` yellow; previous rect delta up to `662px` while hit-test passed | Split per-control metrics and classify `YELLOW_CONTROL` |
+| BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Width matrix report: at 390px, `form_controls` is `FAIL_ACTION_MAP` with Chrome hit-test `5/7` and max click escape `52.899px` | Add `form_control_width_modes`; decide fixture CSS bug versus Servo sizing |
+| BP-002 | Native form controls have large rect deltas versus Chrome | Width matrix report: at 768-1280px, hit-tests pass but inputs stay about `136.5px` in Saccade while Chrome expands them to `318-406px`; textarea stays `168px` versus up to `830px` | Split per-control metrics and classify `YELLOW_CONTROL` or `FAIL_LAYOUT` |
 | BP-003 | Browser shell lacks URL/back/forward/reload | `docs/blockers.md` dogfood UX gap | Implement P1 shell basics |
 | BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Real dogfood: editor candidate had zero rect | Build local editor reduction and inspect real page again |
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |
+| BP-008 | Large viewport requests can exceed the actual worker window bounds | Width matrix: requested 1600px, Saccade captured 1440 CSS px while Chrome captured 1600 CSS px | Add display-boundary/fullscreen probe before using 1600/1920 as gates |
 
 ## Acceptance Order
 
 1. Land this plan and ledger.
 2. Implement P1 browser shell basics.
-3. Add P0 productization fixtures and classifier labels.
+3. Add `form_control_width_modes` and computed-style fields.
 4. Work BP-001 and BP-002 until form/grid behavior is explained.
 5. Re-test GitHub/Gist editor and record BP-004 result.
 6. Only then resume broad real-site dogfood.

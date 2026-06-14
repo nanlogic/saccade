@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Grid Percent 100 50</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    .stack { display: grid; gap: 18px; max-width: 980px; }
+    .case { padding: 16px; overflow: hidden; }
+    .case h2 { margin: 0 0 12px; font-size: 15px; }
+    .grid-half { display: grid; grid-template-columns: 50% 50%; gap: 0; }
+    .grid-fr { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid-fr-min0 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+    .nested { display: grid; grid-template-columns: 40% 60%; gap: 10px; }
+    .box { border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 10px; min-height: 44px; }
+    .w100 { width: 100%; }
+    .w50 { width: 50%; }
+    .long { white-space: nowrap; color: #334155; }
+    input, select { min-height: 38px; border: 1px solid #b8c3d4; border-radius: 6px; padding: 7px 10px; color: var(--ink); background: #fff; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Grid Percent</h1>
+    <span class="muted">100 / 50 / min auto</span>
+  </header>
+  <main>
+    <section class="stack">
+      <section class="panel case" data-saccade-probe="case_grid_half">
+        <h2>50% + 50% tracks</h2>
+        <div class="grid-half" data-saccade-probe="grid_half">
+          <div class="box" data-saccade-probe="grid_half_a">Left 50%</div>
+          <div class="box" data-saccade-probe="grid_half_b">Right 50%</div>
+        </div>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_width_percent">
+        <h2>Width 100% and 50%</h2>
+        <div class="box w100" data-saccade-probe="box_width_100">width: 100%</div>
+        <div class="box w50" data-saccade-probe="box_width_50">width: 50%</div>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_fr_auto_min">
+        <h2>1fr tracks with long content</h2>
+        <div class="grid-fr" data-saccade-probe="grid_fr_auto_min">
+          <div class="box long" data-saccade-probe="grid_fr_long">supercalifragilistic-layout-token-2026-review</div>
+          <input value="Platform Reliability" data-saccade-probe="grid_fr_input">
+        </div>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_fr_min0">
+        <h2>minmax(0, 1fr) tracks</h2>
+        <div class="grid-fr-min0" data-saccade-probe="grid_fr_min0">
+          <div class="box long" data-saccade-probe="grid_min0_long">supercalifragilistic-layout-token-2026-review</div>
+          <select data-saccade-probe="grid_min0_select"><option>us-east</option><option>us-west</option></select>
+        </div>
+      </section>
+
+      <section class="panel case" data-saccade-probe="case_nested_percent">
+        <h2>Nested 40% / 60%</h2>
+        <div class="nested" data-saccade-probe="nested_percent">
+          <div class="box" data-saccade-probe="nested_40">40%</div>
+          <div class="box" data-saccade-probe="nested_60">60%</div>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

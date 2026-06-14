@@ -112,6 +112,8 @@ def run_case(fixture, url, case_dir, args):
         args.timeout_sec,
         resolved_rendering_profile(args),
         args.saccade_grid,
+        args.width,
+        args.height,
     )
     saccade_truth = saccade.get("result", {})
     (case_dir / "saccade_worker_result.json").write_text(
@@ -125,8 +127,9 @@ def run_case(fixture, url, case_dir, args):
     saccade_src = pathlib.Path(saccade["screenshot"])
     if not saccade_src.is_absolute():
         saccade_src = WORKSPACE / saccade_src
+    saccade_raw_png = case_dir / "saccade_page_raw.png"
     saccade_png = case_dir / "saccade_page.png"
-    shutil.copy2(saccade_src, saccade_png)
+    shutil.copy2(saccade_src, saccade_raw_png)
 
     chrome_dir = case_dir / "chrome"
     chrome_dir.mkdir(parents=True, exist_ok=True)
@@ -145,6 +148,7 @@ def run_case(fixture, url, case_dir, args):
     chrome_src = chrome_dir / "chrome_page.png"
     chrome_png = case_dir / "chrome_page.png"
     shutil.copy2(chrome_src, chrome_png)
+    normalized = normalize_saccade_screenshot(saccade_raw_png, saccade_png, chrome_png)
 
     metrics, diff_rgb = compare_pngs(chrome_png, saccade_png, args.diff_threshold)
     diff_png = case_dir / "diff.png"
@@ -186,9 +190,11 @@ def run_case(fixture, url, case_dir, args):
             "chrome_truth": str(chrome_dir / "chrome_truth.json"),
             "chrome_network": str(chrome_dir / "chrome_network.json"),
             "chrome_click_verification": str(chrome_dir / "chrome_click_verification.json"),
+            "saccade_raw_screenshot": str(saccade_raw_png),
             "saccade_actions_for_chrome": str(saccade_actions_for_chrome),
             "saccade_worker_result": str(case_dir / "saccade_worker_result.json"),
         },
+        "saccade_screenshot_normalized": normalized,
     }
     result["diff_classification"] = classify_diff(result)
     (case_dir / "case_result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
@@ -204,7 +210,7 @@ def verifiable_saccade_actions(actions):
     ]
 
 
-def capture_saccade(url, case_dir, timeout, rendering_profile, saccade_grid):
+def capture_saccade(url, case_dir, timeout, rendering_profile, saccade_grid, width, height):
     cmd = [
         "cargo",
         "run",
@@ -215,6 +221,10 @@ def capture_saccade(url, case_dir, timeout, rendering_profile, saccade_grid):
         "browser-session-worker",
         "--url",
         url,
+        "--width",
+        str(width),
+        "--height",
+        str(height),
         "--rendering-profile",
         rendering_profile,
     ]
@@ -263,6 +273,50 @@ def capture_saccade(url, case_dir, timeout, rendering_profile, saccade_grid):
     if not screenshot:
         raise RuntimeError(f"Saccade audit did not produce a screenshot for {url}")
     return {"screenshot": screenshot, "result": result}
+
+
+def normalize_saccade_screenshot(raw_path, normalized_path, chrome_path):
+    chrome_width, chrome_height, _ = read_png_rgb(chrome_path)
+    saccade_width, saccade_height, saccade_rgb = read_png_rgb(raw_path)
+    normalized = {
+        "raw_width": saccade_width,
+        "raw_height": saccade_height,
+        "target_width": chrome_width,
+        "target_height": chrome_height,
+        "applied": False,
+    }
+    if saccade_width == chrome_width and saccade_height == chrome_height:
+        shutil.copy2(raw_path, normalized_path)
+        return normalized
+    width_ratio = saccade_width / max(1, chrome_width)
+    height_ratio = saccade_height / max(1, chrome_height)
+    if abs(width_ratio - height_ratio) > 0.05:
+        shutil.copy2(raw_path, normalized_path)
+        normalized["reason"] = "non_uniform_scale"
+        return normalized
+    resized = resize_rgb_nearest(
+        saccade_rgb,
+        saccade_width,
+        saccade_height,
+        chrome_width,
+        chrome_height,
+    )
+    write_png_rgb(normalized_path, chrome_width, chrome_height, resized)
+    normalized["applied"] = True
+    normalized["scale"] = round((width_ratio + height_ratio) / 2, 3)
+    return normalized
+
+
+def resize_rgb_nearest(rgb, source_width, source_height, target_width, target_height):
+    output = bytearray(target_width * target_height * 3)
+    for y in range(target_height):
+        source_y = min(source_height - 1, int(y * source_height / target_height))
+        for x in range(target_width):
+            source_x = min(source_width - 1, int(x * source_width / target_width))
+            source_i = (source_y * source_width + source_x) * 3
+            target_i = (y * target_width + x) * 3
+            output[target_i : target_i + 3] = rgb[source_i : source_i + 3]
+    return bytes(output)
 
 
 def compare_layout_probes(chrome_truth, saccade_truth):
