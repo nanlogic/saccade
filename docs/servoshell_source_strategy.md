@@ -99,3 +99,52 @@ ServoShell's working runtime.
 This is not primarily an Xcode project. Xcode/Command Line Tools are still
 needed for macOS SDK, native frameworks, signing, and packaging, but the core
 build is the Servo/Rust build.
+
+## Source Recon - 2026-06-14
+
+Primary upstream source:
+
+```text
+https://github.com/servo/servo
+```
+
+The official repository contains `ports/servoshell`, and its public README
+describes the macOS path as:
+
+```text
+./mach bootstrap
+./mach build
+```
+
+Local installed app metadata:
+
+```text
+/Applications/Servo.app/Contents/Info.plist
+CFBundleShortVersionString = 0.3.0
+
+/Applications/Servo.app/Contents/MacOS/servoshell --version
+Version: Servo 0.3.0-302457869
+```
+
+Remote tag check:
+
+```text
+v0.0.1 721214fbe44bf11b968e5e076e5b0af5b5663447
+v0.0.2 cae6350af7c734444ddd4a238f2c47d70cecc3c5
+v0.0.3 7cd39f4d2d9dbdf4940727d19a81ab8d09f3c0e8
+v0.0.4 b73ae025690cce16185520ea88a6df162fc1298d
+v0.0.5 301f7da52e320764fd0063facb90de0ec8db8f25
+v0.0.6 7c2c0aaf23107a16cddb8b5f7904bcb3f308a086
+main   54288c9d684306508bb30eeb61e071eed0e9192f
+```
+
+No public remote ref matched `0.3.0` or `302457869` during this check. Treat the
+installed app as a reference binary, not an exact source identifier yet.
+
+Practical next step:
+
+1. Clone official `servo/servo` outside the Saccade workspace or as an
+   explicitly ignored sibling checkout.
+2. Try a current-main or newest-tag `./mach build` smoke first.
+3. Confirm the locally built `servoshell` runs `http://127.0.0.1:4173/`.
+4. Only after that, add the minimal in-process Saccade reflex bridge.
