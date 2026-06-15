@@ -208,6 +208,11 @@ Current evidence:
   not yet classify local-game fruit/enemy/drop semantics; that should arrive by
   adapting crop/pixel, canvas-observe, or Servo native emitters to the same
   `visual_object_seen` schema.
+- Existing MOUSEMAX arena replay targets now convert to the same fact schema:
+  `runs/browser_fact_stream/mousemax_1781528244/report.json`.
+- That conversion emitted 45 `visual_object_seen` facts and matched the old
+  run's `targets_seen=45` after filtering two tracker appearances outside the
+  benchmark game area.
 
 Local game v0 pass:
 

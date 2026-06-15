@@ -6,6 +6,7 @@ const test = require("node:test");
 
 const {
   FACT_SCHEMA,
+  browserFactFromMousemaxTarget,
   factTextCorpus,
   installScript,
   summarizeFacts,
@@ -92,4 +93,37 @@ test("writeFactsJsonl writes real newline-delimited JSON", async () => {
       .map((line) => JSON.parse(line)),
     [{ seq: 1 }, { seq: 2 }],
   );
+});
+
+test("browserFactFromMousemaxTarget maps replay targets to visual facts", () => {
+  const fact = browserFactFromMousemaxTarget(
+    {
+      id: 7,
+      frame_id: 42,
+      first_seen_ns: 1_000_000,
+      last_seen_ns: 2_000_000,
+      center_css: { x: 12, y: 34 },
+      bbox_css: { x: 10, y: 30, w: 4, h: 8 },
+      radius_css: 4,
+      confidence: 0.95,
+      source: "PixelDetector",
+      clicked: false,
+    },
+    {
+      seq: 3,
+      url: "https://mouseaccuracy.com/classic/",
+      reason: "tracker_appeared",
+      game_area_css: { x: 0, y: 100, w: 1280, h: 700 },
+    },
+  );
+
+  assert.equal(fact.schema, FACT_SCHEMA);
+  assert.equal(fact.fact_type, "visual_object_seen");
+  assert.equal(fact.privacy, "safe");
+  assert.equal(fact.t_ms, 2);
+  assert.equal(fact.visual_object.source, "mousemax_replay_target");
+  assert.equal(fact.visual_object.detector_source, "PixelDetector");
+  assert.equal(fact.visual_object.target_id, 7);
+  assert.deepEqual(fact.visual_object.center_css, { x: 12, y: 34 });
+  assert.deepEqual(fact.visual_object.game_area_css, { x: 0, y: 100, w: 1280, h: 700 });
 });

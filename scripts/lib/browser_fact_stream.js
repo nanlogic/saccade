@@ -3,6 +3,65 @@ const fs = require("node:fs/promises");
 const FACT_STREAM_GLOBAL = "__saccadeFactStreamV0";
 const FACT_SCHEMA = "saccade.browser_fact.v0";
 
+function nsToMs(ns) {
+  return Number.isFinite(ns) ? Math.round(ns / 1_000_000) : null;
+}
+
+function browserFactEnvelope(factType, payload = {}, options = {}) {
+  return {
+    kind: "browser_fact",
+    schema: FACT_SCHEMA,
+    seq: options.seq ?? null,
+    t_ms: options.t_ms ?? null,
+    url: options.url ?? null,
+    title: options.title ?? null,
+    fact_type: factType,
+    privacy: options.privacy || "safe",
+    ...payload,
+  };
+}
+
+function browserFactFromMousemaxTarget(target, options = {}) {
+  if (!target || !target.center_css || !target.bbox_css) {
+    throw new Error("mousemax target is missing center_css or bbox_css");
+  }
+  const reason = options.reason || "mousemax_target";
+  const targetId = target.id ?? options.targetId ?? null;
+  return browserFactEnvelope(
+    "visual_object_seen",
+    {
+      reason,
+      node: null,
+      visual_object: {
+        object_id:
+          options.object_id ||
+          `mousemax:${targetId ?? "unknown"}:frame-${target.frame_id ?? "unknown"}`,
+        source: "mousemax_replay_target",
+        detector_source: target.source || null,
+        target_id: targetId,
+        frame_id: target.frame_id ?? null,
+        first_seen_ns: target.first_seen_ns ?? null,
+        last_seen_ns: target.last_seen_ns ?? null,
+        center_css: target.center_css,
+        bbox_css: target.bbox_css,
+        radius_css: target.radius_css ?? null,
+        confidence: target.confidence ?? null,
+        clicked: target.clicked ?? false,
+        game_area_css: options.game_area_css || null,
+      },
+    },
+    {
+      seq: options.seq,
+      t_ms:
+        options.t_ms ??
+        nsToMs(target.last_seen_ns ?? target.first_seen_ns ?? options.t_obs_ns ?? null),
+      url: options.url,
+      title: options.title || "MOUSEMAX replay",
+      privacy: "safe",
+    },
+  );
+}
+
 function installScript(options = {}) {
   const opts = {
     queueLimit: 2048,
@@ -612,6 +671,8 @@ function factTextCorpus(facts) {
 module.exports = {
   FACT_SCHEMA,
   FACT_STREAM_GLOBAL,
+  browserFactEnvelope,
+  browserFactFromMousemaxTarget,
   drainBrowserFacts,
   factTextCorpus,
   installBrowserFactStream,

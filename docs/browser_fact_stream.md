@@ -30,6 +30,7 @@ Implementation:
 ```text
 scripts/lib/browser_fact_stream.js
 scripts/probe_browser_fact_stream.js
+scripts/convert_mousemax_replay_to_facts.js
 test_pages/browser_fact_stream/index.html
 ```
 
@@ -158,6 +159,38 @@ old DOM rect detector / pixel detector / future Servo native hook
   -> visual_object_seen
   -> motor / replay / LLM-visible summary
 ```
+
+The first bridge is implemented for replay artifacts:
+
+```sh
+node scripts/convert_mousemax_replay_to_facts.js \
+  --replay runs/arena/run_1781294025/replay.jsonl \
+  --mode appeared \
+  --output-dir runs/browser_fact_stream/mousemax_1781528244
+```
+
+Evidence:
+
+```text
+runs/browser_fact_stream/mousemax_1781528244/report.json
+runs/browser_fact_stream/mousemax_1781528244/facts.jsonl
+```
+
+Summary:
+
+```text
+ok=true
+visual_object_seen=45
+facts_match_result_targets_seen=true
+skipped_outside_game_area=2
+detector_sources.DomRect=45
+```
+
+This proves an existing MOUSEMAX arena replay can be reduced to the same
+`visual_object_seen` facts that the new browser fact stream uses. The converter
+filters `tracker_appeared` targets through the frame `game_area_css`, matching
+the benchmark's `targets_seen` definition instead of blindly exporting every
+internal tracker appearance.
 
 ## Product Meaning
 

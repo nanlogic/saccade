@@ -108,6 +108,30 @@ visual_object_seen=2
 forbidden_value_leaks=[]
 ```
 
+MOUSEMAX replay adapter:
+
+```sh
+node scripts/convert_mousemax_replay_to_facts.js \
+  --replay runs/arena/run_1781294025/replay.jsonl \
+  --mode appeared \
+  --output-dir runs/browser_fact_stream/mousemax_1781528244
+```
+
+Latest passing replay conversion:
+
+```text
+runs/browser_fact_stream/mousemax_1781528244/report.json
+```
+
+Summary:
+
+```text
+ok=true
+visual_object_seen=45
+facts_match_result_targets_seen=true
+skipped_outside_game_area=2
+```
+
 ## Runtime
 
 Use the release ServoShell build for product/runtime evidence:
