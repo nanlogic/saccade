@@ -1185,6 +1185,13 @@ return (() => {
   const sensitiveRe = /(password|passcode|pwd|ssn|social|credit|card|cc-|cvv|cvc|otp|token|secret|passport|license|dob|birth|email|e-mail|phone|government|national|identity|tax|tin)/i;
   const visible = (el) => {
     if (!el || !el.getBoundingClientRect) return false;
+    for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
+      const cs = getComputedStyle(cur);
+      const classes = cur.classList ? Array.from(cur.classList) : [];
+      if (classes.some((name) => /^(hidden|is-hidden|visually-hidden|sr-only)$/.test(name))) return false;
+      if (cur.hidden || cur.getAttribute("aria-hidden") === "true") return false;
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse") return false;
+    }
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none" && r.bottom >= 0 && r.right >= 0 && r.top <= innerHeight && r.left <= innerWidth;
@@ -1323,6 +1330,13 @@ const FORMMAX_FIELD_TRUTH_JS: &str = r###"
 return (() => {
   const visible = (el) => {
     if (!el || !el.getBoundingClientRect) return false;
+    for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
+      const cs = getComputedStyle(cur);
+      const classes = cur.classList ? Array.from(cur.classList) : [];
+      if (classes.some((name) => /^(hidden|is-hidden|visually-hidden|sr-only)$/.test(name))) return false;
+      if (cur.hidden || cur.getAttribute("aria-hidden") === "true") return false;
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse") return false;
+    }
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";

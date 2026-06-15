@@ -130,6 +130,8 @@ If any of the following fail, Option B becomes justified:
   produced repeated `foster parenting not implemented` warnings during lazy
   rendering.
 - Local game probe:
-  `runs/servoshell_adapter/probe_1781482435257/report.json`
-- Local game screenshot default stayed blocked with decision
-  `blocked_forbidden_default`.
+  `runs/servoshell_adapter/probe_1781484941056/report.json`
+- Local game `http://127.0.0.1:4173/` loaded in official ServoShell with
+  title `Blend or Die - Prototype`, safe screenshot captured under
+  `guarded_diagnostic`, no sensitive surface, and no false visible DOM actions
+  from hidden overlays.

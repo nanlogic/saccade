@@ -507,3 +507,18 @@
   `tr.innerHTML`, because official ServoShell repeatedly warned
   `foster parenting not implemented` and the adapter timed out during lazy
   table rendering on the old fixture implementation.
+
+## DECISION_SERVOSHELL_009 - Local game smoke passes on official ServoShell
+
+- Ran the adapter against `http://127.0.0.1:4173/`.
+- Evidence:
+  `runs/servoshell_adapter/probe_1781484941056/report.json`.
+- The page loaded with title `Blend or Die - Prototype`, no sensitive surface,
+  and a guarded diagnostic screenshot at
+  `runs/servoshell_adapter/probe_1781484941056/screenshot.png`.
+- Tightened action-map visibility filtering to reject controls whose ancestors
+  have hidden-style classes such as `hidden`, `is-hidden`,
+  `visually-hidden`, or `sr-only`; this removed a false visible `Restart`
+  action from the game's hidden end-screen overlay.
+- Re-ran `saccade-servoshell selftest` and `formmax-selftest` after the change;
+  both passed.
