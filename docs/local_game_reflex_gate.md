@@ -230,6 +230,8 @@ Current evidence:
   facts, 177 `semantic_object_seen` facts, game `time_scale=0.993`,
   `fill_delta=16`, `drop_delta=18`, `hp_delta=0`, and dispatch p95
   `0.091 ms`.
+- Human-readable review page:
+  `runs/local_game_reflex/release_visual_gate_1781530639/review.html`.
 - Remaining limitation: the role classifier is still a heuristic local-game
   adapter. The next product step is to keep the Browser Fact Stream schema
   generic while allowing game-specific policy modules to consume the same

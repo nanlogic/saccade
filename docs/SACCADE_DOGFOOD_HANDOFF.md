@@ -95,6 +95,7 @@ For the local game reflex gate, the Saccade session should produce:
 - `replay.jsonl`,
 - `facts.jsonl`,
 - `semantic_facts.jsonl`,
+- `review.html`,
 - command receipts,
 - a short summary of `fill_delta`, `hp_delta`, `drop_delta`, command count,
   semantic fact count, and dispatch latency.

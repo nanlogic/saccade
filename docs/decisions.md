@@ -559,3 +559,20 @@
   `time_scale=0.993`, and dispatch p95 `0.091 ms`.
 - Added `docs/SACCADE_DOGFOOD_HANDOFF.md` so the game-building session can
   continue iterating while Saccade owns browser/reflex/safety failures.
+
+## DECISION_REFLEX_003 - Local game runs have a review-page artifact
+
+- Added `scripts/build_local_game_reflex_review.js`.
+- The script reads a local game reflex run directory and writes `review.html`
+  from `report.json`, `replay.jsonl`, `commands.jsonl`, and
+  `semantic_facts.jsonl`.
+- The page surfaces the pass/fail verdict, fill/HP/drop deltas, time scale,
+  dispatch/readback timing, Browser Fact Stream counts, semantic role/palette
+  counts, a compact timeline, and an SVG map of recent semantic objects and
+  drag commands.
+- Generated review:
+  `runs/local_game_reflex/release_visual_gate_1781530639/review.html`.
+- Static verification found the expected PASS status, `Fill Delta`,
+  `Semantic Facts`, `0.091 ms`, and the fact/motor map in the generated HTML.
+- Codex Browser refused direct `file://` navigation to the local report under
+  its URL policy, so visual verification used static page checks only.
