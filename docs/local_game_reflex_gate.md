@@ -64,6 +64,12 @@ runs/servoshell_adapter/probe_1781484941056/report.json
 runs/servoshell_adapter/probe_1781484941056/screenshot.png
 ```
 
+Fast-path audit:
+
+```text
+docs/reflex_bridge_audit.md
+```
+
 ### R1: Input Ownership Gate
 
 Status: pending.
