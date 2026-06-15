@@ -202,11 +202,12 @@ Current evidence:
   interface:
   `docs/browser_fact_stream.md`.
 - Current fact stream evidence:
-  `runs/browser_fact_stream/facts_release_1781527171/report.json`.
-- It detects new nodes, actionable controls, sensitive fields, and canvas
-  surfaces with redaction. It does not yet detect canvas-internal fruit/enemy/drop
-  positions; that should arrive as `visual_object_seen` facts from crop/pixel,
-  canvas-observe, or Servo native emitters.
+  `runs/browser_fact_stream/facts_visual_1781527623/report.json`.
+- It detects new nodes, actionable controls, sensitive fields, canvas surfaces,
+  and fixture-grade canvas `visual_object_seen` facts with redaction. It does
+  not yet classify local-game fruit/enemy/drop semantics; that should arrive by
+  adapting crop/pixel, canvas-observe, or Servo native emitters to the same
+  `visual_object_seen` schema.
 
 Local game v0 pass:
 

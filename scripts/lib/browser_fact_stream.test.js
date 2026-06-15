@@ -1,4 +1,7 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -6,12 +9,18 @@ const {
   factTextCorpus,
   installScript,
   summarizeFacts,
+  writeFactsJsonl,
 } = require("./browser_fact_stream");
 
 test("installScript includes the fact schema and options", () => {
-  const script = installScript({ allowCanvasDebugValues: false, textLimit: 80 });
+  const script = installScript({
+    allowCanvasDebugValues: false,
+    allowCanvasPixelRead: true,
+    textLimit: 80,
+  });
   assert.match(script, new RegExp(FACT_SCHEMA.replaceAll(".", "\\.")));
   assert.match(script, /allowCanvasDebugValues/);
+  assert.match(script, /allowCanvasPixelRead/);
 });
 
 test("summarizeFacts counts generic browser fact categories", () => {
@@ -44,19 +53,43 @@ test("summarizeFacts counts generic browser fact categories", () => {
       privacy: "safe",
       node: {},
     },
+    {
+      kind: "browser_fact",
+      seq: 5,
+      fact_type: "visual_object_seen",
+      privacy: "safe",
+      node: {},
+      visual_object: { source: "canvas_pixel_probe" },
+    },
   ]);
 
-  assert.equal(summary.count, 4);
-  assert.equal(summary.max_seq, 4);
+  assert.equal(summary.count, 5);
+  assert.equal(summary.max_seq, 5);
   assert.equal(summary.by_type.node_seen, 1);
   assert.equal(summary.actionable, 1);
   assert.equal(summary.sensitive, 1);
   assert.equal(summary.redacted, 1);
   assert.equal(summary.canvas, 1);
+  assert.equal(summary.visual_objects, 1);
 });
 
 test("factTextCorpus exposes accidental raw-value leaks to checks", () => {
   const corpus = factTextCorpus([{ node: { text: "SSN", value_state: "completed_without_value" } }]);
   assert.equal(corpus.includes("123-45-6789"), false);
   assert.equal(corpus.includes("completed_without_value"), true);
+});
+
+test("writeFactsJsonl writes real newline-delimited JSON", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "saccade-facts-"));
+  const file = path.join(dir, "facts.jsonl");
+  await writeFactsJsonl(file, [{ seq: 1 }, { seq: 2 }]);
+  const text = await fs.readFile(file, "utf8");
+  assert.equal(text, '{"seq":1}\n{"seq":2}\n');
+  assert.deepEqual(
+    text
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+    [{ seq: 1 }, { seq: 2 }],
+  );
 });

@@ -6,6 +6,7 @@ const {
   drainBrowserFacts,
   factTextCorpus,
   installBrowserFactStream,
+  sampleBrowserVisualObjects,
   summarizeFacts,
   writeFactsJsonl,
 } = require("./lib/browser_fact_stream");
@@ -87,6 +88,7 @@ async function main() {
   let installResult = null;
   let initialFacts = [];
   let mutationFacts = [];
+  let visualSampleResult = null;
   let ok = false;
 
   try {
@@ -94,6 +96,7 @@ async function main() {
     await bridge.open(args.url);
     installResult = await installBrowserFactStream(bridge, {
       allowCanvasDebugValues: false,
+      allowCanvasPixelRead: true,
       textLimit: 140,
     });
     await sleep(150);
@@ -101,6 +104,7 @@ async function main() {
     await writeFactsJsonl(factsPath, initialFacts);
 
     await triggerFixtureMutations(bridge);
+    visualSampleResult = await sampleBrowserVisualObjects(bridge, "fixture_visual_sample");
     await sleep(250);
     mutationFacts = await drainBrowserFacts(bridge, 500);
     await writeFactsJsonl(factsPath, mutationFacts);
@@ -120,19 +124,28 @@ async function main() {
   const hasSensitive = facts.some((fact) => fact.fact_type === "sensitive_field_seen");
   const hasCanvas = facts.some((fact) => fact.fact_type === "canvas_seen");
   const hasActionable = facts.some((fact) => fact.fact_type === "actionable_seen");
-  ok = hasChildAdded && hasSensitive && hasCanvas && hasActionable && forbidden.length === 0;
+  const hasVisualObject = facts.some((fact) => fact.fact_type === "visual_object_seen");
+  ok =
+    hasChildAdded &&
+    hasSensitive &&
+    hasCanvas &&
+    hasActionable &&
+    hasVisualObject &&
+    forbidden.length === 0;
 
   const report = {
     ok,
     args,
     facts_path: factsPath,
     install_result: installResult,
+    visual_sample_result: visualSampleResult,
     summary,
     checks: {
       has_child_added: hasChildAdded,
       has_sensitive: hasSensitive,
       has_canvas: hasCanvas,
       has_actionable: hasActionable,
+      has_visual_object: hasVisualObject,
       forbidden_value_leaks: forbidden,
     },
     samples: {

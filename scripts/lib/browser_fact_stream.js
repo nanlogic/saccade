@@ -8,6 +8,12 @@ function installScript(options = {}) {
     queueLimit: 2048,
     textLimit: 160,
     allowCanvasDebugValues: false,
+    allowCanvasPixelRead: false,
+    canvasMaxSamplePixels: 160000,
+    visualColorDistanceThreshold: 48,
+    visualMinAreaPx: 20,
+    visualMaxAreaFraction: 0.65,
+    visualMaxObjectsPerCanvas: 32,
     ...options,
   };
 
@@ -24,6 +30,7 @@ function installScript(options = {}) {
     let nodeSeq = 0;
     const nodeIds = new WeakMap();
     const lastSignatures = new Map();
+    const lastVisualSignatures = new Map();
 
     function nowMs() {
       return Math.round(performance.now());
@@ -217,6 +224,232 @@ function installScript(options = {}) {
       return payload;
     }
 
+    function colorDistance(a, b) {
+      const dr = a[0] - b[0];
+      const dg = a[1] - b[1];
+      const db = a[2] - b[2];
+      return Math.sqrt(dr * dr + dg * dg + db * db);
+    }
+
+    function sampledStep(width, height) {
+      const maxPixels = Math.max(1, Number(OPTIONS.canvasMaxSamplePixels) || 160000);
+      return Math.max(1, Math.ceil(Math.sqrt((width * height) / maxPixels)));
+    }
+
+    function backgroundColor(data, width, height, step) {
+      const sum = [0, 0, 0];
+      let count = 0;
+      const add = (x, y) => {
+        const i = (y * width + x) * 4;
+        if (data[i + 3] === 0) return;
+        sum[0] += data[i];
+        sum[1] += data[i + 1];
+        sum[2] += data[i + 2];
+        count += 1;
+      };
+      for (let x = 0; x < width; x += step) {
+        add(x, 0);
+        add(x, height - 1);
+      }
+      for (let y = 0; y < height; y += step) {
+        add(0, y);
+        add(width - 1, y);
+      }
+      if (!count) return [0, 0, 0];
+      return [sum[0] / count, sum[1] / count, sum[2] / count];
+    }
+
+    function canvasVisualObjects(el, summary) {
+      if (!OPTIONS.allowCanvasPixelRead) {
+        return { objects: [], skipped: "canvas_pixel_read_disabled" };
+      }
+      if (!(el instanceof HTMLCanvasElement)) {
+        return { objects: [], skipped: "not_canvas" };
+      }
+
+      const width = Number(el.width || 0);
+      const height = Number(el.height || 0);
+      if (width <= 0 || height <= 0) {
+        return { objects: [], skipped: "empty_canvas" };
+      }
+
+      let ctx;
+      try {
+        ctx = el.getContext("2d", { willReadFrequently: true });
+      } catch (error) {
+        return { objects: [], skipped: "context_error", error: String(error).slice(0, 120) };
+      }
+      if (!ctx) {
+        return { objects: [], skipped: "no_2d_context" };
+      }
+
+      let image;
+      try {
+        image = ctx.getImageData(0, 0, width, height);
+      } catch (error) {
+        return { objects: [], skipped: "read_error", error: String(error).slice(0, 120) };
+      }
+
+      const step = sampledStep(width, height);
+      const sampleW = Math.ceil(width / step);
+      const sampleH = Math.ceil(height / step);
+      const visited = new Uint8Array(sampleW * sampleH);
+      const bg = backgroundColor(image.data, width, height, step);
+      const threshold = Math.max(1, Number(OPTIONS.visualColorDistanceThreshold) || 48);
+      const minAreaPx = Math.max(1, Number(OPTIONS.visualMinAreaPx) || 20);
+      const maxAreaPx = width * height * Math.max(0.01, Number(OPTIONS.visualMaxAreaFraction) || 0.65);
+      const rect = summary.rect;
+      const objects = [];
+
+      const isForeground = (sx, sy) => {
+        const x = Math.min(width - 1, sx * step);
+        const y = Math.min(height - 1, sy * step);
+        const i = (y * width + x) * 4;
+        if (image.data[i + 3] === 0) return false;
+        return colorDistance([image.data[i], image.data[i + 1], image.data[i + 2]], bg) >= threshold;
+      };
+
+      for (let sy = 0; sy < sampleH; sy += 1) {
+        for (let sx = 0; sx < sampleW; sx += 1) {
+          const startIndex = sy * sampleW + sx;
+          if (visited[startIndex] || !isForeground(sx, sy)) {
+            visited[startIndex] = 1;
+            continue;
+          }
+
+          const stack = [[sx, sy]];
+          visited[startIndex] = 1;
+          let count = 0;
+          let minX = sx;
+          let maxX = sx;
+          let minY = sy;
+          let maxY = sy;
+          let sumX = 0;
+          let sumY = 0;
+          let sumR = 0;
+          let sumG = 0;
+          let sumB = 0;
+
+          while (stack.length) {
+            const [cx, cy] = stack.pop();
+            const px = Math.min(width - 1, cx * step);
+            const py = Math.min(height - 1, cy * step);
+            const pi = (py * width + px) * 4;
+            count += 1;
+            minX = Math.min(minX, cx);
+            maxX = Math.max(maxX, cx);
+            minY = Math.min(minY, cy);
+            maxY = Math.max(maxY, cy);
+            sumX += px;
+            sumY += py;
+            sumR += image.data[pi];
+            sumG += image.data[pi + 1];
+            sumB += image.data[pi + 2];
+
+            for (const [nx, ny] of [
+              [cx - 1, cy],
+              [cx + 1, cy],
+              [cx, cy - 1],
+              [cx, cy + 1],
+            ]) {
+              if (nx < 0 || ny < 0 || nx >= sampleW || ny >= sampleH) continue;
+              const ni = ny * sampleW + nx;
+              if (visited[ni]) continue;
+              visited[ni] = 1;
+              if (isForeground(nx, ny)) stack.push([nx, ny]);
+            }
+          }
+
+          const areaPx = count * step * step;
+          if (areaPx < minAreaPx || areaPx > maxAreaPx) continue;
+
+          const x0 = minX * step;
+          const y0 = minY * step;
+          const x1 = Math.min(width, (maxX + 1) * step);
+          const y1 = Math.min(height, (maxY + 1) * step);
+          const centerCanvas = { x: sumX / count, y: sumY / count };
+          const bboxCanvas = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+          const centerCss = {
+            x: Math.round((rect.x + (centerCanvas.x / width) * rect.w) * 100) / 100,
+            y: Math.round((rect.y + (centerCanvas.y / height) * rect.h) * 100) / 100,
+          };
+          const bboxCss = {
+            x: Math.round((rect.x + (bboxCanvas.x / width) * rect.w) * 100) / 100,
+            y: Math.round((rect.y + (bboxCanvas.y / height) * rect.h) * 100) / 100,
+            w: Math.round(((bboxCanvas.w / width) * rect.w) * 100) / 100,
+            h: Math.round(((bboxCanvas.h / height) * rect.h) * 100) / 100,
+          };
+
+          objects.push({
+            source: "canvas_pixel_probe",
+            canvas_node_id: summary.node_id,
+            center_canvas_px: {
+              x: Math.round(centerCanvas.x * 100) / 100,
+              y: Math.round(centerCanvas.y * 100) / 100,
+            },
+            bbox_canvas_px: bboxCanvas,
+            center_css: centerCss,
+            bbox_css: bboxCss,
+            area_px: Math.round(areaPx),
+            avg_rgba: [
+              Math.round(sumR / count),
+              Math.round(sumG / count),
+              Math.round(sumB / count),
+              255,
+            ],
+            confidence: Math.min(1, Math.max(0.2, areaPx / Math.max(minAreaPx, 1))),
+          });
+        }
+      }
+
+      objects.sort((a, b) => b.area_px - a.area_px || a.center_canvas_px.x - b.center_canvas_px.x);
+      return {
+        objects: objects.slice(0, Math.max(1, Number(OPTIONS.visualMaxObjectsPerCanvas) || 32)),
+        sample: {
+          width,
+          height,
+          step,
+          background_rgb: bg.map((value) => Math.round(value)),
+          threshold,
+        },
+      };
+    }
+
+    function sampleCanvasVisualObjects(reason = "visual_sample") {
+      const enqueued = [];
+      for (const el of document.querySelectorAll("canvas")) {
+        const summary = elementSummary(el);
+        if (!summary.visible) continue;
+        const result = canvasVisualObjects(el, summary);
+        const signature = JSON.stringify(result.objects.map((object) => ({
+          c: object.center_canvas_px,
+          b: object.bbox_canvas_px,
+          a: object.area_px,
+          rgb: object.avg_rgba,
+        })));
+        const previous = lastVisualSignatures.get(summary.node_id);
+        if (previous === signature && reason !== "force") continue;
+        lastVisualSignatures.set(summary.node_id, signature);
+        result.objects.forEach((object, index) => {
+          const fact = enqueue("visual_object_seen", {
+            reason,
+            node: summary,
+            visual_object: {
+              object_id: summary.node_id + ":visual-" + index,
+              ...object,
+            },
+            visual_sample: result.sample || null,
+          }, "safe");
+          enqueued.push(fact);
+        });
+      }
+      return {
+        schema: SCHEMA,
+        enqueued: enqueued.length,
+        objects: enqueued.map((fact) => fact.visual_object),
+      };
+    }
+
     function scanElement(el, reason = "scan") {
       if (!(el instanceof Element)) return;
       const summary = elementSummary(el);
@@ -300,7 +533,11 @@ function installScript(options = {}) {
       },
       snapshot() {
         scanTree(document.body || document.documentElement, "snapshot");
+        if (OPTIONS.allowCanvasPixelRead) sampleCanvasVisualObjects("snapshot");
         return { schema: SCHEMA, seq, queued: queue.length };
+      },
+      sampleVisualObjects(reason = "visual_sample") {
+        return sampleCanvasVisualObjects(reason);
       },
       stop() {
         observer.disconnect();
@@ -328,12 +565,19 @@ async function snapshotBrowserFacts(bridge) {
   );
 }
 
+async function sampleBrowserVisualObjects(bridge, reason = "visual_sample") {
+  return await bridge.execute(
+    `return window.${FACT_STREAM_GLOBAL} ? window.${FACT_STREAM_GLOBAL}.sampleVisualObjects(${JSON.stringify(reason)}) : null;`,
+  );
+}
+
 function summarizeFacts(facts) {
   const byType = {};
   let actionable = 0;
   let sensitive = 0;
   let redacted = 0;
   let canvas = 0;
+  let visualObjects = 0;
   let maxSeq = 0;
   for (const fact of facts) {
     byType[fact.fact_type] = (byType[fact.fact_type] || 0) + 1;
@@ -341,6 +585,7 @@ function summarizeFacts(facts) {
     if (fact.node?.sensitivity || fact.fact_type === "sensitive_field_seen") sensitive += 1;
     if (fact.privacy === "redacted" || fact.node?.value_redacted) redacted += 1;
     if (fact.fact_type === "canvas_seen") canvas += 1;
+    if (fact.fact_type === "visual_object_seen") visualObjects += 1;
     if (Number.isFinite(fact.seq)) maxSeq = Math.max(maxSeq, fact.seq);
   }
   return {
@@ -351,12 +596,13 @@ function summarizeFacts(facts) {
     sensitive,
     redacted,
     canvas,
+    visual_objects: visualObjects,
   };
 }
 
 async function writeFactsJsonl(filePath, facts) {
   if (!facts.length) return;
-  await fs.appendFile(filePath, facts.map((fact) => JSON.stringify(fact)).join("\\n") + "\\n");
+  await fs.appendFile(filePath, facts.map((fact) => JSON.stringify(fact)).join("\n") + "\n");
 }
 
 function factTextCorpus(facts) {
@@ -370,6 +616,7 @@ module.exports = {
   factTextCorpus,
   installBrowserFactStream,
   installScript,
+  sampleBrowserVisualObjects,
   snapshotBrowserFacts,
   summarizeFacts,
   writeFactsJsonl,

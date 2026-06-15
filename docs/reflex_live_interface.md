@@ -74,9 +74,10 @@ docs/browser_fact_stream.md
 ```
 
 The stream emits `saccade.browser_fact.v0` records for visible nodes,
-actionable controls, sensitive fields, and canvas surfaces. It is intentionally
-source-neutral: the current emitter is an observe-only JS adapter, while future
-Servo native layout/canvas/frame hooks should emit the same schema.
+actionable controls, sensitive fields, canvas surfaces, and optional
+`visual_object_seen` facts. It is intentionally source-neutral: the current
+emitter is an observe-only JS adapter with explicit canvas pixel sampling, while
+future Servo native layout/canvas/frame hooks should emit the same schema.
 
 Probe:
 
@@ -85,24 +86,25 @@ node scripts/probe_browser_fact_stream.js \
   --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
   --headless \
   --window-size 1024x740 \
-  --output-dir runs/browser_fact_stream/facts_release_1781527171
+  --output-dir runs/browser_fact_stream/facts_visual_1781527623
 ```
 
 Latest passing run:
 
 ```text
-runs/browser_fact_stream/facts_release_1781527171/report.json
+runs/browser_fact_stream/facts_visual_1781527623/report.json
 ```
 
 Summary:
 
 ```text
 ok=true
-facts=31
+facts=33
 node_seen=16
 actionable_seen=7
 canvas_seen=2
 sensitive_field_seen=6
+visual_object_seen=2
 forbidden_value_leaks=[]
 ```
 
