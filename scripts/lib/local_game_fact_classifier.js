@@ -54,10 +54,88 @@ function shapeFeatures(object) {
   return { w, h, area, maxDim, minDim, aspect };
 }
 
+function visualObjectRole(object, palette, shape) {
+  const bbox = object?.bbox_css || {};
+  const center = object?.center_css || {};
+  const y = Number(center.y || 0);
+  const x = Number(center.x || 0);
+
+  if (y > 0 && y < 72) {
+    return {
+      role: "ui",
+      confidence: 0.75,
+      reasons: ["top_hud_band"],
+    };
+  }
+
+  const nearPlayerCenter = x >= 520 && x <= 760 && y >= 220 && y <= 440;
+  const thinVertical = shape.h >= 28 && shape.w <= 14 && shape.aspect >= 2.5;
+  if ((palette.name === "red" || palette.name === "melon") && nearPlayerCenter && thinVertical) {
+    return {
+      role: "player",
+      confidence: 0.82,
+      reasons: ["thin_red_center_straw"],
+    };
+  }
+  if (palette.name === "glass" && nearPlayerCenter && shape.maxDim >= 18) {
+    return {
+      role: "player",
+      confidence: 0.65,
+      reasons: ["center_glass_component"],
+    };
+  }
+
+  if (shape.maxDim >= 70 && ["red", "melon", "green"].includes(palette.name)) {
+    return {
+      role: "hazard",
+      confidence: 0.72,
+      reasons: ["large_warning_or_boss_component"],
+    };
+  }
+
+  const rgb = rgbFromVisualObject(object);
+  const brightDropCluster =
+    ["red", "melon", "yellow"].includes(palette.name) &&
+    rgb.r >= 225 &&
+    shape.area <= 1500 &&
+    shape.maxDim <= 36;
+  if ((shape.area >= 55 && shape.area <= 1000 && shape.maxDim <= 36 && ["red", "blue", "yellow", "melon", "green"].includes(palette.name)) || brightDropCluster) {
+    const projectileLike = shape.aspect >= 2.2;
+    return {
+      role: projectileLike ? "projectile_or_particle" : "drop",
+      confidence: projectileLike ? 0.56 : 0.62,
+      reasons: [projectileLike ? "small_elongated_palette_component" : "small_round_palette_component"],
+    };
+  }
+
+  if (shape.area >= 1100 && shape.maxDim >= 20 && ["red", "blue", "yellow", "melon", "green"].includes(palette.name)) {
+    return {
+      role: "enemy",
+      confidence: 0.72,
+      reasons: ["fruit_sized_actor_component"],
+    };
+  }
+
+  if (palette.name === "ink" && shape.area < 700) {
+    return {
+      role: "detail",
+      confidence: 0.45,
+      reasons: ["small_dark_detail"],
+    };
+  }
+
+  return {
+    role: "unknown",
+    confidence: 0.25,
+    reasons: [],
+  };
+}
+
 function classForVisualObject(object) {
   const rgb = rgbFromVisualObject(object);
   const palette = nearestPaletteColor(rgb);
   const shape = shapeFeatures(object);
+  const role = visualObjectRole(object, palette, shape);
   const reasons = [];
   let label = "unknown_visual_object";
   let confidence = Math.max(0.2, palette.confidence * 0.55);
@@ -110,6 +188,11 @@ function classForVisualObject(object) {
     label,
     confidence: Math.round(clamp01(confidence) * 1000) / 1000,
     palette,
+    role: {
+      name: role.role,
+      confidence: Math.round(clamp01(role.confidence) * 1000) / 1000,
+      reasons: role.reasons,
+    },
     shape,
     reasons,
   };
@@ -154,17 +237,21 @@ function classifyLocalGameFacts(facts, options = {}) {
 function summarizeSemanticFacts(facts) {
   const byLabel = {};
   const byPalette = {};
+  const byRole = {};
   for (const fact of facts) {
     const label = fact.semantic?.label || "unknown";
     const palette = fact.semantic?.palette?.name || "unknown";
+    const role = fact.semantic?.role?.name || "unknown";
     byLabel[label] = (byLabel[label] || 0) + 1;
     byPalette[palette] = (byPalette[palette] || 0) + 1;
+    byRole[role] = (byRole[role] || 0) + 1;
   }
   return {
     count: facts.length,
     schema: FACT_SCHEMA,
     by_label: byLabel,
     by_palette: byPalette,
+    by_role: byRole,
   };
 }
 
@@ -175,4 +262,5 @@ module.exports = {
   nearestPaletteColor,
   semanticFactFromVisualFact,
   summarizeSemanticFacts,
+  visualObjectRole,
 };
