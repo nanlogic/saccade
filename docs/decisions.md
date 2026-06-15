@@ -522,3 +522,22 @@
   action from the game's hidden end-screen overlay.
 - Re-ran `saccade-servoshell selftest` and `formmax-selftest` after the change;
   both passed.
+
+## DECISION_REFLEX_001 - Local game reflex is the current kill gate
+
+- The project goal is not ServoShell plus WebDriver automation. It is a
+  human-visible browser with Saccade's millisecond agent truth/control path.
+- WebDriver remains useful for product/safety gates such as FORMMAX and login
+  handoff, but it is not accepted as the MOUSEMAX/local-game reflex runtime.
+- The launch-critical target is now documented in
+  `docs/local_game_reflex_gate.md`: an LLM can play our designed browser game
+  by delegating the frame loop to a local Saccade reflex runtime.
+- The LLM must not think on every frame. It sets strategy; the local reflex loop
+  owns frame truth, detection, motor decision, input dispatch, verification, and
+  replay.
+- General product truth remains redacted DOM/layout/action/form truth without
+  screenshots by default. Pixel/frame truth is allowed only for explicitly
+  non-sensitive reflex modes such as local games and benchmarks.
+- If official ServoShell cannot expose ms-level frame truth and input control
+  externally, the next move is a thin in-process ServoShell bridge, not more
+  WebDriver glue.

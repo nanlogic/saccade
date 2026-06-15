@@ -85,8 +85,13 @@ Observed capabilities:
 - The local game page is reachable through official ServoShell WebDriver and
   reports title `Blend or Die - Prototype`.
 
-Decision from S1 and external review: implement Route A first. Forking official
-ServoShell source is the safety fallback, not the next immediate step.
+Decision from S1 and external review: implement Route A first for product and
+safety gates. Forking official ServoShell source remains the fallback for
+trusted UI, screenshot policy, login handoff, input provenance, and now the
+local-game/MOUSEMAX reflex gate.
+
+Update: Route A is not accepted as the final reflex runtime. It is too close to
+ordinary WebDriver/Playwright automation for the millisecond game demo.
 
 Review packet for external architecture review:
 
@@ -149,10 +154,11 @@ Implementation sequence:
    - replay record.
 5. Optional DevTools only for diagnostics, not action/safety authority.
 
-### S4: Source Integration Fallback
+### S4: Source Integration / Reflex Bridge
 
-If S3 fails a concrete Saccade safety/product gate, clone/build official Servo
-source and add the Saccade bridge inside ServoShell:
+If S3 fails a concrete Saccade safety/product gate, or if it cannot meet the
+local-game reflex gate, clone/build official Servo source and add the Saccade
+bridge inside ServoShell:
 
 - keep ServoShell UI/runtime intact,
 - add Saccade command server as a small sidecar module,
@@ -166,6 +172,8 @@ Fork trigger examples:
 - login handoff cannot be made safe externally,
 - manual/agent input provenance must be enforced in-process,
 - WebDriver action semantics diverge from required native input behavior.
+- WebDriver cannot provide ms-level frame truth and input control for local
+  games/MOUSEMAX.
 
 ### S5: Product Gate
 
