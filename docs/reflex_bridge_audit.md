@@ -160,7 +160,7 @@ Do not call `WebView::take_screenshot()` in the reflex hot path.
 - R0 Browser Render Gate: pass with official ServoShell on
   `http://127.0.0.1:4173/`.
 - R1 Input Ownership Gate: partial pass on fixture. The in-process bridge can
-  dispatch a Servo input click that changes page DOM state; local game
+  dispatch Servo input that changes page DOM state and moves the local game;
   detector/motor ownership is still pending.
 - R2 Frame Truth Gate: partial pass. The official ServoShell source bridge now
   captures observe-only repaint frames with `RenderingContext::read_to_image`.
@@ -267,6 +267,57 @@ post_status="Agent action verified in the same browser session."
 This proves fixture-level input ownership through the same Servo internal input
 pipeline the reflex runtime needs. It does not yet prove closed-loop game play:
 the click is still fixed by env vars, not produced by detector and motor logic.
+
+## Local Game Drag Evidence - 2026-06-14
+
+ServoShell bridge change under test:
+
+```text
+SACCADE_REFLEX_TEST_DRAG=x0,y0:x1,y1
+SACCADE_REFLEX_TEST_DRAG_FRAME=N
+SACCADE_REFLEX_TEST_DRAG_FRAMES=M
+```
+
+The bridge sends a held pointer-style drag through `WebView::notify_input_event`
+from the repaint path:
+
+```text
+MouseMove(start) -> MouseButton Down(start) -> MouseMove(...) per frame -> MouseButton Up(end)
+```
+
+Target:
+
+```text
+http://127.0.0.1:4173/
+```
+
+Evidence:
+
+```text
+runs/reflex_input/game_drag_1781489118629_fast/frames.jsonl
+```
+
+Result:
+
+```text
+drag=512,370:900,370
+drag_frame=3
+drag_frames=5
+drag_events=6
+frame_logs=31
+readback_ok=31/31
+camera.x 691 -> 724
+mode=running
+dispatch_ns min=45417 max=249417
+dropped_logs=0
+```
+
+This proves the official ServoShell bridge can move the local game through
+internal browser input. The run also showed the current headless ServoShell path
+is slow on this machine under the GL warning: the game's visible time advanced
+to only about `0.9 s` across roughly `5.5 s` of wall time. Treat this as an
+environment/performance issue for the local-game product gate, not an input
+ownership failure.
 
 ## Verification Notes
 

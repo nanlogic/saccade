@@ -72,7 +72,7 @@ docs/reflex_bridge_audit.md
 
 ### R1: Input Ownership Gate
 
-Status: partial pass on fixture.
+Status: partial pass on fixture and local game.
 
 Required evidence:
 
@@ -98,11 +98,22 @@ Current evidence:
   `Agent action verified in the same browser session.`
 - Dispatch timing from bridge log:
   `dispatch_ns=343125` (`0.343 ms`), `dropped_logs=0`.
+- The bridge also dispatched an env-gated drag gesture through the same input
+  path against `http://127.0.0.1:4173/`.
+- Game drag evidence:
+  `runs/reflex_input/game_drag_1781489118629_fast/frames.jsonl`.
+- During that run, the game's public local debug state showed camera movement:
+  `camera.x` changed from `691` to `724` while the game stayed in
+  `mode="running"`.
+- Drag timing from bridge log:
+  6 internal drag events, `dispatch_ns` min `45417`, max `249417`,
+  `dropped_logs=0`.
+- Frame truth for the same run:
+  31 frame logs, 31 `readback_ok=true`.
 
 Remaining R1 work:
 
 - Replace the fixed fixture click with detector/motor-owned local game input.
-- Prove player/game state changes in `http://127.0.0.1:4173/`.
 - Record replay timestamps for observe, decision, dispatch, and verification.
 
 ### R2: Frame Truth Gate
