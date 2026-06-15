@@ -15,18 +15,18 @@ official ServoShell runtime.
 
 | Gate | Existing status on old Saccade path | Needed on official ServoShell adapter |
 | --- | --- | --- |
-| Browser session smoke | pass | rerun via WebDriver adapter |
-| Redacted truth/action map | pass | port JS bundle and rerun |
+| Browser session smoke | pass | pass via `saccade-servoshell selftest` |
+| Redacted truth/action map | pass | first adapter bundle pass via `saccade-servoshell` |
 | Safe field policy | pass | rerun with WebDriver truth/action extraction |
-| Safety redaction | pass | rerun; screenshots default forbidden |
+| Safety redaction | pass | first screenshot/redaction gate pass via `saccade-servoshell selftest` |
 | Login handoff | pass | rerun or decide it requires fork |
 | FORMMAX live fill | pass | rerun via WebDriver adapter |
 | Focused typing | pass | rerun via WebDriver keys/actions |
 | Native dropdown/input | pass on embedded Servo | rerun; WebDriver may differ from native path |
 | Replay artifacts | pass | same schema through adapter |
-| Local game | old path problematic; official app manually ok | adapter must produce usable low-risk evidence |
-| Screenshot policy | partial | new hard gate: preflight before screenshot |
-| Isolation | partial | new hard gate: random loopback port, fresh profile, clean teardown |
+| Local game | old path problematic; official app manually ok | basic redacted truth pass on `http://127.0.0.1:4173/` |
+| Screenshot policy | partial | pass for forbidden default + guarded sensitive preflight |
+| Isolation | partial | first pass: random loopback port, temporary storage, clean teardown |
 | Upgradeability | not tested | adapter must work on pinned official app and one newer build/nightly |
 
 ## Minimal Pass Set For Option A
@@ -96,9 +96,25 @@ If any of the following fail, Option B becomes justified:
 
 ## Immediate Implementation Queue
 
-1. Build the WebDriver adapter smoke around `scripts/probe_servoshell_webdriver.py`.
-2. Port the existing browser-session truth/action-map JS into one versioned JS
+1. DONE: Build the first Rust WebDriver adapter smoke around official
+   ServoShell: `cargo run -q -p saccade-servoshell -- selftest`.
+2. DONE: Port a first redacted browser-session truth/action-map JS into a versioned JS
    bundle.
-3. Add screenshot policy modes before using WebDriver screenshot in normal runs.
+3. DONE: Add screenshot policy modes before using WebDriver screenshot in
+   normal runs.
 4. Re-run the existing local safety and FORMMAX fixtures through the adapter.
-5. Decide whether login handoff is externally safe or needs the thin fork.
+5. Re-run focused typing and dropdown/input fixtures through the adapter.
+6. Decide whether login handoff is externally safe or needs the thin fork.
+
+## Latest Evidence
+
+- Adapter selftest:
+  `runs/servoshell_adapter/adapter_1781482592445/summary.json`
+- Normal page: action dispatch changed `data-session-revision` from `0` to
+  `1`, guarded diagnostic screenshot captured after preflight.
+- Sensitive page: 3 sensitive fields detected, screenshot blocked before
+  capture, raw SSN/card/password leak check passed.
+- Local game probe:
+  `runs/servoshell_adapter/probe_1781482435257/report.json`
+- Local game screenshot default stayed blocked with decision
+  `blocked_forbidden_default`.

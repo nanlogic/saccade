@@ -459,3 +459,20 @@
 - Added dogfood browser handling for hardware mouse Back/Forward buttons.
 - Back/Forward side-button presses now call the same browser history helpers as `Cmd+[` and `Cmd+]` instead of being forwarded as ordinary page mouse events.
 - Visible clickable toolbar buttons are still pending, but users with hardware side buttons can now navigate history without keyboard shortcuts.
+
+## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
+
+- Added `bins/saccade-servoshell` as the first product-gate adapter over
+  official ServoShell's WebDriver server.
+- The adapter does not import or upgrade the `servo` crate; it launches the
+  installed `/Applications/Servo.app/Contents/MacOS/servoshell` binary with a
+  random `127.0.0.1` WebDriver port and `--temporary-storage`.
+- Screenshot policy is explicit: `forbidden` by default, and
+  `guarded_diagnostic` only captures after the redacted truth preflight reports
+  no visible sensitive surface.
+- First gate command passed:
+  `cargo run -q -p saccade-servoshell -- selftest --servoshell /Applications/Servo.app/Contents/MacOS/servoshell`.
+- Evidence:
+  `runs/servoshell_adapter/adapter_1781482592445/summary.json`.
+- Local game truth probe also passed without screenshot capture:
+  `runs/servoshell_adapter/probe_1781482435257/report.json`.
