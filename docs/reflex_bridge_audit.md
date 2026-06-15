@@ -159,7 +159,9 @@ Do not call `WebView::take_screenshot()` in the reflex hot path.
 
 - R0 Browser Render Gate: pass with official ServoShell on
   `http://127.0.0.1:4173/`.
-- R1 Input Ownership Gate: blocked for WebDriver, pending for in-process bridge.
+- R1 Input Ownership Gate: partial pass on fixture. The in-process bridge can
+  dispatch a Servo input click that changes page DOM state; local game
+  detector/motor ownership is still pending.
 - R2 Frame Truth Gate: partial pass. The official ServoShell source bridge now
   captures observe-only repaint frames with `RenderingContext::read_to_image`.
   The required final shape is still the old `FrameObservation`, not a full-page
@@ -223,6 +225,48 @@ readback_ms p50=5.55 p95=7.05 max=7.86
 This proves the official ServoShell 0.3 source path can expose non-screenshot
 frame truth from the repaint path. It does not yet prove input ownership or
 closed-loop game play.
+
+## Input Evidence - 2026-06-14
+
+ServoShell bridge change under test:
+
+```text
+SACCADE_REFLEX_TEST_CLICK=x,y
+SACCADE_REFLEX_TEST_CLICK_FRAME=N
+```
+
+The bridge sends `MouseMove`, `MouseButton Down`, and `MouseButton Up` through
+`WebView::notify_input_event` from the repaint path. WebDriver is not used to
+click; it is used only after the fact to read whether the page changed.
+
+Fixture:
+
+```text
+test_pages/browser_session/index.html
+```
+
+Evidence:
+
+```text
+runs/reflex_input/input_dom_1781488695005_f3/frames.jsonl
+```
+
+Result:
+
+```text
+frame_id=3
+click=(240,250)
+button_rect={x:152,y:221,w:180,h:48}
+dispatch_ns=343125
+dropped_logs=0
+post_revision=1
+post_button=Verified
+post_status="Agent action verified in the same browser session."
+```
+
+This proves fixture-level input ownership through the same Servo internal input
+pipeline the reflex runtime needs. It does not yet prove closed-loop game play:
+the click is still fixed by env vars, not produced by detector and motor logic.
 
 ## Verification Notes
 

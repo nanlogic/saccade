@@ -72,7 +72,7 @@ docs/reflex_bridge_audit.md
 
 ### R1: Input Ownership Gate
 
-Status: pending.
+Status: partial pass on fixture.
 
 Required evidence:
 
@@ -81,6 +81,29 @@ Required evidence:
 - The page state visibly changes and the replay records the input basis.
 - WebDriver-only control is not enough unless measured latency and reliability
   meet the reflex target.
+
+Current evidence:
+
+- The ServoShell bridge dispatched an internal test click through
+  `WebView::notify_input_event` without using WebDriver click or DOM
+  `dispatchEvent`.
+- Fixture:
+  `test_pages/browser_session/index.html`.
+- Frame log:
+  `runs/reflex_input/input_dom_1781488695005_f3/frames.jsonl`.
+- The test click landed inside the page button rect
+  `{x:152,y:221,w:180,h:48}` at `(240,250)`.
+- WebDriver was used only after the fact to read page state. It reported
+  `revision="1"`, button text `Verified`, and status text
+  `Agent action verified in the same browser session.`
+- Dispatch timing from bridge log:
+  `dispatch_ns=343125` (`0.343 ms`), `dropped_logs=0`.
+
+Remaining R1 work:
+
+- Replace the fixed fixture click with detector/motor-owned local game input.
+- Prove player/game state changes in `http://127.0.0.1:4173/`.
+- Record replay timestamps for observe, decision, dispatch, and verification.
 
 ### R2: Frame Truth Gate
 
@@ -156,3 +179,5 @@ gate for the project.
    - no WebDriver hot loop,
    - local non-sensitive game only,
    - measured observe-to-input latency.
+4. Promote the fixture input bridge from a fixed test click to a minimal
+   detector/motor loop against the local game.
