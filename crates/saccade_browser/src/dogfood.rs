@@ -1,7 +1,8 @@
 use std::cell::{Cell, RefCell};
+use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use euclid::{Point2D, Scale};
@@ -24,6 +25,7 @@ use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
 use crate::{RenderingProfile, RenderingProfileSettings};
+use serde_json::{Value, json};
 
 const DEFAULT_WIDTH: u32 = 1440;
 const DEFAULT_HEIGHT: u32 = 1000;
@@ -47,6 +49,8 @@ pub struct DogfoodBrowserConfig {
     pub auto_close_after: Option<Duration>,
     pub rendering_profile: Option<RenderingProfile>,
     pub profile_dir: Option<PathBuf>,
+    pub copilot_grant_path: Option<PathBuf>,
+    pub auto_grant_copilot: bool,
 }
 
 impl DogfoodBrowserConfig {
@@ -58,6 +62,8 @@ impl DogfoodBrowserConfig {
             auto_close_after: None,
             rendering_profile: None,
             profile_dir: None,
+            copilot_grant_path: None,
+            auto_grant_copilot: false,
         }
     }
 }
@@ -135,6 +141,7 @@ struct ShellTitleParts<'a> {
     can_go_forward: bool,
     page_title: Option<&'a str>,
     current_url: &'a str,
+    copilot_label: &'a str,
     address_entry: Option<AddressEntryTitle<'a>>,
     active_select_label: Option<&'a str>,
 }
@@ -155,15 +162,15 @@ fn format_shell_title(parts: ShellTitleParts<'_>) -> String {
             "location>"
         };
         return format!(
-            "Saccade [{}] {mode} {} | Enter open Esc cancel | {}",
-            parts.profile, address_entry.input, parts.current_url
+            "Saccade [{}] copilot={} {mode} {} | Enter open Esc cancel | {}",
+            parts.profile, parts.copilot_label, address_entry.input, parts.current_url
         );
     }
 
     if let Some(label) = parts.active_select_label {
         return format!(
-            "Saccade [{}] select={label} | back={back} fwd={forward} reload=Cmd+R | {}",
-            parts.profile, parts.current_url
+            "Saccade [{}] copilot={} select={label} | back={back} fwd={forward} reload=Cmd+R | {}",
+            parts.profile, parts.copilot_label, parts.current_url
         );
     }
 
@@ -172,8 +179,9 @@ fn format_shell_title(parts: ShellTitleParts<'_>) -> String {
         .filter(|title| !title.trim().is_empty())
         .unwrap_or(parts.current_url);
     format!(
-        "Saccade [{}] load={} back={back} fwd={forward} | {title} | {}",
+        "Saccade [{}] copilot={} load={} back={back} fwd={forward} | {title} | {}",
         parts.profile,
+        parts.copilot_label,
         parts.load_state.label(),
         parts.current_url
     )
@@ -195,6 +203,9 @@ struct DogfoodBrowserState {
     page_title: RefCell<Option<String>>,
     address_entry: RefCell<Option<String>>,
     address_error: Cell<bool>,
+    copilot_granted: Cell<bool>,
+    copilot_grant_error: RefCell<Option<String>>,
+    copilot_grant_path: Option<PathBuf>,
     active_select: RefCell<Option<ActiveSelect>>,
     started_at: Instant,
     auto_close_after: Option<Duration>,
@@ -227,6 +238,7 @@ impl DogfoodBrowserState {
         });
         let page_title = self.page_title.borrow().clone();
         let current_url = self.current_url.borrow().to_string();
+        let copilot_label = self.copilot_title_label();
         let address_entry = self.address_entry.borrow().clone();
         let (can_go_back, can_go_forward) = self
             .webview
@@ -242,12 +254,23 @@ impl DogfoodBrowserState {
             can_go_forward,
             page_title: page_title.as_deref(),
             current_url: current_url.as_str(),
+            copilot_label: copilot_label.as_str(),
             address_entry: address_entry.as_deref().map(|input| AddressEntryTitle {
                 input,
                 invalid: self.address_error.get(),
             }),
             active_select_label: active_select_label.as_deref(),
         }));
+    }
+
+    fn copilot_title_label(&self) -> String {
+        if self.copilot_grant_error.borrow().is_some() {
+            "error".into()
+        } else if self.copilot_granted.get() {
+            "granted".into()
+        } else {
+            "off Cmd+Shift+G".into()
+        }
     }
 
     fn trace_cursor_moved(&self, position: PhysicalPosition<f64>) {
@@ -437,6 +460,10 @@ impl DogfoodBrowserState {
                 self.reload_current_page();
                 true
             }
+            Some("g") | Some("G") if modifiers.shift_key() => {
+                self.grant_current_tab_to_copilot();
+                true
+            }
             Some("[") => {
                 self.navigate_back();
                 true
@@ -524,6 +551,43 @@ impl DogfoodBrowserState {
     fn close_webview(&self) {
         self.active_select.borrow_mut().take();
         self.webview.borrow_mut().take();
+    }
+
+    fn grant_current_tab_to_copilot(&self) {
+        match self.write_copilot_grant() {
+            Ok(()) => {
+                self.copilot_granted.set(true);
+                self.copilot_grant_error.borrow_mut().take();
+            }
+            Err(error) => {
+                self.copilot_grant_error
+                    .borrow_mut()
+                    .replace(error.to_string());
+                eprintln!("failed to write Saccade co-pilot grant: {error:#}");
+            }
+        }
+        self.update_window_title();
+    }
+
+    fn write_copilot_grant(&self) -> Result<()> {
+        let Some(path) = self.copilot_grant_path.as_ref() else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        let current_url = self.current_url.borrow().to_string();
+        let page_title = self.page_title.borrow().clone();
+        let payload = current_tab_copilot_grant_payload(
+            &current_url,
+            page_title.as_deref(),
+            self.rendering_settings.profile.name(),
+            unix_ms()?,
+        );
+        fs::write(path, serde_json::to_vec_pretty(&payload)?)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+        Ok(())
     }
 }
 
@@ -705,6 +769,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             page_title: RefCell::new(None),
             address_entry: RefCell::new(None),
             address_error: Cell::new(false),
+            copilot_granted: Cell::new(false),
+            copilot_grant_error: RefCell::new(None),
+            copilot_grant_path: config.copilot_grant_path.clone(),
             active_select: RefCell::new(None),
             started_at: Instant::now(),
             auto_close_after: config.auto_close_after,
@@ -718,6 +785,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             .delegate(state.clone())
             .build();
         *state.webview.borrow_mut() = Some(webview);
+        if config.auto_grant_copilot {
+            state.grant_current_tab_to_copilot();
+        }
         state.update_window_title();
 
         *self = Self::Running { state };
@@ -999,6 +1069,40 @@ fn looks_like_local_address(input: &str) -> bool {
         || lowercase.starts_with("[::1]")
 }
 
+fn current_tab_copilot_grant_payload(
+    url: &str,
+    title: Option<&str>,
+    profile: &str,
+    written_unix_ms: u128,
+) -> Value {
+    json!({
+        "status": "granted",
+        "runtime": "saccade-dogfood-browser-v0",
+        "grant_type": "current_tab_copilot",
+        "selected_tab_seen": true,
+        "grant_required": true,
+        "grant_given": true,
+        "owner": "Human",
+        "read_grant": "FullTruth",
+        "agent_input_grant": true,
+        "url": url,
+        "title": title,
+        "rendering_profile": profile,
+        "shortcut": "Cmd+Shift+G",
+        "mcp_tool": "saccade.tabs.grant_current",
+        "transport_status": "url_grant_artifact_v0",
+        "note": "MCP v0 should call saccade.tabs.grant_current with this URL; direct in-process attachment to this dogfood WebView is still pending.",
+        "written_unix_ms": written_unix_ms,
+    })
+}
+
+fn unix_ms() -> Result<u128> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before UNIX_EPOCH")?
+        .as_millis())
+}
+
 fn map_named_key(key: WinitNamedKey) -> Option<ServoNamedKey> {
     match key {
         WinitNamedKey::Enter => Some(ServoNamedKey::Enter),
@@ -1031,11 +1135,13 @@ mod tests {
             can_go_forward: false,
             page_title: Some("Example Domain"),
             current_url: "https://example.com/",
+            copilot_label: "off Cmd+Shift+G",
             address_entry: None,
             active_select_label: None,
         });
 
         assert!(title.contains("Saccade [servo-modern]"));
+        assert!(title.contains("copilot=off Cmd+Shift+G"));
         assert!(title.contains("load=complete"));
         assert!(title.contains("back=y"));
         assert!(title.contains("fwd=n"));
@@ -1052,10 +1158,12 @@ mod tests {
             can_go_forward: true,
             page_title: Some("Ignored while select is active"),
             current_url: "https://example.com/form",
+            copilot_label: "granted",
             address_entry: None,
             active_select_label: Some("us-east"),
         });
 
+        assert!(title.contains("copilot=granted"));
         assert!(title.contains("select=us-east"));
         assert!(title.contains("back=n"));
         assert!(title.contains("fwd=y"));
@@ -1072,6 +1180,7 @@ mod tests {
             can_go_forward: true,
             page_title: Some("Ignored while address entry is active"),
             current_url: "https://example.com/old",
+            copilot_label: "granted",
             address_entry: Some(AddressEntryTitle {
                 input: "https://example.com/new",
                 invalid: false,
@@ -1079,7 +1188,7 @@ mod tests {
             active_select_label: Some("Ignored"),
         });
 
-        assert!(title.contains("location> https://example.com/new"));
+        assert!(title.contains("copilot=granted location> https://example.com/new"));
         assert!(title.contains("Enter open Esc cancel"));
         assert!(title.contains("https://example.com/old"));
         assert!(!title.contains("select="));
@@ -1094,6 +1203,7 @@ mod tests {
             can_go_forward: false,
             page_title: None,
             current_url: "https://example.com/",
+            copilot_label: "error",
             address_entry: Some(AddressEntryTitle {
                 input: "https://",
                 invalid: true,
@@ -1101,7 +1211,26 @@ mod tests {
             active_select_label: None,
         });
 
-        assert!(title.contains("location invalid> https://"));
+        assert!(title.contains("copilot=error location invalid> https://"));
+    }
+
+    #[test]
+    fn current_tab_copilot_grant_payload_has_policy_boundary() {
+        let payload = current_tab_copilot_grant_payload(
+            "https://example.com/form",
+            Some("Example Form"),
+            "servo-modern",
+            123,
+        );
+
+        assert_eq!(payload["status"], "granted");
+        assert_eq!(payload["owner"], "Human");
+        assert_eq!(payload["read_grant"], "FullTruth");
+        assert_eq!(payload["agent_input_grant"], true);
+        assert_eq!(payload["mcp_tool"], "saccade.tabs.grant_current");
+        assert_eq!(payload["url"], "https://example.com/form");
+        assert_eq!(payload["title"], "Example Form");
+        assert_eq!(payload["written_unix_ms"], 123);
     }
 
     #[test]

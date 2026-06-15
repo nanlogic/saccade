@@ -34,6 +34,10 @@ enum Command {
         rendering_profile: Option<String>,
         #[arg(long)]
         profile_dir: Option<PathBuf>,
+        #[arg(long)]
+        copilot_grant_path: Option<PathBuf>,
+        #[arg(long)]
+        auto_grant_copilot: bool,
     },
     SelftestTabs,
     SelftestLoginHandoff,
@@ -84,6 +88,8 @@ fn main() -> Result<()> {
             smoke_seconds,
             rendering_profile,
             profile_dir,
+            copilot_grant_path,
+            auto_grant_copilot,
         } => browse(
             url,
             width,
@@ -91,6 +97,8 @@ fn main() -> Result<()> {
             smoke_seconds,
             rendering_profile,
             profile_dir,
+            copilot_grant_path,
+            auto_grant_copilot,
         ),
         Command::SelftestTabs => selftest_tabs(),
         Command::SelftestLoginHandoff => selftest_login_handoff(),
@@ -137,6 +145,8 @@ fn browse(
     smoke_seconds: Option<u64>,
     rendering_profile: Option<String>,
     profile_dir: Option<PathBuf>,
+    copilot_grant_path: Option<PathBuf>,
+    auto_grant_copilot: bool,
 ) -> Result<()> {
     let mut config = saccade_browser::DogfoodBrowserConfig::new(parse_user_url(&url)?);
     config.width = width;
@@ -144,6 +154,10 @@ fn browse(
     config.auto_close_after = smoke_seconds.map(Duration::from_secs);
     config.rendering_profile = parse_rendering_profile(rendering_profile)?;
     config.profile_dir = profile_dir;
+    config.copilot_grant_path = Some(
+        copilot_grant_path.unwrap_or(workspace_root()?.join("runs/current_tab_grants/latest.json")),
+    );
+    config.auto_grant_copilot = auto_grant_copilot;
     saccade_browser::run_dogfood_browser(config)
 }
 

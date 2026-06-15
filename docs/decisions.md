@@ -626,3 +626,21 @@
   `SHOULD-NOT-WRITE` in the new MCP run and browser-worker artifacts.
 - Next work is not another policy harness. Next work is visible browser UI that
   calls this grant for the real selected tab.
+
+## DECISION_N8_003 - Dogfood browser exposes a visible current-tab grant
+
+- Added a dogfood browser shortcut: `Cmd+Shift+G`.
+- When triggered, the Saccade window title changes from `copilot=off
+  Cmd+Shift+G` to `copilot=granted`, so the user can see that the current tab
+  has been granted for agent help.
+- The grant writes a compact artifact at `runs/current_tab_grants/latest.json`
+  by default. The artifact records URL, title, rendering profile, owner
+  `Human`, `read_grant=FullTruth`, `agent_input_grant=true`, and the MCP tool
+  `saccade.tabs.grant_current`. It does not include page form values.
+- Added `--auto-grant-copilot` and `--copilot-grant-path` to
+  `saccade-shell browse` for smoke testing.
+- Smoke evidence:
+  `runs/current_tab_grants/smoke.json`.
+- This is a visible user-grant bridge, not the final shared-process transport.
+  MCP v0 still uses the grant URL to attach a worker. Next work is direct MCP
+  access to the same live dogfood WebView after the user grants it.
