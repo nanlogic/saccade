@@ -2,6 +2,9 @@
 
 Date: 2026-06-11
 
+> Historical roadmap. For the current source of truth, start with
+> `docs/README.md` and `docs/CURRENT_PLAN.md`.
+
 ## Formal v4 Plan
 
 The checked-in build spec formally runs from M-1 through M8, then names Phase E as a separate post-benchmark effort.

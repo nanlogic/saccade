@@ -5,6 +5,11 @@ Owner: Wayne / NaN Logic
 Status: post-M7/M8/M9/M10/M11 planning  
 North star: **Saccade is an AI-first Playwright alternative: browser truth → verified actions.**
 
+> Historical planning draft. It is still useful background, but it contains
+> numbering conflicts. For the current source of truth, start with
+> `docs/README.md`, `docs/CURRENT_PLAN.md`, and
+> `docs/next_plan_v5_tracker.md`.
+
 ---
 
 ## 0. Strategic Reframe

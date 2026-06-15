@@ -1,7 +1,9 @@
 # Saccade Next Plan v5 Tracker
 
 Date: 2026-06-11
-Updated: 2026-06-14
+Updated: 2026-06-15
+
+Canonical companion: `docs/CURRENT_PLAN.md`.
 
 ## Note
 
@@ -30,6 +32,7 @@ Use this tracker as the normalized execution map.
 | N5 Safety truth v1 | Local pass | `cargo run -q -p saccade-shell -- selftest-safety` | PASS: agent sees agent-filled values; human can see all; agent truth masks sensitive values while preserving completed/requires-user status |
 | N6 Chrome adapter v0 | Minimal pass + parity evidence | `scripts/selftest_chrome_reference.sh`; `scripts/selftest_visual_parity.sh`; `scripts/build_demo_comparison_pack.py --fixtures all --native-browsers chrome safari firefox --timeout-sec 60`; `cargo run -q -p devmax -- audit --engine chrome --url file://... --replay` | Chrome CDP reference capture writes screenshot, redacted truth/action map, network summary, and manifest; default balanced block policy handles common ad/analytics hosts; DEVMAX and MCP expose `engine=chrome`; Chrome-vs-Saccade visual parity runner covers seven local edge-case pages, emits HTML diff reports, verifies enabled non-sensitive Saccade action points against Chrome hit-tests, and can build a public demo comparison pack; latest seven-fixture public pack captured Chrome/Safari native UI, embedded Saccade worker screenshots, and verified Chrome hit-test 35/35 with four blocked modal actions skipped; Firefox capture is supported but unavailable on this machine because Firefox is not installed |
 | Browser productization | Pivoting to official ServoShell adapter | `docs/browser_productization_plan.md`; `docs/browser_compat_ledger.md`; `docs/webgl_runtime_probe_report.md`; `docs/servoshell_source_strategy.md`; `docs/servoshell_adapter_migration_plan.md`; `scripts/probe_servoshell_webdriver.py` | Current embedded Saccade browser path is based on crates.io `servo=0.2.0`, while downloaded official Servo.app is ServoShell `0.3.0` and can run the local game. Official ServoShell WebDriver probe passes: session creation, JS execution, element click, DOM-change verification, screenshot capture, and local game page reachability. Next browser-productization work moves to a Saccade external adapter over official ServoShell WebDriver; forking official ServoShell source remains fallback if WebDriver is too thin. |
+| N8 Current Tab Co-Pilot | Proposed next active gate | `CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_truth=true non_sensitive_filled=true sensitive_values_exposed=false confirmation_required=true replay=...` | Product gap identified on 2026-06-15: current gates prove Agent-owned tabs and worker-launched flows, but the normal product needs a user-started Saccade tab that the agent can attach to only after explicit grant. See `docs/CURRENT_PLAN.md`. |
 | N7 Public release package | Pending | README/site/video/report package | Launch docs and parity requirements exist; video/site not done |
 | Comparison benchmark | Smoke pass for Codex, Claude auth blocked | `python3 scripts/agent_compare.py run --agent both --tasks all --execute` | Codex-vs-Claude task suite, structured result schema, runner, parser, and SVG report generator exist under `eval/agent_compare/` and `scripts/agent_compare.py`; smoke run `runs/agent_compare/run_1781365508552` shows Codex passed `trusted_tabs_runtime` and `safety_truth_redaction`; Claude Code returned 403 subscription/API access blocked before tasks |
 
@@ -59,15 +62,33 @@ The new gauntlet file is now the product scoreboard:
 
 Do these in order:
 
-1. Browser productization P1: add clickable editable URL bar and visible clickable Back/Forward/Reload/Stop. Title-bar URL/title/loading/nav state, `Cmd+L` keyboard URL entry, page-click focus recovery, and mouse Back/Forward navigation are done.
-2. Browser compatibility P1: Wayne logs in to GitHub/Gist inside Saccade using `runs/dogfood_profile/default`, then rerun `inspect-editors` on `https://gist.github.com/new` using the local BP-004 reduction as the oracle.
-3. Browser compatibility P1: keep canvas/WebGL judgement routed to Chrome/reference while BP-011 is parked; resume later with Servo `WebView::take_screenshot()` versus manual `paint()+read_to_image()`.
-4. Configure Claude Code access with an Anthropic API key or organization enablement, then rerun the small Codex-vs-Claude smoke.
-5. Harden FORMMAX runner v1: expand native input-event typing to more controls and add a comparison baseline. Visual dropdown selection evidence now exists for the native input fixture.
-6. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: Chrome and Safari URL-bar screenshots are complete; next add Firefox URL-bar screenshot and optional Chrome result screenshot.
-7. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding, multi-action click verification, live-worker/Chrome finding parity, and HTTP status awareness for resource loads.
-8. Harden browser-backed MCP sessions: shared multi-tab process. Worker report/replay, live audit, screenshot policy, sensitive-value redaction, manual input forwarding, constrained agent fill, explicit non-sensitive inspect, live FORMMAX fill, and MCP wrappers are in place.
-9. Add replay metadata for masked status and user action boundaries without sensitive values.
+1. N8 Current Tab Co-Pilot: user starts on a Saccade tab, grants agent access,
+   agent reads redacted truth, explains/fills ordinary fields, leaves sensitive
+   values to the user, requires confirmation for submit, and writes replay.
+2. Browser productization P1: add clickable editable URL bar and visible
+   clickable Back/Forward/Reload/Stop. Title-bar URL/title/loading/nav state,
+   `Cmd+L` keyboard URL entry, page-click focus recovery, and mouse
+   Back/Forward navigation are done.
+3. Browser compatibility P1: Wayne logs in to GitHub/Gist inside Saccade using
+   `runs/dogfood_profile/default`, then rerun `inspect-editors` on
+   `https://gist.github.com/new` using the local BP-004 reduction as the oracle.
+4. Current-tab FORMMAX: run long-form fill inside the user-granted tab instead
+   of only through worker-launched standalone flows.
+5. Browser compatibility P1: keep canvas/WebGL judgement routed to
+   Chrome/reference while BP-011 is parked; resume later with Servo
+   `WebView::take_screenshot()` versus manual `paint()+read_to_image()`.
+6. Finish DEVMAX gauntlet evidence polish: screenshot crop per finding,
+   multi-action click verification, live-worker/Chrome finding parity, and HTTP
+   status awareness for resource loads.
+7. Harden browser-backed MCP sessions: shared multi-tab process. Worker
+   report/replay, live audit, screenshot policy, sensitive-value redaction,
+   manual input forwarding, constrained agent fill, explicit non-sensitive
+   inspect, live FORMMAX fill, and MCP wrappers are in place.
+8. Add replay metadata for masked status and user action boundaries without
+   sensitive values.
+9. Finish MOUSEMAX parity references for `runs/real/run_1781193985`: Chrome and
+   Safari URL-bar screenshots are complete; next add Firefox URL-bar screenshot
+   and optional Chrome result screenshot.
 
 ## Parking Lot
 
