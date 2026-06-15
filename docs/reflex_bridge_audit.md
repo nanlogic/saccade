@@ -400,6 +400,30 @@ readback_ok=6/6
 dropped_logs=0
 ```
 
+Local game v0 policy loop:
+
+```text
+command=node scripts/run_local_game_reflex_loop.js --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --url http://127.0.0.1:4173/ --headless --window-size 1280x900 --duration-ms 15000 --output-dir runs/local_game_reflex/loop_release_1781525581
+report=runs/local_game_reflex/loop_release_1781525581/report.json
+replay=runs/local_game_reflex/loop_release_1781525581/replay.jsonl
+ok=true
+final_reason=duration_complete
+commands=57
+command_receipts=57
+drag_phase_receipts=627
+readback_ok=1400/1400
+dispatch_ms p50=0.022 p95=0.071 max=4.709
+readback_ms p50=3.23 p95=8.30 max=17.29
+time_scale=0.993
+hp_delta=0
+camera_delta=+38,+29
+```
+
+This proves a release ServoShell bridge + Saccade-side detector/motor/replay
+harness can run against the local game without WebDriver in the action path.
+The detector in this v0 is intentionally temporary: public debug/DOM state, not
+visual pixel ownership. The next bridge step is crop/pixel frame truth.
+
 ## Verification Notes
 
 Command:

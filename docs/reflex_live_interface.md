@@ -47,6 +47,23 @@ node scripts/probe_reflex_live_click_fixture.js \
   --window-size 1024x740
 ```
 
+Local game v0 reflex loop:
+
+```sh
+node scripts/run_local_game_reflex_loop.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --url http://127.0.0.1:4173/ \
+  --headless \
+  --window-size 1280x900 \
+  --duration-ms 15000
+```
+
+This runner is intentionally labeled `local_game_debug_policy_v0`: it uses the
+local game's public `canvas.dataset.debug` and DOM panel visibility as the
+temporary detector, then sends real browser input through the ServoShell bridge.
+It is useful for release dogfood and game-session testing, but it is not the
+final visual detector.
+
 ## Runtime
 
 Use the release ServoShell build for product/runtime evidence:
@@ -178,4 +195,29 @@ drag dispatch ms p50=0.020 p95=0.039 max=0.404
 readback_ok=420/420
 readback ms p50=4.06 p95=9.69 max=16.31
 dropped_logs=0
+```
+
+Local game v0 loop verification:
+
+```text
+runs/local_game_reflex/loop_release_1781525581/report.json
+runs/local_game_reflex/loop_release_1781525581/replay.jsonl
+```
+
+Summary:
+
+```text
+ok=true
+final_reason=duration_complete
+controller=local_game_debug_policy_v0
+commands=57
+command_receipts=57
+drag_phase_receipts=627
+readback_ok=1400/1400
+dispatch_ms p50=0.022 p95=0.071 max=4.709
+readback_ms p50=3.23 p95=8.30 max=17.29
+time_scale=0.993
+hp_delta=0
+camera_delta=+38,+29
+fill_delta=0
 ```

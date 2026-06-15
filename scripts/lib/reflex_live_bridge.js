@@ -219,13 +219,42 @@ async function sampleLocalGame(port, sessionId) {
         performanceNow: performance.now(),
         title: document.title,
         readyState: document.readyState,
+        dpr: window.devicePixelRatio || 1,
         hasCanvas: Boolean(canvas),
         canvas: canvas ? {
           width: canvas.width,
           height: canvas.height,
           clientWidth: canvas.clientWidth,
-          clientHeight: canvas.clientHeight
+          clientHeight: canvas.clientHeight,
+          rect: (() => {
+            const rect = canvas.getBoundingClientRect();
+            return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+          })()
         } : null,
+        upgrade: (() => {
+          const panel = document.getElementById("upgradePanel");
+          const cards = [...document.querySelectorAll("#upgradeCards .upgrade-card")];
+          const visible = Boolean(panel && !panel.classList.contains("hidden"));
+          return {
+            visible,
+            count: cards.length,
+            firstCard: cards[0] ? (() => {
+              const rect = cards[0].getBoundingClientRect();
+              return {
+                text: cards[0].textContent.trim().replace(/\\s+/g, " ").slice(0, 120),
+                rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height }
+              };
+            })() : null
+          };
+        })(),
+        end: (() => {
+          const panel = document.getElementById("endScreen");
+          return {
+            visible: Boolean(panel && !panel.classList.contains("hidden")),
+            title: document.getElementById("endTitle")?.textContent || null,
+            detail: document.getElementById("endDetail")?.textContent || null
+          };
+        })(),
         debug
       };
     })();`,

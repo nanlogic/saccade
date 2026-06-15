@@ -34,6 +34,7 @@ WebDriver. It does not capture screenshots and does not click through WebDriver.
 | Source release raw | headless | `0.3.0-805e6a423` | `runs/servoshell_runtime/source_release_headless_1781491200/report.json` | 0.969 | Headless is not inherently slow in release. |
 | Source release raw + bridge drag | headless | `0.3.0-805e6a423` | `runs/servoshell_runtime/source_release_headless_drag_1781491400/report.json` | 0.999 | Internal drag moved game camera `+20px`. |
 | Source release + live JSONL command bridge | headless | current release build | `runs/reflex_live/live_release_1781495324/report.json` | 1.002 | External command file produced ping/drag receipts and moved camera `+21px`. |
+| Source release + local game v0 reflex loop | headless | current release build | `runs/local_game_reflex/loop_release_1781525581/report.json` | 0.993 | Saccade-side policy loop sent 57 commands, survived 15s, and wrote replay. |
 
 ## Bridge Timing In Release
 

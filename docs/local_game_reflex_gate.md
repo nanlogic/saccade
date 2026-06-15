@@ -172,7 +172,7 @@ Current evidence:
 
 ### R3: Reflex Latency Gate
 
-Status: pending, with live-command dispatch evidence.
+Status: partial pass for release bridge + v0 policy loop.
 
 Current evidence:
 
@@ -182,6 +182,20 @@ Current evidence:
   `runs/reflex_live/live_release_1781495324/report.json`.
 - The measured number is bridge dispatch time for scheduled drag phases, not
   full observe->detect->decision->dispatch latency.
+- Local game release loop evidence:
+  `runs/local_game_reflex/loop_release_1781525581/report.json`.
+- Replay:
+  `runs/local_game_reflex/loop_release_1781525581/replay.jsonl`.
+- The v0 loop uses public `canvas.dataset.debug` and DOM panel visibility as a
+  temporary detector, an orbit/upgrade motor policy, and JSONL replay. Browser
+  input still enters only through the ServoShell reflex bridge.
+- Result: `ok=true`, duration complete, 57 drag commands, 57 command receipts,
+  627 drag phase dispatch receipts, 1400/1400 readback frames, p95 dispatch
+  `0.071 ms`, p95 full-window readback `8.30 ms`, game `time_scale=0.993`,
+  HP delta `0`, camera delta `+38,+29`.
+- Limitation: this proves the release bridge + motor/replay loop can drive the
+  local game, but it does not yet prove visual detector ownership. The v0 policy
+  survived and moved/shoots, but did not collect drops (`fill_delta=0`).
 
 Local game v0 pass:
 
@@ -228,5 +242,6 @@ gate for the project.
    - no WebDriver hot loop,
    - local non-sensitive game only,
    - measured observe-to-input latency.
-4. Promote the fixture input bridge from a fixed test click to a minimal
-   detector/motor loop against the local game.
+4. Replace the temporary debug-state detector in
+   `scripts/run_local_game_reflex_loop.js` with bridge crop/pixel frame truth,
+   then reuse the same motor/replay harness.
