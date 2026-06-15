@@ -17,6 +17,11 @@ game at:
 http://127.0.0.1:4173/
 ```
 
+Follow-up manual observation: the downloaded official macOS Servo.app in headed
+mode did not show the severe lag seen in the headless/source-build probe path.
+Use it as the current human-rendering reference until a measured A/B profile says
+otherwise.
+
 The installed app reports:
 
 ```text
@@ -184,3 +189,16 @@ GStreamer libraries not found (>= version 1.18)
 
 The dummy media stack is acceptable for the local-game/reflex gate because the
 gate does not require audio/video playback.
+
+Runtime caveat:
+
+- The source-built raw dev `servoshell` binary can run headless probes for frame
+  truth and input dispatch.
+- A headed raw dev launch on macOS hit an AppKit TouchBar observer crash during
+  this session.
+- Headless probes on the local game showed slow game-time advancement under the
+  GL warning; this is not the same as the downloaded official app's headed
+  behavior.
+- Next productization step is to measure/build toward the official app behavior:
+  package/bundle or release/prod build first, then compare official app,
+  source dev, source release/prod, and headless.

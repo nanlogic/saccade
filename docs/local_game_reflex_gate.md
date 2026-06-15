@@ -131,6 +131,10 @@ Current evidence:
 
 - Official ServoShell source build `Servo 0.3.0-54288c9d6` succeeded with
   `./mach build --dev -j 4 --media-stack dummy`.
+- Wayne's manual headed check of the downloaded official macOS Servo.app
+  (`Servo 0.3.0-302457869`) on `http://127.0.0.1:4173/` did not show the
+  earlier severe lag. Treat official headed Servo.app as the current human
+  rendering reference, pending measured FPS/time-scale capture.
 - Saccade observe-only bridge commit in the Servo checkout:
   `6e02f55f1 add saccade observe-only reflex bridge`.
 - The local game probe passed through the locally built ServoShell binary:
