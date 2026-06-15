@@ -222,6 +222,18 @@ Current evidence:
 - Limitation: these semantic facts are heuristic labels such as
   `collectible_drop_or_projectile` and `enemy_or_player_attack`, not final
   exact fruit/enemy/drop identity yet.
+- The release visual-policy gate now consumes live `semantic_object_seen` facts
+  for motor decisions instead of orbiting from debug state:
+  `runs/local_game_reflex/release_visual_gate_1781530639/report.json`.
+- Result: `ok=true`, `policy=visual`, 51 drag commands, 51 command receipts,
+  467 drag phase dispatch receipts, 1400/1400 readback frames, 190 browser
+  facts, 177 `semantic_object_seen` facts, game `time_scale=0.993`,
+  `fill_delta=16`, `drop_delta=18`, `hp_delta=0`, and dispatch p95
+  `0.091 ms`.
+- Remaining limitation: the role classifier is still a heuristic local-game
+  adapter. The next product step is to keep the Browser Fact Stream schema
+  generic while allowing game-specific policy modules to consume the same
+  facts.
 
 Local game v0 pass:
 
@@ -268,7 +280,8 @@ gate for the project.
    - no WebDriver hot loop,
    - local non-sensitive game only,
    - measured observe-to-input latency.
-4. Replace the temporary debug-state detector in
-   `scripts/run_local_game_reflex_loop.js` with motor decisions over Browser
-   Fact Stream `semantic_object_seen` facts, then reuse the same motor/replay
-   harness.
+4. Generalize the visual-policy path:
+   - keep Browser Fact Stream schemas generic,
+   - keep local-game semantics in policy/classifier modules,
+   - preserve replay and receipt evidence for each motor command,
+   - package each dogfood run into a human-readable review artifact.

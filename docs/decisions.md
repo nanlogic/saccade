@@ -541,3 +541,21 @@
 - If official ServoShell cannot expose ms-level frame truth and input control
   externally, the next move is a thin in-process ServoShell bridge, not more
   WebDriver glue.
+
+## DECISION_REFLEX_002 - Local game visual facts now drive motor policy
+
+- The local game reflex runner defaults to `--policy visual`.
+- The motor loop drains live Browser Fact Stream output, classifies
+  `visual_object_seen` facts into `semantic_object_seen` facts, maintains a
+  short-lived visual state, and chooses drag commands from those semantic
+  objects.
+- The orbit/debug policy remains as a baseline, but the accepted reflex path is
+  now semantic-fact-driven.
+- Release evidence:
+  `runs/local_game_reflex/release_visual_gate_1781530639/report.json`.
+- Result: `ok=true`, 51 drag commands, 51 command receipts, 467 drag phase
+  dispatch receipts, 1400/1400 readback frames, 190 browser facts, 177 semantic
+  facts, `fill_delta=16`, `drop_delta=18`, `hp_delta=0`, game
+  `time_scale=0.993`, and dispatch p95 `0.091 ms`.
+- Added `docs/SACCADE_DOGFOOD_HANDOFF.md` so the game-building session can
+  continue iterating while Saccade owns browser/reflex/safety failures.
