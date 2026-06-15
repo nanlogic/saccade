@@ -16,6 +16,37 @@ external controller <- frames.jsonl   <- ServoShell bridge
 The controller can be a Node script, Codex worker, MCP server, or future native
 daemon. The internal semantics stay the same.
 
+## Saccade Adapter
+
+The reusable Saccade-side adapter lives in:
+
+```text
+scripts/lib/reflex_live_bridge.js
+```
+
+It owns:
+
+- release ServoShell process launch and cleanup,
+- WebDriver session setup for non-hot-loop diagnostics,
+- command JSONL append,
+- receipt/frame JSONL reading,
+- report summaries for receipts, frame readback, and local-game samples.
+
+Unit coverage:
+
+```sh
+node --test scripts/lib/reflex_live_bridge.test.js
+```
+
+Click-command fixture probe:
+
+```sh
+node scripts/probe_reflex_live_click_fixture.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --headless \
+  --window-size 1024x740
+```
+
 ## Runtime
 
 Use the release ServoShell build for product/runtime evidence:
@@ -107,3 +138,44 @@ dropped_logs=0
 This proves the external control interface can drive the in-process browser
 input path in release ServoShell. It does not yet prove detector/motor ownership
 or MOUSEMAX-level cropped readback.
+
+Click-command verification:
+
+```text
+runs/reflex_live_click/click_release_1781496285/report.json
+```
+
+Summary:
+
+```text
+ok=true
+click=(242,245)
+post_revision=1
+post_button=Verified
+post_status="Agent action verified in the same browser session."
+click receipt dispatch_ms=0.196
+readback_ok=6/6
+dropped_logs=0
+```
+
+Adapter refactor verification:
+
+```text
+runs/reflex_live/live_adapter_1781496157/report.json
+```
+
+Summary:
+
+```text
+ok=true
+time_scale=0.977
+camera_delta.x=+25
+receipts=11
+ping:ok=1
+drag:scheduled=1
+drag_phase:dispatched=9
+drag dispatch ms p50=0.020 p95=0.039 max=0.404
+readback_ok=420/420
+readback ms p50=4.06 p95=9.69 max=16.31
+dropped_logs=0
+```

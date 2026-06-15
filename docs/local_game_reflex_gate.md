@@ -126,6 +126,12 @@ Current evidence:
   frames, and moved the local game camera by `+21px`.
 - Drag phase dispatch timing in release:
   p50 `0.023 ms`, p95 `0.075 ms`, max `0.078 ms`.
+- Live click command evidence:
+  `runs/reflex_live_click/click_release_1781496285/report.json`.
+- The release bridge accepted a JSONL `click` command at `(242,245)` against
+  `test_pages/browser_session/index.html`, returned `click:dispatched`, and the
+  page changed to `revision=1` / button `Verified`.
+- Click dispatch timing in release: `0.196 ms`.
 
 Remaining R1 work:
 

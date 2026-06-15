@@ -4,32 +4,30 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const {
   ReflexLiveBridge,
-  sampleLocalGame,
   sleep,
-  summarizeGameSamples,
   summarizeReceipts,
   summarizeReflexEvents,
-  waitForLocalGameDebug,
 } = require("./lib/reflex_live_bridge");
 
 function usage() {
   console.error(`usage:
-  node scripts/probe_reflex_live_commands.js \\
+  node scripts/probe_reflex_live_click_fixture.js \\
     --servoshell /path/to/servoshell \\
-    [--url http://127.0.0.1:4173/] [--headed] \\
-    [--window-size 1280x900] [--duration-ms 6500] \\
-    [--output-dir runs/reflex_live/<name>]
+    [--headed] [--window-size 1024x740] \\
+    [--output-dir runs/reflex_live_click/<name>]
 `);
+}
+
+function defaultFixtureUrl() {
+  return `file://${path.resolve("test_pages/browser_session/index.html")}`;
 }
 
 function parseArgs(argv) {
   const args = {
-    url: "http://127.0.0.1:4173/",
-    durationMs: 6500,
-    sampleMs: 250,
+    url: defaultFixtureUrl(),
     headless: true,
-    windowSize: "1280x900",
-    outputDir: null,
+    windowSize: "1024x740",
+    outputDir: path.join("runs", "reflex_live_click", `click_${Date.now()}`),
   };
 
   for (let i = 2; i < argv.length; i += 1) {
@@ -38,10 +36,6 @@ function parseArgs(argv) {
       args.servoshell = argv[++i];
     } else if (arg === "--url") {
       args.url = argv[++i];
-    } else if (arg === "--duration-ms") {
-      args.durationMs = Number(argv[++i]);
-    } else if (arg === "--sample-ms") {
-      args.sampleMs = Number(argv[++i]);
     } else if (arg === "--window-size") {
       args.windowSize = argv[++i];
     } else if (arg === "--output-dir") {
@@ -61,17 +55,53 @@ function parseArgs(argv) {
   if (!args.servoshell) {
     throw new Error("--servoshell is required");
   }
-  if (!Number.isFinite(args.durationMs) || args.durationMs <= 0) {
-    throw new Error("--duration-ms must be positive");
-  }
-  if (!Number.isFinite(args.sampleMs) || args.sampleMs <= 0) {
-    throw new Error("--sample-ms must be positive");
-  }
-  if (!args.outputDir) {
-    args.outputDir = path.join("runs", "reflex_live", `live_${Date.now()}`);
-  }
 
   return args;
+}
+
+async function waitForButton(bridge, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await bridge.execute(`
+      const button = document.querySelector("#verify-action");
+      if (!button) return null;
+      const rect = button.getBoundingClientRect();
+      return {
+        title: document.title,
+        readyState: document.readyState,
+        dpr: window.devicePixelRatio || 1,
+        rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+        revision: document.body.dataset.sessionRevision || null,
+        buttonText: button.textContent,
+        statusText: document.querySelector("#status")?.textContent || null,
+      };
+    `);
+    if (last?.rect?.w > 0 && last?.rect?.h > 0) {
+      return last;
+    }
+    await sleep(100);
+  }
+  throw new Error(`fixture button did not become visible: ${JSON.stringify(last)}`);
+}
+
+async function waitForRevision(bridge, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await bridge.execute(`
+      return {
+        revision: document.body.dataset.sessionRevision || null,
+        buttonText: document.querySelector("#verify-action")?.textContent || null,
+        statusText: document.querySelector("#status")?.textContent || null,
+      };
+    `);
+    if (last?.revision === "1") {
+      return last;
+    }
+    await sleep(50);
+  }
+  return last;
 }
 
 async function main() {
@@ -82,43 +112,30 @@ async function main() {
     headless: args.headless,
     windowSize: args.windowSize,
     outputDir: args.outputDir,
-    observeMaxFrames: 420,
+    observeMaxFrames: 80,
   });
 
-  const startedAtMs = Date.now();
-  const samples = [];
-  let commandsIssued = false;
   let ok = false;
+  let pre = null;
+  let post = null;
+  let command = null;
+  const startedAtMs = Date.now();
 
   try {
     await bridge.start();
     await bridge.open(args.url);
-    await waitForLocalGameDebug(bridge.port, bridge.sessionId, 15000);
-
-    const deadline = Date.now() + args.durationMs;
-    while (Date.now() <= deadline) {
-      const observedAtMs = Date.now();
-      const sample = await sampleLocalGame(bridge.port, bridge.sessionId);
-      samples.push({ wall_ms: observedAtMs - startedAtMs, ...sample });
-
-      if (!commandsIssued && samples.length >= 3) {
-        await bridge.appendCommand({
-          id: "live-ping-1",
-          type: "ping",
-        });
-        await bridge.appendCommand({
-          id: "live-drag-1",
-          type: "drag",
-          start: { x: 640, y: 450 },
-          end: { x: 1000, y: 450 },
-          frames: 8,
-        });
-        commandsIssued = true;
-      }
-
-      await sleep(args.sampleMs);
-    }
-    ok = true;
+    pre = await waitForButton(bridge, 10000);
+    const x = (pre.rect.x + pre.rect.w / 2) * pre.dpr;
+    const y = (pre.rect.y + pre.rect.h / 2) * pre.dpr;
+    command = {
+      id: "live-click-fixture-1",
+      type: "click",
+      x,
+      y,
+    };
+    await bridge.appendCommand(command);
+    post = await waitForRevision(bridge, 5000);
+    ok = post?.revision === "1" && post?.buttonText === "Verified";
   } finally {
     await bridge.stop();
   }
@@ -135,12 +152,13 @@ async function main() {
     paths: bridge.paths,
     started_at_ms: startedAtMs,
     ended_at_ms: endedAtMs,
+    click_command: command,
+    pre,
+    post,
     summary: {
-      samples: summarizeGameSamples(samples, startedAtMs, endedAtMs),
       receipts: summarizeReceipts(receipts),
       frames: summarizeReflexEvents(frames),
     },
-    samples,
     receipts,
     frames,
     process: bridge.processInfo(),
@@ -153,6 +171,8 @@ async function main() {
       {
         ok,
         report: reportPath,
+        click_command: command,
+        post,
         summary: report.summary,
         stderr_tail: report.process.stderr_tail.split("\n").slice(-8).join("\n"),
       },
@@ -160,6 +180,10 @@ async function main() {
       2,
     ),
   );
+
+  if (!ok) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {

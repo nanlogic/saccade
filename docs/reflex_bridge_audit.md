@@ -386,6 +386,20 @@ This closes the first product-interface gap: an external controller can drive
 release ServoShell's in-process input path without WebDriver clicks or DOM
 event injection. The remaining gap is detector/motor ownership.
 
+Live click command fixture:
+
+```text
+runs/reflex_live_click/click_release_1781496285/report.json
+ok=true
+click=(242,245)
+receipt=click:dispatched
+dispatch_ms=0.196
+post_revision=1
+post_button=Verified
+readback_ok=6/6
+dropped_logs=0
+```
+
 ## Verification Notes
 
 Command:
