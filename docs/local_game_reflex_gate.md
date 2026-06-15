@@ -232,6 +232,8 @@ Current evidence:
   `0.091 ms`.
 - Human-readable review page:
   `runs/local_game_reflex/release_visual_gate_1781530639/review.html`.
+- The reflex runner now writes `review.html` automatically after `report.json`,
+  so each future gate run has a first-class human review artifact.
 - Remaining limitation: the role classifier is still a heuristic local-game
   adapter. The next product step is to keep the Browser Fact Stream schema
   generic while allowing game-specific policy modules to consume the same

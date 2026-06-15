@@ -448,21 +448,33 @@ function buildHtml({ runDir, report, replay, commands, semanticFacts }) {
 `;
 }
 
-async function main() {
-  const args = parseArgs(process.argv);
-  const runDir = path.resolve(args.runDir);
+async function buildReviewForRunDir(runDir, outputPath = null) {
+  runDir = path.resolve(runDir);
   const reportPath = path.join(runDir, "report.json");
   const report = await readJson(reportPath);
   const replay = await readJsonl(path.join(runDir, "replay.jsonl"));
   const commands = await readJsonl(path.join(runDir, "commands.jsonl"));
   const semanticFacts = await readJsonl(path.join(runDir, "semantic_facts.jsonl"));
-  const output = path.resolve(args.output || path.join(runDir, "review.html"));
+  const output = path.resolve(outputPath || path.join(runDir, "review.html"));
   const html = buildHtml({ runDir, report, replay, commands, semanticFacts });
   await fs.writeFile(output, html);
+  return output;
+}
+
+async function main() {
+  const args = parseArgs(process.argv);
+  const output = await buildReviewForRunDir(args.runDir, args.output);
   console.log(`LOCAL_GAME_REFLEX_REVIEW_READY review=${output}`);
 }
 
-main().catch((error) => {
-  console.error(error.stack || String(error));
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || String(error));
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  buildHtml,
+  buildReviewForRunDir,
+};

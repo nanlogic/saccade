@@ -14,6 +14,9 @@ const {
   summarizeSemanticFacts,
 } = require("./lib/local_game_fact_classifier");
 const {
+  buildReviewForRunDir,
+} = require("./build_local_game_reflex_review");
+const {
   ReflexLiveBridge,
   appendJsonl,
   sampleLocalGame,
@@ -546,6 +549,7 @@ async function main() {
   const factsPath = path.join(args.outputDir, "facts.jsonl");
   const semanticFactsPath = path.join(args.outputDir, "semantic_facts.jsonl");
   const semanticReportPath = path.join(args.outputDir, "semantic_report.json");
+  const reviewPath = path.join(args.outputDir, "review.html");
   await fs.writeFile(replayPath, "");
   await fs.writeFile(factsPath, "");
   await fs.writeFile(semanticFactsPath, "");
@@ -768,6 +772,7 @@ async function main() {
       facts: factsPath,
       semantic_facts: semanticFactsPath,
       semantic_report: semanticReportPath,
+      review: reviewPath,
     },
     started_at_ms: startedAtMs,
     ended_at_ms: endedAtMs,
@@ -813,11 +818,13 @@ async function main() {
 
   const reportPath = path.join(args.outputDir, "report.json");
   await fs.writeFile(reportPath, JSON.stringify(report, null, 2));
+  const generatedReviewPath = await buildReviewForRunDir(args.outputDir, reviewPath);
   console.log(
     JSON.stringify(
       {
         ok: pass,
         report: reportPath,
+        review: generatedReviewPath,
         replay: replayPath,
         facts: factsPath,
         semantic_facts: semanticFactsPath,

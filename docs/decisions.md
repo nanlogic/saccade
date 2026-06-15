@@ -576,3 +576,13 @@
   `Semantic Facts`, `0.091 ms`, and the fact/motor map in the generated HTML.
 - Codex Browser refused direct `file://` navigation to the local report under
   its URL policy, so visual verification used static page checks only.
+
+## DECISION_REFLEX_004 - Reflex runner auto-generates review pages
+
+- `scripts/run_local_game_reflex_loop.js` now calls the review builder after
+  writing `report.json`.
+- Each local game reflex run now prints and records a `review.html` artifact
+  next to `report.json`, `replay.jsonl`, `facts.jsonl`, and
+  `semantic_facts.jsonl`.
+- Updated `docs/SACCADE_DOGFOOD_HANDOFF.md` with the command the game-building
+  session should use when asking Saccade for a dogfood run.

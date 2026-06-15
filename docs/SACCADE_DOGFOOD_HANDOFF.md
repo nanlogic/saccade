@@ -10,14 +10,15 @@ overlapping.
 The game session owns the game. The Saccade session owns browser truth, safety,
 input, replay, and dogfood diagnostics.
 
-## Current Saccade Checkpoint
+## Current Saccade Baseline
 
 ```text
-7fb8744 drive local game from semantic facts
+Use the latest SACCADE main branch unless Wayne says otherwise.
 ```
 
-This checkpoint means the local reflex runner defaults to `--policy visual` and
-can use live `semantic_object_seen` facts to choose motor commands.
+The local reflex runner defaults to `--policy visual`, uses live
+`semantic_object_seen` facts to choose motor commands, and writes a
+human-readable `review.html` at the end of each successful run.
 
 ## Ownership
 
@@ -102,3 +103,24 @@ For the local game reflex gate, the Saccade session should produce:
 
 The game session can keep iterating while Saccade bugs are being investigated,
 as long as Chrome remains a valid gameplay reference.
+
+## Command For The Game Session
+
+When the local game is running at `http://127.0.0.1:4173/`, the game session can
+ask the Saccade session to run:
+
+```bash
+node scripts/run_local_game_reflex_loop.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --url http://127.0.0.1:4173/ \
+  --headless \
+  --window-size 1280x900 \
+  --duration-ms 15000 \
+  --policy visual \
+  --visual-fact-interval-ms 1000 \
+  --output-dir runs/local_game_reflex/<run_name>
+```
+
+The command prints `report`, `review`, `replay`, `facts`, and
+`semantic_facts` paths. `review.html` is the first artifact to open for a quick
+human read.
