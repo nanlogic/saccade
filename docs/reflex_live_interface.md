@@ -63,7 +63,8 @@ local game's public `canvas.dataset.debug` and DOM panel visibility as the
 temporary detector, then sends real browser input through the ServoShell bridge.
 It is useful for release dogfood and game-session testing, but it is not the
 final visual detector. It now also records Browser Fact Stream output as
-`facts.jsonl` and `browser_facts_observed` replay events.
+`facts.jsonl`, derived `semantic_facts.jsonl`, and `browser_facts_observed`
+replay events.
 
 ## Browser Fact Stream
 
@@ -133,21 +134,23 @@ facts_match_result_targets_seen=true
 skipped_outside_game_area=2
 ```
 
-Local game live fact evidence:
+Local game live semantic fact evidence:
 
 ```text
-runs/local_game_reflex/live_facts_1781528515/report.json
-runs/local_game_reflex/live_facts_1781528515/facts.jsonl
+runs/local_game_reflex/semantic_live_1781529317/report.json
+runs/local_game_reflex/semantic_live_1781529317/facts.jsonl
+runs/local_game_reflex/semantic_live_1781529317/semantic_facts.jsonl
 ```
 
 Summary:
 
 ```text
 ok=true
-browser_facts.count=48
-visual_object_seen=35
-time_scale=0.985
-dispatch_ms.p95=0.138
+browser_facts.count=40
+visual_object_seen=27
+semantic_object_seen=27
+time_scale=0.940
+dispatch_ms.p95=0.189
 ```
 
 ## Runtime

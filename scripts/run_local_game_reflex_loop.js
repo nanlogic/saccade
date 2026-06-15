@@ -10,6 +10,10 @@ const {
   writeFactsJsonl,
 } = require("./lib/browser_fact_stream");
 const {
+  classifyLocalGameFacts,
+  summarizeSemanticFacts,
+} = require("./lib/local_game_fact_classifier");
+const {
   ReflexLiveBridge,
   appendJsonl,
   sampleLocalGame,
@@ -219,8 +223,11 @@ async function main() {
   await fs.mkdir(args.outputDir, { recursive: true });
   const replayPath = path.join(args.outputDir, "replay.jsonl");
   const factsPath = path.join(args.outputDir, "facts.jsonl");
+  const semanticFactsPath = path.join(args.outputDir, "semantic_facts.jsonl");
+  const semanticReportPath = path.join(args.outputDir, "semantic_report.json");
   await fs.writeFile(replayPath, "");
   await fs.writeFile(factsPath, "");
+  await fs.writeFile(semanticFactsPath, "");
 
   const bridge = new ReflexLiveBridge({
     servoshell: args.servoshell,
@@ -357,6 +364,22 @@ async function main() {
   const receiptSummary = summarizeReceipts(receipts);
   const frameSummary = summarizeReflexEvents(frames);
   const browserFactSummary = summarizeFacts(browserFacts);
+  const semanticFacts = args.browserFacts ? classifyLocalGameFacts(browserFacts) : [];
+  const semanticFactSummary = summarizeSemanticFacts(semanticFacts);
+  await writeFactsJsonl(semanticFactsPath, semanticFacts);
+  await fs.writeFile(
+    semanticReportPath,
+    JSON.stringify(
+      {
+        ok: semanticFacts.length > 0,
+        semantic_facts_path: semanticFactsPath,
+        summary: semanticFactSummary,
+        samples: semanticFacts.slice(0, 12),
+      },
+      null,
+      2,
+    ),
+  );
   const firstDebug = sampleSummary.first_debug || {};
   const lastDebug = sampleSummary.last_debug || {};
   const healthOk = (lastDebug.hp ?? 0) > 0 || ["victory", "upgrade", "blending"].includes(lastDebug.mode);
@@ -383,6 +406,8 @@ async function main() {
       ...bridge.paths,
       replay: replayPath,
       facts: factsPath,
+      semantic_facts: semanticFactsPath,
+      semantic_report: semanticReportPath,
     },
     started_at_ms: startedAtMs,
     ended_at_ms: endedAtMs,
@@ -391,6 +416,7 @@ async function main() {
       receipts: receiptSummary,
       frames: frameSummary,
       browser_facts: browserFactSummary,
+      semantic_facts: semanticFactSummary,
       command_count: commandCount,
       command_receipts: commandReceipts,
       hp_delta:
@@ -429,6 +455,7 @@ async function main() {
         report: reportPath,
         replay: replayPath,
         facts: factsPath,
+        semantic_facts: semanticFactsPath,
         final_reason: finalReason,
         summary: report.summary,
         stderr_tail: report.process.stderr_tail.split("\n").slice(-8).join("\n"),

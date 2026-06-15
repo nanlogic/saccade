@@ -32,6 +32,8 @@ scripts/lib/browser_fact_stream.js
 scripts/probe_browser_fact_stream.js
 scripts/convert_mousemax_replay_to_facts.js
 scripts/run_local_game_reflex_loop.js
+scripts/classify_local_game_facts.js
+scripts/lib/local_game_fact_classifier.js
 test_pages/browser_fact_stream/index.html
 ```
 
@@ -63,6 +65,7 @@ Current `fact_type` values:
 - `sensitive_field_seen`
 - `canvas_seen`
 - `visual_object_seen`
+- `semantic_object_seen`
 
 Current source:
 
@@ -80,6 +83,9 @@ APIs. Good next fact types:
 - `navigation_state_seen`
 - `permission_prompt_seen`
 - `download_seen`
+
+`semantic_object_seen` is derived from raw visual facts. It is a replaceable
+classifier layer, not browser ground truth.
 
 ## Safety Contract
 
@@ -201,7 +207,7 @@ the live ServoShell run, writes `facts.jsonl`, and records
 is throttled by `--visual-fact-interval-ms` so it remains evidence/control-plane
 work, not the millisecond motor loop.
 
-Short release ServoShell check:
+Short release ServoShell check with automatic semantic facts:
 
 ```sh
 node scripts/run_local_game_reflex_loop.js \
@@ -209,35 +215,51 @@ node scripts/run_local_game_reflex_loop.js \
   --url http://127.0.0.1:4173/ \
   --headless \
   --window-size 1280x900 \
-  --duration-ms 5000 \
+  --duration-ms 4000 \
   --visual-fact-interval-ms 1000 \
-  --output-dir runs/local_game_reflex/live_facts_1781528515
+  --output-dir runs/local_game_reflex/semantic_live_1781529317
 ```
 
 Evidence:
 
 ```text
-runs/local_game_reflex/live_facts_1781528515/report.json
-runs/local_game_reflex/live_facts_1781528515/replay.jsonl
-runs/local_game_reflex/live_facts_1781528515/facts.jsonl
+runs/local_game_reflex/semantic_live_1781529317/report.json
+runs/local_game_reflex/semantic_live_1781529317/replay.jsonl
+runs/local_game_reflex/semantic_live_1781529317/facts.jsonl
+runs/local_game_reflex/semantic_live_1781529317/semantic_facts.jsonl
 ```
 
 Summary:
 
 ```text
 ok=true
-browser_facts.count=48
+browser_facts.count=40
 canvas_seen=1
-visual_object_seen=35
-replay browser_facts_observed events=6
-time_scale=0.985
-dispatch_ms.p95=0.138
-readback_ms.p95=9.032
+visual_object_seen=27
+semantic_object_seen=27
+semantic labels:
+  collectible_drop_or_projectile=15
+  enemy_or_player_attack=6
+  projectile_or_particle_streak=2
+  particle_or_tiny_detail=1
+  unknown_visual_object=3
+time_scale=0.940
+dispatch_ms.p95=0.189
+readback_ms.p95=6.223
 ```
 
 This proves live page changes can be seen through the fact stream while the
-bridge is also driving Servo input. The current visual facts are object-like
-pixel components, not semantic labels such as fruit/enemy/drop.
+bridge is also driving Servo input. The current semantic facts are heuristic
+hints over object-like pixel components, not final labels such as exact
+fruit/enemy/drop identity.
+
+The same classifier can be run after an older live-facts run:
+
+```sh
+node scripts/classify_local_game_facts.js \
+  --facts runs/local_game_reflex/<run>/facts.jsonl \
+  --output-dir runs/local_game_reflex/<run>
+```
 
 ## Product Meaning
 
