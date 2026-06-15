@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Current Tab Co-Pilot Fixture</title>
+  <style>
+    body {
+      margin: 0;
+      background: #f5f7fb;
+      color: #17202c;
+      font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 0 0 22px;
+      color: #5b6678;
+    }
+    form {
+      display: grid;
+      gap: 16px;
+      padding: 22px;
+      background: #fff;
+      border: 1px solid #d8e0ea;
+      border-radius: 8px;
+    }
+    label {
+      display: grid;
+      gap: 7px;
+      font-weight: 650;
+    }
+    input,
+    textarea {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      border: 1px solid #b8c4d4;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font: inherit;
+    }
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+    .policy {
+      font-size: 13px;
+      color: #637083;
+      font-weight: 500;
+    }
+    button {
+      justify-self: start;
+      border: 0;
+      border-radius: 6px;
+      padding: 11px 18px;
+      background: #2f62e8;
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body data-session-revision="0">
+  <main>
+    <h1>Current Tab Co-Pilot Fixture</h1>
+    <p>User-started tab fixture for redacted truth, safe agent fill, sensitive status checks, and submit confirmation.</p>
+
+    <form id="capacity-request" aria-label="Capacity request">
+      <label for="project-name">
+        Project name
+        <input id="project-name" name="project-name" data-saccade-field data-owner="agent" data-sensitive="none" value="">
+        <span class="policy">Agent may fill.</span>
+      </label>
+
+      <label for="capacity">
+        Requested capacity
+        <input id="capacity" name="capacity" type="number" data-saccade-field data-owner="agent" data-sensitive="none" value="">
+        <span class="policy">Agent may fill.</span>
+      </label>
+
+      <label for="notes">
+        Request notes
+        <textarea id="notes" name="notes" data-saccade-field data-owner="agent" data-sensitive="none"></textarea>
+        <span class="policy">Agent may fill.</span>
+      </label>
+
+      <label for="ssn">
+        SSN
+        <input id="ssn" name="ssn" autocomplete="off" data-saccade-field data-owner="human" data-sensitive="ssn" value="999-12-3456">
+        <span class="policy">Human-owned sensitive field. Agent may know completion status only.</span>
+      </label>
+
+      <label for="signature">
+        Signature
+        <input id="signature" name="signature" data-saccade-field data-owner="human" data-sensitive="signature" value="">
+        <span class="policy">Human must complete. Agent may not read or write the value.</span>
+      </label>
+
+      <button id="submit" type="submit">Submit</button>
+    </form>
+  </main>
+  <script>
+    document.getElementById("capacity-request").addEventListener("submit", (event) => {
+      event.preventDefault();
+      document.body.dataset.sessionRevision = String(Number(document.body.dataset.sessionRevision || "0") + 1);
+      document.getElementById("submit").textContent = "Submitted";
+    });
+  </script>
+</body>
+</html>

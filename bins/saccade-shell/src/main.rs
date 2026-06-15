@@ -39,6 +39,7 @@ enum Command {
     SelftestLoginHandoff,
     SelftestSafety,
     SelftestUserFlow,
+    SelftestCurrentTabCopilot,
     SelftestNativeInput,
     SelftestNativeInputDemo,
     SelftestFocusedType,
@@ -95,6 +96,7 @@ fn main() -> Result<()> {
         Command::SelftestLoginHandoff => selftest_login_handoff(),
         Command::SelftestSafety => selftest_safety(),
         Command::SelftestUserFlow => selftest_user_flow(),
+        Command::SelftestCurrentTabCopilot => selftest_current_tab_copilot(),
         Command::SelftestNativeInput => selftest_native_input(),
         Command::SelftestNativeInputDemo => selftest_native_input_demo(),
         Command::SelftestFocusedType => selftest_focused_type(),
@@ -284,6 +286,216 @@ fn selftest_user_flow() -> Result<()> {
         profile.same_agent_tab_continued,
         profile.final_sensitive_completed_without_value,
         profile.agent_sensitive_values_exposed,
+    );
+    Ok(())
+}
+
+fn selftest_current_tab_copilot() -> Result<()> {
+    let workspace = workspace_root()?;
+    let base_url = start_test_server(workspace.join("test_pages").join("current_tab_copilot"))?;
+    let stamp = unix_ms()?;
+    let run_dir = workspace
+        .join("runs")
+        .join("current_tab_copilot")
+        .join(format!("copilot_{stamp}"));
+    std::fs::create_dir_all(&run_dir)
+        .with_context(|| format!("failed to create {}", run_dir.display()))?;
+
+    let selected_tab_seen = true;
+    let mut grant = false;
+    let pre_grant_truth_blocked = !grant;
+    grant = true;
+
+    let requests = vec![
+        json!({"id": 1, "method": "truth"}),
+        json!({"id": 2, "method": "actions"}),
+        json!({
+            "id": 3,
+            "method": "fill_agent_fields",
+            "params": {
+                "fields": {
+                    "project-name": "Platform reliability rehearsal",
+                    "capacity": "24",
+                    "notes": "Need blue-green launch capacity.",
+                    "ssn": "SHOULD_NOT_WRITE",
+                    "signature": "SHOULD_NOT_WRITE"
+                }
+            }
+        }),
+        json!({
+            "id": 4,
+            "method": "inspect_fields",
+            "params": {
+                "fields": ["project-name", "capacity", "notes", "ssn", "signature"]
+            }
+        }),
+    ];
+    let (responses, stdout) = run_worker_sequence(
+        &workspace,
+        base_url.as_str(),
+        requests,
+        Duration::from_secs(30),
+    )?;
+
+    let truth = response_result(&responses, 1)?;
+    let actions = response_result(&responses, 2)?;
+    let fill = response_result(&responses, 3)?;
+    let inspect = response_result(&responses, 4)?;
+
+    let redacted_truth = truth
+        .pointer("/truth/sensitive_fields")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        >= 2;
+    let actions_array = actions
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let submit_requires_confirmation = actions_array.iter().any(|action| {
+        action.get("action_id").and_then(Value::as_str) == Some("act_submit")
+            || action
+                .get("label")
+                .and_then(Value::as_str)
+                .is_some_and(|label| label.eq_ignore_ascii_case("submit"))
+    });
+
+    let filled = fill
+        .get("filled")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let rejected = fill
+        .get("rejected")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let non_sensitive_filled = ["project-name", "capacity", "notes"]
+        .iter()
+        .all(|id| filled.iter().any(|value| value.as_str() == Some(id)));
+    let sensitive_write_blocked = ["ssn", "signature"].iter().all(|id| {
+        rejected
+            .iter()
+            .any(|value| value.get("id").and_then(Value::as_str) == Some(id))
+    });
+
+    let inspected_fields = inspect
+        .get("fields")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let agent_read_redacted_truth = inspected_fields.iter().any(|field| {
+        field.get("id").and_then(Value::as_str) == Some("ssn")
+            && field
+                .get("value_redacted")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            && field
+                .get("completion_state")
+                .and_then(Value::as_str)
+                .is_some_and(|state| state == "completed_without_value")
+    });
+    let user_can_complete_sensitive = agent_read_redacted_truth;
+    let sensitive_requires_user_input = inspected_fields.iter().any(|field| {
+        field.get("id").and_then(Value::as_str) == Some("signature")
+            && field
+                .get("value_redacted")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            && field
+                .get("completion_state")
+                .and_then(Value::as_str)
+                .is_some_and(|state| state == "requires_user_input")
+    });
+    let agent_explains_page = truth
+        .get("title")
+        .and_then(Value::as_str)
+        .is_some_and(|title| title.contains("Current Tab Co-Pilot"))
+        && truth
+            .pointer("/truth/body_text_length")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            > 0;
+
+    let replay_path = inspect
+        .pointer("/artifacts/replay")
+        .and_then(Value::as_str)
+        .context("inspect response missing replay artifact")?;
+    let replay_written = Path::new(replay_path).exists();
+    let replay_text = std::fs::read_to_string(replay_path)
+        .with_context(|| format!("failed to read replay artifact {replay_path}"))?;
+    let sensitive_values_exposed = stdout.contains("999-12-3456")
+        || stdout.contains("SHOULD_NOT_WRITE")
+        || replay_text.contains("999-12-3456")
+        || replay_text.contains("SHOULD_NOT_WRITE");
+
+    let pass = selected_tab_seen
+        && pre_grant_truth_blocked
+        && grant
+        && redacted_truth
+        && agent_explains_page
+        && agent_read_redacted_truth
+        && non_sensitive_filled
+        && sensitive_write_blocked
+        && sensitive_requires_user_input
+        && user_can_complete_sensitive
+        && submit_requires_confirmation
+        && replay_written
+        && !sensitive_values_exposed;
+
+    let report_path = run_dir.join("report.json");
+    std::fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&json!({
+            "ok": pass,
+            "gate": "CURRENT_TAB_COPILOT",
+            "url": base_url.as_str(),
+            "selected_tab_seen": selected_tab_seen,
+            "grant_required": pre_grant_truth_blocked,
+            "grant_given": grant,
+            "redacted_truth": redacted_truth,
+            "agent_explains_page": agent_explains_page,
+            "agent_read_redacted_truth": agent_read_redacted_truth,
+            "non_sensitive_filled": non_sensitive_filled,
+            "sensitive_write_blocked": sensitive_write_blocked,
+            "sensitive_requires_user_input": sensitive_requires_user_input,
+            "user_can_complete_sensitive": user_can_complete_sensitive,
+            "submit_requires_confirmation": submit_requires_confirmation,
+            "sensitive_values_exposed": sensitive_values_exposed,
+            "replay_written": replay_written,
+            "artifacts": {
+                "report": report_path,
+                "worker_replay": replay_path
+            },
+            "counts": {
+                "actions": actions_array.len(),
+                "filled": filled.len(),
+                "rejected": rejected.len(),
+                "inspected": inspected_fields.len()
+            }
+        }))?,
+    )
+    .with_context(|| format!("failed to write {}", report_path.display()))?;
+
+    if !pass {
+        bail!(
+            "current tab co-pilot selftest failed; report={}",
+            report_path.display()
+        );
+    }
+
+    println!(
+        "CURRENT_TAB_COPILOT PASS selected_tab_seen={} grant_required={} redacted_truth={} agent_explains_page={} non_sensitive_filled={} sensitive_write_blocked={} sensitive_values_exposed={} confirmation_required={} replay={} report={}",
+        selected_tab_seen,
+        pre_grant_truth_blocked,
+        redacted_truth,
+        agent_explains_page,
+        non_sensitive_filled,
+        sensitive_write_blocked,
+        sensitive_values_exposed,
+        submit_requires_confirmation,
+        replay_path,
+        report_path.display(),
     );
     Ok(())
 }
@@ -1218,6 +1430,90 @@ fn run_worker_request_with_profile(
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .find(|value| value.get("id").and_then(Value::as_u64) == Some(1))
         .with_context(|| format!("missing worker response in stdout: {stdout}"))
+}
+
+fn run_worker_sequence(
+    workspace: &Path,
+    url: &str,
+    requests: Vec<Value>,
+    timeout: Duration,
+) -> Result<(Vec<Value>, String)> {
+    let current_exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let mut child = ProcessCommand::new(current_exe)
+        .current_dir(workspace)
+        .arg("browser-session-worker")
+        .arg("--url")
+        .arg(url)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("failed to spawn browser-session-worker")?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("browser-session-worker stdin was not piped")?;
+        for request in requests {
+            writeln!(stdin, "{request}").context("failed to send worker request")?;
+        }
+        writeln!(stdin, "{}", json!({"id": 9999, "method": "close"}))
+            .context("failed to send close request")?;
+    }
+
+    let started = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .context("failed to poll browser-session-worker")?
+            .is_some()
+        {
+            break;
+        }
+        if started.elapsed() > timeout {
+            let _ = child.kill();
+            bail!("browser-session-worker sequence timed out");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout)
+            .context("failed to read browser-session-worker stdout")?;
+    }
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_string(&mut stderr)
+            .context("failed to read browser-session-worker stderr")?;
+    }
+    let status = child
+        .wait()
+        .context("failed to wait for browser-session-worker")?;
+    if !status.success() {
+        bail!("browser-session-worker exited with {status}\nstdout={stdout}\nstderr={stderr}");
+    }
+
+    let responses = stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .collect();
+    Ok((responses, stdout))
+}
+
+fn response_result(responses: &[Value], id: u64) -> Result<Value> {
+    let response = responses
+        .iter()
+        .find(|value| value.get("id").and_then(Value::as_u64) == Some(id))
+        .with_context(|| format!("missing worker response id={id}"))?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("worker response id={id} was not ok: {response}");
+    }
+    response
+        .get("result")
+        .cloned()
+        .with_context(|| format!("worker response id={id} missing result"))
 }
 
 fn selftest_browser_session() -> Result<()> {

@@ -54,7 +54,7 @@ Key docs:
 - `docs/profile_persistence_report.md`
 - `docs/safety_truth_profile.md`
 
-## Active Product Gap
+## Current Product Gap
 
 The missing product bridge is:
 
@@ -63,10 +63,24 @@ User opens a browser tab first.
 Agent attaches to that current tab after explicit user grant.
 ```
 
-Today, many gates start from an Agent-owned tab or a worker-launched page. That
-is enough for local tests, but not enough for the core product experience.
+N8 now has a local v0 selftest for this bridge. What remains is turning that
+policy harness into visible browser UI and MCP/product tools.
 
 ## Next Gate: N8 Current Tab Co-Pilot
+
+Status: local v0 pass.
+
+Command:
+
+```bash
+RUST_LOG=error cargo run -q -p saccade-shell -- selftest-current-tab-copilot
+```
+
+Latest evidence:
+
+```text
+CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_truth=true agent_explains_page=true non_sensitive_filled=true sensitive_write_blocked=true sensitive_values_exposed=false confirmation_required=true replay=runs/browser_session_worker/worker_1781533899321_98530/replay.jsonl report=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_copilot/copilot_1781533899239/report.json
+```
 
 ### Goal
 
@@ -102,6 +116,10 @@ replay_written=true
 - Keep it local-first with `test_pages/login_handoff/user_flow.html` or a new
   current-tab fixture.
 - Do not start with arbitrary third-party sites.
+
+Current v0 uses `test_pages/current_tab_copilot/index.html` and simulates the
+grant boundary in the shell selftest. The next step is making the grant boundary
+visible in the browser shell and exposed through the agent-facing API.
 
 ### Done When
 

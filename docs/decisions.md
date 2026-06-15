@@ -586,3 +586,25 @@
   `semantic_facts.jsonl`.
 - Updated `docs/SACCADE_DOGFOOD_HANDOFF.md` with the command the game-building
   session should use when asking Saccade for a dogfood run.
+
+## DECISION_N8_001 - Current Tab Co-Pilot starts as a local policy gate
+
+- Added `saccade-shell selftest-current-tab-copilot`.
+- Added `test_pages/current_tab_copilot/index.html` as the first local fixture
+  for a user-started current-tab assist flow.
+- The selftest simulates the selected-tab grant boundary before sending worker
+  truth/action/fill requests. It then uses the live browser worker to collect
+  redacted truth, collect actions, fill agent-owned non-sensitive fields, reject
+  human-owned sensitive fields, inspect sensitive completion status without raw
+  values, and require confirmation for Submit by policy instead of clicking it.
+- Latest evidence:
+  `runs/current_tab_copilot/copilot_1781533899239/report.json`.
+- Worker replay:
+  `runs/browser_session_worker/worker_1781533899321_98530/replay.jsonl`.
+- Result: `CURRENT_TAB_COPILOT PASS selected_tab_seen=true
+  grant_required=true redacted_truth=true agent_explains_page=true
+  non_sensitive_filled=true sensitive_write_blocked=true
+  sensitive_values_exposed=false confirmation_required=true`.
+- This is not yet the final product UI. Next work is making the current-tab
+  grant visible in the browser shell and exposing it through the agent-facing
+  API.
