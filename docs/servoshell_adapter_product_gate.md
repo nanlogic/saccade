@@ -18,7 +18,7 @@ official ServoShell runtime.
 | Browser session smoke | pass | pass via `saccade-servoshell selftest` |
 | Redacted truth/action map | pass | first adapter bundle pass via `saccade-servoshell` |
 | Safe field policy | pass | rerun with WebDriver truth/action extraction |
-| Safety redaction | pass | first screenshot/redaction gate pass via `saccade-servoshell selftest` |
+| Safety redaction | pass | 9-kind safety matrix pass via `saccade-servoshell selftest` |
 | Login handoff | pass | rerun or decide it requires fork |
 | FORMMAX live fill | pass | rerun via WebDriver adapter |
 | Focused typing | pass | rerun via WebDriver keys/actions |
@@ -102,18 +102,24 @@ If any of the following fail, Option B becomes justified:
    bundle.
 3. DONE: Add screenshot policy modes before using WebDriver screenshot in
    normal runs.
-4. Re-run the existing local safety and FORMMAX fixtures through the adapter.
-5. Re-run focused typing and dropdown/input fixtures through the adapter.
-6. Decide whether login handoff is externally safe or needs the thin fork.
+4. DONE: Re-run and expand local safety fixtures through the adapter.
+5. Re-run FORMMAX fixtures through the adapter.
+6. Re-run focused typing and dropdown/input fixtures through the adapter.
+7. Decide whether login handoff is externally safe or needs the thin fork.
 
 ## Latest Evidence
 
 - Adapter selftest:
-  `runs/servoshell_adapter/adapter_1781482592445/summary.json`
+  `runs/servoshell_adapter/adapter_1781483074229/summary.json`
 - Normal page: action dispatch changed `data-session-revision` from `0` to
   `1`, guarded diagnostic screenshot captured after preflight.
-- Sensitive page: 3 sensitive fields detected, screenshot blocked before
-  capture, raw SSN/card/password leak check passed.
+- Safety matrix page:
+  `runs/servoshell_adapter/adapter_1781483074229/safety_matrix/report.json`
+- Safety matrix detected 9 redaction kinds: `api_token`, `credit_card`,
+  `email`, `government_id`, `hidden`, `otp`, `password`,
+  `recovery_token`, and `ssn`.
+- Safety matrix screenshot blocked before capture, and raw value grep passed
+  for all 9 fixture secrets.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781482435257/report.json`
 - Local game screenshot default stayed blocked with decision

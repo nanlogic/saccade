@@ -476,3 +476,17 @@
   `runs/servoshell_adapter/adapter_1781482592445/summary.json`.
 - Local game truth probe also passed without screenshot capture:
   `runs/servoshell_adapter/probe_1781482435257/report.json`.
+
+## DECISION_SERVOSHELL_007 - Adapter safety matrix covers visible, hidden, and editable secrets
+
+- Added `test_pages/browser_session_safety_matrix/index.html`.
+- The fixture covers 9 redaction kinds: `ssn`, `credit_card`, `password`,
+  `government_id`, `api_token`, `otp`, `email`, `hidden`, and
+  `recovery_token`.
+- Tightened the adapter truth bundle so sensitive action labels do not fall
+  back to editable/text-area content when a field lacks a clean label.
+- Latest gate command passed:
+  `cargo run -q -p saccade-servoshell -- selftest --servoshell /Applications/Servo.app/Contents/MacOS/servoshell`.
+- Evidence:
+  `runs/servoshell_adapter/adapter_1781483074229/summary.json`.
+- Raw fixture secret grep over the run directory returned no matches.

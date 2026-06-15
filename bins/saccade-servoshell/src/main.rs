@@ -86,6 +86,8 @@ fn main() -> Result<()> {
                 expect_click_revision: false,
                 expect_sensitive_surface: None,
                 raw_value_needles: vec![],
+                expected_sensitive_count_min: None,
+                expected_redaction_kinds: vec![],
             })?;
             let ok = report.ok;
             println!(
@@ -115,12 +117,14 @@ fn main() -> Result<()> {
                 expect_click_revision: true,
                 expect_sensitive_surface: Some(false),
                 raw_value_needles: vec![],
+                expected_sensitive_count_min: None,
+                expected_redaction_kinds: vec![],
             })?;
 
             let sensitive = run_probe(ProbeConfig {
                 servoshell,
-                url: default_sensitive_url(),
-                output_dir: root.join("sensitive"),
+                url: default_safety_matrix_url(),
+                output_dir: root.join("safety_matrix"),
                 headless: !no_headless,
                 timeout: Duration::from_secs_f64(timeout_sec),
                 screenshot_mode: ScreenshotMode::GuardedDiagnostic,
@@ -131,6 +135,24 @@ fn main() -> Result<()> {
                     "123-45-6789".to_string(),
                     "4111111111111111".to_string(),
                     "correct-horse-battery".to_string(),
+                    "A-9876543".to_string(),
+                    "sk_live_super_secret_123".to_string(),
+                    "000111".to_string(),
+                    "ada.secret@example.com".to_string(),
+                    "hidden-session-token-xyz".to_string(),
+                    "reset-token-shh-991".to_string(),
+                ],
+                expected_sensitive_count_min: Some(9),
+                expected_redaction_kinds: vec![
+                    "ssn".to_string(),
+                    "credit_card".to_string(),
+                    "password".to_string(),
+                    "government_id".to_string(),
+                    "api_token".to_string(),
+                    "otp".to_string(),
+                    "email".to_string(),
+                    "hidden".to_string(),
+                    "recovery_token".to_string(),
                 ],
             })?;
 
@@ -147,6 +169,8 @@ fn main() -> Result<()> {
                     "screenshot": sensitive.screenshot_path,
                     "screenshot_decision": sensitive.screenshot_decision,
                     "leak_check_passed": sensitive.leak_check_passed,
+                    "redaction_count": sensitive.redaction_count,
+                    "redaction_kinds": sensitive.redaction_kinds,
                     "port": sensitive.webdriver_port,
                 },
                 "port_policy": {
@@ -187,6 +211,8 @@ struct ProbeConfig {
     expect_click_revision: bool,
     expect_sensitive_surface: Option<bool>,
     raw_value_needles: Vec<String>,
+    expected_sensitive_count_min: Option<usize>,
+    expected_redaction_kinds: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -197,6 +223,8 @@ struct ProbeOutcome {
     screenshot_decision: String,
     post_revision: Option<String>,
     leak_check_passed: bool,
+    redaction_count: usize,
+    redaction_kinds: Vec<String>,
     webdriver_port: u16,
 }
 
@@ -227,6 +255,8 @@ fn run_probe(cfg: ProbeConfig) -> Result<ProbeOutcome> {
     let mut screenshot_decision = "not_evaluated".to_string();
     let mut post_revision: Option<String> = None;
     let mut leak_check_passed = false;
+    let mut redaction_count = 0;
+    let mut redaction_kinds = Vec::new();
     let mut ok = false;
 
     let result = (|| -> Result<()> {
@@ -247,6 +277,18 @@ fn run_probe(cfg: ProbeConfig) -> Result<ProbeOutcome> {
             let actual = visible_sensitive_surface(&pre_truth);
             if actual != expected {
                 bail!("sensitive surface expectation failed: expected {expected}, actual {actual}");
+            }
+        }
+        redaction_count = count_redactions(&pre_truth);
+        redaction_kinds = collect_redaction_kinds(&pre_truth);
+        if let Some(min) = cfg.expected_sensitive_count_min {
+            if redaction_count < min {
+                bail!("redaction count too low: expected at least {min}, actual {redaction_count}");
+            }
+        }
+        for expected_kind in &cfg.expected_redaction_kinds {
+            if !redaction_kinds.iter().any(|kind| kind == expected_kind) {
+                bail!("missing expected redaction kind: {expected_kind}");
             }
         }
 
@@ -308,6 +350,10 @@ fn run_probe(cfg: ProbeConfig) -> Result<ProbeOutcome> {
             "passed": leak_check_passed,
             "needles_checked": cfg.raw_value_needles.len(),
         });
+        report["redaction_check"] = json!({
+            "redaction_count": redaction_count,
+            "redaction_kinds": redaction_kinds,
+        });
         if !leak_check_passed {
             bail!("raw sensitive value leak check failed");
         }
@@ -341,6 +387,8 @@ fn run_probe(cfg: ProbeConfig) -> Result<ProbeOutcome> {
         screenshot_decision,
         post_revision,
         leak_check_passed,
+        redaction_count,
+        redaction_kinds,
         webdriver_port: port,
     })
 }
@@ -615,6 +663,28 @@ fn raw_values_absent(report: &Value, needles: &[String]) -> bool {
     needles.iter().all(|needle| !text.contains(needle))
 }
 
+fn count_redactions(truth: &Value) -> usize {
+    truth
+        .get("redactions")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default()
+}
+
+fn collect_redaction_kinds(truth: &Value) -> Vec<String> {
+    let mut kinds = truth
+        .get("redactions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|redaction| redaction.get("kind").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    kinds.sort();
+    kinds.dedup();
+    kinds
+}
+
 fn choose_loopback_port() -> Result<u16> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).context("bind random loopback port")?;
     Ok(listener.local_addr()?.port())
@@ -630,8 +700,8 @@ fn default_smoke_url() -> String {
     file_url("test_pages/browser_session/index.html")
 }
 
-fn default_sensitive_url() -> String {
-    file_url("test_pages/browser_session_sensitive/index.html")
+fn default_safety_matrix_url() -> String {
+    file_url("test_pages/browser_session_safety_matrix/index.html")
 }
 
 fn file_url(path: &str) -> String {
@@ -697,7 +767,7 @@ fn terminate_child(child: &mut Child) {
 const TRUTH_JS: &str = r###"
 return (() => {
   const VERSION = "saccade-servoshell-truth-v0";
-  const sensitiveRe = /(password|passcode|pwd|ssn|social|credit|card|cc-|cvv|cvc|otp|token|secret|passport|license|dob|birth|email|e-mail|phone)/i;
+  const sensitiveRe = /(password|passcode|pwd|ssn|social|credit|card|cc-|cvv|cvc|otp|token|secret|passport|license|dob|birth|email|e-mail|phone|government|national|identity|tax|tin)/i;
   const visible = (el) => {
     if (!el || !el.getBoundingClientRect) return false;
     const r = el.getBoundingClientRect();
@@ -735,7 +805,14 @@ return (() => {
     }
     return ("00000000" + (h >>> 0).toString(16)).slice(-8);
   };
-  const labelFor = (el) => {
+  const labelFor = (el, isSensitive) => {
+    const directLabelText = (label) => [...label.childNodes]
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent)
+      .join(" ")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 80);
     const aria = el.getAttribute("aria-label");
     if (aria) return aria.trim().slice(0, 80);
     const id = el.id;
@@ -744,7 +821,12 @@ return (() => {
       if (label) return label.textContent.trim().replace(/\s+/g, " ").slice(0, 80);
     }
     const parentLabel = el.closest("label");
+    if (parentLabel && isSensitive) {
+      const own = directLabelText(parentLabel);
+      if (own) return own;
+    }
     if (parentLabel) return parentLabel.textContent.trim().replace(/\s+/g, " ").slice(0, 80);
+    if (isSensitive) return (el.getAttribute("name") || el.id || el.tagName).trim().slice(0, 80);
     return (el.innerText || el.textContent || el.getAttribute("placeholder") || el.getAttribute("name") || el.tagName).trim().replace(/\s+/g, " ").slice(0, 80);
   };
   const sensitivityOf = (el) => {
@@ -792,7 +874,7 @@ return (() => {
       kind: tag === "a" || role === "button" ? "click" : "field",
       role,
       selector: sel,
-      label: labelFor(el),
+      label: labelFor(el, isSensitive),
       rect: rect(el),
       enabled: !el.disabled && el.getAttribute("aria-disabled") !== "true",
       sensitive: isSensitive,

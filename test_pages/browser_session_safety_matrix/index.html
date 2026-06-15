@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Browser Session Safety Matrix</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 48px;
+      color: #20242c;
+      background: #ffffff;
+    }
+
+    main {
+      max-width: 760px;
+    }
+
+    label {
+      display: block;
+      margin: 14px 0;
+      font-weight: 650;
+    }
+
+    input,
+    textarea,
+    [contenteditable="true"] {
+      box-sizing: border-box;
+      display: block;
+      width: 420px;
+      min-height: 38px;
+      margin-top: 4px;
+      border: 1px solid #9aa4b2;
+      padding: 8px 10px;
+      font: inherit;
+    }
+
+    [contenteditable="true"] {
+      min-height: 72px;
+      white-space: pre-wrap;
+    }
+
+    button {
+      min-width: 140px;
+      min-height: 44px;
+      margin-top: 18px;
+    }
+  </style>
+</head>
+<body data-session-revision="0">
+  <main>
+    <h1>Safety Matrix</h1>
+    <label>
+      Legal name
+      <input id="legal-name" name="legal_name" autocomplete="name" value="Ada Lovelace">
+    </label>
+    <label>
+      SSN
+      <input id="ssn" name="ssn" data-sensitive="ssn" autocomplete="off" value="123-45-6789">
+    </label>
+    <label>
+      Card number
+      <input id="card-number" name="credit_card" data-sensitive="credit_card" autocomplete="cc-number" value="4111111111111111">
+    </label>
+    <label>
+      Password
+      <input id="account-password" name="password" type="password" autocomplete="current-password" value="correct-horse-battery">
+    </label>
+    <label>
+      Government ID
+      <input id="government-id" name="government_id" data-sensitive="government_id" autocomplete="off" value="A-9876543">
+    </label>
+    <label>
+      API token
+      <textarea id="api-token" name="api_token" data-sensitive="api_token">sk_live_super_secret_123</textarea>
+    </label>
+    <label>
+      OTP
+      <input id="otp" name="one_time_password" data-sensitive="otp" autocomplete="one-time-code" value="000111">
+    </label>
+    <label>
+      Account email
+      <input id="account-email" name="email" type="email" data-sensitive="email" autocomplete="email" value="ada.secret@example.com">
+    </label>
+    <input id="hidden-session-token" name="session_token" type="hidden" value="hidden-session-token-xyz">
+    <label for="recovery-token">Recovery token editor</label>
+    <div
+      id="recovery-token"
+      role="textbox"
+      aria-label="Recovery token editor"
+      contenteditable="true"
+      data-sensitive="recovery_token"
+    >reset-token-shh-991</div>
+    <button id="done" type="button">Done</button>
+  </main>
+  <script>
+    document.querySelector("#done").addEventListener("click", () => {
+      document.body.dataset.sessionRevision = "1";
+    });
+  </script>
+</body>
+</html>
