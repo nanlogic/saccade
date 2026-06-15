@@ -196,9 +196,12 @@ Runtime caveat:
   truth and input dispatch.
 - A headed raw dev launch on macOS hit an AppKit TouchBar observer crash during
   this session.
-- Headless probes on the local game showed slow game-time advancement under the
-  GL warning; this is not the same as the downloaded official app's headed
-  behavior.
-- Next productization step is to measure/build toward the official app behavior:
-  package/bundle or release/prod build first, then compare official app,
-  source dev, source release/prod, and headless.
+- Debug-profile probes on the local game showed slow game-time advancement
+  under the GL warning; this is not the same as the downloaded official app's
+  headed behavior.
+- Release-profile source builds match the official app behavior closely enough
+  for the next Saccade bridge work:
+  `docs/servoshell_runtime_matrix.md`.
+- Product packaging still needs a GStreamer answer. `./mach package --dev
+  --preserve-app` failed because the package command always expected GStreamer
+  dylibs even though the local build used dummy media.

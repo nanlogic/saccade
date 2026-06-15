@@ -110,6 +110,11 @@ Current evidence:
   `dropped_logs=0`.
 - Frame truth for the same run:
   31 frame logs, 31 `readback_ok=true`.
+- Release bridge evidence:
+  `runs/reflex_input/release_game_drag_1781491400/frames.jsonl`.
+- In release headless mode, game time kept pace with wall time
+  (`time_scale=0.999`), the bridge logged 180/180 readback frames, and the drag
+  moved the local game camera by `+20px`.
 
 Remaining R1 work:
 
@@ -135,6 +140,9 @@ Current evidence:
   (`Servo 0.3.0-302457869`) on `http://127.0.0.1:4173/` did not show the
   earlier severe lag. Treat official headed Servo.app as the current human
   rendering reference, pending measured FPS/time-scale capture.
+- Release source build `Servo 0.3.0-805e6a423` succeeded and removed the local
+  game slowdown:
+  `docs/servoshell_runtime_matrix.md`.
 - Saccade observe-only bridge commit in the Servo checkout:
   `6e02f55f1 add saccade observe-only reflex bridge`.
 - The local game probe passed through the locally built ServoShell binary:

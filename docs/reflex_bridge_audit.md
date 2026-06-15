@@ -313,11 +313,29 @@ dropped_logs=0
 ```
 
 This proves the official ServoShell bridge can move the local game through
-internal browser input. The run also showed the current headless ServoShell path
-is slow on this machine under the GL warning: the game's visible time advanced
-to only about `0.9 s` across roughly `5.5 s` of wall time. Treat this as an
-environment/performance issue for the local-game product gate, not an input
-ownership failure.
+internal browser input. Later runtime profiling showed this specific run was
+slow because it used a debug-profile ServoShell binary, not because headless
+ServoShell or the bridge is inherently slow.
+
+Release evidence:
+
+```text
+runtime_matrix=docs/servoshell_runtime_matrix.md
+report=runs/servoshell_runtime/source_release_headless_drag_1781491400/report.json
+frames=runs/reflex_input/release_game_drag_1781491400/frames.jsonl
+time_scale=0.999
+camera.x delta=+20
+frames=180
+readback_ok=180/180
+readback_ms p50=7.21 p95=13.44 max=19.50
+drag_events=9
+dispatch_ms p50=0.057 p95=0.979 max=0.979
+dropped_logs=0
+```
+
+This retires the "headless is too slow" suspicion for release builds. The
+remaining performance work is to crop readback to the game/action region and
+wire detector/motor/replay, not to abandon the ServoShell bridge.
 
 ## Verification Notes
 
