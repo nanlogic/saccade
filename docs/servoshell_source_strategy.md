@@ -157,3 +157,12 @@ commit 54288c9d6
 ```
 
 The current bridge source map is recorded in `docs/reflex_bridge_audit.md`.
+
+Build preflight:
+
+- `rust-toolchain.toml` pins Rust `1.95.0`.
+- `./mach --help` initialized Servo's local `.venv` and confirmed the command
+  set, but `./mach bootstrap` has not been run.
+- `./mach build --help` confirms build types `--dev`, `--release`, and
+  `--prod`, plus `-j/--jobs`.
+- Recommended first build attempt: `./mach build --dev -j 4`.
