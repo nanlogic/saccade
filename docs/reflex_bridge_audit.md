@@ -159,16 +159,16 @@ Do not call `WebView::take_screenshot()` in the reflex hot path.
 
 - R0 Browser Render Gate: pass with official ServoShell on
   `http://127.0.0.1:4173/`.
-- R1 Input Ownership Gate: partial pass on fixture. The in-process bridge can
-  dispatch Servo input that changes page DOM state and moves the local game;
-  detector/motor ownership is still pending.
+- R1 Input Ownership Gate: partial pass on fixture and local game. The
+  in-process bridge can dispatch Servo input from env tests and live JSONL
+  commands; detector/motor ownership is still pending.
 - R2 Frame Truth Gate: partial pass. The official ServoShell source bridge now
   captures observe-only repaint frames with `RenderingContext::read_to_image`.
   The required final shape is still the old `FrameObservation`, not a full-page
   screenshot agent channel.
-- R3 Reflex Latency Gate: pending. Local game v0 target is p95
-  observe-to-input dispatch <= 16 ms; MOUSEMAX remains p95 detect-to-dispatch
-  <= 5 ms.
+- R3 Reflex Latency Gate: pending, with live-command dispatch evidence. Local
+  game v0 target is p95 observe-to-input dispatch <= 16 ms; MOUSEMAX remains
+  p95 detect-to-dispatch <= 5 ms.
 
 ## Bridge Evidence - 2026-06-14
 
@@ -336,6 +336,55 @@ dropped_logs=0
 This retires the "headless is too slow" suspicion for release builds. The
 remaining performance work is to crop readback to the game/action region and
 wire detector/motor/replay, not to abandon the ServoShell bridge.
+
+## Live Command Bridge Evidence - 2026-06-14
+
+Bridge change under test:
+
+```text
+SACCADE_REFLEX_COMMANDS_PATH=/path/to/commands.jsonl
+SACCADE_REFLEX_RECEIPTS_PATH=/path/to/receipts.jsonl
+SACCADE_REFLEX_OBSERVE_PATH=/path/to/frames.jsonl
+```
+
+Protocol:
+
+```text
+docs/reflex_live_interface.md
+```
+
+Release probe:
+
+```sh
+node scripts/probe_reflex_live_commands.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --url http://127.0.0.1:4173/ \
+  --headless \
+  --window-size 1280x900 \
+  --duration-ms 6500 \
+  --output-dir runs/reflex_live/live_release_1781495324
+```
+
+Result:
+
+```text
+ok=true
+report=runs/reflex_live/live_release_1781495324/report.json
+time_scale=1.002
+camera_delta.x=+21
+receipts=11
+ping:ok=1
+drag:scheduled=1
+drag_phase:dispatched=9
+drag dispatch ms p50=0.023 p95=0.075 max=0.078
+readback_ok=420/420
+readback ms p50=2.74 p95=5.19 max=7.41
+dropped_logs=0
+```
+
+This closes the first product-interface gap: an external controller can drive
+release ServoShell's in-process input path without WebDriver clicks or DOM
+event injection. The remaining gap is detector/motor ownership.
 
 ## Verification Notes
 

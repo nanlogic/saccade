@@ -33,6 +33,7 @@ WebDriver. It does not capture screenshots and does not click through WebDriver.
 | Source release raw | headed | `0.3.0-805e6a423` | `runs/servoshell_runtime/source_release_headed_1781491100/report.json` | 0.946 | Good enough as a human/runtime baseline. |
 | Source release raw | headless | `0.3.0-805e6a423` | `runs/servoshell_runtime/source_release_headless_1781491200/report.json` | 0.969 | Headless is not inherently slow in release. |
 | Source release raw + bridge drag | headless | `0.3.0-805e6a423` | `runs/servoshell_runtime/source_release_headless_drag_1781491400/report.json` | 0.999 | Internal drag moved game camera `+20px`. |
+| Source release + live JSONL command bridge | headless | current release build | `runs/reflex_live/live_release_1781495324/report.json` | 1.002 | External command file produced ping/drag receipts and moved camera `+21px`. |
 
 ## Bridge Timing In Release
 
@@ -57,6 +58,33 @@ camera.x delta=+20
 The readback number is for the full 1280x900 window. MOUSEMAX-level timing still
 requires crop-based readback and the detector/motor loop, not full-window debug
 capture.
+
+## Live Command Timing In Release
+
+Evidence:
+
+```text
+runs/reflex_live/live_release_1781495324/report.json
+docs/reflex_live_interface.md
+```
+
+Summary:
+
+```text
+time_scale=1.002
+camera.x delta=+21
+receipts=11
+ping:ok=1
+drag:scheduled=1
+drag_phase:dispatched=9
+dispatch_ms p50=0.023 p95=0.075 max=0.078
+readback_ok=420/420
+readback_ms p50=2.74 p95=5.19 max=7.41
+dropped_logs=0
+```
+
+This measures the command interface and internal input dispatch. It is not yet
+the full observe/detect/decision/motor latency gate.
 
 ## Packaging Note
 

@@ -115,6 +115,17 @@ Current evidence:
 - In release headless mode, game time kept pace with wall time
   (`time_scale=0.999`), the bridge logged 180/180 readback frames, and the drag
   moved the local game camera by `+20px`.
+- Live command interface evidence:
+  `runs/reflex_live/live_release_1781495324/report.json`.
+- The release bridge accepted external JSONL commands through
+  `SACCADE_REFLEX_COMMANDS_PATH` and returned receipts through
+  `SACCADE_REFLEX_RECEIPTS_PATH`.
+- The live probe produced `ping:ok=1`, `drag:scheduled=1`, and
+  `drag_phase:dispatched=9` receipts.
+- The same run kept game time at `time_scale=1.002`, logged 420/420 readback
+  frames, and moved the local game camera by `+21px`.
+- Drag phase dispatch timing in release:
+  p50 `0.023 ms`, p95 `0.075 ms`, max `0.078 ms`.
 
 Remaining R1 work:
 
@@ -155,7 +166,16 @@ Current evidence:
 
 ### R3: Reflex Latency Gate
 
-Status: pending.
+Status: pending, with live-command dispatch evidence.
+
+Current evidence:
+
+- External command -> in-process input dispatch now works in release ServoShell:
+  `docs/reflex_live_interface.md`.
+- Latest release live-command probe:
+  `runs/reflex_live/live_release_1781495324/report.json`.
+- The measured number is bridge dispatch time for scheduled drag phases, not
+  full observe->detect->decision->dispatch latency.
 
 Local game v0 pass:
 
