@@ -608,3 +608,21 @@
 - This is not yet the final product UI. Next work is making the current-tab
   grant visible in the browser shell and exposing it through the agent-facing
   API.
+
+## DECISION_N8_002 - Current Tab Co-Pilot has an MCP API gate
+
+- Added `saccade.tabs.grant_current` to `saccade-mcp`.
+- A granted current tab remains `TabOwner::Human`; MCP records a separate
+  `agent_input_grant` so ownership and co-pilot permission do not get confused.
+- The grant starts a live `browser_session_worker_v0`, returns redacted truth
+  and actions, allows safe non-sensitive field fill, rejects sensitive writes,
+  redacts sensitive field inspection, and blocks submit-style actions with
+  `user confirmation required`.
+- Latest MCP evidence:
+  `runs/mcp/selftest_1781535319538/report.json`.
+- Result: `MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true
+  policy_gate=true`, with `tabs_grant_current=true`.
+- No sensitive sentinel leak was found for `999-12-3456` or
+  `SHOULD-NOT-WRITE` in the new MCP run and browser-worker artifacts.
+- Next work is not another policy harness. Next work is visible browser UI that
+  calls this grant for the real selected tab.

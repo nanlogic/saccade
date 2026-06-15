@@ -18,6 +18,7 @@ Implemented v0 tools:
 - `saccade.tabs.list`
 - `saccade.tabs.open`
 - `saccade.tabs.request_user_login`
+- `saccade.tabs.grant_current`
 - `saccade.tabs.takeover`
 - `saccade.tabs.pause_agent`
 - `saccade.tabs.close`
@@ -47,7 +48,7 @@ cargo run -q -p saccade-mcp -- selftest
 Expected shape:
 
 ```text
-MCP PASS tools_registered=19 tab_scoping=true local_dev_audit=true policy_gate=true report=...
+MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true policy_gate=true report=...
 ```
 
 Run the stdio server:
@@ -82,6 +83,7 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - Runs `saccade.dev.click_all_primary_actions` v0 through Servo-backed DEVMAX verification when the local page has at most one primary action.
 - Routes `saccade.dev.fill_smoke_form` to the same FORMMAX local fixture workflow.
 - Creates Human-owned login tabs through `saccade.tabs.request_user_login` without exposing credentials to agent truth.
+- Attaches a user-selected Human-owned local tab through `saccade.tabs.grant_current` after explicit grant. The live worker returns redacted truth/actions, safe-fill can write only non-sensitive agent-owned fields, sensitive writes and values stay blocked, and submit-style actions require user confirmation.
 - Loads compact reports through `saccade.dev.get_report` without returning full artifacts.
 - Validates generic run directories and FORMMAX run directories through `saccade.report.validate_run`.
 - Summarizes replay JSONL through `saccade.report.replay_summary`, including event counts and value-like field detection.
@@ -94,8 +96,11 @@ Call `saccade.dev.audit_page` through the stdio handler with a loopback URL:
 - The live worker saves screenshot PNG artifacts only when no sensitive fields are detected. Sensitive pages log a skip event instead.
 - `saccade.report.validate_run` accepts `kind=browser_session_worker` and verifies worker report/replay shape, screenshot references, and replay raw-value leak checks.
 - Browser-session smoke remains available outside MCP: `saccade-shell selftest-browser-session` proves open, truth, action map, native act, and truth-after-act on one Servo WebView path.
-- Latest selftest evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781363828594/report.json`.
+- Latest selftest evidence: `/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781535319538/report.json`.
 
 ## Next
 
-Harden the browser worker with a shared multi-tab process, FORMMAX live-tab integration, Chrome-side click verification, richer DEVMAX findings that reuse live worker or Chrome screenshots, and UI controls around Human/Agent ownership.
+Bind `saccade.tabs.grant_current` to visible browser UI and a real selected tab,
+then harden the browser worker with a shared multi-tab process, Chrome-side
+click verification, richer DEVMAX findings that reuse live worker or Chrome
+screenshots, and UI controls around Human/Agent ownership.

@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 19;
+const REQUIRED_TOOL_COUNT: usize = 20;
 
 #[derive(Parser)]
 #[command(name = "saccade-mcp")]
@@ -95,6 +95,7 @@ struct SelftestEvidence {
     stdio_tool_call: bool,
     persistent_tabs: bool,
     browser_backed_tabs: bool,
+    tabs_grant_current: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -222,6 +223,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.tool_call
         && stdio_evidence.persistent_tabs
         && stdio_evidence.browser_backed_tabs
+        && stdio_evidence.tabs_grant_current
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
         && stdio_evidence.web_act
@@ -248,6 +250,7 @@ fn selftest() -> Result<()> {
         stdio_tool_call: stdio_evidence.tool_call,
         persistent_tabs: stdio_evidence.persistent_tabs,
         browser_backed_tabs: stdio_evidence.browser_backed_tabs,
+        tabs_grant_current: stdio_evidence.tabs_grant_current,
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
@@ -369,6 +372,15 @@ fn registry() -> ToolRegistry {
                 ToolNamespace::Tabs,
                 ToolRisk::PolicyGated,
                 "Ask the user to log in in a Human tab, then expose only safe session status to Agent tabs.",
+                true,
+                true,
+                true,
+            ),
+            tool(
+                "saccade.tabs.grant_current",
+                ToolNamespace::Tabs,
+                ToolRisk::PolicyGated,
+                "Attach the user-selected current tab to a live co-pilot session after explicit user grant.",
                 true,
                 true,
                 true,
@@ -524,6 +536,8 @@ struct McpSessionState {
 struct SessionTab {
     info: TabInfo,
     paused: bool,
+    agent_input_grant: bool,
+    grant_reason: Option<String>,
     last_engine: Option<String>,
     last_summary: Option<String>,
     last_report_path: Option<String>,
@@ -554,6 +568,7 @@ struct JsonRpcEvidence {
     tool_call: bool,
     persistent_tabs: bool,
     browser_backed_tabs: bool,
+    tabs_grant_current: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -820,6 +835,24 @@ fn input_schema(name: &str) -> Value {
             "required": ["url", "reason"],
             "additionalProperties": false
         }),
+        "saccade.tabs.grant_current" => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "reason": {"type": "string"},
+                "read_grant": {"type": "string", "enum": ["visible_summary_only", "full_truth"], "default": "full_truth"},
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "local_dev_only": {"type": "boolean", "const": true},
+                        "explicit_user_grant": {"type": "boolean", "const": true}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["url", "reason"],
+            "additionalProperties": false
+        }),
         "saccade.tabs.takeover" | "saccade.tabs.pause_agent" | "saccade.tabs.close" => json!({
             "type": "object",
             "properties": {
@@ -959,6 +992,7 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.tabs.list" => tabs_list_tool(state),
         "saccade.tabs.open" => tabs_open_tool(state, arguments),
         "saccade.tabs.request_user_login" => tabs_request_user_login_tool(state, arguments),
+        "saccade.tabs.grant_current" => tabs_grant_current_tool(state, arguments),
         "saccade.tabs.takeover" => tabs_takeover_tool(state, arguments),
         "saccade.tabs.pause_agent" => tabs_pause_agent_tool(state, arguments),
         "saccade.tabs.close" => tabs_close_tool(state, arguments),
@@ -992,6 +1026,8 @@ fn open_local_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
     let mut tab = SessionTab {
         info,
         paused: false,
+        agent_input_grant: false,
+        grant_reason: None,
         last_engine: None,
         last_summary: None,
         last_report_path: None,
@@ -1322,6 +1358,8 @@ fn tabs_request_user_login_tool(state: &mut McpSessionState, arguments: Value) -
     let tab = SessionTab {
         info,
         paused: true,
+        agent_input_grant: false,
+        grant_reason: Some(reason.to_string()),
         last_engine: None,
         last_summary: Some(format!("user login requested: {reason}")),
         last_report_path: None,
@@ -1342,6 +1380,97 @@ fn tabs_request_user_login_tool(state: &mut McpSessionState, arguments: Value) -
     }))
 }
 
+fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let url = required_url_arg(&arguments)?;
+    if !is_local_dev_url(&url) {
+        bail!("grant_current v0 only accepts localhost, loopback, or file URLs: {url}");
+    }
+    let reason = arguments
+        .get("reason")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field reason")?
+        .trim();
+    if reason.is_empty() {
+        bail!("grant_current reason must not be empty");
+    }
+    if let Some(policy) = arguments.get("policy") {
+        if policy
+            .get("local_dev_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.tabs.grant_current v0 requires local_dev_only=true");
+        }
+        if policy
+            .get("explicit_user_grant")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.tabs.grant_current requires explicit_user_grant=true");
+        }
+    }
+    let read_grant = match arguments
+        .get("read_grant")
+        .and_then(Value::as_str)
+        .unwrap_or("full_truth")
+    {
+        "visible_summary_only" => ReadGrant::VisibleSummaryOnly,
+        "full_truth" => ReadGrant::FullTruth,
+        other => {
+            bail!("unsupported read_grant {other:?}; expected visible_summary_only or full_truth")
+        }
+    };
+
+    let tab_id = state.allocate_tab_id();
+    let info = tab(
+        tab_id.0,
+        TabOwner::Human,
+        read_grant,
+        url.as_str(),
+        "Current Tab Co-Pilot",
+    );
+    let mut tab = SessionTab {
+        info,
+        paused: false,
+        agent_input_grant: true,
+        grant_reason: Some(reason.to_string()),
+        last_engine: None,
+        last_summary: None,
+        last_report_path: None,
+        last_replay_path: None,
+        last_actions: Vec::new(),
+        last_findings: Vec::new(),
+    };
+    let mut worker = BrowserWorkerClient::spawn(&url)?;
+    let live_truth = worker.call("truth", json!({}))?;
+    update_session_tab_from_browser_result(&mut tab, &live_truth);
+    state.tabs.push(tab.clone());
+    state.browser_workers.insert(tab_id.0, worker);
+
+    Ok(json!({
+        "status": "ok",
+        "summary": "current Human tab attached to live Saccade co-pilot session after explicit grant",
+        "runtime": "browser_session_worker_v0",
+        "selected_tab_seen": true,
+        "grant_required": true,
+        "grant_given": true,
+        "agent_input_grant": true,
+        "reason": reason,
+        "tab": tab.info,
+        "truth": {
+            "engine": tab.last_engine.clone(),
+            "findings_count": tab.last_findings.len(),
+            "actions_count": tab.last_actions.len(),
+            "findings": tab.last_findings.clone(),
+        },
+        "actions": tab.last_actions.clone(),
+        "artifacts": {
+            "report": tab.last_report_path.clone(),
+            "replay": tab.last_replay_path.clone(),
+        }
+    }))
+}
+
 fn tabs_takeover_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     if let Some(mut worker) = state.browser_workers.remove(&tab_id.0) {
@@ -1352,6 +1481,7 @@ fn tabs_takeover_tool(state: &mut McpSessionState, arguments: Value) -> Result<V
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
     tab.info.owner = TabOwner::Human;
     tab.paused = true;
+    tab.agent_input_grant = false;
     Ok(json!({
         "status": "ok",
         "summary": "tab transferred to human owner and agent paused",
@@ -1365,6 +1495,7 @@ fn tabs_pause_agent_tool(state: &mut McpSessionState, arguments: Value) -> Resul
         .find_tab_mut(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
     tab.paused = true;
+    tab.agent_input_grant = false;
     Ok(json!({
         "status": "ok",
         "summary": "agent paused for tab",
@@ -1467,6 +1598,11 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         .get("basis_page_revision")
         .and_then(Value::as_u64)
         .context("tool arguments must include integer field basis_page_revision")?;
+    if action_requires_user_confirmation(state, tab_id, &action_id)? {
+        bail!(
+            "user confirmation required before action {action_id:?} on a user-granted current tab"
+        );
+    }
     ensure_agent_input_allowed(state, tab_id)?;
     if state.browser_workers.contains_key(&tab_id.0) {
         let live_act = call_browser_worker(
@@ -2375,10 +2511,30 @@ fn ensure_agent_input_allowed(state: &McpSessionState, tab_id: TabId) -> Result<
     if tab.paused {
         bail!("agent is paused for tab_id {}", tab_id.0);
     }
-    if !tab.info.agent_input_allowed() {
+    if !tab.info.agent_input_allowed() && !tab.agent_input_grant {
         bail!("agent input is denied for tab_id {}", tab_id.0);
     }
     Ok(())
+}
+
+fn action_requires_user_confirmation(
+    state: &McpSessionState,
+    tab_id: TabId,
+    action_id: &str,
+) -> Result<bool> {
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    Ok(tab.agent_input_grant && side_effect_action_id(action_id))
+}
+
+fn side_effect_action_id(action_id: &str) -> bool {
+    matches!(action_id, "act_submit" | "act_export" | "act_delete")
+        || action_id.contains("purchase")
+        || action_id.contains("payment")
+        || action_id.contains("pay")
+        || action_id.contains("sign")
+        || action_id.contains("confirm")
 }
 
 fn parse_output_value(output: &str, prefix: &str) -> Option<String> {
@@ -3007,6 +3163,277 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 })
         })
         .unwrap_or(false);
+
+    let copilot_base_url = start_test_server(
+        workspace_root()?
+            .join("test_pages")
+            .join("current_tab_copilot"),
+    )?;
+    let grant_current_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(87)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.tabs.grant_current",
+                "arguments": {
+                    "url": copilot_base_url.as_str(),
+                    "reason": "selftest user explicitly granted current tab assistance",
+                    "read_grant": "full_truth",
+                    "policy": {
+                        "local_dev_only": true,
+                        "explicit_user_grant": true
+                    }
+                }
+            }),
+        },
+    );
+    let copilot_tab_id = grant_current_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("tab"))
+                .and_then(|tab| tab.get("tab_id"))
+                .and_then(Value::as_u64)
+        })
+        .context("grant_current selftest did not return tab_id")?;
+    let copilot_basis_page_revision = grant_current_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("tab"))
+                .and_then(|tab| tab.get("page_revision"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(1);
+    let grant_current_open = grant_current_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && content.get("selected_tab_seen").and_then(Value::as_bool) == Some(true)
+                        && content.get("grant_required").and_then(Value::as_bool) == Some(true)
+                        && content.get("agent_input_grant").and_then(Value::as_bool) == Some(true)
+                        && content.pointer("/tab/owner").and_then(Value::as_str) == Some("Human")
+                        && content.pointer("/tab/read_grant").and_then(Value::as_str)
+                            == Some("FullTruth")
+                })
+        })
+        .unwrap_or(false);
+    let copilot_fill_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(88)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.fill_agent_fields",
+                "arguments": {
+                    "tab_id": copilot_tab_id,
+                    "basis_page_revision": copilot_basis_page_revision,
+                    "fields": {
+                        "project-name": "MCP co-pilot capacity request",
+                        "capacity": "24",
+                        "notes": "Need blue-green launch capacity.",
+                        "ssn": "SHOULD-NOT-WRITE",
+                        "signature": "SHOULD-NOT-WRITE"
+                    },
+                    "policy": {
+                        "agent_owned_only": true,
+                        "block_sensitive": true,
+                        "live_worker_only": true
+                    }
+                }
+            }),
+        },
+    );
+    let copilot_fill_ok = copilot_fill_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    let filled = content
+                        .get("filled")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let rejected = content
+                        .get("rejected")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let normal_filled = ["project-name", "capacity", "notes"]
+                        .iter()
+                        .all(|id| filled.iter().any(|value| value.as_str() == Some(id)));
+                    let sensitive_rejected = ["ssn", "signature"].iter().all(|id| {
+                        rejected
+                            .iter()
+                            .any(|value| value.get("id").and_then(Value::as_str) == Some(id))
+                    });
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && normal_filled
+                        && sensitive_rejected
+                })
+        })
+        .unwrap_or(false);
+    let copilot_inspect_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(89)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.inspect_fields",
+                "arguments": {
+                    "tab_id": copilot_tab_id,
+                    "fields": ["project-name", "ssn", "signature"],
+                    "policy": {
+                        "redact_sensitive": true,
+                        "explicit_fields_only": true,
+                        "live_worker_only": true
+                    }
+                }
+            }),
+        },
+    );
+    let copilot_inspect_ok = copilot_inspect_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    let fields = content
+                        .get("fields")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let project_returned = fields.iter().any(|field| {
+                        field.get("id").and_then(Value::as_str) == Some("project-name")
+                            && field.get("value_returned").and_then(Value::as_bool) == Some(true)
+                            && field.get("value").and_then(Value::as_str)
+                                == Some("MCP co-pilot capacity request")
+                    });
+                    let ssn_redacted = fields.iter().any(|field| {
+                        field.get("id").and_then(Value::as_str) == Some("ssn")
+                            && field.get("value_redacted").and_then(Value::as_bool) == Some(true)
+                            && field.get("value").is_none()
+                    });
+                    let signature_redacted = fields.iter().any(|field| {
+                        field.get("id").and_then(Value::as_str) == Some("signature")
+                            && field.get("value_redacted").and_then(Value::as_bool) == Some(true)
+                            && field.get("value").is_none()
+                    });
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && project_returned
+                        && ssn_redacted
+                        && signature_redacted
+                })
+        })
+        .unwrap_or(false);
+    let copilot_actions_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(90)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.web.actions",
+                "arguments": {
+                    "tab_id": copilot_tab_id,
+                    "engine": "servo"
+                }
+            }),
+        },
+    );
+    let copilot_submit_action = copilot_actions_response.as_ref().and_then(|response| {
+        response
+            .get("result")
+            .and_then(|result| result.get("structuredContent"))
+            .and_then(|content| content.get("actions"))
+            .and_then(Value::as_array)
+            .and_then(|actions| {
+                actions.iter().find_map(|action| {
+                    let action_id = action.get("action_id").and_then(Value::as_str)?;
+                    let label = action.get("label").and_then(Value::as_str).unwrap_or("");
+                    if action_id == "act_submit" || label.eq_ignore_ascii_case("submit") {
+                        Some(action_id.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+    });
+    let copilot_action_basis = copilot_actions_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("page_revision"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(copilot_basis_page_revision);
+    let copilot_submit_block_response = copilot_submit_action.as_ref().and_then(|action_id| {
+        handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(91)),
+                method: "tools/call".into(),
+                params: json!({
+                    "name": "saccade.web.act",
+                    "arguments": {
+                        "tab_id": copilot_tab_id,
+                        "action_id": action_id,
+                        "basis_page_revision": copilot_action_basis,
+                        "engine": "servo"
+                    }
+                }),
+            },
+        )
+    });
+    let copilot_submit_blocked = copilot_submit_block_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("error")
+                .and_then(|error| error.get("data"))
+                .and_then(Value::as_str)
+                .map(|detail| detail.contains("user confirmation required"))
+        })
+        .unwrap_or(false);
+    let copilot_response_blob = [
+        grant_current_response.as_ref(),
+        copilot_fill_response.as_ref(),
+        copilot_inspect_response.as_ref(),
+        copilot_actions_response.as_ref(),
+        copilot_submit_block_response.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(Value::to_string)
+    .collect::<Vec<_>>()
+    .join("\n");
+    let copilot_no_sensitive_leak = !copilot_response_blob.contains("999-12-3456")
+        && !copilot_response_blob.contains("SHOULD-NOT-WRITE");
+    let tabs_grant_current = grant_current_open
+        && copilot_fill_ok
+        && copilot_inspect_ok
+        && copilot_submit_action.is_some()
+        && copilot_submit_blocked
+        && copilot_no_sensitive_leak;
     let dev_click_all_primary_actions = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -3137,6 +3564,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         tool_call,
         persistent_tabs,
         browser_backed_tabs,
+        tabs_grant_current,
         web_truth,
         web_actions,
         web_act,

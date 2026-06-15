@@ -46,6 +46,9 @@ Key docs:
 - Worker can fill constrained agent-owned non-sensitive fields.
 - Worker can inspect explicitly named non-sensitive fields while masking
   sensitive fields.
+- MCP now exposes a current-tab co-pilot grant for local tabs: Human ownership
+  stays visible, agent gets redacted truth, safe field fill, and submit remains
+  user-confirmed.
 
 Key docs:
 
@@ -56,30 +59,33 @@ Key docs:
 
 ## Current Product Gap
 
-The missing product bridge is:
+The remaining product bridge is:
 
 ```text
 User opens a browser tab first.
 Agent attaches to that current tab after explicit user grant.
 ```
 
-N8 now has a local v0 selftest for this bridge. What remains is turning that
-policy harness into visible browser UI and MCP/product tools.
+N8 now has both a local shell selftest and an MCP API gate for this bridge.
+What remains is binding it to visible browser UI and eventually real selected
+tabs instead of local fixture URLs.
 
 ## Next Gate: N8 Current Tab Co-Pilot
 
-Status: local v0 pass.
+Status: local v0 pass + MCP API pass.
 
-Command:
+Commands:
 
 ```bash
 RUST_LOG=error cargo run -q -p saccade-shell -- selftest-current-tab-copilot
+RUST_LOG=error cargo run -q -p saccade-mcp -- selftest
 ```
 
 Latest evidence:
 
 ```text
-CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_truth=true agent_explains_page=true non_sensitive_filled=true sensitive_write_blocked=true sensitive_values_exposed=false confirmation_required=true replay=runs/browser_session_worker/worker_1781533899321_98530/replay.jsonl report=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_copilot/copilot_1781533899239/report.json
+CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_truth=true agent_explains_page=true non_sensitive_filled=true sensitive_write_blocked=true sensitive_values_exposed=false confirmation_required=true replay=runs/browser_session_worker/worker_1781535424701_32946/replay.jsonl report=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_copilot/copilot_1781535424558/report.json
+MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781535319538/report.json
 ```
 
 ### Goal
@@ -117,9 +123,10 @@ replay_written=true
   current-tab fixture.
 - Do not start with arbitrary third-party sites.
 
-Current v0 uses `test_pages/current_tab_copilot/index.html` and simulates the
-grant boundary in the shell selftest. The next step is making the grant boundary
-visible in the browser shell and exposed through the agent-facing API.
+Current v0 uses `test_pages/current_tab_copilot/index.html`. The shell selftest
+simulates the grant boundary, and MCP exposes it as
+`saccade.tabs.grant_current`. The next step is making the grant boundary visible
+in the browser shell and binding it to a real selected tab.
 
 ### Done When
 
