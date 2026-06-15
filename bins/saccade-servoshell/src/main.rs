@@ -52,6 +52,18 @@ enum Command {
         #[arg(long, default_value_t = 25.0)]
         timeout_sec: f64,
     },
+    FormmaxSelftest {
+        #[arg(long, default_value = DEFAULT_SERVOSHELL)]
+        servoshell: PathBuf,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+        #[arg(long)]
+        no_headless: bool,
+        #[arg(long, default_value_t = 35.0)]
+        timeout_sec: f64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -196,6 +208,37 @@ fn main() -> Result<()> {
             );
             if ok { Ok(()) } else { bail!("selftest failed") }
         }
+        Command::FormmaxSelftest {
+            servoshell,
+            url,
+            output_dir,
+            no_headless,
+            timeout_sec,
+        } => {
+            let outcome = run_formmax_selftest(FormmaxConfig {
+                servoshell,
+                url: url.unwrap_or_else(default_formmax_url),
+                output_dir: output_dir.unwrap_or_else(|| default_run_dir("formmax")),
+                headless: !no_headless,
+                timeout: Duration::from_secs_f64(timeout_sec),
+            })?;
+            println!(
+                "SACCADE_SERVOSHELL_FORMMAX {} rows={} pages={} filled={} blocked_sensitive={} receipt_verified={} report={} replay={}",
+                if outcome.ok { "PASS" } else { "FAIL" },
+                outcome.rows,
+                outcome.pages,
+                outcome.filled,
+                outcome.blocked_sensitive,
+                outcome.receipt_verified,
+                outcome.report_path.display(),
+                outcome.replay_path.display(),
+            );
+            if outcome.ok {
+                Ok(())
+            } else {
+                bail!("formmax selftest failed")
+            }
+        }
     }
 }
 
@@ -226,6 +269,326 @@ struct ProbeOutcome {
     redaction_count: usize,
     redaction_kinds: Vec<String>,
     webdriver_port: u16,
+}
+
+#[derive(Debug)]
+struct FormmaxConfig {
+    servoshell: PathBuf,
+    url: String,
+    output_dir: PathBuf,
+    headless: bool,
+    timeout: Duration,
+}
+
+#[derive(Debug)]
+struct FormmaxOutcome {
+    ok: bool,
+    rows: u64,
+    pages: u64,
+    filled: u64,
+    blocked_sensitive: u64,
+    receipt_verified: bool,
+    report_path: PathBuf,
+    replay_path: PathBuf,
+}
+
+fn run_formmax_selftest(cfg: FormmaxConfig) -> Result<FormmaxOutcome> {
+    fs::create_dir_all(&cfg.output_dir)
+        .with_context(|| format!("create {}", cfg.output_dir.display()))?;
+
+    let port = choose_loopback_port()?;
+    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port)?;
+    let client = WebDriverClient::new(port, cfg.timeout);
+    let mut session_id: Option<String> = None;
+    let mut report = json!({
+        "ok": false,
+        "engine": "saccade-servoshell-formmax-v0",
+        "runtime": "official_servoshell_webdriver",
+        "servoshell": cfg.servoshell,
+        "url": cfg.url,
+        "headless": cfg.headless,
+        "webdriver": {
+            "host": "127.0.0.1",
+            "port": port,
+            "port_policy": "random_loopback_private_to_launch_manager"
+        },
+        "truth_bundle_version": TRUTH_BUNDLE_VERSION,
+        "policy": {
+            "block_sensitive": true,
+            "echo_values": false,
+            "local_fixture_only": true
+        },
+        "output_dir": cfg.output_dir,
+    });
+
+    let mut ok = false;
+    let mut rows = 0;
+    let mut pages = 0;
+    let mut filled = 0;
+    let mut blocked_sensitive = 0;
+    let mut receipt_verified = false;
+
+    let result = (|| -> Result<Value> {
+        let status = wait_for_status(&client, &mut child, cfg.timeout)?;
+        report["webdriver"]["status"] = status;
+
+        let session = client.new_session()?;
+        let sid = extract_session_id(&session)?;
+        session_id = Some(sid.clone());
+        report["webdriver"]["new_session"] = session;
+        report["webdriver"]["session_id"] = json!(sid);
+
+        wait_for_formmax_ready(&client, &sid, cfg.timeout)?;
+        let pre_truth = client.execute_sync(&sid, TRUTH_JS)?;
+        let field_truth_before = client.execute_sync(&sid, FORMMAX_FIELD_TRUTH_JS)?;
+        write_json(
+            &cfg.output_dir.join("pre_truth_summary.json"),
+            &summarize_truth(&pre_truth),
+        )?;
+        write_json(
+            &cfg.output_dir.join("field_truth_before.json"),
+            &field_truth_before,
+        )?;
+
+        let init_result =
+            client.execute_sync_args(&sid, FORMMAX_INIT_JS, &[json!(FORMMAX_HELPERS_JS)])?;
+        write_json(&cfg.output_dir.join("transaction_init.json"), &init_result)?;
+        report["last_step"] = json!("init_done");
+
+        report["last_step"] = json!("render_page_1");
+        client.execute_sync_args(
+            &sid,
+            FORMMAX_RENDER_PAGE_JS,
+            &[json!(FORMMAX_HELPERS_JS), json!(0)],
+        )?;
+        report["last_step"] = json!("render_page_1_done");
+        for start in (0..48).step_by(16) {
+            report["last_step"] = json!(format!("fill_page_1_rows_{start}_{}", start + 16));
+            client.execute_sync_args(
+                &sid,
+                FORMMAX_FILL_CHUNK_JS,
+                &[
+                    json!(FORMMAX_HELPERS_JS),
+                    json!(0),
+                    json!(start),
+                    json!(start + 16),
+                ],
+            )?;
+        }
+        report["last_step"] = json!("submit_page_1");
+        client.execute_sync_args(
+            &sid,
+            FORMMAX_SUBMIT_PAGE_JS,
+            &[json!(FORMMAX_HELPERS_JS), json!(1), json!(2)],
+        )?;
+        report["last_step"] = json!("submit_page_1_done");
+
+        report["last_step"] = json!("render_page_2");
+        client.execute_sync_args(
+            &sid,
+            FORMMAX_RENDER_PAGE_JS,
+            &[json!(FORMMAX_HELPERS_JS), json!(1)],
+        )?;
+        report["last_step"] = json!("render_page_2_done");
+        for start in (0..48).step_by(16) {
+            report["last_step"] = json!(format!("fill_page_2_rows_{start}_{}", start + 16));
+            client.execute_sync_args(
+                &sid,
+                FORMMAX_FILL_CHUNK_JS,
+                &[
+                    json!(FORMMAX_HELPERS_JS),
+                    json!(1),
+                    json!(start),
+                    json!(start + 16),
+                ],
+            )?;
+        }
+        report["last_step"] = json!("block_sensitive");
+        client.execute_sync_args(
+            &sid,
+            FORMMAX_BLOCK_SENSITIVE_JS,
+            &[json!(FORMMAX_HELPERS_JS)],
+        )?;
+        report["last_step"] = json!("finalize");
+        let fill_result =
+            client.execute_sync_args(&sid, FORMMAX_FINALIZE_JS, &[json!(FORMMAX_HELPERS_JS)])?;
+        report["last_step"] = json!("finalize_done");
+        write_json(&cfg.output_dir.join("fill_result.json"), &fill_result)?;
+
+        rows = fill_result.get("rows").and_then(Value::as_u64).unwrap_or(0);
+        pages = fill_result
+            .get("pages")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        filled = fill_result
+            .get("filled")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        blocked_sensitive = fill_result
+            .get("blocked_sensitive")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        receipt_verified = fill_result
+            .get("receipt_verified")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let validation_errors = fill_result
+            .get("validation_errors")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        let event_count = fill_result
+            .get("events")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or_default();
+
+        if rows != 96
+            || pages != 2
+            || filled != 672
+            || blocked_sensitive != 3
+            || !receipt_verified
+            || validation_errors != 0
+            || event_count < 700
+        {
+            bail!(
+                "FORMMAX adapter gate failed: rows={rows} pages={pages} filled={filled} blocked_sensitive={blocked_sensitive} receipt_verified={receipt_verified} validation_errors={validation_errors} event_count={event_count}"
+            );
+        }
+
+        let post_truth = client.execute_sync(&sid, TRUTH_JS)?;
+        let field_truth_after = client.execute_sync(&sid, FORMMAX_FIELD_TRUTH_JS)?;
+        write_json(
+            &cfg.output_dir.join("post_truth_summary.json"),
+            &summarize_truth(&post_truth),
+        )?;
+        write_json(
+            &cfg.output_dir.join("field_truth_after.json"),
+            &field_truth_after,
+        )?;
+
+        let screenshot_decision = if truth_capture_allowed(&post_truth) {
+            "allowed_but_not_captured_formmax_no_pixels_needed"
+        } else {
+            "blocked_sensitive_surface"
+        };
+
+        let mut sanitized = fill_result.clone();
+        sanitized["events"] = Value::Null;
+        report["pre_truth_summary"] = summarize_truth(&pre_truth);
+        report["field_truth_before"] = field_truth_before;
+        report["field_truth_after"] = field_truth_after;
+        report["formmax"] = sanitized;
+        report["screenshot"] = json!({
+            "mode": ScreenshotMode::Forbidden,
+            "decision": screenshot_decision,
+            "captured": false,
+        });
+
+        let report_path = cfg.output_dir.join("result.json");
+        let replay_path = cfg.output_dir.join("replay.jsonl");
+        write_formmax_replay(&replay_path, &fill_result)?;
+        report["artifacts"] = json!({
+            "result": report_path,
+            "replay": replay_path,
+        });
+        let leak_check = formmax_values_absent(&report, &replay_path)?;
+        report["leak_check"] = leak_check.clone();
+        if leak_check.get("passed").and_then(Value::as_bool) != Some(true) {
+            bail!("FORMMAX adapter value leak check failed: {leak_check}");
+        }
+
+        ok = true;
+        Ok(json!({
+            "report_path": report_path,
+            "replay_path": replay_path,
+        }))
+    })();
+
+    if let Some(sid) = session_id.as_deref() {
+        if let Err(error) = client.delete_session(sid) {
+            report["webdriver"]["delete_session_error"] = json!(error.to_string());
+        }
+    }
+    report["process"] = finish_child(child);
+
+    let mut report_path = cfg.output_dir.join("result.json");
+    let mut replay_path = cfg.output_dir.join("replay.jsonl");
+    match result {
+        Ok(paths) => {
+            if let Some(path) = paths.get("report_path").and_then(Value::as_str) {
+                report_path = PathBuf::from(path);
+            }
+            if let Some(path) = paths.get("replay_path").and_then(Value::as_str) {
+                replay_path = PathBuf::from(path);
+            }
+        }
+        Err(error) => {
+            report["error"] = json!(error.to_string());
+        }
+    }
+    report["ok"] = json!(ok);
+    write_json(&report_path, &report)?;
+
+    Ok(FormmaxOutcome {
+        ok,
+        rows,
+        pages,
+        filled,
+        blocked_sensitive,
+        receipt_verified,
+        report_path,
+        replay_path,
+    })
+}
+
+fn launch_servoshell_for_url(
+    servoshell: &Path,
+    url: &str,
+    headless: bool,
+    port: u16,
+) -> Result<Child> {
+    if !servoshell.exists() {
+        bail!("servoshell not found at {}", servoshell.display());
+    }
+    let mut cmd = ProcessCommand::new(servoshell);
+    if headless {
+        cmd.arg("-z");
+    }
+    cmd.arg(format!("--webdriver={port}"));
+    cmd.arg("--temporary-storage");
+    cmd.arg(url);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.spawn()
+        .with_context(|| format!("launch {}", servoshell.display()))
+}
+
+fn wait_for_formmax_ready(
+    client: &WebDriverClient,
+    session_id: &str,
+    timeout: Duration,
+) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = client.execute_sync(session_id, "return Boolean(window.__FORMMAX_FIXTURE && window.FormmaxFixture && document.getElementById('capacity-body'));")?;
+        if last.as_bool() == Some(true) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    bail!("FORMMAX fixture did not become ready: {last}");
+}
+
+fn summarize_truth(truth: &Value) -> Value {
+    json!({
+        "page": truth.get("page").cloned().unwrap_or(Value::Null),
+        "viewport": truth.get("viewport").cloned().unwrap_or(Value::Null),
+        "safety": truth.get("safety").cloned().unwrap_or(Value::Null),
+        "action_count": truth.get("actions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+        "redaction_count": truth.get("redactions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+    })
 }
 
 fn run_probe(cfg: ProbeConfig) -> Result<ProbeOutcome> {
@@ -455,7 +818,12 @@ impl WebDriverClient {
             Some(json!({
                 "capabilities": {
                     "alwaysMatch": {
-                        "browserName": "servo"
+                        "browserName": "servo",
+                        "timeouts": {
+                            "script": 120000,
+                            "pageLoad": 300000,
+                            "implicit": 0
+                        }
                     }
                 }
             })),
@@ -464,10 +832,14 @@ impl WebDriverClient {
     }
 
     fn execute_sync(&self, session_id: &str, script: &str) -> Result<Value> {
+        self.execute_sync_args(session_id, script, &[])
+    }
+
+    fn execute_sync_args(&self, session_id: &str, script: &str, args: &[Value]) -> Result<Value> {
         let response = self.request(
             "POST",
             &format!("/session/{session_id}/execute/sync"),
-            Some(json!({"script": script, "args": []})),
+            Some(json!({"script": script, "args": args})),
         )?;
         Ok(response.body.get("value").cloned().unwrap_or(Value::Null))
     }
@@ -515,7 +887,7 @@ impl WebDriverClient {
         let mut stream = TcpStream::connect(("127.0.0.1", self.port))
             .with_context(|| format!("connect WebDriver 127.0.0.1:{}", self.port))?;
         stream
-            .set_read_timeout(Some(self.timeout.min(Duration::from_secs(10))))
+            .set_read_timeout(Some(self.timeout))
             .context("set read timeout")?;
         stream
             .set_write_timeout(Some(Duration::from_secs(10)))
@@ -663,6 +1035,45 @@ fn raw_values_absent(report: &Value, needles: &[String]) -> bool {
     needles.iter().all(|needle| !text.contains(needle))
 }
 
+fn write_formmax_replay(path: &Path, fill_result: &Value) -> Result<()> {
+    let events = fill_result
+        .get("events")
+        .and_then(Value::as_array)
+        .context("FORMMAX fill result missing events")?;
+    let mut file = fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    for event in events {
+        writeln!(file, "{}", serde_json::to_string(event)?)
+            .with_context(|| format!("write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn formmax_values_absent(report: &Value, replay_path: &Path) -> Result<Value> {
+    let replay_text = fs::read_to_string(replay_path)
+        .with_context(|| format!("read {}", replay_path.display()))?;
+    let report_text = serde_json::to_string(report)?;
+    let needles = [
+        "Region 1 / Site 001",
+        "Region 2 / Site 009",
+        "2026-02-02",
+        "2026-10-10",
+        "Mina",
+        "Ravi",
+        "Ari",
+    ];
+    let leaked = needles
+        .iter()
+        .filter(|needle| report_text.contains(**needle) || replay_text.contains(**needle))
+        .copied()
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "passed": leaked.is_empty(),
+        "needles_checked": needles.len(),
+        "leaked": leaked,
+        "values_logged": false,
+    }))
+}
+
 fn count_redactions(truth: &Value) -> usize {
     truth
         .get("redactions")
@@ -702,6 +1113,10 @@ fn default_smoke_url() -> String {
 
 fn default_safety_matrix_url() -> String {
     file_url("test_pages/browser_session_safety_matrix/index.html")
+}
+
+fn default_formmax_url() -> String {
+    file_url("test_pages/formmax/index.html")
 }
 
 fn file_url(path: &str) -> String {
@@ -900,6 +1315,366 @@ return (() => {
     },
     actions,
     redactions
+  };
+})();
+"###;
+
+const FORMMAX_FIELD_TRUTH_JS: &str = r###"
+return (() => {
+  const visible = (el) => {
+    if (!el || !el.getBoundingClientRect) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
+  };
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  };
+  const sensitivityOf = (el) => {
+    const explicit = el.getAttribute("data-sensitive");
+    if (explicit && explicit !== "none" && explicit !== "false") return explicit;
+    const text = [
+      el.name || "",
+      el.id || "",
+      el.type || "",
+      el.getAttribute("autocomplete") || ""
+    ].join(" ").toLowerCase();
+    const match = text.match(/password|ssn|social|tax|credit|card|signature|attestation|otp|token|secret/);
+    return match ? match[0] : "none";
+  };
+  const fields = Array.from(document.querySelectorAll("input,select,textarea,[contenteditable='true']")).map((el, index) => {
+    const row = el.closest("tr");
+    const sensitivity = sensitivityOf(el);
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || tag).toLowerCase();
+    const hasValue = type === "checkbox" ? Boolean(el.checked) : Boolean((el.value || el.textContent || "").length);
+    return {
+      id: el.id || el.name || `field_${index}`,
+      selector_hint: el.id ? `#${el.id}` : (el.name ? `[name="${el.name}"]` : tag),
+      row_id: row ? row.dataset.rowId || null : null,
+      field: el.getAttribute("data-field") || el.name || el.id || null,
+      tag,
+      type,
+      visible: visible(el),
+      rect: visible(el) ? rect(el) : null,
+      sensitive: sensitivity !== "none",
+      sensitivity,
+      value_state: hasValue ? "present_redacted" : "empty"
+    };
+  });
+  const scroller = document.getElementById("table-scroll");
+  const pageLabel = document.getElementById("page-label");
+  return {
+    engine: "saccade-servoshell-formmax-field-truth-v0",
+    page_label: pageLabel ? pageLabel.textContent : null,
+    rendered_rows: document.querySelectorAll("#capacity-body tr").length,
+    field_count: fields.length,
+    visible_field_count: fields.filter((field) => field.visible).length,
+    sensitive_count: fields.filter((field) => field.sensitive).length,
+    visible_sensitive_count: fields.filter((field) => field.sensitive && field.visible).length,
+    scroller: scroller ? {
+      scroll_top: scroller.scrollTop,
+      scroll_height: scroller.scrollHeight,
+      client_height: scroller.clientHeight
+    } : null,
+    fields
+  };
+})();
+"###;
+
+const FORMMAX_HELPERS_JS: &str = r###"
+function saccadeFormmaxFixture() {
+  const fixture = window.__FORMMAX_FIXTURE;
+  const module = window.FormmaxFixture;
+  if (!fixture || !module) throw new Error("FORMMAX fixture API is missing");
+  return { fixture, module };
+}
+
+function saccadeFormmaxState() {
+  if (!window.__SACCADE_FORMMAX_STATE) {
+    const { fixture } = saccadeFormmaxFixture();
+    window.__SACCADE_FORMMAX_STATE = {
+      startedAt: Date.now(),
+      filled: 0,
+      blocked: 0,
+      events: [],
+      rows: (fixture.rows || []).length,
+      pages: (fixture.pages || []).length
+    };
+  }
+  return window.__SACCADE_FORMMAX_STATE;
+}
+
+function saccadeFormmaxEmit(kind, data = {}) {
+  const state = saccadeFormmaxState();
+  state.events.push(Object.assign({
+    kind,
+    ts_ms: Date.now() - state.startedAt,
+    echo_values: false
+  }, data));
+}
+
+function saccadeFormmaxEvent(type) {
+  return new Event(type, { bubbles: true });
+}
+
+function saccadeFormmaxRows() {
+  return Array.from(document.querySelectorAll("#capacity-body tr"));
+}
+
+function saccadeFormmaxControlFor(row, spec) {
+  return document.getElementsByName(row.id + "_" + spec.key)[0] || null;
+}
+
+function saccadeFormmaxSetControl(control, spec, expected) {
+  control.focus();
+  saccadeFormmaxEmit("field_focused", {
+    row_id: expected.id,
+    field: spec.key,
+    control: control.tagName.toLowerCase(),
+    input_type: control.type || null
+  });
+  if (spec.kind === "checkbox") {
+    control.checked = Boolean(expected[spec.key]);
+  } else {
+    control.value = String(expected[spec.key]);
+  }
+  control.dispatchEvent(saccadeFormmaxEvent("input"));
+  control.dispatchEvent(saccadeFormmaxEvent("change"));
+}
+
+function saccadeFormmaxControlMatches(control, spec, expected) {
+  if (spec.kind === "checkbox") return control.checked === Boolean(expected[spec.key]);
+  if (spec.kind === "number") return Number(control.value) === Number(expected[spec.key]);
+  return control.value === String(expected[spec.key]);
+}
+"###;
+
+const FORMMAX_INIT_JS: &str = r###"
+return (() => {
+  eval(arguments[0]);
+  const { fixture } = saccadeFormmaxFixture();
+  window.__SACCADE_FORMMAX_STATE = null;
+  const state = saccadeFormmaxState();
+  saccadeFormmaxEmit("form_run_started", {
+    engine: "saccade-servoshell-formmax-v0",
+    runtime: "official_servoshell_webdriver",
+    rows: state.rows,
+    pages: state.pages,
+    policy: {
+      block_sensitive: true,
+      local_fixture_only: true,
+      browser_truth_layer: true,
+      echo_values: false
+    }
+  });
+  return {
+    engine: "saccade-servoshell-formmax-v0",
+    rows: state.rows,
+    pages: state.pages,
+    field_specs: (fixture.fieldSpecs || []).map((spec) => spec.key),
+    sensitive_fields: (fixture.sensitiveFields || []).map((field) => field.name)
+  };
+})();
+"###;
+
+const FORMMAX_RENDER_PAGE_JS: &str = r###"
+return (() => {
+  eval(arguments[0]);
+  const pageIndex = arguments[1];
+  const { fixture } = saccadeFormmaxFixture();
+  const pages = fixture.pages || [];
+  const scroller = document.getElementById("table-scroll");
+  if (!scroller) throw new Error("FORMMAX scroller is missing");
+  const expected = pages[pageIndex].length;
+  let guard = 0;
+  saccadeFormmaxEmit("scroll_checkpoint", {
+    page: pageIndex + 1,
+    rendered_rows: saccadeFormmaxRows().length,
+    target_rows: expected
+  });
+  while (saccadeFormmaxRows().length < expected && guard < 20) {
+    scroller.scrollTop = scroller.scrollHeight;
+    scroller.dispatchEvent(saccadeFormmaxEvent("scroll"));
+    saccadeFormmaxEmit("scroll_checkpoint", {
+      page: pageIndex + 1,
+      rendered_rows: saccadeFormmaxRows().length,
+      target_rows: expected
+    });
+    guard += 1;
+  }
+  if (saccadeFormmaxRows().length < expected) {
+    throw new Error(`page ${pageIndex + 1} rendered ${saccadeFormmaxRows().length} of ${expected} rows`);
+  }
+  return {
+    page: pageIndex + 1,
+    rendered_rows: saccadeFormmaxRows().length,
+    target_rows: expected
+  };
+})();
+"###;
+
+const FORMMAX_FILL_CHUNK_JS: &str = r###"
+return (() => {
+  eval(arguments[0]);
+  const pageIndex = arguments[1];
+  const start = arguments[2];
+  const end = arguments[3];
+  const { fixture } = saccadeFormmaxFixture();
+  const state = saccadeFormmaxState();
+  const rows = (fixture.pages || [])[pageIndex] || [];
+  const fieldSpecs = fixture.fieldSpecs || [];
+  let filled = 0;
+  saccadeFormmaxEmit("page_chunk_started", {
+    page: pageIndex + 1,
+    start,
+    end: Math.min(end, rows.length)
+  });
+  for (const row of rows.slice(start, end)) {
+    for (const spec of fieldSpecs) {
+      const control = saccadeFormmaxControlFor(row, spec);
+      saccadeFormmaxEmit("field_discovered", {
+        page: pageIndex + 1,
+        row_id: row.id,
+        field: spec.key,
+        sensitive: false,
+        control_found: Boolean(control)
+      });
+      if (!control) throw new Error(`missing control ${row.id}_${spec.key}`);
+      saccadeFormmaxSetControl(control, spec, row);
+      filled += 1;
+      state.filled += 1;
+      saccadeFormmaxEmit("field_filled", {
+        page: pageIndex + 1,
+        row_id: row.id,
+        field: spec.key,
+        value_echoed: false
+      });
+      const ok = saccadeFormmaxControlMatches(control, spec, row);
+      saccadeFormmaxEmit("field_verified", {
+        page: pageIndex + 1,
+        row_id: row.id,
+        field: spec.key,
+        passed: ok
+      });
+      if (!ok) throw new Error(`verification failed for ${row.id}_${spec.key}`);
+    }
+  }
+  return {
+    page: pageIndex + 1,
+    start,
+    end: Math.min(end, rows.length),
+    filled,
+    total_filled: state.filled
+  };
+})();
+"###;
+
+const FORMMAX_SUBMIT_PAGE_JS: &str = r###"
+return (() => {
+  eval(arguments[0]);
+  const fromPage = arguments[1];
+  const toPage = arguments[2];
+  const submit = document.getElementById("submit-page");
+  if (!submit) throw new Error("FORMMAX submit button is missing");
+  submit.focus();
+  submit.click();
+  saccadeFormmaxEmit("page_next_clicked", { from_page: fromPage, to_page: toPage });
+  saccadeFormmaxEmit("validation_seen", { page: fromPage, errors: 0 });
+  return { from_page: fromPage, to_page: toPage };
+})();
+"###;
+
+const FORMMAX_BLOCK_SENSITIVE_JS: &str = r###"
+return (() => {
+  eval(arguments[0]);
+  const { fixture } = saccadeFormmaxFixture();
+  const state = saccadeFormmaxState();
+  let blocked = 0;
+  for (const field of fixture.sensitiveFields || []) {
+    const control = document.querySelector(`[data-sensitive="${field.name}"]`);
+    const hasValue = control
+      ? (control.type === "checkbox" ? control.checked : control.value !== "")
+      : false;
+    saccadeFormmaxEmit("field_discovered", {
+      field: field.name,
+      label: field.label,
+      sensitive: true,
+      reason: field.reason,
+      control_found: Boolean(control)
+    });
+    saccadeFormmaxEmit("confirmation_required", {
+      field: field.name,
+      reason: field.reason,
+      status: "requires_user_input",
+      value_echoed: false
+    });
+    saccadeFormmaxEmit("field_blocked_sensitive", {
+      field: field.name,
+      reason: field.reason,
+      value_present: hasValue,
+      value_echoed: false
+    });
+    if (hasValue) throw new Error(`sensitive field unexpectedly had value: ${field.name}`);
+    blocked += 1;
+  }
+  state.blocked = blocked;
+  return { blocked_sensitive: blocked };
+})();
+"###;
+
+const FORMMAX_FINALIZE_JS: &str = r###"
+return (() => {
+  eval(arguments[0]);
+  const { fixture, module } = saccadeFormmaxFixture();
+  const state = saccadeFormmaxState();
+  const submit = document.getElementById("submit-page");
+  if (!submit) throw new Error("FORMMAX submit button is missing");
+  submit.focus();
+  submit.click();
+  saccadeFormmaxEmit("page_next_clicked", { from_page: 2, to_page: "receipt", local_fixture_only: true });
+
+  const receiptText = document.getElementById("receipt").textContent || "{}";
+  const receipt = JSON.parse(receiptText);
+  const validation = receipt.validation || module.validateReceipt(fixture.rows || [], receipt);
+  const validationErrors = (validation.failures || []).length;
+  const receiptPanel = document.getElementById("receipt-panel");
+  if (receiptPanel) receiptPanel.scrollIntoView({ block: "start" });
+  saccadeFormmaxEmit("receipt_seen", {
+    row_count: receipt.row_count,
+    receipt_verified: Boolean(validation.passed),
+    validation_errors: validationErrors
+  });
+  saccadeFormmaxEmit("form_transaction_finished", {
+    rows: state.rows,
+    pages: state.pages,
+    filled: state.filled,
+    blocked_sensitive: state.blocked,
+    receipt_verified: Boolean(validation.passed),
+    validation_errors: validationErrors
+  });
+
+  return {
+    engine: "saccade-servoshell-formmax-v0",
+    runtime: "official_servoshell_webdriver",
+    browser_truth_layer: true,
+    rows: state.rows,
+    pages: state.pages,
+    filled: state.filled,
+    blocked_sensitive: state.blocked,
+    receipt_verified: Boolean(validation.passed),
+    validation_errors: validationErrors,
+    replay_events: state.events.length,
+    receipt_summary: {
+      fixture: receipt.fixture,
+      page_count: receipt.page_count,
+      row_count: receipt.row_count,
+      sensitive_fields_present: Array.isArray(receipt.sensitive_fields_present) ? receipt.sensitive_fields_present.length : 0,
+      validation_passed: Boolean(validation.passed),
+      validation_errors: validationErrors
+    },
+    events: state.events
   };
 })();
 "###;

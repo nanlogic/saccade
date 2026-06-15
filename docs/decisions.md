@@ -490,3 +490,20 @@
 - Evidence:
   `runs/servoshell_adapter/adapter_1781483074229/summary.json`.
 - Raw fixture secret grep over the run directory returned no matches.
+
+## DECISION_SERVOSHELL_008 - FORMMAX runs through official ServoShell adapter
+
+- Added `saccade-servoshell formmax-selftest`.
+- The gate preserves the browser truth-layer shape: collect redacted page/field
+  truth, fill ordinary controls in the live browser transaction, block
+  sensitive fields, verify the receipt, and replay only field/action metadata
+  with `echo_values=false`.
+- Official ServoShell adapter evidence:
+  `runs/servoshell_adapter/formmax_1781484157780/result.json`.
+- Result: `rows=96`, `pages=2`, `filled=672`, `blocked_sensitive=3`,
+  `receipt_verified=true`, and `replay_events=2715`.
+- Leak check passed for representative table values in result/replay artifacts.
+- The local FORMMAX fixture now renders table rows with DOM APIs instead of
+  `tr.innerHTML`, because official ServoShell repeatedly warned
+  `foster parenting not implemented` and the adapter timed out during lazy
+  table rendering on the old fixture implementation.

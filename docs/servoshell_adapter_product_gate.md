@@ -20,7 +20,7 @@ official ServoShell runtime.
 | Safe field policy | pass | rerun with WebDriver truth/action extraction |
 | Safety redaction | pass | 9-kind safety matrix pass via `saccade-servoshell selftest` |
 | Login handoff | pass | rerun or decide it requires fork |
-| FORMMAX live fill | pass | rerun via WebDriver adapter |
+| FORMMAX live fill | pass | pass via official ServoShell adapter |
 | Focused typing | pass | rerun via WebDriver keys/actions |
 | Native dropdown/input | pass on embedded Servo | rerun; WebDriver may differ from native path |
 | Replay artifacts | pass | same schema through adapter |
@@ -103,7 +103,7 @@ If any of the following fail, Option B becomes justified:
 3. DONE: Add screenshot policy modes before using WebDriver screenshot in
    normal runs.
 4. DONE: Re-run and expand local safety fixtures through the adapter.
-5. Re-run FORMMAX fixtures through the adapter.
+5. DONE: Re-run FORMMAX fixtures through the adapter.
 6. Re-run focused typing and dropdown/input fixtures through the adapter.
 7. Decide whether login handoff is externally safe or needs the thin fork.
 
@@ -120,6 +120,15 @@ If any of the following fail, Option B becomes justified:
   `recovery_token`, and `ssn`.
 - Safety matrix screenshot blocked before capture, and raw value grep passed
   for all 9 fixture secrets.
+- FORMMAX adapter:
+  `runs/servoshell_adapter/formmax_1781484157780/result.json`
+- FORMMAX filled 96 rows across 2 lazy-rendered pages, 672 ordinary fields,
+  blocked 3 sensitive fields, verified the receipt, wrote 2715 replay events,
+  and kept table values out of result/replay artifacts.
+- The FORMMAX fixture now builds table rows via DOM APIs instead of
+  `tr.innerHTML`, avoiding an official ServoShell table-parser slow path that
+  produced repeated `foster parenting not implemented` warnings during lazy
+  rendering.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781482435257/report.json`
 - Local game screenshot default stayed blocked with decision

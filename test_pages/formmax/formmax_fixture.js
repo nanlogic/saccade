@@ -170,21 +170,60 @@
       const value = state.values.get(row.id);
       const tr = document.createElement("tr");
       tr.dataset.rowId = row.id;
-      tr.innerHTML = `
-        <td>${row.id}</td>
-        <td><input name="${row.id}_site_name" data-field="site_name" value="${escapeAttr(value.site_name)}"></td>
-        <td><input name="${row.id}_rack_count" data-field="rack_count" type="number" value="${value.rack_count ?? ""}"></td>
-        <td><input name="${row.id}_power_mw" data-field="power_mw" type="number" step="0.01" value="${value.power_mw ?? ""}"></td>
-        <td><input name="${row.id}_cooling_tons" data-field="cooling_tons" type="number" value="${value.cooling_tons ?? ""}"></td>
-        <td><select name="${row.id}_owner" data-field="owner"><option value="">Choose</option>${OWNERS.map((owner) => `<option${owner === value.owner ? " selected" : ""}>${escapeText(owner)}</option>`).join("")}</select></td>
-        <td><input name="${row.id}_target_date" data-field="target_date" type="date" value="${escapeAttr(value.target_date)}"></td>
-        <td><input name="${row.id}_approved" data-field="approved" type="checkbox"${value.approved ? " checked" : ""}></td>
-      `;
+      appendTextCell(tr, row.id);
+      appendControlCell(tr, makeInput(row.id, "site_name", "text", value.site_name));
+      appendControlCell(tr, makeInput(row.id, "rack_count", "number", value.rack_count ?? ""));
+      appendControlCell(tr, makeInput(row.id, "power_mw", "number", value.power_mw ?? "", { step: "0.01" }));
+      appendControlCell(tr, makeInput(row.id, "cooling_tons", "number", value.cooling_tons ?? ""));
+      appendControlCell(tr, makeOwnerSelect(row.id, value.owner));
+      appendControlCell(tr, makeInput(row.id, "target_date", "date", value.target_date));
+      appendControlCell(tr, makeInput(row.id, "approved", "checkbox", "", { checked: value.approved }));
       tr.querySelectorAll("input, select").forEach((control) => {
         const eventName = control.type === "checkbox" || control.tagName === "SELECT" ? "change" : "input";
         control.addEventListener(eventName, () => updateValue(row.id, control));
       });
       return tr;
+    }
+
+    function appendTextCell(tr, text) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+
+    function appendControlCell(tr, control) {
+      const td = document.createElement("td");
+      td.appendChild(control);
+      tr.appendChild(td);
+    }
+
+    function makeInput(rowId, field, type, value, attrs = {}) {
+      const input = document.createElement("input");
+      input.name = `${rowId}_${field}`;
+      input.dataset.field = field;
+      input.type = type;
+      if (attrs.step) input.step = attrs.step;
+      if (attrs.checked) input.checked = true;
+      if (type !== "checkbox") input.value = value == null ? "" : String(value);
+      return input;
+    }
+
+    function makeOwnerSelect(rowId, value) {
+      const select = document.createElement("select");
+      select.name = `${rowId}_owner`;
+      select.dataset.field = "owner";
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "Choose";
+      select.appendChild(blank);
+      OWNERS.forEach((owner) => {
+        const option = document.createElement("option");
+        option.value = owner;
+        option.textContent = owner;
+        option.selected = owner === value;
+        select.appendChild(option);
+      });
+      return select;
     }
 
     function updateValue(rowId, control) {
