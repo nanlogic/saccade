@@ -97,6 +97,64 @@ The official ServoShell source bridge needs only a thin hot path:
 The bridge must not put network, LLM calls, formatting-heavy logs, or blocking
 file I/O in this path.
 
+## Official ServoShell Source Map
+
+Official source checkout used for this audit:
+
+```text
+/Users/waynema/Documents/GitHub/servo-saccade-upstream
+commit 54288c9d6
+```
+
+Important source locations:
+
+- `ports/servoshell/window.rs`
+  - `ServoShellWindow::repaint_webviews()` currently does:
+    `make_current() -> webview.paint() -> rendering_context.present()`.
+  - This is the best first observe-only bridge point.
+- `components/shared/paint/rendering_context.rs`
+  - `RenderingContext::read_to_image(DeviceIntRect) -> Option<RgbaImage>` is
+    part of the official rendering context trait.
+  - The trait docs say double-buffered contexts should read the back buffer
+    after Servo renders and before `present()`.
+- `ports/servoshell/desktop/headed_window.rs`
+  - `PlatformWindow::rendering_context()` returns the offscreen rendering
+    context used for Servo webview content.
+  - Human mouse events are translated into webview-relative device pixels and
+    sent through `webview.notify_input_event(...)`.
+- `ports/servoshell/running_app_state.rs`
+  - `notify_new_frame_ready()` marks the window as needing repaint.
+  - WebDriver input uses the same `webview.notify_input_event(...)`, but through
+    the external WebDriver command path.
+  - WebDriver screenshot calls `webview.take_screenshot(...)`, which is not the
+    reflex path because it waits for page/rendering stability.
+- `components/servo/webview.rs`
+  - `take_screenshot()` is explicitly asynchronous and waits for stable page
+    conditions. It is useful for diagnostics, not the millisecond control loop.
+
+Preferred first bridge patch:
+
+```text
+ServoShellWindow::repaint_webviews()
+  -> make_current()
+  -> webview.paint()
+  -> if reflex enabled:
+       read_to_image(current viewport)
+       build FrameObservation
+       log observe-only replay frame
+  -> present()
+```
+
+After observe-only timing is proven, add:
+
+```text
+DetectionPipeline::on_frame(...)
+  -> MotorController::on_frame(...)
+  -> WebView::notify_input_event(MouseMove / MouseButton Down / Up)
+```
+
+Do not call `WebView::take_screenshot()` in the reflex hot path.
+
 ## Current Gate Status
 
 - R0 Browser Render Gate: pass with official ServoShell on

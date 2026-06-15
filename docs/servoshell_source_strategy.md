@@ -148,3 +148,12 @@ Practical next step:
 2. Try a current-main or newest-tag `./mach build` smoke first.
 3. Confirm the locally built `servoshell` runs `http://127.0.0.1:4173/`.
 4. Only after that, add the minimal in-process Saccade reflex bridge.
+
+Clone completed:
+
+```text
+/Users/waynema/Documents/GitHub/servo-saccade-upstream
+commit 54288c9d6
+```
+
+The current bridge source map is recorded in `docs/reflex_bridge_audit.md`.
