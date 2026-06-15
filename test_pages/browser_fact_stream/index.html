@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser Fact Stream Fixture</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #172126;
+      background: #f5f7f9;
+    }
+
+    main {
+      max-width: 840px;
+      margin: 48px auto;
+      padding: 28px;
+      background: white;
+      border: 1px solid #d9e1e8;
+    }
+
+    button,
+    input {
+      min-height: 38px;
+      font: inherit;
+    }
+
+    button {
+      padding: 0 14px;
+      border: 1px solid #1f5fd1;
+      background: #286eea;
+      color: white;
+      cursor: pointer;
+    }
+
+    .toolbar,
+    .list,
+    .sensitive {
+      display: grid;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .task {
+      padding: 12px;
+      border: 1px solid #cfd9e2;
+      background: #f9fbfd;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+    }
+
+    canvas {
+      display: block;
+      width: 260px;
+      height: 120px;
+      margin-top: 20px;
+      border: 1px solid #cfd9e2;
+      background: #101418;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Browser Fact Stream Fixture</h1>
+    <p id="intro">Initial visible text and controls should appear as facts.</p>
+    <div class="toolbar">
+      <button id="add-task" type="button">Add task</button>
+      <button id="add-sensitive" type="button">Add sensitive fields</button>
+      <button id="update-canvas" type="button">Update canvas debug</button>
+    </div>
+    <section id="list" class="list" aria-label="Dynamic tasks"></section>
+    <section id="sensitive" class="sensitive" aria-label="Sensitive fields"></section>
+    <canvas id="fact-canvas" width="260" height="120" data-debug='{"objects":0,"state":"initial"}'></canvas>
+  </main>
+
+  <script>
+    const list = document.querySelector("#list");
+    const sensitive = document.querySelector("#sensitive");
+    const canvas = document.querySelector("#fact-canvas");
+    const ctx = canvas.getContext("2d");
+    let taskCount = 0;
+    let objectCount = 0;
+
+    function drawCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#101418";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#48d59a";
+      for (let i = 0; i < objectCount; i += 1) {
+        ctx.beginPath();
+        ctx.arc(42 + i * 44, 60, 14, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      canvas.dataset.debug = JSON.stringify({ objects: objectCount, state: "updated" });
+    }
+
+    document.querySelector("#add-task").addEventListener("click", () => {
+      taskCount += 1;
+      const article = document.createElement("article");
+      article.className = "task";
+      article.innerHTML = `
+        <h2>New deployment task ${taskCount}</h2>
+        <p>Provision cache capacity for region ${taskCount}.</p>
+        <button type="button">Review task ${taskCount}</button>
+      `;
+      list.appendChild(article);
+    });
+
+    document.querySelector("#add-sensitive").addEventListener("click", () => {
+      sensitive.innerHTML = `
+        <label>
+          SSN
+          <input id="ssn" name="ssn" data-sensitive="ssn" value="123-45-6789">
+        </label>
+        <label>
+          Credit card
+          <input id="card" name="credit_card" autocomplete="cc-number" value="4111111111111111">
+        </label>
+        <label>
+          Password
+          <input id="password" name="password" type="password" value="correct-horse-battery">
+        </label>
+      `;
+    });
+
+    document.querySelector("#update-canvas").addEventListener("click", () => {
+      objectCount += 2;
+      drawCanvas();
+    });
+
+    drawCanvas();
+  </script>
+</body>
+</html>

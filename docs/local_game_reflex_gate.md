@@ -137,6 +137,8 @@ Remaining R1 work:
 
 - Replace the fixed fixture click with detector/motor-owned local game input.
 - Record replay timestamps for observe, decision, dispatch, and verification.
+- Route detector facts through the generic Browser Fact Stream instead of
+  adding game-specific controller APIs.
 
 ### R2: Frame Truth Gate
 
@@ -196,6 +198,15 @@ Current evidence:
 - Limitation: this proves the release bridge + motor/replay loop can drive the
   local game, but it does not yet prove visual detector ownership. The v0 policy
   survived and moved/shoots, but did not collect drops (`fill_delta=0`).
+- Browser Fact Stream v0 now exists as the generic control-plane truth
+  interface:
+  `docs/browser_fact_stream.md`.
+- Current fact stream evidence:
+  `runs/browser_fact_stream/facts_release_1781527171/report.json`.
+- It detects new nodes, actionable controls, sensitive fields, and canvas
+  surfaces with redaction. It does not yet detect canvas-internal fruit/enemy/drop
+  positions; that should arrive as `visual_object_seen` facts from crop/pixel,
+  canvas-observe, or Servo native emitters.
 
 Local game v0 pass:
 
@@ -243,5 +254,6 @@ gate for the project.
    - local non-sensitive game only,
    - measured observe-to-input latency.
 4. Replace the temporary debug-state detector in
-   `scripts/run_local_game_reflex_loop.js` with bridge crop/pixel frame truth,
-   then reuse the same motor/replay harness.
+   `scripts/run_local_game_reflex_loop.js` with Browser Fact Stream facts plus
+   bridge crop/pixel `visual_object_seen` facts, then reuse the same
+   motor/replay harness.

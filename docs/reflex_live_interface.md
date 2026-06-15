@@ -64,6 +64,48 @@ temporary detector, then sends real browser input through the ServoShell bridge.
 It is useful for release dogfood and game-session testing, but it is not the
 final visual detector.
 
+## Browser Fact Stream
+
+Generic page facts now have a stable adapter contract:
+
+```text
+scripts/lib/browser_fact_stream.js
+docs/browser_fact_stream.md
+```
+
+The stream emits `saccade.browser_fact.v0` records for visible nodes,
+actionable controls, sensitive fields, and canvas surfaces. It is intentionally
+source-neutral: the current emitter is an observe-only JS adapter, while future
+Servo native layout/canvas/frame hooks should emit the same schema.
+
+Probe:
+
+```sh
+node scripts/probe_browser_fact_stream.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --headless \
+  --window-size 1024x740 \
+  --output-dir runs/browser_fact_stream/facts_release_1781527171
+```
+
+Latest passing run:
+
+```text
+runs/browser_fact_stream/facts_release_1781527171/report.json
+```
+
+Summary:
+
+```text
+ok=true
+facts=31
+node_seen=16
+actionable_seen=7
+canvas_seen=2
+sensitive_field_seen=6
+forbidden_value_leaks=[]
+```
+
 ## Runtime
 
 Use the release ServoShell build for product/runtime evidence:

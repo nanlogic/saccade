@@ -94,6 +94,15 @@ The fixture lives at:
 
 `test_pages/login_handoff/safety.html`
 
+Browser Fact Stream v0 now applies the same rule to live page facts:
+
+```text
+docs/browser_fact_stream.md
+scripts/lib/browser_fact_stream.js
+```
+
+It reports sensitive field presence and value status while redacting raw values.
+
 ## Still Needed
 
 - Visible UI markers for Human and Agent tabs.
