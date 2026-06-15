@@ -18,6 +18,15 @@ Saccade agent core
 Saccade should not own browser UI or rendering behavior unless official
 ServoShell cannot expose the required control surface.
 
+External review decision:
+
+- `docs/servoshell_review_decision.md`
+- `docs/servoshell_adapter_product_gate.md`
+
+Summary: use the external ServoShell WebDriver adapter first, but treat it as a
+bounded product/safety gate. Prepare a thin official ServoShell fork as fallback.
+Avoid upgrading the old embedded `servo=0.2.0` path for now.
+
 ## Plan
 
 ### S0: Freeze Current Saccade Browser Evidence
@@ -76,8 +85,8 @@ Observed capabilities:
 - The local game page is reachable through official ServoShell WebDriver and
   reports title `Blend or Die - Prototype`.
 
-Decision from S1: implement Route A first. Forking official ServoShell source is
-still the fallback, not the next immediate step.
+Decision from S1 and external review: implement Route A first. Forking official
+ServoShell source is the safety fallback, not the next immediate step.
 
 Review packet for external architecture review:
 
@@ -101,6 +110,15 @@ replay_event()
 The existing `browser_session_worker` can become the legacy `servo-0.2`
 implementation of that boundary while ServoShell gets a new implementation.
 
+Adapter safety rules:
+
+- WebDriver is a privileged local control channel, not the safety boundary.
+- Bind only to `127.0.0.1` on a random private port.
+- Do not expose generic WebDriver access to plugins, pages, or untrusted local
+  processes.
+- Truth/action maps must be redacted before crossing the adapter boundary.
+- Raw `getPageSource()` or raw DOM dumps are not replay inputs.
+
 ### S3: External ServoShell Adapter
 
 If S1 passes, implement an external adapter:
@@ -113,15 +131,41 @@ If S1 passes, implement an external adapter:
 
 This keeps official ServoShell upgradable.
 
+Implementation sequence:
+
+1. Direct WebDriver client with explicit Servo-compatible capabilities.
+2. Versioned Saccade truth/action JS bundle.
+3. Guarded screenshot policy:
+   - default `forbidden`,
+   - `guarded_diagnostic` after sensitive-surface preflight,
+   - no raw screenshots for login/payment/account/messaging/medical/bank/admin
+     or password-manager surfaces.
+4. Safe action dispatch:
+   - pre-truth,
+   - safety decision,
+   - WebDriver click/keys/actions,
+   - post-truth,
+   - postcondition check,
+   - replay record.
+5. Optional DevTools only for diagnostics, not action/safety authority.
+
 ### S4: Source Integration Fallback
 
-If S1 does not expose enough control, clone/build official Servo source and add
-the Saccade bridge inside ServoShell:
+If S3 fails a concrete Saccade safety/product gate, clone/build official Servo
+source and add the Saccade bridge inside ServoShell:
 
 - keep ServoShell UI/runtime intact,
 - add Saccade command server as a small sidecar module,
 - preserve safety/redaction/replay in Saccade-owned code,
 - avoid changing Servo renderer/layout unless absolutely necessary.
+
+Fork trigger examples:
+
+- screenshot safety requires pre-compositor masking,
+- trusted UI can be spoofed by page content,
+- login handoff cannot be made safe externally,
+- manual/agent input provenance must be enforced in-process,
+- WebDriver action semantics diverge from required native input behavior.
 
 ### S5: Product Gate
 
@@ -134,6 +178,19 @@ passes:
 - native dropdown/input gate,
 - screenshot/replay artifact parity,
 - manual dogfood open/click/type/scroll/back/forward.
+
+Expanded product gate:
+
+- Browser smoke: session, JS truth, element action, post-truth verification.
+- Safety redaction: password/token/email/hidden/autofill/contenteditable values
+  leak nowhere.
+- Screenshot policy: sensitive pages block screenshot before capture.
+- Replay integrity: pre-truth, safety decision, action, post-truth, screenshot
+  policy, and artifacts are logged.
+- Isolation: fresh profile, random loopback port, private endpoint, clean
+  teardown.
+- Upgradeability: pinned official ServoShell plus one newer official build or
+  nightly.
 
 ## Current Next Step
 

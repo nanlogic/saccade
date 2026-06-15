@@ -4,7 +4,11 @@ Date: 2026-06-14
 
 ## Decision
 
-Use official ServoShell source as the preferred browser-productization route.
+Use official ServoShell as the preferred browser-productization runtime.
+
+The first implementation route is an external WebDriver adapter. A thin source
+fork of official ServoShell is the safety fallback if WebDriver cannot satisfy
+Saccade's product gates.
 
 Wayne verified that the downloaded official macOS Servo.app can run the local
 game at:
@@ -74,6 +78,10 @@ official ServoShell build, then keep the existing Saccade shell architecture.
 This keeps Saccade's current ownership boundaries but may require Servo API
 mapping updates and a heavier local build.
 
+External review result: avoid Route C for now. It is likely the worst tradeoff:
+heavy API migration while still not guaranteeing parity with official
+ServoShell's working runtime.
+
 ## Next Gate
 
 1. Find or clone the official Servo source revision that matches
@@ -82,6 +90,9 @@ mapping updates and a heavier local build.
 3. Verify it runs `http://127.0.0.1:4173/` like the downloaded app.
 4. Add a Saccade adapter around official ServoShell WebDriver before attempting
    a deeper fork.
+5. Switch to a thin official ServoShell fork only if the external adapter fails
+   screenshot safety, trusted UI, login handoff, input provenance, or native
+   action semantics gates.
 
 ## Build Note
 
