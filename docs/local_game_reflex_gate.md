@@ -213,6 +213,13 @@ Current evidence:
 - That conversion emitted 45 `visual_object_seen` facts and matched the old
   run's `targets_seen=45` after filtering two tracker appearances outside the
   benchmark game area.
+- The local game reflex runner now records live Browser Fact Stream output:
+  `runs/local_game_reflex/live_facts_1781528515/report.json`.
+- The short release run passed with 48 browser facts, including one canvas fact
+  and 35 `visual_object_seen` facts, while keeping game `time_scale=0.985` and
+  input dispatch p95 `0.138 ms`.
+- Limitation: these live facts are generic pixel components, not semantic
+  fruit/enemy/drop classifications yet.
 
 Local game v0 pass:
 
@@ -260,6 +267,6 @@ gate for the project.
    - local non-sensitive game only,
    - measured observe-to-input latency.
 4. Replace the temporary debug-state detector in
-   `scripts/run_local_game_reflex_loop.js` with Browser Fact Stream facts plus
-   bridge crop/pixel `visual_object_seen` facts, then reuse the same
+   `scripts/run_local_game_reflex_loop.js` with semantic classification over
+   Browser Fact Stream `visual_object_seen` facts, then reuse the same
    motor/replay harness.

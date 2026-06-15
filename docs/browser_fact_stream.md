@@ -31,6 +31,7 @@ Implementation:
 scripts/lib/browser_fact_stream.js
 scripts/probe_browser_fact_stream.js
 scripts/convert_mousemax_replay_to_facts.js
+scripts/run_local_game_reflex_loop.js
 test_pages/browser_fact_stream/index.html
 ```
 
@@ -191,6 +192,52 @@ This proves an existing MOUSEMAX arena replay can be reduced to the same
 filters `tracker_appeared` targets through the frame `game_area_css`, matching
 the benchmark's `targets_seen` definition instead of blindly exporting every
 internal tracker appearance.
+
+## Local Game Live Facts
+
+`scripts/run_local_game_reflex_loop.js` now installs Browser Fact Stream during
+the live ServoShell run, writes `facts.jsonl`, and records
+`browser_facts_observed` summary events into the replay. Canvas pixel sampling
+is throttled by `--visual-fact-interval-ms` so it remains evidence/control-plane
+work, not the millisecond motor loop.
+
+Short release ServoShell check:
+
+```sh
+node scripts/run_local_game_reflex_loop.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --url http://127.0.0.1:4173/ \
+  --headless \
+  --window-size 1280x900 \
+  --duration-ms 5000 \
+  --visual-fact-interval-ms 1000 \
+  --output-dir runs/local_game_reflex/live_facts_1781528515
+```
+
+Evidence:
+
+```text
+runs/local_game_reflex/live_facts_1781528515/report.json
+runs/local_game_reflex/live_facts_1781528515/replay.jsonl
+runs/local_game_reflex/live_facts_1781528515/facts.jsonl
+```
+
+Summary:
+
+```text
+ok=true
+browser_facts.count=48
+canvas_seen=1
+visual_object_seen=35
+replay browser_facts_observed events=6
+time_scale=0.985
+dispatch_ms.p95=0.138
+readback_ms.p95=9.032
+```
+
+This proves live page changes can be seen through the fact stream while the
+bridge is also driving Servo input. The current visual facts are object-like
+pixel components, not semantic labels such as fruit/enemy/drop.
 
 ## Product Meaning
 

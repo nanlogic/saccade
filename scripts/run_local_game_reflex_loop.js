@@ -3,6 +3,13 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const {
+  drainBrowserFacts,
+  installBrowserFactStream,
+  sampleBrowserVisualObjects,
+  summarizeFacts,
+  writeFactsJsonl,
+} = require("./lib/browser_fact_stream");
+const {
   ReflexLiveBridge,
   appendJsonl,
   sampleLocalGame,
@@ -19,6 +26,7 @@ function usage() {
     --servoshell /path/to/servoshell \\
     [--url http://127.0.0.1:4173/] [--headed] \\
     [--window-size 1280x900] [--duration-ms 15000] \\
+    [--no-browser-facts] [--visual-fact-interval-ms 1000] \\
     [--output-dir runs/local_game_reflex/<name>]
 `);
 }
@@ -30,6 +38,8 @@ function parseArgs(argv) {
     tickMs: 250,
     headless: true,
     windowSize: "1280x900",
+    browserFacts: true,
+    visualFactIntervalMs: 1000,
     outputDir: path.join("runs", "local_game_reflex", `loop_${Date.now()}`),
   };
 
@@ -45,6 +55,10 @@ function parseArgs(argv) {
       args.tickMs = Number(argv[++i]);
     } else if (arg === "--window-size") {
       args.windowSize = argv[++i];
+    } else if (arg === "--no-browser-facts") {
+      args.browserFacts = false;
+    } else if (arg === "--visual-fact-interval-ms") {
+      args.visualFactIntervalMs = Number(argv[++i]);
     } else if (arg === "--output-dir") {
       args.outputDir = argv[++i];
     } else if (arg === "--headed") {
@@ -67,6 +81,9 @@ function parseArgs(argv) {
   }
   if (!Number.isFinite(args.tickMs) || args.tickMs <= 0) {
     throw new Error("--tick-ms must be positive");
+  }
+  if (!Number.isFinite(args.visualFactIntervalMs) || args.visualFactIntervalMs <= 0) {
+    throw new Error("--visual-fact-interval-ms must be positive");
   }
 
   return args;
@@ -174,11 +191,36 @@ async function appendNewReceipts(bridge, replayPath, seenReceiptCount, startedAt
   return receipts.length;
 }
 
+async function drainAndRecordBrowserFacts({
+  bridge,
+  factsPath,
+  replayPath,
+  startedAtMs,
+  allFacts,
+  reason,
+}) {
+  const facts = await drainBrowserFacts(bridge, 1000);
+  if (!facts.length) {
+    return;
+  }
+  allFacts.push(...facts);
+  await writeFactsJsonl(factsPath, facts);
+  await writeReplay(replayPath, {
+    kind: "browser_facts_observed",
+    t_ms: nowMs(startedAtMs),
+    reason,
+    summary: summarizeFacts(facts),
+    samples: facts.slice(0, 5),
+  });
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   await fs.mkdir(args.outputDir, { recursive: true });
   const replayPath = path.join(args.outputDir, "replay.jsonl");
+  const factsPath = path.join(args.outputDir, "facts.jsonl");
   await fs.writeFile(replayPath, "");
+  await fs.writeFile(factsPath, "");
 
   const bridge = new ReflexLiveBridge({
     servoshell: args.servoshell,
@@ -191,11 +233,13 @@ async function main() {
 
   const startedAtMs = Date.now();
   const samples = [];
+  const browserFacts = [];
   let seenReceiptCount = 0;
   let commandSeq = 0;
   let commandCount = 0;
   let ok = false;
   let finalReason = "not_finished";
+  let nextVisualFactAtMs = 0;
 
   await writeReplay(replayPath, {
     kind: "run_started",
@@ -209,11 +253,35 @@ async function main() {
     await bridge.start();
     await bridge.open(args.url);
     await waitForLocalGameDebug(bridge.port, bridge.sessionId, 15000);
+    if (args.browserFacts) {
+      await installBrowserFactStream(bridge, {
+        allowCanvasDebugValues: false,
+        allowCanvasPixelRead: true,
+        canvasMaxSamplePixels: 90000,
+        textLimit: 120,
+        visualColorDistanceThreshold: 64,
+        visualMinAreaPx: 40,
+        visualMaxObjectsPerCanvas: 32,
+      });
+      await sleep(100);
+      await drainAndRecordBrowserFacts({
+        bridge,
+        factsPath,
+        replayPath,
+        startedAtMs,
+        allFacts: browserFacts,
+        reason: "initial_browser_facts",
+      });
+    }
 
     const deadline = Date.now() + args.durationMs;
     let tickIndex = 0;
     while (Date.now() <= deadline) {
       const sampleAtMs = nowMs(startedAtMs);
+      if (args.browserFacts && sampleAtMs >= nextVisualFactAtMs) {
+        await sampleBrowserVisualObjects(bridge, "local_game_visual_sample");
+        nextVisualFactAtMs = sampleAtMs + args.visualFactIntervalMs;
+      }
       const sample = await sampleLocalGame(bridge.port, bridge.sessionId);
       samples.push({ wall_ms: sampleAtMs, ...sample });
       const observation = summarizeObservation(sample);
@@ -251,11 +319,31 @@ async function main() {
         seenReceiptCount,
         startedAtMs,
       );
+      if (args.browserFacts) {
+        await drainAndRecordBrowserFacts({
+          bridge,
+          factsPath,
+          replayPath,
+          startedAtMs,
+          allFacts: browserFacts,
+          reason: "loop_drain",
+        });
+      }
 
       tickIndex += 1;
       await sleep(args.tickMs);
     }
     seenReceiptCount = await appendNewReceipts(bridge, replayPath, seenReceiptCount, startedAtMs);
+    if (args.browserFacts) {
+      await drainAndRecordBrowserFacts({
+        bridge,
+        factsPath,
+        replayPath,
+        startedAtMs,
+        allFacts: browserFacts,
+        reason: "final_drain",
+      });
+    }
     finalReason = finalReason === "not_finished" ? "duration_complete" : finalReason;
     ok = true;
   } finally {
@@ -268,6 +356,7 @@ async function main() {
   const sampleSummary = summarizeGameSamples(samples, startedAtMs, endedAtMs);
   const receiptSummary = summarizeReceipts(receipts);
   const frameSummary = summarizeReflexEvents(frames);
+  const browserFactSummary = summarizeFacts(browserFacts);
   const firstDebug = sampleSummary.first_debug || {};
   const lastDebug = sampleSummary.last_debug || {};
   const healthOk = (lastDebug.hp ?? 0) > 0 || ["victory", "upgrade", "blending"].includes(lastDebug.mode);
@@ -293,6 +382,7 @@ async function main() {
     paths: {
       ...bridge.paths,
       replay: replayPath,
+      facts: factsPath,
     },
     started_at_ms: startedAtMs,
     ended_at_ms: endedAtMs,
@@ -300,6 +390,7 @@ async function main() {
       samples: sampleSummary,
       receipts: receiptSummary,
       frames: frameSummary,
+      browser_facts: browserFactSummary,
       command_count: commandCount,
       command_receipts: commandReceipts,
       hp_delta:
@@ -337,6 +428,7 @@ async function main() {
         ok: pass,
         report: reportPath,
         replay: replayPath,
+        facts: factsPath,
         final_reason: finalReason,
         summary: report.summary,
         stderr_tail: report.process.stderr_tail.split("\n").slice(-8).join("\n"),
