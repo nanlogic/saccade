@@ -166,3 +166,21 @@ Build preflight:
 - `./mach build --help` confirms build types `--dev`, `--release`, and
   `--prod`, plus `-j/--jobs`.
 - Recommended first build attempt: `./mach build --dev -j 4`.
+
+Build result:
+
+```text
+./mach build --dev -j 4 --media-stack dummy
+Succeeded in 0:09:14
+target/debug/servoshell --version => Version: Servo 0.3.0-54288c9d6
+```
+
+`--media-stack dummy` was required on this machine because the first default
+build attempt failed before compilation with:
+
+```text
+GStreamer libraries not found (>= version 1.18)
+```
+
+The dummy media stack is acceptable for the local-game/reflex gate because the
+gate does not require audio/video playback.

@@ -160,11 +160,69 @@ Do not call `WebView::take_screenshot()` in the reflex hot path.
 - R0 Browser Render Gate: pass with official ServoShell on
   `http://127.0.0.1:4173/`.
 - R1 Input Ownership Gate: blocked for WebDriver, pending for in-process bridge.
-- R2 Frame Truth Gate: pending. The required shape is the old
-  `FrameObservation`, not a full-page screenshot agent channel.
+- R2 Frame Truth Gate: partial pass. The official ServoShell source bridge now
+  captures observe-only repaint frames with `RenderingContext::read_to_image`.
+  The required final shape is still the old `FrameObservation`, not a full-page
+  screenshot agent channel.
 - R3 Reflex Latency Gate: pending. Local game v0 target is p95
   observe-to-input dispatch <= 16 ms; MOUSEMAX remains p95 detect-to-dispatch
   <= 5 ms.
+
+## Bridge Evidence - 2026-06-14
+
+Official ServoShell source build:
+
+```sh
+./mach build --dev -j 4 --media-stack dummy
+```
+
+Result:
+
+```text
+Succeeded in 0:09:14
+target/debug/servoshell --version => Version: Servo 0.3.0-54288c9d6
+```
+
+Bridge commit in `/Users/waynema/Documents/GitHub/servo-saccade-upstream`:
+
+```text
+6e02f55f1 add saccade observe-only reflex bridge
+```
+
+Observe-only run:
+
+```sh
+SACCADE_REFLEX_OBSERVE_PATH=/Users/waynema/Documents/GitHub/SACCADE/runs/reflex_observe/observe_1781488060000/frames.jsonl \
+SACCADE_REFLEX_OBSERVE_MAX_FRAMES=120 \
+cargo run -q -p saccade-servoshell -- probe \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/debug/servoshell \
+  --url http://127.0.0.1:4173/ \
+  --screenshot-mode guarded-diagnostic \
+  --timeout-sec 35
+```
+
+Result:
+
+```text
+SACCADE_SERVOSHELL_PROBE ok=true
+report=runs/servoshell_adapter/probe_1781488077618/report.json
+frames=runs/reflex_observe/observe_1781488060000/frames.jsonl
+```
+
+Frame summary:
+
+```text
+frames=5
+readback_ok=5/5
+size=1024x740
+title=Blend or Die - Prototype
+dropped_logs=0
+readback_ms p50=5.55 p95=7.05 max=7.86
+```
+
+This proves the official ServoShell 0.3 source path can expose non-screenshot
+frame truth from the repaint path. It does not yet prove input ownership or
+closed-loop game play.
 
 ## Verification Notes
 

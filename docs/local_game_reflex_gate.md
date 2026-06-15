@@ -84,7 +84,7 @@ Required evidence:
 
 ### R2: Frame Truth Gate
 
-Status: pending.
+Status: partial pass, observe-only.
 
 Required evidence:
 
@@ -92,6 +92,20 @@ Required evidence:
 - Preferred channel: in-process ServoShell frame/readback bridge.
 - Temporary non-sensitive diagnostic channel may use game-page debug state or
   pixels only to validate local game progress, not as the product safety model.
+
+Current evidence:
+
+- Official ServoShell source build `Servo 0.3.0-54288c9d6` succeeded with
+  `./mach build --dev -j 4 --media-stack dummy`.
+- Saccade observe-only bridge commit in the Servo checkout:
+  `6e02f55f1 add saccade observe-only reflex bridge`.
+- The local game probe passed through the locally built ServoShell binary:
+  `runs/servoshell_adapter/probe_1781488077618/report.json`.
+- The bridge captured 5 repaint frames in:
+  `runs/reflex_observe/observe_1781488060000/frames.jsonl`.
+- All 5 frames had `readback_ok=true`, 1024x740 RGBA, title
+  `Blend or Die - Prototype`, and `dropped_logs=0`.
+- Short-sample readback timing: p50 5.55 ms, p95 7.05 ms, max 7.86 ms.
 
 ### R3: Reflex Latency Gate
 
