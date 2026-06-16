@@ -11,11 +11,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use euclid::{Point2D, Scale};
 use servo::{
-    CSSPixel, EmbedderControl, InputEvent, Key as ServoKey, KeyState, KeyboardEvent, LoadStatus,
-    MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey as ServoNamedKey,
-    Opts, RenderingContext, SelectElement, SelectElementOptionOrOptgroup, Servo, ServoBuilder,
-    WebView, WebViewBuilder, WebViewDelegate, WebViewPoint, WheelDelta, WheelEvent, WheelMode,
-    WindowRenderingContext,
+    CSSPixel, EmbedderControl, InputEvent, JSValue, Key as ServoKey, KeyState, KeyboardEvent,
+    LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent,
+    NamedKey as ServoNamedKey, Opts, RenderingContext, SelectElement,
+    SelectElementOptionOrOptgroup, Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate,
+    WebViewPoint, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -28,6 +28,7 @@ use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
+use crate::browser_session_worker::{PROBE_JS, action_map, sensitive_action_count};
 use crate::{RenderingProfile, RenderingProfileSettings};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -217,6 +218,12 @@ struct DogfoodControlRequest {
     method: String,
     #[serde(default)]
     params: Value,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DogfoodControlProbeMethod {
+    Truth,
+    Actions,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -742,12 +749,157 @@ impl DogfoodBrowserState {
                     "has_webview": self.webview.borrow().is_some(),
                 },
             }),
+            "truth" => self.handle_control_probe(id, DogfoodControlProbeMethod::Truth),
+            "actions" => self.handle_control_probe(id, DogfoodControlProbeMethod::Actions),
             other => json!({
                 "id": id,
                 "ok": false,
                 "error": format!("unknown dogfood control method {other:?}"),
             }),
         }
+    }
+
+    fn handle_control_probe(&self, id: Value, method: DogfoodControlProbeMethod) -> Value {
+        match self.run_control_probe() {
+            Ok(probe) => json!({
+                "id": id,
+                "ok": true,
+                "result": self.control_probe_response(&probe, method),
+            }),
+            Err(error) => json!({
+                "id": id,
+                "ok": false,
+                "error": error,
+            }),
+        }
+    }
+
+    fn run_control_probe(&self) -> std::result::Result<Value, String> {
+        let webview = self
+            .webview
+            .borrow()
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "dogfood control probe requires an active WebView".to_string())?;
+        let (tx, rx) = mpsc::channel();
+        webview.evaluate_javascript(PROBE_JS, move |result| {
+            let value = match result {
+                Ok(JSValue::String(value)) => Ok(value),
+                Ok(value) => Ok(format!("{value:?}")),
+                Err(error) => Err(format!("{error:?}")),
+            };
+            let _ = tx.send(value);
+        });
+
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(5) {
+            self.servo.spin_event_loop();
+            match rx.try_recv() {
+                Ok(Ok(value)) => {
+                    return serde_json::from_str(&value).map_err(|error| {
+                        format!("failed to parse dogfood control probe: {error}")
+                    });
+                }
+                Ok(Err(error)) => return Err(format!("dogfood control probe failed: {error}")),
+                Err(mpsc::TryRecvError::Empty) => thread::sleep(Duration::from_millis(5)),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err("dogfood control probe callback disconnected".into());
+                }
+            }
+        }
+        Err("dogfood control probe timed out".into())
+    }
+
+    fn control_probe_response(&self, probe: &Value, method: DogfoodControlProbeMethod) -> Value {
+        let actions = action_map(probe);
+        let sensitive_count = sensitive_action_count(&actions);
+        let body_text_length = probe
+            .get("bodyTextLength")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let body_child_count = probe
+            .get("bodyChildCount")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let page_revision = probe
+            .get("pageRevision")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0)
+            .unwrap_or(1);
+        let engine = match method {
+            DogfoodControlProbeMethod::Truth => "saccade-dogfood-control-truth-v0",
+            DogfoodControlProbeMethod::Actions => "saccade-dogfood-control-actions-v0",
+        };
+        let summary = match method {
+            DogfoodControlProbeMethod::Truth => {
+                "dogfood current-tab redacted truth collected from same live WebView"
+            }
+            DogfoodControlProbeMethod::Actions => {
+                "dogfood current-tab action map collected from same live WebView"
+            }
+        };
+        let runtime_geometry = self
+            .webview
+            .borrow()
+            .as_ref()
+            .map(|webview| self.runtime_geometry(webview))
+            .unwrap_or(Value::Null);
+        json!({
+            "status": "ok",
+            "runtime": "saccade-dogfood-control-v0",
+            "engine": engine,
+            "summary": summary,
+            "same_webview_control": true,
+            "rendering_profile": self.rendering_settings.profile.name(),
+            "renderer_engine": self.rendering_settings.profile.engine(),
+            "servo_grid_enabled": self.rendering_settings.layout_grid_enabled,
+            "legacy_grid_override": self.rendering_settings.legacy_grid_override,
+            "experimental_prefs": self.rendering_settings.experimental_prefs(),
+            "runtime_geometry": runtime_geometry,
+            "url": probe.get("url").cloned().unwrap_or_else(|| json!(self.current_url.borrow().as_str())),
+            "title": probe.get("title").cloned().unwrap_or_else(|| self.page_title.borrow().clone().map(Value::String).unwrap_or(Value::Null)),
+            "page_revision": page_revision,
+            "dom_page_revision": probe.get("pageRevision").cloned().unwrap_or(Value::Null),
+            "actions": actions,
+            "findings": [],
+            "visual_health": {
+                "blank_page": body_text_length == 0 && body_child_count == 0,
+                "screenshot": null,
+            },
+            "truth": {
+                "body_text_length": body_text_length,
+                "body_child_count": body_child_count,
+                "viewport": probe.get("viewport").cloned().unwrap_or(Value::Null),
+                "layout_probes": probe.get("layoutProbes").cloned().unwrap_or(Value::Null),
+                "sensitive_fields": sensitive_count,
+                "findings": [],
+            },
+            "artifacts": {
+                "report": null,
+                "replay": null,
+            },
+        })
+    }
+
+    fn runtime_geometry(&self, webview: &WebView) -> Value {
+        let window_size = self.window.inner_size();
+        let context_size = self.rendering_context.size2d();
+        let webview_size = webview.size();
+        json!({
+            "window_inner": {
+                "width": window_size.width,
+                "height": window_size.height,
+            },
+            "rendering_context_device": {
+                "width": context_size.width,
+                "height": context_size.height,
+            },
+            "webview_device": {
+                "width": webview_size.width,
+                "height": webview_size.height,
+            },
+            "hidpi_scale_factor": webview.hidpi_scale_factor().0,
+        })
     }
 }
 

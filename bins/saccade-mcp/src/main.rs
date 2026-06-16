@@ -533,6 +533,7 @@ struct McpSessionState {
     next_tab_id: u64,
     tabs: Vec<SessionTab>,
     browser_workers: BTreeMap<u64, BrowserWorkerClient>,
+    dogfood_controls: BTreeMap<u64, DogfoodControlEndpoint>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1408,6 +1409,7 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         .as_ref()
         .map(call_dogfood_control_ping)
         .transpose()?;
+    let same_webview_control_ping = same_webview_control.is_some();
 
     let tab_id = state.allocate_tab_id();
     let info = tab(
@@ -1429,13 +1431,22 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         last_actions: Vec::new(),
         last_findings: Vec::new(),
     };
-    let mut worker = BrowserWorkerClient::spawn(&grant.url)?;
-    let live_truth = worker.call("truth", json!({}))?;
+    let (live_truth, attached_via_control) = if let Some(endpoint) = grant.control_endpoint.as_ref()
+    {
+        let live_truth = call_dogfood_control(endpoint, "truth", json!({}))?;
+        state.dogfood_controls.insert(tab_id.0, endpoint.clone());
+        (live_truth, true)
+    } else {
+        let mut worker = BrowserWorkerClient::spawn(&grant.url)?;
+        let live_truth = worker.call("truth", json!({}))?;
+        state.browser_workers.insert(tab_id.0, worker);
+        (live_truth, false)
+    };
     update_session_tab_from_browser_result(&mut tab, &live_truth);
     state.tabs.push(tab.clone());
-    state.browser_workers.insert(tab_id.0, worker);
-    let same_webview_control_ping = same_webview_control.is_some();
-    let transport_status = if grant.source == "grant_artifact" && same_webview_control_ping {
+    let transport_status = if attached_via_control {
+        "same_webview_control_truth_v0"
+    } else if grant.source == "grant_artifact" && same_webview_control_ping {
         "same_webview_control_ping_plus_worker_truth_v0"
     } else if grant.source == "grant_artifact" {
         "worker_from_grant_artifact_v0"
@@ -1446,7 +1457,7 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
     Ok(json!({
         "status": "ok",
         "summary": "current Human tab attached to live Saccade co-pilot session after explicit grant",
-        "runtime": "browser_session_worker_v0",
+        "runtime": tab_runtime(state, tab_id),
         "selected_tab_seen": true,
         "grant_required": true,
         "grant_given": true,
@@ -1456,9 +1467,14 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "grant_path": grant.grant_path,
         "same_webview_control_ping": same_webview_control_ping,
         "same_webview_control": same_webview_control,
-        "same_webview_attached": false,
+        "same_webview_attached": attached_via_control,
+        "same_webview_capabilities": if attached_via_control { json!(["ping", "truth", "actions"]) } else { json!([]) },
         "transport_status": transport_status,
-        "transport_note": "MCP v0 validates the visible browser grant and can ping the same dogfood WebView control endpoint when present. Truth/actions still use a live worker until direct same-WebView command transport lands.",
+        "transport_note": if attached_via_control {
+            "MCP v0 validates the visible browser grant and reads redacted truth/actions from the same dogfood WebView control endpoint. Fill/act still need the next bridge step."
+        } else {
+            "MCP v0 validates the visible browser grant and can ping the same dogfood WebView control endpoint when present. Truth/actions use a live worker when no control endpoint is available."
+        },
         "tab": tab.info,
         "truth": {
             "engine": tab.last_engine.clone(),
@@ -1630,6 +1646,20 @@ fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodCo
 }
 
 fn call_dogfood_control_ping(endpoint: &DogfoodControlEndpoint) -> Result<Value> {
+    call_dogfood_control(
+        endpoint,
+        "ping",
+        json!({
+            "protocol": endpoint.protocol,
+        }),
+    )
+}
+
+fn call_dogfood_control(
+    endpoint: &DogfoodControlEndpoint,
+    method: &str,
+    params: Value,
+) -> Result<Value> {
     let addr = dogfood_control_socket_addr(endpoint)?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
@@ -1644,28 +1674,26 @@ fn call_dogfood_control_ping(endpoint: &DogfoodControlEndpoint) -> Result<Value>
         "{}",
         json!({
             "id": 1,
-            "method": "ping",
-            "params": {
-                "protocol": endpoint.protocol,
-            }
+            "method": method,
+            "params": params,
         })
     )
-    .context("failed to write dogfood control ping")?;
+    .with_context(|| format!("failed to write dogfood control {method}"))?;
     stream
         .flush()
-        .context("failed to flush dogfood control ping")?;
+        .with_context(|| format!("failed to flush dogfood control {method}"))?;
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     reader
         .read_line(&mut line)
-        .context("failed to read dogfood control ping response")?;
-    let response: Value =
-        serde_json::from_str(&line).context("failed to parse dogfood control ping response")?;
+        .with_context(|| format!("failed to read dogfood control {method} response"))?;
+    let response: Value = serde_json::from_str(&line)
+        .with_context(|| format!("failed to parse dogfood control {method} response"))?;
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
         let error = response
             .get("error")
             .and_then(Value::as_str)
-            .unwrap_or("dogfood control ping failed");
+            .unwrap_or("dogfood control request failed");
         bail!("{error}");
     }
     Ok(response.get("result").cloned().unwrap_or(Value::Null))
@@ -1727,6 +1755,7 @@ fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
     if let Some(mut worker) = state.browser_workers.remove(&tab_id.0) {
         worker.close();
     }
+    state.dogfood_controls.remove(&tab_id.0);
     let before = state.tabs.len();
     state.tabs.retain(|tab| tab.info.tab_id != tab_id);
     if state.tabs.len() == before {
@@ -1742,7 +1771,12 @@ fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
 fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
-    if state.browser_workers.contains_key(&tab_id.0) {
+    if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        let live_truth = call_dogfood_control(&endpoint, "truth", json!({}))?;
+        if let Some(tab) = state.find_tab_mut(tab_id) {
+            update_session_tab_from_browser_result(tab, &live_truth);
+        }
+    } else if state.browser_workers.contains_key(&tab_id.0) {
         let live_truth = call_browser_worker(state, tab_id, "truth", json!({}))?;
         if let Some(tab) = state.find_tab_mut(tab_id) {
             update_session_tab_from_browser_result(tab, &live_truth);
@@ -1770,7 +1804,7 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
             "actions_count": tab.last_actions.len(),
             "findings": if summary_only { Value::Array(Vec::new()) } else { Value::Array(tab.last_findings.clone()) },
         },
-        "runtime": if state.browser_workers.contains_key(&tab_id.0) { "browser_session_worker_v0" } else { "mcp_report_backed_v0" },
+        "runtime": tab_runtime(state, tab_id),
         "artifacts": {
             "report": tab.last_report_path,
             "replay": tab.last_replay_path,
@@ -1781,7 +1815,12 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
 fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
-    if state.browser_workers.contains_key(&tab_id.0) {
+    if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        let live_actions = call_dogfood_control(&endpoint, "actions", json!({}))?;
+        if let Some(tab) = state.find_tab_mut(tab_id) {
+            update_session_tab_from_browser_result(tab, &live_actions);
+        }
+    } else if state.browser_workers.contains_key(&tab_id.0) {
         let live_actions = call_browser_worker(state, tab_id, "actions", json!({}))?;
         if let Some(tab) = state.find_tab_mut(tab_id) {
             update_session_tab_from_browser_result(tab, &live_actions);
@@ -1798,7 +1837,7 @@ fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Val
         "tab_id": tab_id.0,
         "page_revision": tab.info.page_revision,
         "actions": tab.last_actions,
-        "runtime": if state.browser_workers.contains_key(&tab_id.0) { "browser_session_worker_v0" } else { "mcp_report_backed_v0" },
+        "runtime": tab_runtime(state, tab_id),
         "artifacts": {
             "report": tab.last_report_path,
             "replay": tab.last_replay_path,
@@ -2688,6 +2727,16 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
         .pointer("/artifacts/replay")
         .and_then(Value::as_str)
         .map(ToOwned::to_owned);
+}
+
+fn tab_runtime(state: &McpSessionState, tab_id: TabId) -> &'static str {
+    if state.dogfood_controls.contains_key(&tab_id.0) {
+        "saccade-dogfood-control-v0"
+    } else if state.browser_workers.contains_key(&tab_id.0) {
+        "browser_session_worker_v0"
+    } else {
+        "mcp_report_backed_v0"
+    }
 }
 
 fn ensure_tab_report(state: &mut McpSessionState, tab_id: TabId, engine: &str) -> Result<()> {
@@ -4185,5 +4234,21 @@ mod tests {
                 .to_string(),
             "[::1]:49322"
         );
+    }
+
+    #[test]
+    fn tab_runtime_prefers_dogfood_control() {
+        let mut state = McpSessionState::default();
+        state.dogfood_controls.insert(
+            7,
+            DogfoodControlEndpoint {
+                host: "127.0.0.1".to_string(),
+                port: 49321,
+                protocol: "saccade-dogfood-control-v0".to_string(),
+            },
+        );
+
+        assert_eq!(tab_runtime(&state, TabId(7)), "saccade-dogfood-control-v0");
+        assert_eq!(tab_runtime(&state, TabId(8)), "mcp_report_backed_v0");
     }
 }

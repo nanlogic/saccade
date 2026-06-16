@@ -2503,7 +2503,7 @@ fn probe_changed(before_probe: &Value, after_probe: &Value) -> bool {
                 .map(|actions| action_labels(actions))
 }
 
-fn action_map(probe: &Value) -> Vec<Value> {
+pub(crate) fn action_map(probe: &Value) -> Vec<Value> {
     probe
         .get("actions")
         .and_then(Value::as_array)
@@ -2526,7 +2526,7 @@ fn action_map(probe: &Value) -> Vec<Value> {
         .collect()
 }
 
-fn sensitive_action_count(actions: &[Value]) -> usize {
+pub(crate) fn sensitive_action_count(actions: &[Value]) -> usize {
     actions
         .iter()
         .filter(|action| {
@@ -3756,7 +3756,7 @@ impl servo::EventLoopWaker for Waker {
     }
 }
 
-const PROBE_JS: &str = r##"
+pub(crate) const PROBE_JS: &str = r##"
 (() => {
   const viewport = { width: window.innerWidth || 0, height: window.innerHeight || 0 };
   const body = document.body;

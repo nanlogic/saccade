@@ -68,13 +68,13 @@ Agent attaches to that current tab after explicit user grant.
 
 N8 now has a local shell selftest, an MCP API gate, a visible dogfood browser
 grant shortcut, MCP import of that grant artifact, and a same-WebView control
-ping from MCP into the already-open dogfood window. What remains is moving
-redacted truth and safe actions over that same control bridge instead of opening
-a worker from the granted URL.
+ping plus redacted truth/actions from MCP into the already-open dogfood window.
+What remains is moving safe fill/act over that same control bridge instead of
+opening a worker from the granted URL.
 
 ## Next Gate: N8 Current Tab Co-Pilot
 
-Status: local v0 pass + MCP API pass + same-WebView control ping pass.
+Status: local v0 pass + MCP API pass + same-WebView truth/actions pass.
 
 Commands:
 
@@ -87,9 +87,10 @@ Latest evidence:
 
 ```text
 CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_truth=true agent_explains_page=true non_sensitive_filled=true sensitive_write_blocked=true sensitive_values_exposed=false confirmation_required=true replay=runs/browser_session_worker/worker_1781535424701_32946/replay.jsonl report=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_copilot/copilot_1781535424558/report.json
-MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781570588214/report.json
+MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781575970510/report.json
 DOGFOOD_GRANT status=granted owner=Human read_grant=FullTruth agent_input_grant=true artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/smoke.json
 SAME_WEBVIEW_CONTROL ok=true same_webview_control_ping=true transport_status=same_webview_control_ping_plus_worker_truth_v0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_control_smoke_1781572417690.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_bridge_smoke.json
+SAME_WEBVIEW_TRUTH_ACTIONS ok=true same_webview_attached=true transport_status=same_webview_control_truth_v0 truth_runtime=saccade-dogfood-control-v0 actions_runtime=saccade-dogfood-control-v0 actions_count=6 report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_truth_actions_smoke_1781575838106.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_truth_actions_smoke.json
 ```
 
 ### Goal
@@ -132,8 +133,9 @@ simulates the grant boundary, MCP exposes it as `saccade.tabs.grant_current`,
 and the dogfood browser exposes `Cmd+Shift+G` as a visible current-tab grant
 that writes `runs/current_tab_grants/latest.json`. MCP can now consume that
 artifact via `grant_path` and ping the same live dogfood WebView through the
-artifact's loopback `control_endpoint`. The next step is replacing the
-worker-from-URL truth/action transport with direct commands on that same bridge.
+artifact's loopback `control_endpoint`. MCP now reads redacted truth and action
+maps from that same live dogfood WebView. The next step is replacing the
+worker-from-URL fill/act transport with direct commands on that same bridge.
 
 ### Done When
 
@@ -146,8 +148,8 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 ## Priority Order
 
 1. N8 Current Tab Co-Pilot.
-2. N8 same-WebView truth/actions: expose redacted truth and safe fill/act over
-   the dogfood control bridge.
+2. N8 same-WebView fill/act: expose safe fill and safe act over the dogfood
+   control bridge.
 3. Browser shell basics: clickable URL bar, Back, Forward, Reload, Stop,
    visible Human/Agent badge.
 4. Current-tab FORMMAX: run long form fill inside the user-granted tab.

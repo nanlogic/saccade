@@ -657,7 +657,7 @@
   transport as `worker_from_grant_artifact_v0`. It also returns
   `same_webview_attached=false` so we do not overclaim same-WebView transport.
 - Latest MCP evidence:
-  `runs/mcp/selftest_1781570588214/report.json`.
+  `runs/mcp/selftest_1781575970510/report.json`.
 - Result: `MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true
   policy_gate=true`, with `tabs_grant_current=true` and
   `tabs_grant_artifact=true`.
@@ -685,3 +685,25 @@
 - Result: MCP can prove it is connected to the already-open dogfood WebView's
   control plane. Next work is moving redacted truth, safe fill, and safe act
   commands over that same bridge.
+
+## DECISION_N8_006 - MCP reads current-tab truth/actions from the same dogfood WebView
+
+- Dogfood control endpoint now supports `truth` and `actions` in addition to
+  `ping`.
+- The endpoint reuses the browser-session worker's existing probe script and
+  action-map redaction rules, so sensitive field values remain out of the
+  agent-facing truth/action payload.
+- When `saccade.tabs.grant_current` receives a dogfood grant artifact with a
+  live control endpoint, MCP binds the tab to that endpoint and does not open a
+  worker for redacted truth/actions.
+- MCP `saccade.web.truth` and `saccade.web.actions` now prefer the same-WebView
+  dogfood control route, then fall back to worker/report routes when no control
+  endpoint exists.
+- Smoke evidence:
+  `runs/mcp/same_webview_truth_actions_smoke_1781575838106.json`.
+- Grant artifact:
+  `runs/current_tab_grants/mcp_truth_actions_smoke.json`.
+- Result: `grant_current`, `web.truth`, and `web.actions` all returned
+  `runtime=saccade-dogfood-control-v0`, with `same_webview_attached=true`,
+  `transport_status=same_webview_control_truth_v0`, and `actions_count=6`.
+- Next work is moving safe fill and safe act over the same bridge.
