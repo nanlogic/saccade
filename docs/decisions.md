@@ -599,6 +599,28 @@
 - Re-ran `saccade-servoshell selftest` and `formmax-selftest` after the change;
   both passed.
 
+## DECISION_SERVOSHELL_010 - Focused typing runs through official ServoShell adapter
+
+- Extended `saccade-servoshell selftest` with a focused typing gate for
+  textarea, contenteditable, and sensitive password fixtures.
+- Textarea typing uses official ServoShell WebDriver `element/value` against
+  the current active element after a redacted focused-field preflight.
+- Contenteditable typing uses the same preflight and attempts WebDriver first;
+  if WebDriver does not change the field, it records and uses the safe
+  contenteditable insert fallback.
+- Focused sensitive fields are blocked before typing with
+  `focused_field_sensitive`.
+- Replay records field metadata, selector hashes, before/after lengths, method,
+  and `echo_values=false`; it does not log typed text.
+- Latest gate:
+  `cargo run -q -p saccade-servoshell -- selftest --timeout-sec 35`.
+- Evidence:
+  `runs/servoshell_adapter/adapter_1781623388958/summary.json`.
+- Result: focused textarea changed via `webdriver_element_value`,
+  contenteditable changed via `js_contenteditable_insert_fallback`, focused
+  password was blocked, and grep over the run directory found no typed text or
+  safety-matrix fixture secrets.
+
 ## DECISION_REFLEX_001 - Local game reflex is the current kill gate
 
 - The project goal is not ServoShell plus WebDriver automation. It is a

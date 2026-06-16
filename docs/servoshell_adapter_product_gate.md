@@ -21,7 +21,7 @@ official ServoShell runtime.
 | Safety redaction | pass | 9-kind safety matrix pass via `saccade-servoshell selftest` |
 | Login handoff | pass | rerun or decide it requires fork |
 | FORMMAX live fill | pass | pass via official ServoShell adapter |
-| Focused typing | pass | rerun via WebDriver keys/actions |
+| Focused typing | pass | pass via `saccade-servoshell selftest` |
 | Native dropdown/input | pass on embedded Servo | rerun; WebDriver may differ from native path |
 | Replay artifacts | pass | same schema through adapter |
 | Local game | old path problematic; official app manually ok | basic redacted truth pass on `http://127.0.0.1:4173/` |
@@ -104,8 +104,9 @@ If any of the following fail, Option B becomes justified:
    normal runs.
 4. DONE: Re-run and expand local safety fixtures through the adapter.
 5. DONE: Re-run FORMMAX fixtures through the adapter.
-6. Re-run focused typing and dropdown/input fixtures through the adapter.
-7. Decide whether login handoff is externally safe or needs the thin fork.
+6. DONE: Re-run focused typing fixtures through the adapter.
+7. Re-run dropdown/input fixtures through the adapter.
+8. Decide whether login handoff is externally safe or needs the thin fork.
 
 ## Latest Evidence
 
@@ -129,6 +130,13 @@ If any of the following fail, Option B becomes justified:
   `tr.innerHTML`, avoiding an official ServoShell table-parser slow path that
   produced repeated `foster parenting not implemented` warnings during lazy
   rendering.
+- Focused typing adapter gate:
+  `runs/servoshell_adapter/adapter_1781623388958/summary.json`
+- Focused textarea received text through WebDriver `element/value`,
+  contenteditable received text through the safe contenteditable fallback, and
+  focused password input was blocked before typing. Replays record field
+  metadata and lengths only; grep over the run directory found no typed text or
+  safety-matrix fixture secrets.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781484941056/report.json`
 - Local game `http://127.0.0.1:4173/` loaded in official ServoShell with

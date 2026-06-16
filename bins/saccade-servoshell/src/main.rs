@@ -134,7 +134,7 @@ fn main() -> Result<()> {
             })?;
 
             let sensitive = run_probe(ProbeConfig {
-                servoshell,
+                servoshell: servoshell.clone(),
                 url: default_safety_matrix_url(),
                 output_dir: root.join("safety_matrix"),
                 headless: !no_headless,
@@ -168,8 +168,51 @@ fn main() -> Result<()> {
                 ],
             })?;
 
+            let focused_text = "Saccade focused draft.";
+            let focused_normal = run_focused_type_case(FocusedTypeConfig {
+                servoshell: servoshell.clone(),
+                url: default_focused_type_url(),
+                output_dir: root.join("focused_type"),
+                headless: !no_headless,
+                timeout: Duration::from_secs_f64(timeout_sec),
+                text: focused_text.to_string(),
+                expect_sensitive_block: false,
+                expect_contenteditable: false,
+            })?;
+            let focused_contenteditable = run_focused_type_case(FocusedTypeConfig {
+                servoshell: servoshell.clone(),
+                url: default_focused_contenteditable_url(),
+                output_dir: root.join("focused_contenteditable"),
+                headless: !no_headless,
+                timeout: Duration::from_secs_f64(timeout_sec),
+                text: focused_text.to_string(),
+                expect_sensitive_block: false,
+                expect_contenteditable: true,
+            })?;
+            let focused_sensitive = run_focused_type_case(FocusedTypeConfig {
+                servoshell,
+                url: default_focused_sensitive_url(),
+                output_dir: root.join("focused_sensitive"),
+                headless: !no_headless,
+                timeout: Duration::from_secs_f64(timeout_sec),
+                text: focused_text.to_string(),
+                expect_sensitive_block: true,
+                expect_contenteditable: false,
+            })?;
+            let ports = [
+                normal.webdriver_port,
+                sensitive.webdriver_port,
+                focused_normal.webdriver_port,
+                focused_contenteditable.webdriver_port,
+                focused_sensitive.webdriver_port,
+            ];
+            let random_loopback_ports = ports
+                .iter()
+                .enumerate()
+                .all(|(index, port)| !ports[index + 1..].iter().any(|other| other == port));
+
             let summary = json!({
-                "ok": normal.ok && sensitive.ok,
+                "ok": normal.ok && sensitive.ok && focused_normal.ok && focused_contenteditable.ok && focused_sensitive.ok,
                 "normal": {
                     "report": normal.report_path,
                     "screenshot": normal.screenshot_path,
@@ -185,18 +228,47 @@ fn main() -> Result<()> {
                     "redaction_kinds": sensitive.redaction_kinds,
                     "port": sensitive.webdriver_port,
                 },
+                "focused_type": {
+                    "normal": {
+                        "report": focused_normal.report_path,
+                        "replay": focused_normal.replay_path,
+                        "changed": focused_normal.changed,
+                        "typing_method": focused_normal.typing_method,
+                        "port": focused_normal.webdriver_port,
+                    },
+                    "contenteditable": {
+                        "report": focused_contenteditable.report_path,
+                        "replay": focused_contenteditable.replay_path,
+                        "changed": focused_contenteditable.changed,
+                        "typing_method": focused_contenteditable.typing_method,
+                        "port": focused_contenteditable.webdriver_port,
+                    },
+                    "sensitive": {
+                        "report": focused_sensitive.report_path,
+                        "replay": focused_sensitive.replay_path,
+                        "blocked": focused_sensitive.blocked_sensitive,
+                        "port": focused_sensitive.webdriver_port,
+                    },
+                },
                 "port_policy": {
-                    "random_loopback_ports": normal.webdriver_port != sensitive.webdriver_port,
+                    "random_loopback_ports": random_loopback_ports,
                     "normal_port": normal.webdriver_port,
                     "sensitive_port": sensitive.webdriver_port,
+                    "focused_type_port": focused_normal.webdriver_port,
+                    "focused_contenteditable_port": focused_contenteditable.webdriver_port,
+                    "focused_sensitive_port": focused_sensitive.webdriver_port,
                 },
                 "truth_bundle_version": TRUTH_BUNDLE_VERSION,
             });
             let summary_path = root.join("summary.json");
             write_json(&summary_path, &summary)?;
-            let ok = normal.ok && sensitive.ok;
+            let ok = normal.ok
+                && sensitive.ok
+                && focused_normal.ok
+                && focused_contenteditable.ok
+                && focused_sensitive.ok;
             println!(
-                "SACCADE_SERVOSHELL_ADAPTER {} report={} normal_screenshot={} sensitive_screenshot={}",
+                "SACCADE_SERVOSHELL_ADAPTER {} report={} normal_screenshot={} sensitive_screenshot={} focused_type={} contenteditable={} sensitive_type_blocked={}",
                 if ok { "PASS" } else { "FAIL" },
                 summary_path.display(),
                 normal
@@ -204,7 +276,10 @@ fn main() -> Result<()> {
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| "none".to_string()),
-                sensitive.screenshot_decision.as_str()
+                sensitive.screenshot_decision.as_str(),
+                focused_normal.changed,
+                focused_contenteditable.changed,
+                focused_sensitive.blocked_sensitive,
             );
             if ok { Ok(()) } else { bail!("selftest failed") }
         }
@@ -290,6 +365,196 @@ struct FormmaxOutcome {
     receipt_verified: bool,
     report_path: PathBuf,
     replay_path: PathBuf,
+}
+
+#[derive(Debug)]
+struct FocusedTypeConfig {
+    servoshell: PathBuf,
+    url: String,
+    output_dir: PathBuf,
+    headless: bool,
+    timeout: Duration,
+    text: String,
+    expect_sensitive_block: bool,
+    expect_contenteditable: bool,
+}
+
+#[derive(Debug)]
+struct FocusedTypeOutcome {
+    ok: bool,
+    blocked_sensitive: bool,
+    changed: bool,
+    typing_method: String,
+    report_path: PathBuf,
+    replay_path: PathBuf,
+    webdriver_port: u16,
+}
+
+fn run_focused_type_case(cfg: FocusedTypeConfig) -> Result<FocusedTypeOutcome> {
+    fs::create_dir_all(&cfg.output_dir)
+        .with_context(|| format!("create {}", cfg.output_dir.display()))?;
+
+    let port = choose_loopback_port()?;
+    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port)?;
+    let client = WebDriverClient::new(port, cfg.timeout);
+    let mut session_id: Option<String> = None;
+    let mut report = json!({
+        "ok": false,
+        "engine": "saccade-servoshell-focused-type-v0",
+        "runtime": "official_servoshell_webdriver",
+        "servoshell": cfg.servoshell,
+        "url": cfg.url,
+        "headless": cfg.headless,
+        "webdriver": {
+            "host": "127.0.0.1",
+            "port": port,
+            "port_policy": "random_loopback_private_to_launch_manager"
+        },
+        "policy": {
+            "active_element_only": true,
+            "block_sensitive": true,
+            "echo_values": false
+        },
+        "text": {
+            "chars_requested": cfg.text.chars().count(),
+            "logged": false
+        },
+        "output_dir": cfg.output_dir,
+    });
+
+    let mut ok = false;
+    let mut blocked_sensitive = false;
+    let mut changed = false;
+    let mut typing_method = "not_attempted".to_string();
+    let replay_path = cfg.output_dir.join("replay.jsonl");
+    let report_path = cfg.output_dir.join("report.json");
+
+    let result = (|| -> Result<()> {
+        let status = wait_for_status(&client, &mut child, cfg.timeout)?;
+        report["webdriver"]["status"] = status;
+
+        let session = client.new_session()?;
+        let sid = extract_session_id(&session)?;
+        session_id = Some(sid.clone());
+        report["webdriver"]["new_session"] = session;
+        report["webdriver"]["session_id"] = json!(sid);
+
+        let before = wait_for_focused_type_preflight(&client, &sid, cfg.timeout)?;
+        write_json(&cfg.output_dir.join("before.json"), &before)?;
+        report["before"] = focused_type_report_probe(&before);
+
+        if before.get("ok").and_then(Value::as_bool) != Some(true) {
+            let reason = before
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("focused field is not writable");
+            blocked_sensitive = reason == "focused_field_sensitive";
+            if cfg.expect_sensitive_block && blocked_sensitive {
+                typing_method = "blocked_by_policy".to_string();
+                write_focused_type_replay(
+                    &replay_path,
+                    "focused_type_blocked_sensitive",
+                    cfg.text.chars().count(),
+                    &before,
+                    &before,
+                    &typing_method,
+                )?;
+                ok = true;
+                return Ok(());
+            }
+            bail!("focused type preflight blocked unexpectedly: {before}");
+        }
+        if cfg.expect_sensitive_block {
+            bail!("focused sensitive field was not blocked: {before}");
+        }
+        let is_contenteditable = before
+            .get("contentEditable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if cfg.expect_contenteditable && !is_contenteditable {
+            bail!("focused field was not contenteditable: {before}");
+        }
+
+        let element = client.active_element(&sid).or_else(|_| {
+            before
+                .get("selector")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("focused preflight lacked fallback selector"))
+                .and_then(|selector| client.find_element(&sid, selector))
+        })?;
+        report["typing"]["active_element"] = element.clone();
+        let element_id = extract_element_id(&element)
+            .ok_or_else(|| anyhow!("active element response lacked element id: {element}"))?;
+        let send_result = client.send_keys(&sid, &element_id, &cfg.text)?;
+        typing_method = "webdriver_element_value".to_string();
+        report["typing"]["send_keys"] = send_result;
+        std::thread::sleep(Duration::from_millis(250));
+
+        let mut after = client.execute_sync(&sid, TYPE_FOCUSED_PROBE_JS)?;
+        changed = focused_type_changed(&before, &after, cfg.text.chars().count());
+        if !changed && is_contenteditable {
+            after = client.execute_sync_args(
+                &sid,
+                TYPE_FOCUSED_CONTENTEDITABLE_INSERT_JS,
+                &[json!(cfg.text)],
+            )?;
+            typing_method = "js_contenteditable_insert_fallback".to_string();
+            changed = focused_type_changed(&before, &after, cfg.text.chars().count());
+        }
+        write_json(&cfg.output_dir.join("after.json"), &after)?;
+        report["after"] = focused_type_report_probe(&after);
+        report["typing"]["method"] = json!(typing_method);
+        report["typing"]["changed"] = json!(changed);
+        if !changed {
+            bail!("focused type did not change target length: before={before} after={after}");
+        }
+
+        write_focused_type_replay(
+            &replay_path,
+            "focused_text_typed",
+            cfg.text.chars().count(),
+            &before,
+            &after,
+            &typing_method,
+        )?;
+        let leak_check = focused_type_values_absent(&report, &replay_path, &cfg.text)?;
+        report["leak_check"] = leak_check.clone();
+        if leak_check.get("passed").and_then(Value::as_bool) != Some(true) {
+            bail!("focused type value leak check failed: {leak_check}");
+        }
+
+        ok = true;
+        Ok(())
+    })();
+
+    if let Some(sid) = session_id.as_deref() {
+        if let Err(error) = client.delete_session(sid) {
+            report["webdriver"]["delete_session_error"] = json!(error.to_string());
+        }
+    }
+    report["process"] = finish_child(child);
+    if let Err(error) = result {
+        report["error"] = json!(error.to_string());
+    }
+    report["ok"] = json!(ok);
+    report["blocked_sensitive"] = json!(blocked_sensitive);
+    report["changed"] = json!(changed);
+    report["typing_method"] = json!(typing_method);
+    report["artifacts"] = json!({
+        "report": report_path,
+        "replay": replay_path,
+    });
+    write_json(&report_path, &report)?;
+
+    Ok(FocusedTypeOutcome {
+        ok,
+        blocked_sensitive,
+        changed,
+        typing_method,
+        report_path,
+        replay_path,
+        webdriver_port: port,
+    })
 }
 
 fn run_formmax_selftest(cfg: FormmaxConfig) -> Result<FormmaxOutcome> {
@@ -862,6 +1127,27 @@ impl WebDriverClient {
         .map(|response| response.body)
     }
 
+    fn active_element(&self, session_id: &str) -> Result<Value> {
+        self.request(
+            "GET",
+            &format!("/session/{session_id}/element/active"),
+            None,
+        )
+        .map(|response| response.body)
+    }
+
+    fn send_keys(&self, session_id: &str, element_id: &str, text: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("/session/{session_id}/element/{element_id}/value"),
+            Some(json!({
+                "text": text,
+                "value": text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(),
+            })),
+        )
+        .map(|response| response.body)
+    }
+
     fn screenshot(&self, session_id: &str) -> Result<Vec<u8>> {
         let response = self.request("GET", &format!("/session/{session_id}/screenshot"), None)?;
         let encoded = response
@@ -1074,6 +1360,108 @@ fn formmax_values_absent(report: &Value, replay_path: &Path) -> Result<Value> {
     }))
 }
 
+fn wait_for_focused_type_preflight(
+    client: &WebDriverClient,
+    session_id: &str,
+    timeout: Duration,
+) -> Result<Value> {
+    let deadline = Instant::now() + timeout;
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = client.execute_sync(session_id, TYPE_FOCUSED_PROBE_JS)?;
+        let reason = last.get("reason").and_then(Value::as_str);
+        if last.get("ok").and_then(Value::as_bool) == Some(true)
+            || reason == Some("focused_field_sensitive")
+        {
+            return Ok(last);
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    bail!("focused type target did not become ready: {last}");
+}
+
+fn focused_type_report_probe(probe: &Value) -> Value {
+    json!({
+        "ok": probe.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        "reason": probe.get("reason").cloned().unwrap_or(Value::Null),
+        "tag": probe.get("tag").cloned().unwrap_or(Value::Null),
+        "type": probe.get("type").cloned().unwrap_or(Value::Null),
+        "contentEditable": probe.get("contentEditable").cloned().unwrap_or(Value::Null),
+        "idPresent": probe.get("idPresent").cloned().unwrap_or(Value::Null),
+        "namePresent": probe.get("namePresent").cloned().unwrap_or(Value::Null),
+        "selector_hash": probe.get("selector_hash").cloned().unwrap_or(Value::Null),
+        "sensitivity": probe.get("sensitivity").cloned().unwrap_or(Value::Null),
+        "valueLength": probe.get("valueLength").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn focused_type_changed(before: &Value, after: &Value, requested_chars: usize) -> bool {
+    let before_length = before
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let after_length = after
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    after.get("ok").and_then(Value::as_bool) == Some(true)
+        && after_length >= before_length.saturating_add(requested_chars as u64)
+}
+
+fn write_focused_type_replay(
+    path: &Path,
+    kind: &str,
+    chars_requested: usize,
+    before: &Value,
+    after: &Value,
+    method: &str,
+) -> Result<()> {
+    let before_length = before
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let after_length = after
+        .get("valueLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let event = json!({
+        "kind": kind,
+        "engine": "saccade-servoshell-focused-type-v0",
+        "runtime": "official_servoshell_webdriver",
+        "method": method,
+        "chars_requested": chars_requested,
+        "field": {
+            "tag": before.get("tag").cloned().unwrap_or(Value::Null),
+            "type": before.get("type").cloned().unwrap_or(Value::Null),
+            "contentEditable": before.get("contentEditable").cloned().unwrap_or(Value::Null),
+            "idPresent": before.get("idPresent").cloned().unwrap_or(Value::Null),
+            "namePresent": before.get("namePresent").cloned().unwrap_or(Value::Null),
+            "selector_hash": before.get("selector_hash").cloned().unwrap_or(Value::Null),
+            "sensitivity": before.get("sensitivity").cloned().unwrap_or(Value::Null),
+        },
+        "before_length": before_length,
+        "after_length": after_length,
+        "changed": after_length > before_length,
+        "echo_values": false,
+    });
+    let mut file = fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    writeln!(file, "{}", serde_json::to_string(&event)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn focused_type_values_absent(report: &Value, replay_path: &Path, text: &str) -> Result<Value> {
+    let replay_text = fs::read_to_string(replay_path)
+        .with_context(|| format!("read {}", replay_path.display()))?;
+    let report_text = serde_json::to_string(report)?;
+    let leaked = report_text.contains(text) || replay_text.contains(text);
+    Ok(json!({
+        "passed": !leaked,
+        "typed_text_logged": leaked,
+        "values_logged": false,
+    }))
+}
+
 fn count_redactions(truth: &Value) -> usize {
     truth
         .get("redactions")
@@ -1117,6 +1505,18 @@ fn default_safety_matrix_url() -> String {
 
 fn default_formmax_url() -> String {
     file_url("test_pages/formmax/index.html")
+}
+
+fn default_focused_type_url() -> String {
+    file_url("test_pages/focused_type/index.html")
+}
+
+fn default_focused_contenteditable_url() -> String {
+    file_url("test_pages/focused_contenteditable/index.html")
+}
+
+fn default_focused_sensitive_url() -> String {
+    file_url("test_pages/focused_sensitive/index.html")
 }
 
 fn file_url(path: &str) -> String {
@@ -1323,6 +1723,126 @@ return (() => {
     actions,
     redactions
   };
+})();
+"###;
+
+const TYPE_FOCUSED_PROBE_JS: &str = r###"
+return (() => {
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) {
+    return { ok: false, reason: "no_focused_field" };
+  }
+
+  const stableHash = (s) => {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return ("00000000" + (h >>> 0).toString(16)).slice(-8);
+  };
+  const cssIdent = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, (c) => "\\" + c.charCodeAt(0).toString(16) + " ");
+  const selectorFor = (el) => {
+    if (el.id) return "#" + cssIdent(el.id);
+    const name = el.getAttribute("name");
+    if (name) return el.tagName.toLowerCase() + "[name=\"" + String(name).replace(/"/g, "\\\"") + "\"]";
+    return el.tagName.toLowerCase();
+  };
+  const sensitivityOf = (el) => {
+    const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || "",
+      labelText
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  };
+  const writableKind = (el) => {
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (tag === "textarea") return "textarea";
+    if (tag === "input") {
+      const allowed = new Set(["text", "search", "url", "email", "tel", "number"]);
+      return allowed.has(type) ? "input" : "";
+    }
+    if (el.isContentEditable) return "contenteditable";
+    return "";
+  };
+  const valueLength = (el, kind) => kind === "contenteditable"
+    ? String(el.textContent || "").length
+    : String(el.value || "").length;
+  const selector = selectorFor(el);
+  const sensitivity = sensitivityOf(el);
+  if (sensitivity !== "none") {
+    return {
+      ok: false,
+      reason: "focused_field_sensitive",
+      sensitivity,
+      selector_hash: stableHash(selector)
+    };
+  }
+  const kind = writableKind(el);
+  if (!kind) {
+    return {
+      ok: false,
+      reason: "focused_element_not_text_writable",
+      tag: el.tagName ? el.tagName.toLowerCase() : "",
+      type: (el.getAttribute("type") || "").toLowerCase(),
+      selector_hash: stableHash(selector)
+    };
+  }
+  return {
+    ok: true,
+    tag: el.tagName ? el.tagName.toLowerCase() : "",
+    type: (el.getAttribute("type") || "").toLowerCase(),
+    contentEditable: Boolean(el.isContentEditable),
+    idPresent: Boolean(el.id),
+    namePresent: Boolean(el.getAttribute("name")),
+    selector,
+    selector_hash: stableHash(selector),
+    sensitivity,
+    valueLength: valueLength(el, kind)
+  };
+})();
+"###;
+
+const TYPE_FOCUSED_CONTENTEDITABLE_INSERT_JS: &str = r###"
+return (() => {
+  const text = String(arguments[0] || "");
+  const el = document.activeElement;
+  if (!el || !el.isContentEditable) {
+    return { ok: false, reason: "focused_element_not_contenteditable" };
+  }
+  if (typeof document.execCommand === "function") {
+    document.execCommand("insertText", false, text);
+  } else {
+    el.textContent = String(el.textContent || "") + text;
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+  }
+  return (() => {
+    const previous = document.activeElement;
+    return {
+      ok: true,
+      tag: previous.tagName ? previous.tagName.toLowerCase() : "",
+      type: (previous.getAttribute("type") || "").toLowerCase(),
+      contentEditable: Boolean(previous.isContentEditable),
+      idPresent: Boolean(previous.id),
+      namePresent: Boolean(previous.getAttribute("name")),
+      sensitivity: "none",
+      valueLength: String(previous.textContent || "").length
+    };
+  })();
 })();
 "###;
 
