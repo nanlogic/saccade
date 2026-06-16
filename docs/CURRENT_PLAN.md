@@ -1,6 +1,6 @@
 # Saccade Current Plan
 
-Date: 2026-06-15
+Date: 2026-06-16
 Status: active source of truth
 
 ## One Sentence
@@ -165,9 +165,9 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 
-1. Browser shell basics: non-obscuring chrome, platform-quality toolbar polish,
-   visible Human/Agent badge. Stop is parked until a public ServoShell/newer
-   Servo/fork hook exists.
+1. Official ServoShell human-browser path: keep official egui chrome/URL bar
+   intact, attach Saccade bridge, and pass local game/FORMMAX/current-tab safety
+   gates. Stop and platform chrome come from ServoShell or a thin fork.
 2. Editor/contenteditable gate: Gist-like editor and forum composer.
 3. DEVMAX gauntlet polish: multi-action verification, screenshots/finding crops,
    Chrome comparison.
@@ -179,5 +179,5 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 - IGN and similar sites where official Servo also struggles.
 - Full WebGL/canvas product work unless it blocks local game or developer
   dogfood.
-- Public launch package until current-tab co-pilot and browser shell basics are
-  understandable to a normal user.
+- Public launch package until current-tab co-pilot and the ServoShell-backed
+  human browser path are understandable to a normal user.

@@ -1,6 +1,6 @@
 # ServoShell Adapter Migration Plan
 
-Date: 2026-06-14
+Date: 2026-06-16
 
 ## Goal
 
@@ -17,6 +17,17 @@ Saccade agent core
 
 Saccade should not own browser UI or rendering behavior unless official
 ServoShell cannot expose the required control surface.
+
+2026-06-16 URL bar decision:
+
+- The legacy `saccade-shell` GL toolbar is now usable enough for bridge
+  development, but it is not the product browser UI path.
+- Official ServoShell's headed UI already uses egui for browser chrome. The
+  source contains Back/Forward, Reload/Stop, tabs, location input, `Cmd+L`
+  focus, select-all-on-focus, and WebView resizing below the toolbar.
+- Therefore Saccade should reuse official ServoShell UI/runtime for the human
+  layer and add/attach the Saccade agent bridge there, rather than continuing to
+  hand-polish GL bitmap browser chrome.
 
 External review decision:
 
@@ -202,9 +213,9 @@ Expanded product gate:
 
 ## Current Next Step
 
-Build the first external adapter around official ServoShell WebDriver:
+Build/promote the first official ServoShell adapter path:
 
-- launch official ServoShell,
+- launch official ServoShell with its native/egui browser UI intact,
 - create/reuse a WebDriver session,
 - inject the existing Saccade truth/action-map JavaScript,
 - dispatch click actions through WebDriver,
@@ -212,4 +223,5 @@ Build the first external adapter around official ServoShell WebDriver:
 - keep all safety/redaction logic in Saccade-owned code.
 
 Keep a thin official ServoShell fork as the escalation path if WebDriver cannot
-enforce trusted-tab isolation, screenshot policy, or native input ownership.
+enforce trusted-tab isolation, screenshot policy, native input ownership, or the
+millisecond reflex loop.

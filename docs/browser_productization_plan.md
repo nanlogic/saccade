@@ -1,6 +1,6 @@
 # Saccade Browser Productization Plan
 
-Date: 2026-06-13
+Date: 2026-06-16
 
 ## Goal
 
@@ -9,6 +9,12 @@ Make Saccade comfortable enough to dogfood as Wayne's default browser layer for 
 - Saccade should expose the same browser facts and action targets the agent will use.
 - The user-visible shell should feel like a practical browser: URL, navigation, loading, focus, readable sizing, and recoverable controls.
 - Servo does not need to become Chrome, but Chrome differences must be measured, classified, and routed.
+
+2026-06-16 pivot: product browser UI should come from official ServoShell, not
+the legacy `saccade-shell` GL toolbar. The legacy shell remains useful for
+adapter proof and safety experiments, but the human-facing browser should keep
+official ServoShell's egui address bar, tabs, toolbar commands, and WebView
+layout behavior intact while Saccade supplies the agent/safety/replay bridge.
 
 ## Research Notes
 
@@ -105,10 +111,12 @@ Current state:
   already-granted same-WebView dogfood tabs, covering
   status/navigate/reload/back/forward and updating session URL/title/revision
   from shell receipts.
-- Not done: non-obscuring compositor/viewport chrome, platform-quality toolbar
-  text/control polish, and visible focus-recovery/Human-Agent state polish. Stop
-  behavior is parked because pinned Servo `0.2.0` has no mapped public
-  stop-loading API.
+- Product direction: do not continue hand-polishing the legacy GL toolbar into a
+  full browser. Official ServoShell already has egui browser chrome that resizes
+  the WebView below the toolbar and includes location input, Back/Forward,
+  Reload/Stop, tabs, `Cmd+L`, and select-all-on-focus. Saccade should attach
+  its bridge to that path, falling back to a thin official ServoShell fork only
+  if WebDriver cannot satisfy safety/native-input/reflex gates.
 
 ### P2 - CSS Layout Compatibility
 
@@ -195,7 +203,7 @@ Canonical active queue: `docs/CURRENT_ACTION_ITEMS.md`.
 | --- | --- | --- | --- |
 | BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Fixed for the local fixture: after strict local form CSS, 390px `form_controls` has Chrome hit-test `8/8` and max click escape `1.0px` | Keep as regression |
 | BP-002 | Native form controls have large rect deltas versus Chrome | Width modes report: auto input/textarea stay about `136.5px` in Saccade while Chrome expands to `302-440px`; `width:100%` makes rect widths match | Use `width:100%` plus `min-width:0` in Saccade-owned forms; route third-party pages by measured action safety |
-| BP-003 | Browser shell lacks product-grade browser chrome | Native toolbar overlay now has visible shell hit-zones plus URL/placeholder text, focus/error/caret state, secure/search icon, and Copilot grant without page DOM injection; MCP named shell navigation is exposed as `saccade.browser.navigate`; Stop API proof found no pinned public Servo stop-loading hook. See `docs/browser_shell_basics_report.md` | Add non-obscuring compositor/viewport chrome and platform-quality address bar polish; revisit Stop only through official ServoShell/newer Servo/fork hook |
+| BP-003 | Browser shell lacks product-grade browser chrome | Legacy GL toolbar has usable URL text/hit-zones, but official ServoShell source already provides egui browser chrome with address bar, tabs, Back/Forward, Reload/Stop, and WebView resize below toolbar. See `docs/browser_shell_basics_report.md` and `docs/servoshell_adapter_migration_plan.md` | Route product browser UI to official ServoShell; attach Saccade bridge there instead of further polishing legacy GL toolbar |
 | BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Local editor reduction passes with route `usable_ignore_hidden_backing_fields`: visible contenteditable and CodeMirror-like shell have positive rects; hidden backing fields produce `zero_rect_count=2`; sensitive textarea is counted without value leakage | Inspect authenticated real Gist again and route if the writable body remains zero-rect |
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |

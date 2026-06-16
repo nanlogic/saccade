@@ -520,6 +520,22 @@
   enough for dogfood function but not final platform-quality macOS browser
   chrome. Track polish separately from the browser/agent truth contract.
 
+## DECISION_BROWSER_022 - Product browser UI routes to official ServoShell
+
+- Wayne observed that the legacy Saccade URL bar still feels rough while the
+  official ServoShell URL bar is already much closer to a normal browser.
+- Source inspection confirmed that official ServoShell headed UI uses egui for
+  browser chrome and already has Back, Forward, Reload/Stop, tabs, location
+  input, `Cmd+L`, select-all-on-focus, and WebView resizing below the toolbar.
+- Decision: stop investing in platform-quality browser chrome inside the legacy
+  `crates/saccade_browser/src/dogfood.rs` GL toolbar. Keep that shell as a
+  bridge/proof fallback, but make official ServoShell UI the product human layer.
+- Integration route: first attach Saccade through official ServoShell
+  WebDriver/adapter; escalate to a thin official ServoShell source fork only if
+  WebDriver cannot meet trusted-tab isolation, screenshot policy, native input
+  ownership, or millisecond reflex-loop gates.
+- Do not patch the downloaded `/Applications/Servo.app` binary directly.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over
