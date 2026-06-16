@@ -22,7 +22,7 @@ official ServoShell runtime.
 | Login handoff | pass | rerun or decide it requires fork |
 | FORMMAX live fill | pass | pass via official ServoShell adapter |
 | Focused typing | pass | pass via `saccade-servoshell selftest` |
-| Native dropdown/input | pass on embedded Servo | rerun; WebDriver may differ from native path |
+| Native dropdown/input | pass on embedded Servo | pass via `saccade-servoshell selftest`; text input uses WebDriver, select routes through verified fallback |
 | Replay artifacts | pass | same schema through adapter |
 | Local game | old path problematic; official app manually ok | basic redacted truth pass on `http://127.0.0.1:4173/` |
 | Screenshot policy | partial | pass for forbidden default + guarded sensitive preflight |
@@ -105,7 +105,7 @@ If any of the following fail, Option B becomes justified:
 4. DONE: Re-run and expand local safety fixtures through the adapter.
 5. DONE: Re-run FORMMAX fixtures through the adapter.
 6. DONE: Re-run focused typing fixtures through the adapter.
-7. Re-run dropdown/input fixtures through the adapter.
+7. DONE: Re-run dropdown/input fixtures through the adapter.
 8. Decide whether login handoff is externally safe or needs the thin fork.
 
 ## Latest Evidence
@@ -137,6 +137,14 @@ If any of the following fail, Option B becomes justified:
   focused password input was blocked before typing. Replays record field
   metadata and lengths only; grep over the run directory found no typed text or
   safety-matrix fixture secrets.
+- Native input/dropdown adapter gate:
+  `runs/servoshell_adapter/adapter_1781624931973/summary.json`
+- Native text input received 9 characters through WebDriver `element/value`
+  with 9 `input` events. Native select reached `value=gamma` with one
+  `input` and one `change` event through the recorded `js_select_fallback`
+  route after the WebDriver select path did not provide complete control
+  semantics. Grep over the run directory found no typed text or safety-matrix
+  fixture secrets.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781484941056/report.json`
 - Local game `http://127.0.0.1:4173/` loaded in official ServoShell with

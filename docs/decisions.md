@@ -621,6 +621,27 @@
   password was blocked, and grep over the run directory found no typed text or
   safety-matrix fixture secrets.
 
+## DECISION_SERVOSHELL_011 - Native input/dropdown gate runs through official ServoShell adapter
+
+- Extended `saccade-servoshell selftest` with the local native input fixture.
+- Text input uses official ServoShell WebDriver `element/value` and verifies
+  the field value only inside the process; reports and replay store value
+  length, event counts, and `echo_values=false`, not the typed text.
+- The official ServoShell WebDriver `<select>` click/popup path returned an
+  unusable execute response during probing, so the adapter does not claim
+  native select popup control. It records a route instead: attempt WebDriver
+  `element/value`, then use `js_select_fallback` if select value and
+  `input/change` events are not complete.
+- Latest gate:
+  `RUST_LOG=error cargo run -q -p saccade-servoshell -- selftest --timeout-sec 35`.
+- Evidence:
+  `runs/servoshell_adapter/adapter_1781624931973/summary.json`.
+- Result: `input_value_matches=true`, `input_events=9`,
+  `select_value=gamma`, `select_input_events=1`,
+  `select_change_events=1`, and `select_method=js_select_fallback`.
+- Grep over the run directory found no typed text or safety-matrix fixture
+  secrets.
+
 ## DECISION_REFLEX_001 - Local game reflex is the current kill gate
 
 - The project goal is not ServoShell plus WebDriver automation. It is a

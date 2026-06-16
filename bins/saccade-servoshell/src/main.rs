@@ -190,7 +190,7 @@ fn main() -> Result<()> {
                 expect_contenteditable: true,
             })?;
             let focused_sensitive = run_focused_type_case(FocusedTypeConfig {
-                servoshell,
+                servoshell: servoshell.clone(),
                 url: default_focused_sensitive_url(),
                 output_dir: root.join("focused_sensitive"),
                 headless: !no_headless,
@@ -199,12 +199,22 @@ fn main() -> Result<()> {
                 expect_sensitive_block: true,
                 expect_contenteditable: false,
             })?;
+            let native_input = run_native_input_case(NativeInputConfig {
+                servoshell: servoshell.clone(),
+                url: default_native_input_url(),
+                output_dir: root.join("native_input"),
+                headless: !no_headless,
+                timeout: Duration::from_secs_f64(timeout_sec),
+                text: "saccade42".to_string(),
+                expected_select_value: "gamma".to_string(),
+            })?;
             let ports = [
                 normal.webdriver_port,
                 sensitive.webdriver_port,
                 focused_normal.webdriver_port,
                 focused_contenteditable.webdriver_port,
                 focused_sensitive.webdriver_port,
+                native_input.webdriver_port,
             ];
             let random_loopback_ports = ports
                 .iter()
@@ -212,7 +222,7 @@ fn main() -> Result<()> {
                 .all(|(index, port)| !ports[index + 1..].iter().any(|other| other == port));
 
             let summary = json!({
-                "ok": normal.ok && sensitive.ok && focused_normal.ok && focused_contenteditable.ok && focused_sensitive.ok,
+                "ok": normal.ok && sensitive.ok && focused_normal.ok && focused_contenteditable.ok && focused_sensitive.ok && native_input.ok,
                 "normal": {
                     "report": normal.report_path,
                     "screenshot": normal.screenshot_path,
@@ -250,6 +260,17 @@ fn main() -> Result<()> {
                         "port": focused_sensitive.webdriver_port,
                     },
                 },
+                "native_input": {
+                    "report": native_input.report_path,
+                    "replay": native_input.replay_path,
+                    "input_value_matches": native_input.input_value_matches,
+                    "input_events": native_input.input_events,
+                    "select_value": native_input.select_value,
+                    "select_input_events": native_input.select_input_events,
+                    "select_change_events": native_input.select_change_events,
+                    "select_method": native_input.select_method,
+                    "port": native_input.webdriver_port,
+                },
                 "port_policy": {
                     "random_loopback_ports": random_loopback_ports,
                     "normal_port": normal.webdriver_port,
@@ -257,6 +278,7 @@ fn main() -> Result<()> {
                     "focused_type_port": focused_normal.webdriver_port,
                     "focused_contenteditable_port": focused_contenteditable.webdriver_port,
                     "focused_sensitive_port": focused_sensitive.webdriver_port,
+                    "native_input_port": native_input.webdriver_port,
                 },
                 "truth_bundle_version": TRUTH_BUNDLE_VERSION,
             });
@@ -266,9 +288,10 @@ fn main() -> Result<()> {
                 && sensitive.ok
                 && focused_normal.ok
                 && focused_contenteditable.ok
-                && focused_sensitive.ok;
+                && focused_sensitive.ok
+                && native_input.ok;
             println!(
-                "SACCADE_SERVOSHELL_ADAPTER {} report={} normal_screenshot={} sensitive_screenshot={} focused_type={} contenteditable={} sensitive_type_blocked={}",
+                "SACCADE_SERVOSHELL_ADAPTER {} report={} normal_screenshot={} sensitive_screenshot={} focused_type={} contenteditable={} sensitive_type_blocked={} native_input={} select_value={} select_method={}",
                 if ok { "PASS" } else { "FAIL" },
                 summary_path.display(),
                 normal
@@ -280,6 +303,9 @@ fn main() -> Result<()> {
                 focused_normal.changed,
                 focused_contenteditable.changed,
                 focused_sensitive.blocked_sensitive,
+                native_input.input_value_matches,
+                native_input.select_value,
+                native_input.select_method,
             );
             if ok { Ok(()) } else { bail!("selftest failed") }
         }
@@ -388,6 +414,230 @@ struct FocusedTypeOutcome {
     report_path: PathBuf,
     replay_path: PathBuf,
     webdriver_port: u16,
+}
+
+#[derive(Debug)]
+struct NativeInputConfig {
+    servoshell: PathBuf,
+    url: String,
+    output_dir: PathBuf,
+    headless: bool,
+    timeout: Duration,
+    text: String,
+    expected_select_value: String,
+}
+
+#[derive(Debug)]
+struct NativeInputOutcome {
+    ok: bool,
+    input_value_matches: bool,
+    input_events: u64,
+    select_value: String,
+    select_input_events: u64,
+    select_change_events: u64,
+    select_method: String,
+    report_path: PathBuf,
+    replay_path: PathBuf,
+    webdriver_port: u16,
+}
+
+fn run_native_input_case(cfg: NativeInputConfig) -> Result<NativeInputOutcome> {
+    fs::create_dir_all(&cfg.output_dir)
+        .with_context(|| format!("create {}", cfg.output_dir.display()))?;
+
+    let port = choose_loopback_port()?;
+    let text_char_count = cfg.text.chars().count();
+    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port)?;
+    let client = WebDriverClient::new(port, cfg.timeout);
+    let mut session_id: Option<String> = None;
+    let mut report = json!({
+        "ok": false,
+        "engine": "saccade-servoshell-native-input-v0",
+        "runtime": "official_servoshell_webdriver",
+        "servoshell": cfg.servoshell.clone(),
+        "url": cfg.url.clone(),
+        "headless": cfg.headless,
+        "webdriver": {
+            "host": "127.0.0.1",
+            "port": port,
+            "port_policy": "random_loopback_private_to_launch_manager"
+        },
+        "policy": {
+            "fixture_only": true,
+            "echo_text_values": false
+        },
+        "text": {
+            "chars_requested": text_char_count,
+            "logged": false
+        },
+        "select": {
+            "expected_value": cfg.expected_select_value.clone(),
+        },
+        "output_dir": cfg.output_dir.clone(),
+    });
+
+    let mut ok = false;
+    let mut input_value_matches = false;
+    let mut input_events = 0;
+    let mut select_value = String::new();
+    let mut select_input_events = 0;
+    let mut select_change_events = 0;
+    let mut select_method = "not_attempted".to_string();
+    let replay_path = cfg.output_dir.join("replay.jsonl");
+    let report_path = cfg.output_dir.join("report.json");
+
+    let result = (|| -> Result<()> {
+        let status = wait_for_status(&client, &mut child, cfg.timeout)?;
+        report["webdriver"]["status"] = status;
+
+        let session = client.new_session()?;
+        let sid = extract_session_id(&session)?;
+        session_id = Some(sid.clone());
+        report["webdriver"]["new_session"] = session;
+        report["webdriver"]["session_id"] = json!(sid);
+
+        wait_for_native_input_ready(&client, &sid, cfg.timeout)?;
+
+        let input = client.find_element(&sid, "#probe")?;
+        let input_id = extract_element_id(&input)
+            .ok_or_else(|| anyhow!("native input response lacked element id: {input}"))?;
+        report["input"]["element"] = input.clone();
+        client.click_element(&sid, &input_id)?;
+        client.send_keys(&sid, &input_id, &cfg.text)?;
+        std::thread::sleep(Duration::from_millis(250));
+
+        let input_probe = native_input_probe(&client, &sid)?;
+        let value = input_probe
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        input_value_matches = value == cfg.text;
+        input_events = probe_count(&input_probe, "input");
+        let keydown_events = probe_count(&input_probe, "keydown");
+        let keyup_events = probe_count(&input_probe, "keyup");
+        report["input"]["probe"] = native_input_report_probe(&input_probe);
+        if !input_value_matches || input_events < 1 {
+            bail!(
+                "native text input failed: {}",
+                native_input_report_probe(&input_probe)
+            );
+        }
+
+        let select = client.find_element(&sid, "#choice")?;
+        let select_id = extract_element_id(&select)
+            .ok_or_else(|| anyhow!("native select response lacked element id: {select}"))?;
+        report["select"]["element"] = select.clone();
+        match client.send_keys(&sid, &select_id, "Gamma") {
+            Ok(value) => report["select"]["webdriver_send_keys"] = value,
+            Err(error) => {
+                report["select"]["webdriver_send_keys_error"] = json!(format!("{error:#}"));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(250));
+
+        select_method = "webdriver_element_value".to_string();
+        let mut select_probe = match native_select_probe(&client, &sid) {
+            Ok(probe) => {
+                select_value = probe
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                select_input_events = probe_count(&probe, "input");
+                select_change_events = probe_count(&probe, "change");
+                probe
+            }
+            Err(error) => {
+                report["select"]["webdriver_probe_error"] = json!(format!("{error:#}"));
+                Value::Null
+            }
+        };
+        if select_value != cfg.expected_select_value
+            || select_input_events < 1
+            || select_change_events < 1
+        {
+            select_probe = client.execute_sync_args(
+                &sid,
+                NATIVE_SELECT_SET_JS,
+                &[json!(cfg.expected_select_value.clone())],
+            )?;
+            select_value = select_probe
+                .get("value")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            select_input_events = probe_count(&select_probe, "input");
+            select_change_events = probe_count(&select_probe, "change");
+            select_method = "js_select_fallback".to_string();
+        }
+        report["select"]["probe"] = native_select_report_probe(&select_probe);
+        report["select"]["method"] = json!(select_method);
+        if select_value != cfg.expected_select_value
+            || select_input_events < 1
+            || select_change_events < 1
+        {
+            bail!(
+                "native select failed: {}",
+                native_select_report_probe(&select_probe)
+            );
+        }
+
+        write_native_input_replay(
+            &replay_path,
+            text_char_count,
+            &input_probe,
+            keydown_events,
+            input_events,
+            keyup_events,
+            &select_value,
+            select_input_events,
+            select_change_events,
+            &select_method,
+        )?;
+        let leak_check = native_input_values_absent(&report, &replay_path, &cfg.text)?;
+        report["leak_check"] = leak_check.clone();
+        if leak_check.get("passed").and_then(Value::as_bool) != Some(true) {
+            bail!("native input value leak check failed: {leak_check}");
+        }
+
+        ok = true;
+        Ok(())
+    })();
+
+    if let Some(sid) = session_id.as_deref() {
+        if let Err(error) = client.delete_session(sid) {
+            report["webdriver"]["delete_session_error"] = json!(error.to_string());
+        }
+    }
+    report["process"] = finish_child(child);
+    if let Err(error) = result {
+        report["error"] = json!(error.to_string());
+    }
+    report["ok"] = json!(ok);
+    report["input"]["value_matches"] = json!(input_value_matches);
+    report["input"]["input_events"] = json!(input_events);
+    report["select"]["value"] = json!(select_value);
+    report["select"]["input_events"] = json!(select_input_events);
+    report["select"]["change_events"] = json!(select_change_events);
+    report["select"]["method"] = json!(select_method);
+    report["artifacts"] = json!({
+        "report": report_path,
+        "replay": replay_path,
+    });
+    write_json(&report_path, &report)?;
+
+    Ok(NativeInputOutcome {
+        ok,
+        input_value_matches,
+        input_events,
+        select_value,
+        select_input_events,
+        select_change_events,
+        select_method,
+        report_path,
+        replay_path,
+        webdriver_port: port,
+    })
 }
 
 fn run_focused_type_case(cfg: FocusedTypeConfig) -> Result<FocusedTypeOutcome> {
@@ -1360,6 +1610,154 @@ fn formmax_values_absent(report: &Value, replay_path: &Path) -> Result<Value> {
     }))
 }
 
+fn wait_for_native_input_ready(
+    client: &WebDriverClient,
+    session_id: &str,
+    timeout: Duration,
+) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = client.execute_sync(
+            session_id,
+            "return Boolean(window.__NATIVE_INPUT_PROBE && window.__NATIVE_SELECT_PROBE && document.getElementById('probe') && document.getElementById('choice'));",
+        )?;
+        if last.as_bool() == Some(true) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    bail!("native input fixture did not become ready: {last}");
+}
+
+fn native_input_probe(client: &WebDriverClient, session_id: &str) -> Result<Value> {
+    parse_json_probe(
+        client.execute_sync(session_id, "return window.__NATIVE_INPUT_PROBE();")?,
+        "native input probe",
+    )
+}
+
+fn native_select_probe(client: &WebDriverClient, session_id: &str) -> Result<Value> {
+    parse_json_probe(
+        client.execute_sync(session_id, "return window.__NATIVE_SELECT_PROBE();")?,
+        "native select probe",
+    )
+}
+
+fn parse_json_probe(value: Value, context: &str) -> Result<Value> {
+    if let Some(text) = value.as_str() {
+        serde_json::from_str(text).with_context(|| format!("parse {context} JSON"))
+    } else if value.is_object() {
+        Ok(value)
+    } else {
+        bail!("{context} returned non-object value: {value}");
+    }
+}
+
+fn probe_count(probe: &Value, event_type: &str) -> u64 {
+    probe
+        .get("counts")
+        .and_then(|counts| counts.get(event_type))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn native_input_report_probe(probe: &Value) -> Value {
+    let value_length = probe
+        .get("value")
+        .and_then(Value::as_str)
+        .map(|value| value.chars().count())
+        .unwrap_or(0);
+    json!({
+        "ready": probe.get("ready").cloned().unwrap_or(Value::Null),
+        "activeId": probe.get("activeId").cloned().unwrap_or(Value::Null),
+        "focused": probe.get("focused").cloned().unwrap_or(Value::Null),
+        "valueLength": value_length,
+        "rect": probe.get("rect").cloned().unwrap_or(Value::Null),
+        "counts": probe.get("counts").cloned().unwrap_or(Value::Null),
+        "event_count": probe.get("events").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+        "selectionStart": probe.get("selectionStart").cloned().unwrap_or(Value::Null),
+        "selectionEnd": probe.get("selectionEnd").cloned().unwrap_or(Value::Null),
+        "echo_values": false,
+    })
+}
+
+fn native_select_report_probe(probe: &Value) -> Value {
+    json!({
+        "ready": probe.get("ready").cloned().unwrap_or(Value::Null),
+        "activeId": probe.get("activeId").cloned().unwrap_or(Value::Null),
+        "focused": probe.get("focused").cloned().unwrap_or(Value::Null),
+        "value": probe.get("value").cloned().unwrap_or(Value::Null),
+        "selectedIndex": probe.get("selectedIndex").cloned().unwrap_or(Value::Null),
+        "rect": probe.get("rect").cloned().unwrap_or(Value::Null),
+        "counts": probe.get("counts").cloned().unwrap_or(Value::Null),
+        "event_count": probe.get("events").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+    })
+}
+
+fn write_native_input_replay(
+    path: &Path,
+    chars_requested: usize,
+    input_probe: &Value,
+    keydown_events: u64,
+    input_events: u64,
+    keyup_events: u64,
+    select_value: &str,
+    select_input_events: u64,
+    select_change_events: u64,
+    select_method: &str,
+) -> Result<()> {
+    let value_length = input_probe
+        .get("value")
+        .and_then(Value::as_str)
+        .map(|value| value.chars().count())
+        .unwrap_or(0);
+    let mut file = fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let text_event = json!({
+        "kind": "native_text_typed",
+        "engine": "saccade-servoshell-native-input-v0",
+        "runtime": "official_servoshell_webdriver",
+        "method": "webdriver_element_value",
+        "chars_requested": chars_requested,
+        "value_length": value_length,
+        "counts": {
+            "keydown": keydown_events,
+            "input": input_events,
+            "keyup": keyup_events
+        },
+        "echo_values": false,
+    });
+    let select_event = json!({
+        "kind": "native_select_changed",
+        "engine": "saccade-servoshell-native-input-v0",
+        "runtime": "official_servoshell_webdriver",
+        "method": select_method,
+        "selected_value": select_value,
+        "counts": {
+            "input": select_input_events,
+            "change": select_change_events
+        },
+        "echo_text_values": false,
+    });
+    writeln!(file, "{}", serde_json::to_string(&text_event)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    writeln!(file, "{}", serde_json::to_string(&select_event)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn native_input_values_absent(report: &Value, replay_path: &Path, text: &str) -> Result<Value> {
+    let replay_text = fs::read_to_string(replay_path)
+        .with_context(|| format!("read {}", replay_path.display()))?;
+    let report_text = serde_json::to_string(report)?;
+    let leaked = report_text.contains(text) || replay_text.contains(text);
+    Ok(json!({
+        "passed": !leaked,
+        "typed_text_logged": leaked,
+        "values_logged": false,
+    }))
+}
+
 fn wait_for_focused_type_preflight(
     client: &WebDriverClient,
     session_id: &str,
@@ -1517,6 +1915,10 @@ fn default_focused_contenteditable_url() -> String {
 
 fn default_focused_sensitive_url() -> String {
     file_url("test_pages/focused_sensitive/index.html")
+}
+
+fn default_native_input_url() -> String {
+    file_url("test_pages/native_input/index.html")
 }
 
 fn file_url(path: &str) -> String {
@@ -1843,6 +2245,21 @@ return (() => {
       valueLength: String(previous.textContent || "").length
     };
   })();
+})();
+"###;
+
+const NATIVE_SELECT_SET_JS: &str = r###"
+return (() => {
+  const value = String(arguments[0] || "");
+  const select = document.getElementById("choice");
+  if (!select) {
+    return { ready: false, reason: "missing_select" };
+  }
+  select.focus();
+  select.value = value;
+  select.dispatchEvent(new Event("input", { bubbles: true }));
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  return JSON.parse(window.__NATIVE_SELECT_PROBE());
 })();
 "###;
 
