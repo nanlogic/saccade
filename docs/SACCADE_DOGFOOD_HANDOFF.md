@@ -140,8 +140,13 @@ Before using Saccade, read:
 - docs/dogfood_browser_quickstart.md
 - docs/site_policy_matrix.md
 - docs/SACCADE_DOGFOOD_HANDOFF.md
+- docs/dogfood_release_plan.md
 
-Default browser command for owned/local dogfood:
+Preferred same-machine dogfood release:
+./scripts/build_dogfood_release.sh
+dist/saccade-dogfood-<timestamp>/open-saccade <URL>
+
+Fallback browser command for owned/local dogfood:
 RUST_LOG=error SACCADE_OWNED_DOMAINS=nanmesh.ai,mythcastera.com,mysterypartynow.com \
   cargo run -q -p saccade-shell -- browse --url <URL> --width 1440 --height 1000
 
