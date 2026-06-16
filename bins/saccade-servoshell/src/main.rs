@@ -2377,6 +2377,9 @@ fn bridge_control_result(
         }
         "truth" => bridge_probe_response(state, "saccade-servoshell-bridge-truth-v0"),
         "actions" => bridge_probe_response(state, "saccade-servoshell-bridge-actions-v0"),
+        "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
+        "inspect_fields" => bridge_inspect_fields_response(state, params),
+        "act" => bridge_act_response(state, params),
         "navigate" => {
             let url = params
                 .get("url")
@@ -2448,6 +2451,9 @@ fn bridge_status_response(
             "shell_status",
             "truth",
             "actions",
+            "fill_agent_fields",
+            "inspect_fields",
+            "act",
             "navigate",
             "reload",
             "back",
@@ -2490,6 +2496,192 @@ fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Val
             "replay": null,
         },
     }))
+}
+
+fn bridge_fill_agent_fields_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    let fields = params
+        .get("fields")
+        .and_then(Value::as_object)
+        .context("fill_agent_fields requires object params.fields")?;
+    if fields.is_empty() {
+        bail!("fill_agent_fields requires at least one field");
+    }
+    let fill_result = state.client.execute_sync_args(
+        &state.session_id,
+        BRIDGE_FILL_AGENT_FIELDS_JS,
+        &[Value::Object(fields.clone())],
+    )?;
+    let filled = fill_result
+        .get("filled")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !filled.is_empty() {
+        state.page_revision.fetch_add(1, Ordering::SeqCst);
+    }
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-bridge-fill-v0",
+        "summary": "agent-owned non-sensitive fields filled through official ServoShell bridge",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "requested": fields.len(),
+        "filled": fill_result.get("filled").cloned().unwrap_or_else(|| json!([])),
+        "rejected": fill_result.get("rejected").cloned().unwrap_or_else(|| json!([])),
+        "sensitive_fields_seen": fill_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+        "artifacts": {
+            "report": null,
+            "replay": null,
+        },
+    }))
+}
+
+fn bridge_inspect_fields_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    let fields = params
+        .get("fields")
+        .and_then(Value::as_array)
+        .context("inspect_fields requires array params.fields")?;
+    if fields.is_empty() {
+        bail!("inspect_fields requires at least one field");
+    }
+    if fields.iter().any(|field| field.as_str().is_none()) {
+        bail!("inspect_fields field ids must be strings");
+    }
+    let inspect_result = state.client.execute_sync_args(
+        &state.session_id,
+        BRIDGE_INSPECT_FIELDS_JS,
+        &[json!(fields)],
+    )?;
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-bridge-inspect-fields-v0",
+        "summary": "explicit field inspection completed through official ServoShell bridge with sensitive values masked",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "requested": fields.len(),
+        "fields": inspect_result.get("fields").cloned().unwrap_or_else(|| json!([])),
+        "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+        "artifacts": {
+            "report": null,
+            "replay": null,
+        },
+    }))
+}
+
+fn bridge_act_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    let action_id = params
+        .get("action_id")
+        .and_then(Value::as_str)
+        .context("act requires params.action_id")?;
+    let basis_page_revision = params
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("act requires params.basis_page_revision")?;
+    let before_truth = state.client.execute_sync(&state.session_id, TRUTH_JS)?;
+    let before_revision = bridge_dom_revision(&before_truth);
+    let action = before_truth
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|action| bridge_action_matches(action, action_id))
+        .cloned()
+        .with_context(|| format!("unknown action_id {action_id:?}"))?;
+    if action.get("enabled").and_then(Value::as_bool) != Some(true) {
+        bail!("action {action_id:?} is not enabled");
+    }
+    if action.get("sensitive").and_then(Value::as_bool) == Some(true) {
+        bail!("action {action_id:?} targets a sensitive field and requires user control");
+    }
+    let semantic_id = bridge_action_id(&action);
+    if bridge_side_effect_action_id(&semantic_id) {
+        bail!("user confirmation required before action {semantic_id:?}");
+    }
+    let selector = action
+        .get("selector")
+        .and_then(Value::as_str)
+        .context("bridge action is missing selector")?;
+    let element = state.client.find_element(&state.session_id, selector)?;
+    let element_id = extract_element_id(&element)
+        .with_context(|| format!("WebDriver did not return element id for {selector:?}"))?;
+    state.client.click_element(&state.session_id, &element_id)?;
+    thread::sleep(Duration::from_millis(120));
+    let after_truth = state.client.execute_sync(&state.session_id, TRUTH_JS)?;
+    let changed = bridge_truth_changed(&before_truth, &after_truth);
+    if changed {
+        state.page_revision.fetch_add(1, Ordering::SeqCst);
+    }
+    let actions = after_truth
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-bridge-act-v0",
+        "summary": "safe action dispatched through official ServoShell bridge",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "actions": actions,
+        "verification": {
+            "mode": "servoshell_bridge_webdriver_click_v0",
+            "action_id": semantic_id,
+            "action_sent": true,
+            "changed": changed,
+            "no_effect": !changed,
+            "basis_page_revision": basis_page_revision,
+            "new_page_revision": state.page_revision.load(Ordering::SeqCst),
+            "dom_page_revision_before": before_revision,
+            "dom_page_revision_after": bridge_dom_revision(&after_truth),
+            "body_text_length_changed": before_truth.pointer("/page/body_text_length") != after_truth.pointer("/page/body_text_length"),
+        },
+        "truth": {
+            "sensitive_fields": after_truth.pointer("/safety/sensitive_count").cloned().unwrap_or(Value::Null),
+        },
+        "artifacts": {
+            "report": null,
+            "replay": null,
+        },
+    }))
+}
+
+fn bridge_action_matches(action: &Value, action_id: &str) -> bool {
+    action.get("action_id").and_then(Value::as_str) == Some(action_id)
+        || action.get("id").and_then(Value::as_str) == Some(action_id)
+}
+
+fn bridge_action_id(action: &Value) -> String {
+    action
+        .get("action_id")
+        .and_then(Value::as_str)
+        .or_else(|| action.get("id").and_then(Value::as_str))
+        .unwrap_or("unknown_action")
+        .to_string()
+}
+
+fn bridge_side_effect_action_id(action_id: &str) -> bool {
+    matches!(action_id, "act_submit" | "act_export" | "act_delete")
+        || action_id.contains("purchase")
+        || action_id.contains("payment")
+        || action_id.contains("pay")
+        || action_id.contains("sign")
+        || action_id.contains("confirm")
+}
+
+fn bridge_dom_revision(truth: &Value) -> Value {
+    truth
+        .pointer("/page/revision")
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+fn bridge_truth_changed(before: &Value, after: &Value) -> bool {
+    bridge_dom_revision(before) != bridge_dom_revision(after)
+        || before.pointer("/page/body_text_length") != after.pointer("/page/body_text_length")
+        || before.get("actions") != after.get("actions")
 }
 
 fn bridge_control_call(
@@ -2559,7 +2751,7 @@ fn write_bridge_grant(
         "mcp_tool": "saccade.tabs.grant_current",
         "control_endpoint": bridge_endpoint_json(endpoint),
         "transport_status": "official_servoshell_bridge_control_v0",
-        "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, navigate, reload, back, and forward through official ServoShell WebDriver.",
+        "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, safe non-sensitive fill/inspect/act, navigate, reload, back, and forward through official ServoShell WebDriver.",
         "written_unix_ms": unix_ms(),
     });
     write_json(path, &payload)
@@ -3107,6 +3299,22 @@ return (() => {
     }
     return ("00000000" + (h >>> 0).toString(16)).slice(-8);
   };
+  const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48);
+  const actionIdFor = (el, label, index) => {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    const text = String(label || el.getAttribute("aria-label") || el.getAttribute("value") || "").trim();
+    const key = slug(text || el.id || el.getAttribute("name") || tag || ("action_" + index));
+    if (tag === "button" || type === "submit" || type === "button" || role === "button") {
+      if (type === "submit" || /^(submit|send|continue|finish|done)$/i.test(text)) return "act_submit";
+      if (/delete|remove|discard/i.test(text)) return "act_delete";
+      if (/export|download/i.test(text)) return "act_export";
+      return "act_" + (key || ("button_" + index));
+    }
+    if (tag === "a") return "act_link_" + (key || index);
+    return "field_" + (el.id || el.getAttribute("name") || index);
+  };
   const labelFor = (el, isSensitive) => {
     const directLabelText = (label) => [...label.childNodes]
       .filter((node) => node.nodeType === Node.TEXT_NODE)
@@ -3171,12 +3379,16 @@ return (() => {
     const tag = el.tagName.toLowerCase();
     const inputType = (el.getAttribute("type") || "").toLowerCase();
     const role = el.getAttribute("role") || (tag === "a" ? "link" : tag === "button" || inputType === "button" || inputType === "submit" ? "button" : tag);
+    const label = labelFor(el, isSensitive);
+    const actionId = actionIdFor(el, label, actions.length);
     actions.push({
-      id: "a_" + actions.length,
+      id: actionId,
+      action_id: actionId,
+      raw_id: "a_" + actions.length,
       kind: tag === "a" || role === "button" ? "click" : "field",
       role,
       selector: sel,
-      label: labelFor(el, isSensitive),
+      label,
       rect: rect(el),
       enabled: !el.disabled && el.getAttribute("aria-disabled") !== "true",
       sensitive: isSensitive,
@@ -3203,6 +3415,137 @@ return (() => {
     actions,
     redactions
   };
+})();
+"###;
+
+const BRIDGE_FILL_AGENT_FIELDS_JS: &str = r###"
+return (() => {
+  const requested = arguments[0] || {};
+  const filled = [];
+  const rejected = [];
+
+  function sensitivityOf(el) {
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || ""
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  for (const [id, value] of Object.entries(requested)) {
+    const el = document.getElementById(id);
+    if (!el) {
+      rejected.push({ id, reason: "not_found" });
+      continue;
+    }
+    const owner = el.getAttribute("data-owner") || "";
+    const declaredSensitivity = el.getAttribute("data-sensitive") || "none";
+    const sensitivity = sensitivityOf(el);
+    if (owner !== "agent" || declaredSensitivity !== "none" || sensitivity !== "none") {
+      rejected.push({ id, reason: "not_agent_owned_non_sensitive", owner, sensitivity });
+      continue;
+    }
+    if (el.type === "checkbox") {
+      el.checked = Boolean(value);
+    } else {
+      el.value = String(value);
+    }
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    filled.push(id);
+  }
+
+  const body = document.body;
+  const previousRevision = Number(body && body.dataset ? (body.dataset.sessionRevision || "0") : "0") || 0;
+  if (filled.length && body && body.dataset) {
+    body.dataset.sessionRevision = String(previousRevision + 1);
+  }
+  const sensitiveFieldsSeen = Array.from(document.querySelectorAll("input, select, textarea"))
+    .filter((el) => sensitivityOf(el) !== "none" || (el.getAttribute("data-sensitive") || "none") !== "none")
+    .length;
+  return {
+    filled,
+    rejected,
+    pageRevision: body && body.dataset ? Number(body.dataset.sessionRevision || "0") || 0 : 0,
+    sensitiveFieldsSeen
+  };
+})();
+"###;
+
+const BRIDGE_INSPECT_FIELDS_JS: &str = r###"
+return (() => {
+  const requested = arguments[0] || [];
+  const fields = [];
+
+  function sensitivityOf(el) {
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || ""
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  function fieldValue(el) {
+    if (el.type === "checkbox") return Boolean(el.checked);
+    return String(el.value || "");
+  }
+
+  function hasValue(el) {
+    if (el.type === "checkbox") return Boolean(el.checked);
+    return String(el.value || "").trim().length > 0;
+  }
+
+  for (const id of requested) {
+    const el = document.getElementById(id);
+    if (!el) {
+      fields.push({ id, status: "not_found" });
+      continue;
+    }
+    const owner = el.getAttribute("data-owner") || "";
+    const declaredSensitivity = el.getAttribute("data-sensitive") || "none";
+    const sensitivity = sensitivityOf(el);
+    const completionState = sensitivity === "none" && declaredSensitivity === "none"
+      ? (hasValue(el) ? "value_present" : "empty")
+      : (hasValue(el) ? "completed_without_value" : "requires_user_input");
+    const record = {
+      id,
+      status: "ok",
+      owner,
+      declared_sensitivity: declaredSensitivity,
+      sensitivity,
+      completion_state: completionState
+    };
+    if (sensitivity === "none" && declaredSensitivity === "none") {
+      record.value = fieldValue(el);
+      record.value_returned = true;
+    } else {
+      record.value_redacted = true;
+    }
+    fields.push(record);
+  }
+
+  const sensitiveFieldsSeen = Array.from(document.querySelectorAll("input, select, textarea"))
+    .filter((el) => sensitivityOf(el) !== "none" || (el.getAttribute("data-sensitive") || "none") !== "none")
+    .length;
+  return { fields, sensitiveFieldsSeen };
 })();
 "###;
 

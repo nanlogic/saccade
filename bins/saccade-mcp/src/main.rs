@@ -1881,10 +1881,10 @@ fn call_dogfood_control(
     let addr = dogfood_control_socket_addr(endpoint)?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
-    let read_timeout = if method == "formmax_live_fill" {
-        Duration::from_secs(65)
-    } else {
-        Duration::from_secs(5)
+    let read_timeout = match method {
+        "formmax_live_fill" => Duration::from_secs(65),
+        "fill_agent_fields" | "inspect_fields" | "act" => Duration::from_secs(30),
+        _ => Duration::from_secs(5),
     };
     stream
         .set_read_timeout(Some(read_timeout))
@@ -4453,7 +4453,8 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
     fs::create_dir_all(&run_dir)
         .with_context(|| format!("failed to create {}", run_dir.display()))?;
     let grant_path = run_dir.join("grant.json");
-    let url = start_test_server(workspace.join("test_pages").join("browser_session"))?;
+    let copilot_url = start_test_server(workspace.join("test_pages").join("current_tab_copilot"))?;
+    let button_url = start_test_server(workspace.join("test_pages").join("browser_session"))?;
 
     let mut child = ProcessCommand::new("cargo")
         .args([
@@ -4464,7 +4465,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             "--",
             "bridge",
             "--url",
-            url.as_str(),
+            copilot_url.as_str(),
             "--output-dir",
             run_dir
                 .to_str()
@@ -4541,9 +4542,9 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             && has_capability("truth")
             && has_capability("actions")
             && has_capability("saccade.browser.navigate")
-            && !has_capability("fill_agent_fields")
-            && !has_capability("inspect_fields")
-            && !has_capability("act")
+            && has_capability("fill_agent_fields")
+            && has_capability("inspect_fields")
+            && has_capability("act")
             && !has_capability("formmax_live_fill");
 
         let truth_content = json_rpc_tool_content(
@@ -4598,7 +4599,221 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                 .and_then(Value::as_str)
                 == Some("saccade-servoshell-bridge-shell-status-v0");
 
-        Ok(grant_attached && truth_ok && actions_ok && status_ok)
+        let fill_basis_page_revision = grant_content
+            .pointer("/tab/page_revision")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        let fill_content = json_rpc_tool_content(
+            &mut state,
+            505,
+            "saccade.web.fill_agent_fields",
+            json!({
+                "tab_id": tab_id,
+                "basis_page_revision": fill_basis_page_revision,
+                "fields": {
+                    "project-name": "ServoShell bridge co-pilot",
+                    "capacity": "24",
+                    "notes": "Official ServoShell bridge safe fill.",
+                    "ssn": "SHOULD-NOT-WRITE",
+                    "signature": "SHOULD-NOT-WRITE"
+                },
+                "policy": {
+                    "agent_owned_only": true,
+                    "block_sensitive": true,
+                    "live_worker_only": true
+                }
+            }),
+        )?;
+        let fill_ok = fill_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && fill_content
+                .get("filled")
+                .and_then(Value::as_array)
+                .is_some_and(|filled| {
+                    ["project-name", "capacity", "notes"]
+                        .iter()
+                        .all(|id| filled.iter().any(|value| value.as_str() == Some(*id)))
+                })
+            && fill_content
+                .get("rejected")
+                .and_then(Value::as_array)
+                .is_some_and(|rejected| {
+                    ["ssn", "signature"].iter().all(|id| {
+                        rejected
+                            .iter()
+                            .any(|value| value.get("id").and_then(Value::as_str) == Some(*id))
+                    })
+                });
+
+        let inspect_content = json_rpc_tool_content(
+            &mut state,
+            506,
+            "saccade.web.inspect_fields",
+            json!({
+                "tab_id": tab_id,
+                "fields": ["project-name", "ssn", "signature"],
+                "policy": {
+                    "redact_sensitive": true,
+                    "explicit_fields_only": true,
+                    "live_worker_only": true
+                }
+            }),
+        )?;
+        let inspect_fields = inspect_content
+            .get("fields")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let inspect_ok = inspect_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && inspect_fields.iter().any(|field| {
+                field.get("id").and_then(Value::as_str) == Some("project-name")
+                    && field.get("value_returned").and_then(Value::as_bool) == Some(true)
+                    && field.get("value").and_then(Value::as_str)
+                        == Some("ServoShell bridge co-pilot")
+            })
+            && ["ssn", "signature"].iter().all(|id| {
+                inspect_fields.iter().any(|field| {
+                    field.get("id").and_then(Value::as_str) == Some(*id)
+                        && field.get("value_redacted").and_then(Value::as_bool) == Some(true)
+                        && field.get("value").is_none()
+                })
+            });
+        let bridge_response_blob = [
+            &grant_content,
+            &truth_content,
+            &actions_content,
+            &status_content,
+            &fill_content,
+            &inspect_content,
+        ]
+        .into_iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+        let no_sensitive_leak = !bridge_response_blob.contains("999-12-3456")
+            && !bridge_response_blob.contains("SHOULD-NOT-WRITE");
+
+        let navigate_content = json_rpc_tool_content(
+            &mut state,
+            507,
+            "saccade.browser.navigate",
+            json!({
+                "tab_id": tab_id,
+                "action": "navigate",
+                "url": button_url.as_str(),
+                "policy": {
+                    "same_webview_only": true,
+                    "user_granted_tab_only": true
+                }
+            }),
+        )?;
+        let navigate_ok = navigate_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && navigate_content
+                .pointer("/shell/engine")
+                .and_then(Value::as_str)
+                == Some("saccade-servoshell-bridge-navigate-v0");
+
+        let button_actions_content = json_rpc_tool_content(
+            &mut state,
+            508,
+            "saccade.web.actions",
+            json!({
+                "tab_id": tab_id,
+                "engine": "servo"
+            }),
+        )?;
+        let button_action_id = button_actions_content
+            .get("actions")
+            .and_then(Value::as_array)
+            .and_then(|actions| {
+                actions.iter().find_map(|action| {
+                    let label = action.get("label").and_then(Value::as_str).unwrap_or("");
+                    if label == "Verify Action" {
+                        action
+                            .get("action_id")
+                            .or_else(|| action.get("id"))
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .context("ServoShell bridge button action was not found")?;
+        let button_basis_page_revision = button_actions_content
+            .get("page_revision")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        let act_content = json_rpc_tool_content(
+            &mut state,
+            509,
+            "saccade.web.act",
+            json!({
+                "tab_id": tab_id,
+                "action_id": button_action_id,
+                "basis_page_revision": button_basis_page_revision,
+                "engine": "servo"
+            }),
+        )?;
+        let act_ok = act_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && act_content
+                .pointer("/verification/changed")
+                .and_then(Value::as_bool)
+                == Some(true)
+            && act_content
+                .pointer("/verification/mode")
+                .and_then(Value::as_str)
+                == Some("servoshell_bridge_webdriver_click_v0");
+
+        let bridge_ok = grant_attached
+            && truth_ok
+            && actions_ok
+            && status_ok
+            && fill_ok
+            && inspect_ok
+            && no_sensitive_leak
+            && navigate_ok
+            && act_ok;
+        if !bridge_ok {
+            bail!(
+                "servoshell bridge MCP gate failed: {}",
+                json!({
+                    "grant_attached": grant_attached,
+                    "truth_ok": truth_ok,
+                    "actions_ok": actions_ok,
+                    "status_ok": status_ok,
+                    "fill_ok": fill_ok,
+                    "inspect_ok": inspect_ok,
+                    "no_sensitive_leak": no_sensitive_leak,
+                    "navigate_ok": navigate_ok,
+                    "act_ok": act_ok,
+                    "capabilities": capabilities,
+                    "fill": {
+                        "runtime": fill_content.get("runtime").cloned().unwrap_or(Value::Null),
+                        "filled": fill_content.get("filled").cloned().unwrap_or(Value::Null),
+                        "rejected": fill_content.get("rejected").cloned().unwrap_or(Value::Null),
+                    },
+                    "inspect": {
+                        "runtime": inspect_content.get("runtime").cloned().unwrap_or(Value::Null),
+                        "values_returned": inspect_content.get("values_returned").cloned().unwrap_or(Value::Null),
+                        "values_redacted": inspect_content.get("values_redacted").cloned().unwrap_or(Value::Null),
+                    },
+                    "navigate": {
+                        "runtime": navigate_content.get("runtime").cloned().unwrap_or(Value::Null),
+                        "engine": navigate_content.pointer("/shell/engine").cloned().unwrap_or(Value::Null),
+                    },
+                    "act": {
+                        "runtime": act_content.get("runtime").cloned().unwrap_or(Value::Null),
+                        "mode": act_content.pointer("/verification/mode").cloned().unwrap_or(Value::Null),
+                        "changed": act_content.pointer("/verification/changed").cloned().unwrap_or(Value::Null),
+                    },
+                })
+            );
+        }
+        Ok(true)
     })();
 
     let shutdown = endpoint_for_shutdown

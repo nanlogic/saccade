@@ -113,7 +113,8 @@ If any of the following fail, Option B becomes justified:
    concern.
 9. DONE: Add first official ServoShell live bridge mode. The bridge writes an
    MCP-compatible current-tab grant artifact and supports `ping`,
-   `shell_status`, `truth`, `actions`, `navigate`, `reload`, `back`, and
+   `shell_status`, `truth`, `actions`, safe `fill_agent_fields`,
+   `inspect_fields`, non-side-effect `act`, `navigate`, `reload`, `back`, and
    `forward`.
 
 ## Latest Evidence
@@ -166,9 +167,15 @@ If any of the following fail, Option B becomes justified:
 - The bridge launched official ServoShell, wrote
   `runs/current_tab_grants/servoshell_latest.json`, exposed a loopback control
   endpoint with protocol `saccade-dogfood-control-v0`, and verified
-  `ping/truth/actions` over that endpoint. Current v0 bridge supports
-  navigation/status/truth/action-map primitives; fill/inspect/act/formmax are
-  still next-step MCP/product bridge work.
+  `ping/truth/actions` over that endpoint.
+- MCP live bridge attach/fill/inspect/act:
+  `runs/mcp/selftest_1781631232204/report.json` and
+  `runs/mcp/servoshell_bridge_grant_1781631275577/report.json`
+- MCP now attaches to the official ServoShell bridge grant, receives advertised
+  bridge capabilities, fills only agent-owned non-sensitive fields, rejects
+  human-owned sensitive fields, redacts sensitive field inspection, navigates
+  through the bridge, and dispatches a verified non-side-effect click. FORMMAX
+  over the official bridge remains separate future work.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781484941056/report.json`
 - Local game `http://127.0.0.1:4173/` loaded in official ServoShell with
