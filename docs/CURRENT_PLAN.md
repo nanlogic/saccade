@@ -73,7 +73,7 @@ safe non-side-effect act from MCP into the already-open dogfood window. Current
 tab FORMMAX also runs inside the same user-granted dogfood WebView. The
 dogfood browser now has a visible native toolbar v0 with shell-consumed
 Back/Forward/Reload/address/Copilot hit-zones plus visible shell-owned address
-text/focus state. MCP also exposes
+text, focus, selection, caret, and basic in-place URL editing. MCP also exposes
 `saccade.browser.navigate` for status/navigate/reload/back/forward on an
 already-granted same-WebView dogfood tab. Submit and other side-effect actions
 still require user confirmation.

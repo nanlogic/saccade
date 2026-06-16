@@ -34,6 +34,6 @@ Active next item: AI-012. AI-001 is blocked by the pinned Servo public API.
 | --- | --- | --- |
 | AI-000 | `33a7481 add mcp browser navigate tool` | MCP now exposes `saccade.browser.navigate` for already-granted same-WebView dogfood tabs; selftest `runs/mcp/selftest_1781583895286/report.json` has `browser_navigate=true`. |
 | AI-001A | current docs update | Pinned Servo `0.2.0` stop-loading API proof completed: local rustdoc exposes `load`, `load_request`, `reload`, `can_go_back`, `go_back`, `can_go_forward`, and `go_forward`, but no public `stop_loading`/`stop` equivalent. |
-| AI-002 | current workspace | Toolbar address strip now paints URL/placeholder text, secure/search icon, active focus/error state, and caret using native GL overlay only; no page DOM injection. |
+| AI-002 | `f84d157 make dogfood address bar editable` | Toolbar address strip now paints URL/placeholder text, secure/search icon, active focus/error state, selection, caret, and supports in-place URL editing using native GL overlay only; no page DOM injection. |
 | AI-003 | current docs update | Routed away from the legacy GL toolbar. Official ServoShell's egui toolbar already resizes the WebView below browser chrome, avoiding the top-overlay issue. |
 | AI-011 | current docs update | Routed away from hand-polishing GL bitmap UI. Product-quality address bar polish should come from official ServoShell UI or a thin fork that keeps that UI intact. |
