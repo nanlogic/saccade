@@ -162,8 +162,11 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 ## Priority Order
 
-1. Browser shell basics: Stop behavior, toolbar URL text editing,
-   non-obscuring chrome, visible Human/Agent badge.
+Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
+
+1. Browser shell basics: toolbar URL text editing, non-obscuring chrome,
+   visible Human/Agent badge. Stop is parked until a public ServoShell/newer
+   Servo/fork hook exists.
 2. Editor/contenteditable gate: Gist-like editor and forum composer.
 3. DEVMAX gauntlet polish: multi-action verification, screenshots/finding crops,
    Chrome comparison.

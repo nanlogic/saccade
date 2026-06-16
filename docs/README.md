@@ -8,9 +8,10 @@ Use this file as the navigation entry point.
 Read these first:
 
 1. `docs/CURRENT_PLAN.md` - the active product plan and next decision points.
-2. `docs/next_plan_v5_tracker.md` - normalized status table and evidence map.
-3. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
-4. `docs/decisions.md` - append-only decision ledger.
+2. `docs/CURRENT_ACTION_ITEMS.md` - the short execution queue.
+3. `docs/next_plan_v5_tracker.md` - normalized status table and evidence map.
+4. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
+5. `docs/decisions.md` - append-only decision ledger.
 
 ## Current Active Direction
 
@@ -39,6 +40,7 @@ the user, require confirmation for external side effects, and write replay.
 ### Product Plan
 
 - `docs/CURRENT_PLAN.md`
+- `docs/CURRENT_ACTION_ITEMS.md`
 - `docs/next_plan_v5_tracker.md`
 - `docs/SACCADE_EVALUATION_GAUNTLET_v1.md`
 - `docs/evaluation_gauntlet_execution_plan.md`

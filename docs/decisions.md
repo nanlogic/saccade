@@ -818,3 +818,17 @@
   product-safe public stop-loading call has been mapped yet.
 - Latest full MCP selftest:
   `runs/mcp/selftest_1781583895286/report.json`.
+
+## DECISION_BP_003_STOP_001 - Stop remains blocked on pinned Servo public API
+
+- AI-001 asked whether the dogfood browser can wire product-grade Stop behavior
+  on the current pinned Servo `0.2.0` API.
+- Local rustdoc/source inspection found public `WebView::load`,
+  `load_request`, `reload`, `can_go_back`, `go_back`, `can_go_forward`, and
+  `go_forward`, but no public `stop_loading`, `stop_load`, `cancel_load`,
+  `cancel_loading`, or `pub fn stop` equivalent.
+- Search scope was local, pinned evidence: `target/doc/src/servo`,
+  `target/doc/servo`, and `~/.cargo/registry/src/.../servo-0.2.0`.
+- Decision: do not fake Stop with reload/navigation. Keep Stop as
+  `blocked-public-api` in `docs/CURRENT_ACTION_ITEMS.md`; revisit only through
+  official ServoShell source, newer Servo API proof, or a deliberate fork hook.

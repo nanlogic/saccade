@@ -28,7 +28,15 @@ Dependency alignment from `cargo tree -p saccade_browser`:
 - Keyboard input: `InputEvent::Keyboard(KeyboardEvent::from_state_and_key(KeyState::Down, Key::Character(text)))` and the matching `KeyState::Up` event inserted ASCII text into a focused `<input>` in the native input selftest.
 - Input handling callback: `WebViewDelegate::notify_input_event_handled(&self, WebView, InputEventId, InputEventResult)` is delivered after `WebView::notify_input_event(...)`; `InputEventResult::DispatchFailed` is the failure flag to gate on. In the native input selftest, `Consumed` remained false even though the DOM value updated.
 - Select/dropdown control: a trusted click on `<select>` causes `WebViewDelegate::show_embedder_control(&self, WebView, EmbedderControl::SelectElement(...))`; Saccade can call `select.select(vec![index])` and `select.submit()` to send the chosen option back to Servo.
-- Navigation controls: `WebView::reload()`, `can_go_back()`, `go_back(amount)`, `can_go_forward()`, and `go_forward(amount)` are public in the pinned WebView API. A product-safe public `stop_loading`/`stop` equivalent has not been mapped in the pinned API yet, so Stop remains a shell/product backlog item rather than a wired control.
+- Navigation controls: `WebView::load(url)`, `load_request(request)`,
+  `reload()`, `can_go_back()`, `go_back(amount)`, `can_go_forward()`, and
+  `go_forward(amount)` are public in the pinned WebView API. Local rustdoc shows
+  these methods together in `target/doc/src/servo/webview.rs.html` lines
+  460-520. A local search found no public `stop_loading`, `stop_load`,
+  `cancel_load`, `cancel_loading`, or `pub fn stop` equivalent under
+  `target/doc/src/servo`, `target/doc/servo`, or the pinned
+  `~/.cargo/registry/src/.../servo-0.2.0` source. Stop therefore stays blocked
+  on a newer API, official ServoShell source, or a deliberate fork hook.
 - Input point unit: `WebViewPoint`, which is either `WebViewPoint::Device(DevicePoint)` or `WebViewPoint::Page(Point2D<f32, CSSPixel>)`. Servo's own tests pass `DevicePoint` converted with `.into()`.
 - JS probe: `WebView::evaluate_javascript(script, callback)` where callback is `FnOnce(Result<JSValue, JavaScriptEvaluationError>) + 'static`.
 - Screenshot: `WebView::take_screenshot(rect: Option<WebViewRect>, callback: FnOnce(Result<RgbaImage, ScreenshotCaptureError>) + 'static)`.
