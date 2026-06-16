@@ -13,6 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use clap::{Parser, Subcommand, ValueEnum};
+use saccade_core::{classify_site_url, site_action_requires_user};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -2453,6 +2454,7 @@ fn bridge_status_response(
         &state.session_id,
         "return { url: location.href, title: document.title, readyState: document.readyState };",
     )?;
+    let page_url = page.get("url").and_then(Value::as_str).unwrap_or("");
     Ok(json!({
         "status": "ok",
         "runtime": "saccade-servoshell-bridge-v0",
@@ -2464,6 +2466,7 @@ fn bridge_status_response(
         "load_state": page.get("readyState").cloned().unwrap_or(Value::Null),
         "page_revision": state.page_revision.load(Ordering::SeqCst),
         "changed": changed,
+        "site_policy": classify_site_url(page_url),
         "copilot": bridge_copilot_state(),
         "webdriver": {
             "host": "127.0.0.1",
@@ -2508,6 +2511,15 @@ fn bridge_artifacts(state: &BridgeControlState) -> Value {
         "report": state.report_path.display().to_string(),
         "replay": state.replay_path.display().to_string(),
     })
+}
+
+fn bridge_current_url(state: &BridgeControlState) -> Result<String> {
+    Ok(state
+        .client
+        .execute_sync(&state.session_id, "return location.href;")?
+        .as_str()
+        .unwrap_or("")
+        .to_string())
 }
 
 fn bridge_record_control_success(
@@ -2600,6 +2612,7 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "changed": result.get("changed").cloned().unwrap_or(Value::Null),
         "receipt_verified": result.get("receipt_verified").cloned().unwrap_or(Value::Null),
         "verification": result.get("verification").cloned().unwrap_or(Value::Null),
+        "site_policy": result.get("site_policy").cloned().unwrap_or(Value::Null),
         "policy": result.get("policy").cloned().unwrap_or(Value::Null),
         "counts": Value::Object(counts),
     })
@@ -2660,6 +2673,10 @@ fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Val
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let page_url = truth
+        .pointer("/page/url")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     Ok(json!({
         "status": "ok",
         "runtime": "saccade-servoshell-bridge-v0",
@@ -2669,6 +2686,7 @@ fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Val
         "url": truth.pointer("/page/url").cloned().unwrap_or(Value::Null),
         "title": truth.pointer("/page/title").cloned().unwrap_or(Value::Null),
         "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": classify_site_url(page_url),
         "actions": actions,
         "findings": [],
         "truth": {
@@ -2690,6 +2708,15 @@ fn bridge_fill_agent_fields_response(state: &BridgeControlState, params: Value) 
     if fields.is_empty() {
         bail!("fill_agent_fields requires at least one field");
     }
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_fill_allowed {
+        bail!(
+            "site policy {:?} blocks agent fill on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
     let fill_result = state.client.execute_sync_args(
         &state.session_id,
         BRIDGE_FILL_AGENT_FIELDS_JS,
@@ -2710,6 +2737,7 @@ fn bridge_fill_agent_fields_response(state: &BridgeControlState, params: Value) 
         "summary": "agent-owned non-sensitive fields filled through official ServoShell bridge",
         "same_webview_control": true,
         "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": site_policy,
         "requested": fields.len(),
         "filled": fill_result.get("filled").cloned().unwrap_or_else(|| json!([])),
         "rejected": fill_result.get("rejected").cloned().unwrap_or_else(|| json!([])),
@@ -2729,6 +2757,15 @@ fn bridge_inspect_fields_response(state: &BridgeControlState, params: Value) -> 
     if fields.iter().any(|field| field.as_str().is_none()) {
         bail!("inspect_fields field ids must be strings");
     }
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks field inspection on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
     let inspect_result = state.client.execute_sync_args(
         &state.session_id,
         BRIDGE_INSPECT_FIELDS_JS,
@@ -2741,6 +2778,7 @@ fn bridge_inspect_fields_response(state: &BridgeControlState, params: Value) -> 
         "summary": "explicit field inspection completed through official ServoShell bridge with sensitive values masked",
         "same_webview_control": true,
         "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": site_policy,
         "requested": fields.len(),
         "fields": inspect_result.get("fields").cloned().unwrap_or_else(|| json!([])),
         "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
@@ -2774,8 +2812,13 @@ fn bridge_act_response(state: &BridgeControlState, params: Value) -> Result<Valu
         bail!("action {action_id:?} targets a sensitive field and requires user control");
     }
     let semantic_id = bridge_action_id(&action);
-    if bridge_side_effect_action_id(&semantic_id) {
-        bail!("user confirmation required before action {semantic_id:?}");
+    let page_url = before_truth
+        .pointer("/page/url")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let action_label = action.get("label").and_then(Value::as_str);
+    if let Some(reason) = site_action_requires_user(page_url, &semantic_id, action_label) {
+        bail!("user confirmation required before action {semantic_id:?}: {reason}");
     }
     let selector = action
         .get("selector")
@@ -2803,6 +2846,7 @@ fn bridge_act_response(state: &BridgeControlState, params: Value) -> Result<Valu
         "summary": "safe action dispatched through official ServoShell bridge",
         "same_webview_control": true,
         "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": classify_site_url(page_url),
         "actions": actions,
         "verification": {
             "mode": "servoshell_bridge_webdriver_click_v0",
@@ -2900,11 +2944,13 @@ fn bridge_formmax_live_fill_response(state: &BridgeControlState, params: Value) 
         state.page_revision.fetch_add(1, Ordering::SeqCst);
     }
     bridge_append_formmax_events(state, &result)?;
+    let page_url = bridge_current_url(state)?;
     Ok(bridge_formmax_response(
         state,
         "saccade-servoshell-bridge-v0",
         "saccade-servoshell-bridge-formmax-live-v0",
         state.page_revision.load(Ordering::SeqCst),
+        json!(classify_site_url(&page_url)),
         &result,
     ))
 }
@@ -2939,6 +2985,7 @@ fn bridge_formmax_response(
     runtime: &str,
     engine: &str,
     page_revision: u64,
+    site_policy: Value,
     result: &Value,
 ) -> Value {
     let rows = result.get("rows").and_then(Value::as_u64).unwrap_or(0);
@@ -2974,6 +3021,7 @@ fn bridge_formmax_response(
         "summary": "FORMMAX capacity fixture filled and verified through official ServoShell bridge",
         "same_webview_control": true,
         "page_revision": page_revision,
+        "site_policy": site_policy,
         "rows": rows,
         "pages": pages,
         "filled": filled,
@@ -3011,15 +3059,6 @@ fn bridge_action_id(action: &Value) -> String {
         .or_else(|| action.get("id").and_then(Value::as_str))
         .unwrap_or("unknown_action")
         .to_string()
-}
-
-fn bridge_side_effect_action_id(action_id: &str) -> bool {
-    matches!(action_id, "act_submit" | "act_export" | "act_delete")
-        || action_id.contains("purchase")
-        || action_id.contains("payment")
-        || action_id.contains("pay")
-        || action_id.contains("sign")
-        || action_id.contains("confirm")
 }
 
 fn bridge_dom_revision(truth: &Value) -> Value {

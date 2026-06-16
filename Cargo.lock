@@ -5482,6 +5482,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "clap",
+ "saccade_core",
  "serde",
  "serde_json",
  "tiny_http",
@@ -5527,6 +5528,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

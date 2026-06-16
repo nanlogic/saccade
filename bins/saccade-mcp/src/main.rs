@@ -9,7 +9,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
-use saccade_core::{ReadGrant, TabId, TabInfo, TabOwner, TabVisualMarker};
+use saccade_core::{
+    ReadGrant, TabId, TabInfo, TabOwner, TabVisualMarker, classify_site_url,
+    site_action_requires_user,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -1350,6 +1353,7 @@ fn browser_navigate_tool(state: &mut McpSessionState, arguments: Value) -> Resul
         "page_revision": tab.info.page_revision,
         "changed": shell_result.get("changed").cloned().unwrap_or(Value::Null),
         "shell": shell_result,
+        "site_policy": classify_site_url(&tab.info.url),
         "policy": {
             "same_webview_only": true,
             "user_granted_tab_only": true,
@@ -1617,6 +1621,7 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
             "MCP v0 validates the visible browser grant and can ping the same dogfood WebView control endpoint when present. Truth/actions use a live worker when no control endpoint is available."
         },
         "tab": tab.info,
+        "site_policy": classify_site_url(&tab.info.url),
         "truth": {
             "engine": tab.last_engine.clone(),
             "findings_count": tab.last_findings.len(),
@@ -2022,6 +2027,14 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
     let tab = state
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    let site_policy = classify_site_url(&tab.info.url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks agent truth for {}; use human fallback",
+            site_policy.level,
+            tab.info.url
+        );
+    }
 
     let summary_only =
         tab.info.owner == TabOwner::Human && tab.info.read_grant == ReadGrant::VisibleSummaryOnly;
@@ -2033,6 +2046,7 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
         "title": tab.info.title,
         "page_revision": tab.info.page_revision,
         "read_grant": tab.info.read_grant,
+        "site_policy": site_policy,
         "truth": {
             "engine": tab.last_engine,
             "findings_count": tab.last_findings.len(),
@@ -2067,12 +2081,21 @@ fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Val
     let tab = state
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    let site_policy = classify_site_url(&tab.info.url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks action-map truth for {}; use human fallback",
+            site_policy.level,
+            tab.info.url
+        );
+    }
     Ok(json!({
         "status": "ok",
         "summary": format!("{} action(s) in current action map", tab.last_actions.len()),
         "tab_id": tab_id.0,
         "page_revision": tab.info.page_revision,
         "actions": tab.last_actions,
+        "site_policy": site_policy,
         "runtime": tab_runtime(state, tab_id),
         "artifacts": {
             "report": tab.last_report_path,
@@ -2092,9 +2115,9 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         .get("basis_page_revision")
         .and_then(Value::as_u64)
         .context("tool arguments must include integer field basis_page_revision")?;
-    if action_requires_user_confirmation(state, tab_id, &action_id)? {
+    if let Some(reason) = action_requires_user_confirmation(state, tab_id, &action_id)? {
         bail!(
-            "user confirmation required before action {action_id:?} on a user-granted current tab"
+            "user confirmation required before action {action_id:?} on a user-granted current tab: {reason}"
         );
     }
     ensure_agent_input_allowed(state, tab_id)?;
@@ -2114,6 +2137,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         let tab = state
             .find_tab(tab_id)
             .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        let site_policy = classify_site_url(&tab.info.url);
         return Ok(json!({
             "status": "ok",
             "summary": "action dispatched through same dogfood WebView",
@@ -2122,6 +2146,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
             "action_id": action_id,
             "basis_page_revision": basis_page_revision,
             "new_page_revision": tab.info.page_revision,
+            "site_policy": site_policy,
             "verification": live_act.get("verification").cloned().unwrap_or(Value::Null),
             "artifacts": {
                 "report": tab.last_report_path,
@@ -2144,6 +2169,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         let tab = state
             .find_tab(tab_id)
             .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        let site_policy = classify_site_url(&tab.info.url);
         return Ok(json!({
             "status": "ok",
             "summary": "action dispatched through live Saccade browser session",
@@ -2152,6 +2178,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
             "action_id": action_id,
             "basis_page_revision": basis_page_revision,
             "new_page_revision": tab.info.page_revision,
+            "site_policy": site_policy,
             "verification": live_act.get("verification").cloned().unwrap_or(Value::Null),
             "artifacts": {
                 "report": tab.last_report_path,
@@ -2202,6 +2229,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
     let tab = state
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    let site_policy = classify_site_url(&tab.info.url);
     Ok(json!({
         "status": "ok",
         "summary": "action verified through Servo-backed DEVMAX audit",
@@ -2209,6 +2237,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         "action_id": action_id,
         "basis_page_revision": basis_page_revision,
         "new_page_revision": tab.info.page_revision,
+        "site_policy": site_policy,
         "verification": {
             "mode": "devmax_servo_first_enabled_action_v0",
             "action_sent": true,
@@ -2263,11 +2292,20 @@ fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> 
     if !has_live_session {
         bail!("saccade.web.fill_agent_fields requires a live browser session tab");
     }
-    let current_revision = state
-        .find_tab(tab_id)
-        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
-        .info
-        .page_revision;
+    let (current_revision, current_url) = {
+        let tab = state
+            .find_tab(tab_id)
+            .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        (tab.info.page_revision, tab.info.url.clone())
+    };
+    let site_policy = classify_site_url(&current_url);
+    if !site_policy.agent_fill_allowed {
+        bail!(
+            "site policy {:?} blocks agent fill on {}; use human fallback",
+            site_policy.level,
+            current_url
+        );
+    }
     if basis_page_revision != current_revision {
         bail!(
             "stale fill basis: requested {}, current {}",
@@ -2308,6 +2346,7 @@ fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> 
         "tab_id": tab_id.0,
         "basis_page_revision": basis_page_revision,
         "new_page_revision": tab.info.page_revision,
+        "site_policy": site_policy,
         "filled": live_fill.get("filled").cloned().unwrap_or_else(|| json!([])),
         "rejected": live_fill.get("rejected").cloned().unwrap_or_else(|| json!([])),
         "sensitive_fields_seen": live_fill.get("sensitive_fields_seen").cloned().unwrap_or(Value::Null),
@@ -2367,6 +2406,20 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
     if !has_live_session {
         bail!("saccade.web.inspect_fields requires a live browser session tab");
     }
+    let current_url = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .url
+        .clone();
+    let site_policy = classify_site_url(&current_url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks field inspection on {}; use human fallback",
+            site_policy.level,
+            current_url
+        );
+    }
     let live_inspect = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
         ensure_dogfood_control_capability(state, tab_id, "inspect_fields")?;
         call_dogfood_control(
@@ -2421,6 +2474,7 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "runtime": tab_runtime(state, tab_id),
         "tab_id": tab_id.0,
         "page_revision": tab.info.page_revision,
+        "site_policy": site_policy,
         "fields": inspected,
         "values_returned": values_returned,
         "values_redacted": values_redacted,
@@ -3104,20 +3158,22 @@ fn action_requires_user_confirmation(
     state: &McpSessionState,
     tab_id: TabId,
     action_id: &str,
-) -> Result<bool> {
+) -> Result<Option<&'static str>> {
     let tab = state
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
-    Ok(tab.agent_input_grant && side_effect_action_id(action_id))
-}
-
-fn side_effect_action_id(action_id: &str) -> bool {
-    matches!(action_id, "act_submit" | "act_export" | "act_delete")
-        || action_id.contains("purchase")
-        || action_id.contains("payment")
-        || action_id.contains("pay")
-        || action_id.contains("sign")
-        || action_id.contains("confirm")
+    if !tab.agent_input_grant {
+        return Ok(None);
+    }
+    let label = tab
+        .last_actions
+        .iter()
+        .find(|action| {
+            action.get("action_id").and_then(Value::as_str) == Some(action_id)
+                || action.get("id").and_then(Value::as_str) == Some(action_id)
+        })
+        .and_then(|action| action.get("label").and_then(Value::as_str));
+    Ok(site_action_requires_user(&tab.info.url, action_id, label))
 }
 
 fn parse_output_value(output: &str, prefix: &str) -> Option<String> {

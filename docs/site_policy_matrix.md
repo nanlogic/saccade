@@ -66,8 +66,8 @@ When Saccade is blocked or the site is high-risk:
 
 | ID | Priority | Work | Done when |
 | --- | --- | --- | --- |
-| SP-001 | P0 | Add a site-risk classifier to the bridge/MCP layer. | Current URL/action gets `green/yellow/orange/red` and a human-readable reason. |
-| SP-002 | P0 | Add high-risk action gating. | Login, OTP, password, CAPTCHA, payment, submit, release, delete, sign, API key, and security actions return `requires_user`. |
+| SP-001 | P0 | DONE: Add a site-risk classifier to the bridge/MCP layer. | Current URL/action gets `green/yellow/orange/red` and a human-readable reason. Evidence: `runs/mcp/selftest_1781641440418/report.json`. |
+| SP-002 | P0 | DONE: Add high-risk action gating. | Login, OTP, password, CAPTCHA, payment, submit, release, delete, sign, API key, and security actions return `requires_user`. Evidence: `saccade_core::site_policy` unit tests plus MCP selftest. |
 | SP-003 | P1 | Add block evidence artifact. | Blocked site runs write a redacted `block_report.json` with URL, class, error text, request id, and fallback recommendation. |
 | SP-004 | P1 | Add a user-facing fallback copy path. | User can paste redacted text into a local Saccade note and get analysis without exposing the live high-risk page. |
 | SP-005 | P1 | Add allowlist lanes for owned/local apps. | Localhost, file fixtures, and explicitly owned domains can run Green gates without repeated prompts. |
@@ -91,4 +91,3 @@ When Saccade is blocked or the site is high-risk:
 - FTC consumer guidance treats email, banking, tax, payment, and social accounts
   as sensitive accounts where MFA matters:
   https://consumer.ftc.gov/articles/use-two-factor-authentication-protect-your-accounts
-
