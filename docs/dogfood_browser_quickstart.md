@@ -104,16 +104,24 @@ python3 scripts/probe_canvas_reductions.py --preset gradient --repeat 2 --wait-s
 
 - Mouse move, click, and wheel scroll are forwarded into Servo.
 - Keyboard text entry is forwarded into focused inputs.
+- The visible toolbar hit-zones handle Back, Forward, Reload, address command,
+  and current-tab Copilot grant without injecting page DOM.
 - `Cmd+L` opens the address command in the native title bar. Type a URL, press Enter to open it, or press Esc to cancel.
 - `Cmd+R` reloads.
 - `Cmd+[` goes back.
 - `Cmd+]` goes forward.
+- `Cmd+Shift+G` grants the current visible dogfood tab to MCP co-pilot and
+  writes `runs/current_tab_grants/latest.json`. MCP can then attach with
+  `saccade.tabs.grant_current` and navigate that same tab with
+  `saccade.browser.navigate`.
 - For a native `<select>` handoff, use Up/Down and Enter; Esc dismisses.
 
 ## Known limits
 
 - This is a Saccade dogfood shell, not a packaged `.app` yet.
-- There is no clickable address bar or tabs yet; use `Cmd+L` for keyboard URL entry.
+- The toolbar address area is clickable, but it still opens the title-bar
+  address prompt rather than editing text inside the toolbar. Tabs are not
+  implemented yet.
 - File picker, native context menu, clipboard, downloads, and password-manager UX are not implemented.
 - Persistent `--profile-dir` is supported for Saccade-owned session reuse, but there is not yet a friendly profile picker or password-manager flow.
 - Canvas/WebGL-heavy pages can hit current Saccade/Servo canvas/runtime issues on this machine. Full-window Canvas2D can reproduce missing captured layers even without GL warnings. If logs show `GLD_TEXTURE_INDEX_2D is unloadable`, canvas/WebGL is extremely slow, or the page cannot be judged in Saccade, stop that run, record it as a Saccade runtime blocker, and validate with Chrome/reference instead.

@@ -72,8 +72,10 @@ ping plus redacted truth/actions, safe field fill, redacted field inspect, and
 safe non-side-effect act from MCP into the already-open dogfood window. Current
 tab FORMMAX also runs inside the same user-granted dogfood WebView. The
 dogfood browser now has a visible native toolbar v0 with shell-consumed
-Back/Forward/Reload/address/Copilot hit-zones. Submit and other side-effect
-actions still require user confirmation.
+Back/Forward/Reload/address/Copilot hit-zones. MCP also exposes
+`saccade.browser.navigate` for status/navigate/reload/back/forward on an
+already-granted same-WebView dogfood tab. Submit and other side-effect actions
+still require user confirmation.
 
 ## Next Gate: N8 Current Tab Co-Pilot
 
@@ -91,7 +93,7 @@ Latest evidence:
 
 ```text
 CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_truth=true agent_explains_page=true non_sensitive_filled=true sensitive_write_blocked=true sensitive_values_exposed=false confirmation_required=true replay=runs/browser_session_worker/worker_1781535424701_32946/replay.jsonl report=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_copilot/copilot_1781535424558/report.json
-MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781578578728/report.json
+MCP PASS tools_registered=21 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781583895286/report.json
 DOGFOOD_GRANT status=granted owner=Human read_grant=FullTruth agent_input_grant=true artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/smoke.json
 SAME_WEBVIEW_CONTROL ok=true same_webview_control_ping=true transport_status=same_webview_control_ping_plus_worker_truth_v0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_control_smoke_1781572417690.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_bridge_smoke.json
 SAME_WEBVIEW_TRUTH_ACTIONS ok=true same_webview_attached=true transport_status=same_webview_control_truth_v0 truth_runtime=saccade-dogfood-control-v0 actions_runtime=saccade-dogfood-control-v0 actions_count=6 report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_truth_actions_smoke_1781575838106.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_truth_actions_smoke.json
@@ -146,8 +148,9 @@ fields, inspects explicitly requested fields with sensitive values masked,
 dispatches safe non-side-effect actions, and runs the long FORMMAX local
 fixture in the user-granted tab. The same control endpoint also exposes
 primitive shell navigation commands (`shell_status`, `navigate`, `reload`,
-`back`, `forward`) for the already-open dogfood window. Submit remains
-user-confirmed.
+`back`, `forward`) for the already-open dogfood window, and MCP wraps those as
+the named `saccade.browser.navigate` tool for already-granted same-WebView
+tabs. Submit remains user-confirmed.
 
 ### Done When
 

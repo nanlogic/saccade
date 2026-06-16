@@ -42,6 +42,16 @@ Updated: 2026-06-15
   - `reload`,
   - `back`,
   - `forward`.
+- MCP now exposes the same already-granted visible-tab shell navigation through
+  `saccade.browser.navigate`:
+  - `status`,
+  - `navigate`,
+  - `reload`,
+  - `back`,
+  - `forward`.
+- The named MCP tool is restricted to Human-owned tabs with explicit agent input
+  grant and a same-WebView dogfood control endpoint; it does not inject DOM into
+  the page.
 
 This is still a first shell stage, not the final browser chrome. It gives dogfood users enough visible state and direct navigation to know where the agent is acting without injecting browser UI into the page.
 
@@ -68,6 +78,12 @@ Same-WebView shell navigation smoke:
 SHELL_NAV PASS runtime=saccade-dogfood-control-v0 initial=current_tab_copilot navigated=formmax reload_changed=true back_changed=true forward_changed=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_shell_nav_smoke_1781579239152.json grant=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_shell_nav_smoke.json
 ```
 
+MCP named browser navigation gate:
+
+```text
+MCP PASS tools_registered=21 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781583895286/report.json
+```
+
 Visible toolbar smoke screenshot:
 
 ```text
@@ -85,9 +101,9 @@ runs/browser_shell/visible_toolbar_file_smoke.png
 - More polished visible chrome affordance for focus recovery and active shell
   mode.
 - Error state beyond load-state text.
-- MCP-facing named browser navigation tool; the dogfood endpoint has the
-  primitive commands, but the public MCP tool surface still needs product API
-  design.
+- `saccade.browser.navigate` is v0 and intentionally only targets already
+  granted same-WebView dogfood tabs; broader browser/session routing is still a
+  product API question.
 
 Ledger: BP-003 is partially mitigated by the native clickable toolbar v0 and
 remains `investigating` until the final non-obscuring browser chrome exists.

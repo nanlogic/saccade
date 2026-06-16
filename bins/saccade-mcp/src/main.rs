@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command as ProcessCommand, Stdio};
 use std::thread;
@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 20;
+const REQUIRED_TOOL_COUNT: usize = 21;
 
 #[derive(Parser)]
 #[command(name = "saccade-mcp")]
@@ -35,6 +35,7 @@ enum Command {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum ToolNamespace {
+    Browser,
     Dev,
     Tabs,
     Web,
@@ -97,6 +98,7 @@ struct SelftestEvidence {
     browser_backed_tabs: bool,
     tabs_grant_current: bool,
     tabs_grant_artifact: bool,
+    browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -226,6 +228,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.browser_backed_tabs
         && stdio_evidence.tabs_grant_current
         && stdio_evidence.tabs_grant_artifact
+        && stdio_evidence.browser_navigate
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
         && stdio_evidence.web_act
@@ -254,6 +257,7 @@ fn selftest() -> Result<()> {
         browser_backed_tabs: stdio_evidence.browser_backed_tabs,
         tabs_grant_current: stdio_evidence.tabs_grant_current,
         tabs_grant_artifact: stdio_evidence.tabs_grant_artifact,
+        browser_navigate: stdio_evidence.browser_navigate,
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
@@ -350,6 +354,15 @@ fn registry() -> ToolRegistry {
                 "Fetch a compact development audit report by run ID.",
                 true,
                 false,
+                true,
+            ),
+            tool(
+                "saccade.browser.navigate",
+                ToolNamespace::Browser,
+                ToolRisk::PolicyGated,
+                "Run browser-shell navigation on an already-granted visible Saccade dogfood tab.",
+                true,
+                true,
                 true,
             ),
             tool(
@@ -574,6 +587,7 @@ struct JsonRpcEvidence {
     browser_backed_tabs: bool,
     tabs_grant_current: bool,
     tabs_grant_artifact: bool,
+    browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -821,6 +835,24 @@ fn input_schema(name: &str) -> Value {
             },
             "additionalProperties": false
         }),
+        "saccade.browser.navigate" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "action": {"type": "string", "enum": ["status", "navigate", "reload", "back", "forward"]},
+                "url": {"type": "string"},
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "same_webview_only": {"type": "boolean", "const": true},
+                        "user_granted_tab_only": {"type": "boolean", "const": true}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["tab_id", "action"],
+            "additionalProperties": false
+        }),
         "saccade.tabs.open" => json!({
             "type": "object",
             "properties": {
@@ -994,6 +1026,7 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         }
         "saccade.dev.fill_smoke_form" => dev_fill_smoke_form_tool(arguments),
         "saccade.dev.get_report" => dev_get_report_tool(arguments),
+        "saccade.browser.navigate" => browser_navigate_tool(state, arguments),
         "saccade.tabs.list" => tabs_list_tool(state),
         "saccade.tabs.open" => tabs_open_tool(state, arguments),
         "saccade.tabs.request_user_login" => tabs_request_user_login_tool(state, arguments),
@@ -1230,6 +1263,84 @@ fn dev_click_all_primary_actions_tool(
 
 fn dev_fill_smoke_form_tool(arguments: Value) -> Result<Value> {
     web_fill_form_static_tool(arguments)
+}
+
+fn browser_navigate_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    let action = arguments
+        .get("action")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field action")?;
+    if let Some(policy) = arguments.get("policy") {
+        if policy
+            .get("same_webview_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.browser.navigate requires same_webview_only=true");
+        }
+        if policy
+            .get("user_granted_tab_only")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.browser.navigate requires user_granted_tab_only=true");
+        }
+    }
+    let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() else {
+        bail!("saccade.browser.navigate requires a same-WebView dogfood control tab");
+    };
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    if tab.info.owner != TabOwner::Human || !tab.agent_input_grant {
+        bail!("saccade.browser.navigate requires a user-granted Human current tab");
+    }
+    if tab.paused {
+        bail!("agent is paused for tab_id {}", tab_id.0);
+    }
+
+    let (method, params) = match action {
+        "status" => ("shell_status", json!({})),
+        "reload" => ("reload", json!({})),
+        "back" => ("back", json!({})),
+        "forward" => ("forward", json!({})),
+        "navigate" => {
+            let url = arguments
+                .get("url")
+                .and_then(Value::as_str)
+                .context("saccade.browser.navigate action=navigate requires string field url")?;
+            let url = Url::parse(url)
+                .with_context(|| format!("invalid browser navigation URL: {url}"))?;
+            ("navigate", json!({ "url": url.as_str() }))
+        }
+        other => bail!("unsupported browser navigation action {other:?}"),
+    };
+
+    let shell_result = call_dogfood_control(&endpoint, method, params)?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &shell_result);
+    }
+    let tab = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+    Ok(json!({
+        "status": "ok",
+        "summary": format!("browser shell {action} dispatched through same dogfood WebView"),
+        "runtime": tab_runtime(state, tab_id),
+        "tab_id": tab_id.0,
+        "action": action,
+        "url": tab.info.url,
+        "title": tab.info.title,
+        "page_revision": tab.info.page_revision,
+        "changed": shell_result.get("changed").cloned().unwrap_or(Value::Null),
+        "shell": shell_result,
+        "policy": {
+            "same_webview_only": true,
+            "user_granted_tab_only": true,
+            "page_dom_injected": false,
+        },
+    }))
 }
 
 #[derive(Debug, Clone)]
@@ -1469,7 +1580,7 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "same_webview_control": same_webview_control,
         "same_webview_attached": attached_via_control,
         "same_webview_capabilities": if attached_via_control {
-            json!(["ping", "shell_status", "navigate", "back", "forward", "reload", "truth", "actions", "fill_agent_fields", "inspect_fields", "act", "formmax_live_fill"])
+            json!(["ping", "shell_status", "saccade.browser.navigate", "navigate", "back", "forward", "reload", "truth", "actions", "fill_agent_fields", "inspect_fields", "act", "formmax_live_fill"])
         } else {
             json!([])
         },
@@ -2966,6 +3077,205 @@ fn tool_text_summary(structured: &Value) -> String {
         .to_string()
 }
 
+fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
+    let mut denied_state = McpSessionState::default();
+    denied_state.tabs.push(SessionTab {
+        info: tab(
+            2,
+            TabOwner::Agent,
+            ReadGrant::FullTruth,
+            "https://example.test/agent",
+            "Agent Tab",
+        ),
+        paused: false,
+        agent_input_grant: false,
+        grant_reason: None,
+        last_engine: None,
+        last_summary: None,
+        last_report_path: None,
+        last_replay_path: None,
+        last_actions: Vec::new(),
+        last_findings: Vec::new(),
+    });
+    denied_state.dogfood_controls.insert(
+        2,
+        DogfoodControlEndpoint {
+            host: "127.0.0.1".to_string(),
+            port: 1,
+            protocol: "saccade-dogfood-control-v0".to_string(),
+        },
+    );
+    let denied_without_grant = handle_json_rpc(
+        &mut denied_state,
+        JsonRpcRequest {
+            id: Some(json!(210)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.browser.navigate",
+                "arguments": {
+                    "tab_id": 2,
+                    "action": "reload",
+                    "policy": {
+                        "same_webview_only": true,
+                        "user_granted_tab_only": true
+                    }
+                }
+            }),
+        },
+    )
+    .and_then(|response| {
+        response
+            .get("error")
+            .and_then(|error| error.get("data"))
+            .and_then(Value::as_str)
+            .map(|detail| detail.contains("user-granted Human current tab"))
+    })
+    .unwrap_or(false);
+
+    let (endpoint, handle) = spawn_fake_dogfood_control_once(
+        "navigate",
+        json!({
+            "status": "ok",
+            "runtime": "saccade-dogfood-control-v0",
+            "engine": "saccade-dogfood-control-shell-navigate-v0",
+            "summary": "fake shell navigate completed",
+            "same_webview_control": true,
+            "rendering_profile": "servo-modern",
+            "renderer_engine": "servo",
+            "servo_grid_enabled": true,
+            "url": "https://example.test/after",
+            "title": "After Navigate",
+            "load_state": "complete",
+            "page_revision": 9,
+            "can_go_back": true,
+            "can_go_forward": false,
+            "copilot_granted": true,
+            "changed": true,
+            "toolbar": {
+                "visible": true,
+                "clickable": true,
+                "page_dom_injected": false
+            },
+            "artifacts": {
+                "report": null,
+                "replay": null
+            }
+        }),
+    )?;
+
+    let mut state = McpSessionState::default();
+    state.tabs.push(SessionTab {
+        info: tab(
+            1,
+            TabOwner::Human,
+            ReadGrant::FullTruth,
+            "https://example.test/before",
+            "Before Navigate",
+        ),
+        paused: false,
+        agent_input_grant: true,
+        grant_reason: Some("fake dogfood browser navigation selftest".into()),
+        last_engine: None,
+        last_summary: None,
+        last_report_path: None,
+        last_replay_path: None,
+        last_actions: Vec::new(),
+        last_findings: Vec::new(),
+    });
+    state.dogfood_controls.insert(1, endpoint);
+
+    let response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(211)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.browser.navigate",
+                "arguments": {
+                    "tab_id": 1,
+                    "action": "navigate",
+                    "url": "https://example.test/after",
+                    "policy": {
+                        "same_webview_only": true,
+                        "user_granted_tab_only": true
+                    }
+                }
+            }),
+        },
+    );
+
+    let server_ok = handle.join().unwrap_or(false);
+    let content_ok = response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+        })
+        .is_some_and(|content| {
+            content.get("status").and_then(Value::as_str) == Some("ok")
+                && content.get("runtime").and_then(Value::as_str)
+                    == Some("saccade-dogfood-control-v0")
+                && content.get("action").and_then(Value::as_str) == Some("navigate")
+                && content.get("url").and_then(Value::as_str) == Some("https://example.test/after")
+                && content.get("changed").and_then(Value::as_bool) == Some(true)
+                && content
+                    .pointer("/policy/page_dom_injected")
+                    .and_then(Value::as_bool)
+                    == Some(false)
+        });
+    let tab_ok = state.find_tab(TabId(1)).is_some_and(|tab| {
+        tab.info.url == "https://example.test/after"
+            && tab.info.title.as_deref() == Some("After Navigate")
+            && tab.info.page_revision == 9
+    });
+
+    Ok(denied_without_grant && server_ok && content_ok && tab_ok)
+}
+
+fn spawn_fake_dogfood_control_once(
+    expected_method: &'static str,
+    response_result: Value,
+) -> Result<(DogfoodControlEndpoint, thread::JoinHandle<bool>)> {
+    let listener =
+        TcpListener::bind("127.0.0.1:0").context("failed to bind fake dogfood control")?;
+    let addr = listener
+        .local_addr()
+        .context("failed to read fake dogfood control addr")?;
+    let handle = thread::spawn(move || {
+        let Ok((mut stream, _peer)) = listener.accept() else {
+            return false;
+        };
+        let Ok(reader_stream) = stream.try_clone() else {
+            return false;
+        };
+        let mut line = String::new();
+        if BufReader::new(reader_stream).read_line(&mut line).is_err() {
+            return false;
+        }
+        let Ok(request) = serde_json::from_str::<Value>(&line) else {
+            return false;
+        };
+        if request.get("method").and_then(Value::as_str) != Some(expected_method) {
+            return false;
+        }
+        let response = json!({
+            "id": request.get("id").cloned().unwrap_or(Value::Null),
+            "ok": true,
+            "result": response_result,
+        });
+        writeln!(stream, "{response}").is_ok() && stream.flush().is_ok()
+    });
+    Ok((
+        DogfoodControlEndpoint {
+            host: "127.0.0.1".to_string(),
+            port: addr.port(),
+            protocol: "saccade-dogfood-control-v0".to_string(),
+        },
+        handle,
+    ))
+}
+
 fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
     let mut state = McpSessionState::default();
     let initialize = handle_json_rpc(
@@ -3000,6 +3310,8 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
             .map(|tools| tools.len() >= REQUIRED_TOOL_COUNT)
     })
     .unwrap_or(false);
+
+    let browser_navigate = verify_browser_navigate_json_rpc_surface()?;
 
     let local_url =
         start_test_server(workspace_root()?.join("test_pages").join("browser_session"))?;
@@ -3996,6 +4308,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         browser_backed_tabs,
         tabs_grant_current,
         tabs_grant_artifact,
+        browser_navigate,
         web_truth,
         web_actions,
         web_act,

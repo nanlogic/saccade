@@ -801,3 +801,20 @@
 - Latest full MCP selftest:
   `runs/mcp/selftest_1781578578728/report.json`.
 - Next work is browser shell basics and real editor/contenteditable dogfood.
+
+## DECISION_N8_009 - MCP exposes named shell navigation for granted dogfood tabs
+
+- MCP now registers `saccade.browser.navigate` in the `browser` namespace.
+- The tool supports `status`, `navigate`, `reload`, `back`, and `forward` on
+  an already-granted Human-owned current tab that has a same-WebView dogfood
+  control endpoint.
+- The tool refuses non-granted tabs, paused tabs, and tabs without a same-WebView
+  control endpoint. It forwards only to the dogfood shell control plane and does
+  not inject browser UI or action helpers into page DOM.
+- Browser navigation receipts update MCP's session URL, title, and page revision
+  from the shell result, so later truth/action calls have a current basis.
+- Stop remains open because the pinned public Servo/WebView surface used here
+  already exposes reload/back/forward/navigation through our shell, but no
+  product-safe public stop-loading call has been mapped yet.
+- Latest full MCP selftest:
+  `runs/mcp/selftest_1781583895286/report.json`.
