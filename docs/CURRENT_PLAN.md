@@ -72,7 +72,8 @@ ping plus redacted truth/actions, safe field fill, redacted field inspect, and
 safe non-side-effect act from MCP into the already-open dogfood window. Current
 tab FORMMAX also runs inside the same user-granted dogfood WebView. The
 dogfood browser now has a visible native toolbar v0 with shell-consumed
-Back/Forward/Reload/address/Copilot hit-zones. MCP also exposes
+Back/Forward/Reload/address/Copilot hit-zones plus visible shell-owned address
+text/focus state. MCP also exposes
 `saccade.browser.navigate` for status/navigate/reload/back/forward on an
 already-granted same-WebView dogfood tab. Submit and other side-effect actions
 still require user confirmation.
@@ -164,7 +165,7 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 
-1. Browser shell basics: toolbar URL text editing, non-obscuring chrome,
+1. Browser shell basics: non-obscuring chrome, platform-quality toolbar polish,
    visible Human/Agent badge. Stop is parked until a public ServoShell/newer
    Servo/fork hook exists.
 2. Editor/contenteditable gate: Gist-like editor and forum composer.

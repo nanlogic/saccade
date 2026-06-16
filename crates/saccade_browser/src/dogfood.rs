@@ -45,6 +45,7 @@ const SHELL_TOOLBAR_MARGIN: f32 = 8.0;
 const SHELL_TOOLBAR_BUTTON: f32 = 32.0;
 const SHELL_TOOLBAR_GAP: f32 = 6.0;
 const SHELL_TOOLBAR_GRANT_WIDTH: f32 = 104.0;
+const SHELL_TOOLBAR_TEXT_PX: f32 = 2.0;
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
@@ -786,35 +787,228 @@ impl DogfoodBrowserState {
         );
         let status_color = match self.load_state.get() {
             BrowserLoadState::Starting | BrowserLoadState::Loading => {
-                ToolbarColor(0.95, 0.62, 0.18, 1.0)
+                Some(ToolbarColor(0.95, 0.62, 0.18, 1.0))
             }
-            BrowserLoadState::HeadParsed => ToolbarColor(0.32, 0.53, 0.92, 1.0),
-            BrowserLoadState::Complete => ToolbarColor(0.14, 0.62, 0.44, 1.0),
+            BrowserLoadState::HeadParsed => Some(ToolbarColor(0.32, 0.53, 0.92, 1.0)),
+            BrowserLoadState::Complete => None,
         };
+        if let Some(status_color) = status_color {
+            fill_logical_rect(
+                gl,
+                physical_size,
+                scale,
+                ToolbarRect {
+                    x: rect.x + 2.0,
+                    y: rect.y + rect.height - 3.0,
+                    width: (rect.width - 4.0).max(0.0),
+                    height: 2.0,
+                },
+                status_color,
+            );
+        }
+        let is_secure = self
+            .address_entry
+            .borrow()
+            .as_deref()
+            .map(|input| input.trim_start().starts_with("https://"))
+            .unwrap_or_else(|| self.current_url.borrow().as_str().starts_with("https://"));
+        if is_secure {
+            self.draw_lock_icon(
+                gl,
+                physical_size,
+                scale,
+                ToolbarRect {
+                    x: rect.x + 7.0,
+                    y: rect.y + 8.0,
+                    width: 14.0,
+                    height: 16.0,
+                },
+                if active {
+                    ToolbarColor(0.10, 0.36, 0.20, 1.0)
+                } else {
+                    ToolbarColor(0.26, 0.48, 0.34, 1.0)
+                },
+            );
+        } else {
+            self.draw_search_icon(
+                gl,
+                physical_size,
+                scale,
+                ToolbarRect {
+                    x: rect.x + 7.0,
+                    y: rect.y + 8.0,
+                    width: 14.0,
+                    height: 16.0,
+                },
+                ToolbarColor(0.40, 0.45, 0.52, 1.0),
+            );
+        }
+        let entry = self.address_entry.borrow().clone();
+        let current_url = self.current_url.borrow().to_string();
+        let (raw_text, text_color, placeholder) = if let Some(entry) = entry.as_deref() {
+            (
+                entry,
+                if error {
+                    ToolbarColor(0.74, 0.12, 0.14, 1.0)
+                } else {
+                    ToolbarColor(0.09, 0.12, 0.18, 1.0)
+                },
+                false,
+            )
+        } else if current_url.trim().is_empty() || current_url == "about:blank" {
+            (
+                "Search or enter website name",
+                ToolbarColor(0.45, 0.49, 0.56, 1.0),
+                true,
+            )
+        } else {
+            (
+                current_url.as_str(),
+                ToolbarColor(0.16, 0.19, 0.25, 1.0),
+                false,
+            )
+        };
+        let text_x = rect.x + 27.0;
+        let text_y = rect.y + (rect.height - 7.0 * SHELL_TOOLBAR_TEXT_PX) / 2.0;
+        let max_text_width = (rect.width - 42.0).max(0.0);
+        let display_text = fit_toolbar_text(raw_text, max_text_width, SHELL_TOOLBAR_TEXT_PX);
+        let text_end = draw_toolbar_text(
+            gl,
+            physical_size,
+            scale,
+            text_x,
+            text_y,
+            &display_text,
+            SHELL_TOOLBAR_TEXT_PX,
+            text_color,
+        );
+        if active && !placeholder {
+            let caret_x = text_end.min(rect.x + rect.width - 10.0);
+            fill_logical_rect(
+                gl,
+                physical_size,
+                scale,
+                ToolbarRect {
+                    x: caret_x + 1.0,
+                    y: text_y,
+                    width: 2.0,
+                    height: 7.0 * SHELL_TOOLBAR_TEXT_PX,
+                },
+                if error {
+                    ToolbarColor(0.74, 0.12, 0.14, 1.0)
+                } else {
+                    ToolbarColor(0.20, 0.44, 0.88, 1.0)
+                },
+            );
+        }
+    }
+
+    fn draw_search_icon(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+        color: ToolbarColor,
+    ) {
         fill_logical_rect(
             gl,
             physical_size,
             scale,
             ToolbarRect {
-                x: rect.x + 7.0,
+                x: rect.x + 2.0,
+                y: rect.y + 2.0,
+                width: 8.0,
+                height: 2.0,
+            },
+            color,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 2.0,
+                y: rect.y + 2.0,
+                width: 2.0,
+                height: 8.0,
+            },
+            color,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 8.0,
+                y: rect.y + 2.0,
+                width: 2.0,
+                height: 8.0,
+            },
+            color,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 2.0,
+                y: rect.y + 8.0,
+                width: 8.0,
+                height: 2.0,
+            },
+            color,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 10.0,
                 y: rect.y + 10.0,
-                width: 12.0,
-                height: 12.0,
+                width: 5.0,
+                height: 2.0,
             },
-            status_color,
+            color,
         );
-        fill_logical_rect(
-            gl,
-            physical_size,
-            scale,
+    }
+
+    fn draw_lock_icon(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+        color: ToolbarColor,
+    ) {
+        for segment in [
             ToolbarRect {
-                x: rect.x + 26.0,
-                y: rect.y + 14.0,
-                width: (rect.width - 38.0).max(0.0),
-                height: 4.0,
+                x: rect.x + 4.0,
+                y: rect.y + 1.0,
+                width: 6.0,
+                height: 2.0,
             },
-            ToolbarColor(0.74, 0.78, 0.84, 1.0),
-        );
+            ToolbarRect {
+                x: rect.x + 2.0,
+                y: rect.y + 3.0,
+                width: 2.0,
+                height: 5.0,
+            },
+            ToolbarRect {
+                x: rect.x + 10.0,
+                y: rect.y + 3.0,
+                width: 2.0,
+                height: 5.0,
+            },
+            ToolbarRect {
+                x: rect.x + 2.0,
+                y: rect.y + 8.0,
+                width: 10.0,
+                height: 7.0,
+            },
+        ] {
+            fill_logical_rect(gl, physical_size, scale, segment, color);
+        }
     }
 
     fn draw_grant_button(
@@ -1999,7 +2193,7 @@ impl DogfoodBrowserState {
         json!({
             "visible": true,
             "clickable": true,
-            "draw_mode": "native_gl_scissor_overlay_v0",
+            "draw_mode": "native_gl_toolbar_text_v1",
             "page_dom_injected": false,
             "webview_resized_for_toolbar": false,
             "height_css_px": SHELL_TOOLBAR_HEIGHT,
@@ -2381,6 +2575,299 @@ fn toolbar_glyph_color(enabled: bool) -> ToolbarColor {
         ToolbarColor(0.11, 0.14, 0.19, 1.0)
     } else {
         ToolbarColor(0.58, 0.62, 0.68, 1.0)
+    }
+}
+
+fn draw_toolbar_text(
+    gl: &glow::Context,
+    physical_size: PhysicalSize<u32>,
+    scale: f32,
+    x: f32,
+    y: f32,
+    text: &str,
+    pixel: f32,
+    color: ToolbarColor,
+) -> f32 {
+    let mut cursor_x = x;
+    for ch in text.chars() {
+        let pattern = toolbar_glyph_pattern(ch);
+        for (row_index, row) in pattern.iter().enumerate() {
+            for (column_index, column) in row.chars().enumerate() {
+                if column != '#' {
+                    continue;
+                }
+                fill_logical_rect(
+                    gl,
+                    physical_size,
+                    scale,
+                    ToolbarRect {
+                        x: cursor_x + column_index as f32 * pixel,
+                        y: y + row_index as f32 * pixel,
+                        width: pixel,
+                        height: pixel,
+                    },
+                    color,
+                );
+            }
+        }
+        cursor_x += toolbar_char_advance(ch, pixel);
+    }
+    cursor_x
+}
+
+fn fit_toolbar_text(text: &str, max_width: f32, pixel: f32) -> String {
+    if max_width <= 0.0 || pixel <= 0.0 {
+        return String::new();
+    }
+
+    let normalized = normalize_toolbar_text(text);
+    if toolbar_text_width(&normalized, pixel) <= max_width {
+        return normalized;
+    }
+
+    let ellipsis = "...";
+    let ellipsis_width = toolbar_text_width(ellipsis, pixel);
+    if ellipsis_width > max_width {
+        let mut dots = String::new();
+        while toolbar_text_width(&(dots.clone() + "."), pixel) <= max_width {
+            dots.push('.');
+        }
+        return dots;
+    }
+
+    let mut fitted = String::new();
+    let mut fitted_width = 0.0;
+    for ch in normalized.chars() {
+        let next_width = toolbar_char_advance(ch, pixel);
+        if fitted_width + next_width + ellipsis_width > max_width {
+            break;
+        }
+        fitted.push(ch);
+        fitted_width += next_width;
+    }
+    fitted.push_str(ellipsis);
+    fitted
+}
+
+fn normalize_toolbar_text(text: &str) -> String {
+    let mut normalized = String::new();
+    let mut previous_space = false;
+    for ch in text.trim().chars() {
+        let ch = if ch.is_control() || ch.is_whitespace() {
+            ' '
+        } else {
+            ch
+        };
+        if ch == ' ' {
+            if !previous_space {
+                normalized.push(ch);
+                previous_space = true;
+            }
+            continue;
+        }
+        normalized.push(ch);
+        previous_space = false;
+    }
+    normalized
+}
+
+fn toolbar_text_width(text: &str, pixel: f32) -> f32 {
+    text.chars().map(|ch| toolbar_char_advance(ch, pixel)).sum()
+}
+
+fn toolbar_char_advance(ch: char, pixel: f32) -> f32 {
+    match ch {
+        ' ' => 4.0 * pixel,
+        '.' | ':' | '/' | '-' | '_' => 4.0 * pixel,
+        _ => 6.0 * pixel,
+    }
+}
+
+fn toolbar_glyph_pattern(ch: char) -> [&'static str; 7] {
+    match ch.to_ascii_uppercase() {
+        'A' => [
+            " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #",
+        ],
+        'B' => [
+            "#### ", "#   #", "#   #", "#### ", "#   #", "#   #", "#### ",
+        ],
+        'C' => [
+            " ####", "#    ", "#    ", "#    ", "#    ", "#    ", " ####",
+        ],
+        'D' => [
+            "#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### ",
+        ],
+        'E' => [
+            "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####",
+        ],
+        'F' => [
+            "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#    ",
+        ],
+        'G' => [
+            " ####", "#    ", "#    ", "#  ##", "#   #", "#   #", " ####",
+        ],
+        'H' => [
+            "#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #",
+        ],
+        'I' => [
+            "#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "#####",
+        ],
+        'J' => [
+            "#####", "    #", "    #", "    #", "#   #", "#   #", " ### ",
+        ],
+        'K' => [
+            "#   #", "#  # ", "# #  ", "##   ", "# #  ", "#  # ", "#   #",
+        ],
+        'L' => [
+            "#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####",
+        ],
+        'M' => [
+            "#   #", "## ##", "# # #", "# # #", "#   #", "#   #", "#   #",
+        ],
+        'N' => [
+            "#   #", "##  #", "# # #", "#  ##", "#   #", "#   #", "#   #",
+        ],
+        'O' => [
+            " ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### ",
+        ],
+        'P' => [
+            "#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    ",
+        ],
+        'Q' => [
+            " ### ", "#   #", "#   #", "#   #", "# # #", "#  # ", " ## #",
+        ],
+        'R' => [
+            "#### ", "#   #", "#   #", "#### ", "# #  ", "#  # ", "#   #",
+        ],
+        'S' => [
+            " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### ",
+        ],
+        'T' => [
+            "#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ",
+        ],
+        'U' => [
+            "#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### ",
+        ],
+        'V' => [
+            "#   #", "#   #", "#   #", "#   #", "#   #", " # # ", "  #  ",
+        ],
+        'W' => [
+            "#   #", "#   #", "#   #", "# # #", "# # #", "## ##", "#   #",
+        ],
+        'X' => [
+            "#   #", "#   #", " # # ", "  #  ", " # # ", "#   #", "#   #",
+        ],
+        'Y' => [
+            "#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  ",
+        ],
+        'Z' => [
+            "#####", "    #", "   # ", "  #  ", " #   ", "#    ", "#####",
+        ],
+        '0' => [
+            " ### ", "#   #", "#  ##", "# # #", "##  #", "#   #", " ### ",
+        ],
+        '1' => [
+            "  #  ", " ##  ", "# #  ", "  #  ", "  #  ", "  #  ", "#####",
+        ],
+        '2' => [
+            " ### ", "#   #", "    #", "   # ", "  #  ", " #   ", "#####",
+        ],
+        '3' => [
+            "#### ", "    #", "    #", " ### ", "    #", "    #", "#### ",
+        ],
+        '4' => [
+            "#   #", "#   #", "#   #", "#####", "    #", "    #", "    #",
+        ],
+        '5' => [
+            "#####", "#    ", "#    ", "#### ", "    #", "    #", "#### ",
+        ],
+        '6' => [
+            " ### ", "#    ", "#    ", "#### ", "#   #", "#   #", " ### ",
+        ],
+        '7' => [
+            "#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   ",
+        ],
+        '8' => [
+            " ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### ",
+        ],
+        '9' => [
+            " ### ", "#   #", "#   #", " ####", "    #", "    #", " ### ",
+        ],
+        ' ' => [
+            "     ", "     ", "     ", "     ", "     ", "     ", "     ",
+        ],
+        '.' => [
+            "     ", "     ", "     ", "     ", "     ", " ##  ", " ##  ",
+        ],
+        ':' => [
+            "     ", " ##  ", " ##  ", "     ", " ##  ", " ##  ", "     ",
+        ],
+        '/' => [
+            "    #", "    #", "   # ", "  #  ", " #   ", "#    ", "#    ",
+        ],
+        '\\' => [
+            "#    ", "#    ", " #   ", "  #  ", "   # ", "    #", "    #",
+        ],
+        '-' => [
+            "     ", "     ", "     ", "#### ", "     ", "     ", "     ",
+        ],
+        '_' => [
+            "     ", "     ", "     ", "     ", "     ", "     ", "#####",
+        ],
+        '?' => [
+            " ### ", "#   #", "    #", "   # ", "  #  ", "     ", "  #  ",
+        ],
+        '&' => [
+            " ##  ", "#  # ", "# #  ", " ##  ", "# # #", "#  # ", " ## #",
+        ],
+        '=' => [
+            "     ", "#####", "     ", "#####", "     ", "     ", "     ",
+        ],
+        '%' => [
+            "##  #", "## # ", "  #  ", " #   ", "#  ##", "#  ##", "     ",
+        ],
+        '#' => [
+            " # # ", "#####", " # # ", " # # ", "#####", " # # ", "     ",
+        ],
+        '+' => [
+            "     ", "  #  ", "  #  ", "#####", "  #  ", "  #  ", "     ",
+        ],
+        '@' => [
+            " ### ", "#   #", "# ###", "# # #", "# ###", "#    ", " ### ",
+        ],
+        '~' => [
+            "     ", "     ", " ## #", "# ## ", "     ", "     ", "     ",
+        ],
+        '\'' => [
+            " ##  ", " ##  ", " #   ", "     ", "     ", "     ", "     ",
+        ],
+        '"' => [
+            "# #  ", "# #  ", "# #  ", "     ", "     ", "     ", "     ",
+        ],
+        ',' => [
+            "     ", "     ", "     ", "     ", " ##  ", " ##  ", " #   ",
+        ],
+        ';' => [
+            "     ", " ##  ", " ##  ", "     ", " ##  ", " ##  ", " #   ",
+        ],
+        '(' => [
+            "   # ", "  #  ", " #   ", " #   ", " #   ", "  #  ", "   # ",
+        ],
+        ')' => [
+            " #   ", "  #  ", "   # ", "   # ", "   # ", "  #  ", " #   ",
+        ],
+        '[' => [
+            " ### ", " #   ", " #   ", " #   ", " #   ", " #   ", " ### ",
+        ],
+        ']' => [
+            " ### ", "   # ", "   # ", "   # ", "   # ", "   # ", " ### ",
+        ],
+        '!' => [
+            "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "     ", "  #  ",
+        ],
+        _ => [
+            " ### ", "#   #", "    #", "   # ", "  #  ", "     ", "  #  ",
+        ],
     }
 }
 
@@ -2809,6 +3296,38 @@ mod tests {
         assert_eq!(payload["control_endpoint"]["host"], "127.0.0.1");
         assert_eq!(payload["control_endpoint"]["port"], 49321);
         assert_eq!(payload["written_unix_ms"], 123);
+    }
+
+    #[test]
+    fn toolbar_text_fit_keeps_short_location_visible() {
+        let text = fit_toolbar_text("https://example.com/", 240.0, SHELL_TOOLBAR_TEXT_PX);
+
+        assert_eq!(text, "https://example.com/");
+    }
+
+    #[test]
+    fn toolbar_text_fit_ellipsizes_long_location() {
+        let text = fit_toolbar_text(
+            "https://example.com/really/long/path/that/will/not/fit",
+            96.0,
+            SHELL_TOOLBAR_TEXT_PX,
+        );
+
+        assert!(text.ends_with("..."));
+        assert!(toolbar_text_width(&text, SHELL_TOOLBAR_TEXT_PX) <= 96.0);
+    }
+
+    #[test]
+    fn toolbar_glyphs_cover_common_location_characters() {
+        for ch in "https://127.0.0.1:4173/path?q=a-b_c".chars() {
+            assert!(
+                toolbar_glyph_pattern(ch)
+                    .iter()
+                    .any(|row| row.contains('#'))
+                    || ch == ' ',
+                "missing visible toolbar glyph for {ch:?}"
+            );
+        }
     }
 
     #[test]

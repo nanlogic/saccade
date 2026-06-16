@@ -503,6 +503,23 @@
   browser chrome should use an offscreen/compositor or viewport layout so the
   toolbar does not obscure page content.
 
+## DECISION_BROWSER_021 - Address strip text is shell-owned, not page DOM
+
+- Upgraded the native dogfood toolbar address strip from a status/hit-zone to a
+  visible shell editor affordance.
+- It now paints URL/placeholder text, secure/search icon, active focus/error
+  state, caret, and loading indicator directly through the shell GL overlay.
+- This intentionally avoids injecting browser chrome into page DOM, CSS, or JS,
+  preserving page truth/action maps for agent work.
+- Verification:
+  `cargo test -p saccade_browser toolbar`,
+  `cargo test -p saccade_browser shell_title`,
+  `cargo check -p saccade_browser -p saccade-shell`, and visual smoke
+  `runs/browser_shell/toolbar_address_text_v1.png`.
+- Known limitation: the current text renderer is a small GL bitmap font, good
+  enough for dogfood function but not final platform-quality macOS browser
+  chrome. Track polish separately from the browser/agent truth contract.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over

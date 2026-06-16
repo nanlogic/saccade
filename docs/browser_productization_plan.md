@@ -98,13 +98,17 @@ Current state:
 - Page mouse press now recovers from active address-entry/select shell modes and still forwards the click to Servo.
 - Native toolbar overlay v0 now shows and consumes hit-zones for Back,
   Forward, Reload, address command, and Copilot grant without injecting DOM.
+- The toolbar address strip now paints shell-owned URL/placeholder text,
+  secure/search icon, active focus/error state, caret, and a loading indicator
+  line without injecting DOM into the page.
 - MCP now exposes named shell navigation as `saccade.browser.navigate` for
   already-granted same-WebView dogfood tabs, covering
   status/navigate/reload/back/forward and updating session URL/title/revision
   from shell receipts.
-- Not done: toolbar-internal URL text editing, non-obscuring
-  compositor/viewport chrome, and visible focus-recovery polish. Stop behavior
-  is parked because pinned Servo `0.2.0` has no mapped public stop-loading API.
+- Not done: non-obscuring compositor/viewport chrome, platform-quality toolbar
+  text/control polish, and visible focus-recovery/Human-Agent state polish. Stop
+  behavior is parked because pinned Servo `0.2.0` has no mapped public
+  stop-loading API.
 
 ### P2 - CSS Layout Compatibility
 
@@ -191,7 +195,7 @@ Canonical active queue: `docs/CURRENT_ACTION_ITEMS.md`.
 | --- | --- | --- | --- |
 | BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Fixed for the local fixture: after strict local form CSS, 390px `form_controls` has Chrome hit-test `8/8` and max click escape `1.0px` | Keep as regression |
 | BP-002 | Native form controls have large rect deltas versus Chrome | Width modes report: auto input/textarea stay about `136.5px` in Saccade while Chrome expands to `302-440px`; `width:100%` makes rect widths match | Use `width:100%` plus `min-width:0` in Saccade-owned forms; route third-party pages by measured action safety |
-| BP-003 | Browser shell lacks product-grade browser chrome | Native toolbar overlay v0 landed: visible shell hit-zones for Back, Forward, Reload, address command, and Copilot grant; MCP named shell navigation is exposed as `saccade.browser.navigate`; Stop API proof found no pinned public Servo stop-loading hook; title bar still shows/edit URL state. See `docs/browser_shell_basics_report.md` | Add toolbar-internal URL text editing and non-obscuring compositor/viewport chrome; revisit Stop only through official ServoShell/newer Servo/fork hook |
+| BP-003 | Browser shell lacks product-grade browser chrome | Native toolbar overlay now has visible shell hit-zones plus URL/placeholder text, focus/error/caret state, secure/search icon, and Copilot grant without page DOM injection; MCP named shell navigation is exposed as `saccade.browser.navigate`; Stop API proof found no pinned public Servo stop-loading hook. See `docs/browser_shell_basics_report.md` | Add non-obscuring compositor/viewport chrome and platform-quality address bar polish; revisit Stop only through official ServoShell/newer Servo/fork hook |
 | BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Local editor reduction passes with route `usable_ignore_hidden_backing_fields`: visible contenteditable and CodeMirror-like shell have positive rects; hidden backing fields produce `zero_rect_count=2`; sensitive textarea is counted without value leakage | Inspect authenticated real Gist again and route if the writable body remains zero-rect |
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |

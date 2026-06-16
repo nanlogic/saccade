@@ -1,7 +1,7 @@
 # Browser Shell Basics Report
 
 Date: 2026-06-14
-Updated: 2026-06-15
+Updated: 2026-06-16
 
 ## What Changed
 
@@ -22,12 +22,20 @@ Updated: 2026-06-15
   - Back,
   - Forward,
   - Reload,
-  - address command hit-zone,
+  - address command with visible URL/placeholder text,
   - Copilot grant hit-zone.
+- The toolbar address strip now paints shell-owned state without page DOM:
+  - secure/search icon,
+  - current URL or placeholder,
+  - active edit text,
+  - invalid-entry color,
+  - caret,
+  - loading indicator line.
 - Toolbar clicks are consumed by the shell and are not forwarded into the page,
   so page truth/action maps stay free of injected toolbar DOM.
 - Address command mode keeps page layout untouched:
-  - type a URL in the title bar prompt,
+  - click the address strip or press `Cmd+L`,
+  - type a URL in the shell address editor,
   - bare domains such as `ign.com` become `https://ign.com`,
   - localhost-style inputs such as `localhost:3000` become `http://localhost:3000`,
   - Enter opens the URL,
@@ -61,6 +69,7 @@ Commands:
 
 ```sh
 cargo test -p saccade_browser shell_title
+cargo test -p saccade_browser toolbar
 cargo check -p saccade-shell
 cargo run -p saccade-shell -- browse --url https://example.com --width 900 --height 650 --smoke-seconds 2 --rendering-profile servo-modern
 RUST_LOG=error cargo run -q -p saccade-shell -- browse --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/current_tab_copilot/index.html --width 900 --height 650 --smoke-seconds 8 --rendering-profile servo-modern
@@ -93,13 +102,14 @@ runs/browser_shell/visible_toolbar_file_smoke.png
 ## Still Open
 
 - Stop button and final loading/stop behavior.
-- URL text is still edited through the title-bar address prompt; the toolbar
-  address strip is a clickable hit-zone, not a fully painted text editor yet.
 - The v0 toolbar overlays the top 44 CSS px of page content. A final browser
   chrome should use a compositor/viewport arrangement that does not obscure the
   page.
-- More polished visible chrome affordance for focus recovery and active shell
-  mode.
+- Platform-quality visible chrome polish is still open. The current address
+  text is a shell-owned GL bitmap renderer so it stays page-DOM isolated, but it
+  is not yet a native macOS/Safari-quality text field.
+- More polished visible chrome affordance for focus recovery, Human/Agent state,
+  and active shell mode.
 - Error state beyond load-state text.
 - `saccade.browser.navigate` is v0 and intentionally only targets already
   granted same-WebView dogfood tabs; broader browser/session routing is still a
