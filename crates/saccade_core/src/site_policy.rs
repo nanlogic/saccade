@@ -82,6 +82,10 @@ impl SitePolicy {
 }
 
 pub fn classify_site_url(url: &str) -> SitePolicy {
+    classify_site_url_with_owned_domains(url, &[])
+}
+
+pub fn classify_site_url_with_owned_domains(url: &str, owned_domains: &[String]) -> SitePolicy {
     let Ok(parsed) = Url::parse(url) else {
         return SitePolicy::yellow(
             "unknown_url",
@@ -237,6 +241,12 @@ pub fn classify_site_url(url: &str) -> SitePolicy {
             "Research is okay; checkout, booking, payment, cancellation, or refund need user action",
         );
     }
+    if host_matches_owned_domain(host, owned_domains) {
+        return SitePolicy::green(
+            "owned_domain",
+            "Explicitly allowlisted owned domain; high-risk site classes still take precedence",
+        );
+    }
 
     SitePolicy::green(
         "public_or_unknown_low_risk",
@@ -365,6 +375,13 @@ fn host_matches_any(host: &str, domains: &[&str]) -> bool {
     domains.iter().any(|domain| host_matches(host, domain))
 }
 
+fn host_matches_owned_domain(host: &str, owned_domains: &[String]) -> bool {
+    owned_domains.iter().any(|domain| {
+        let domain = normalized_host(domain.trim().trim_start_matches('.'));
+        !domain.is_empty() && host_matches(host, domain)
+    })
+}
+
 fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
@@ -415,5 +432,19 @@ mod tests {
             site_action_requires_user("http://localhost:3000", "act_primary", Some("Preview")),
             None
         );
+    }
+
+    #[test]
+    fn owned_domains_are_green_without_overriding_high_risk() {
+        let owned = vec!["nanmesh.ai".to_string(), "accounts.google.com".to_string()];
+        let owned_policy =
+            classify_site_url_with_owned_domains("https://app.nanmesh.ai/demo", &owned);
+        assert_eq!(owned_policy.level, SiteRiskLevel::Green);
+        assert_eq!(owned_policy.category, "owned_domain");
+
+        let auth_policy =
+            classify_site_url_with_owned_domains("https://accounts.google.com/signin", &owned);
+        assert_eq!(auth_policy.level, SiteRiskLevel::Red);
+        assert_eq!(auth_policy.category, "auth_identity");
     }
 }

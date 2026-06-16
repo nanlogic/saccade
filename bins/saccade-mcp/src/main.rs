@@ -10,8 +10,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use saccade_core::{
-    ReadGrant, TabId, TabInfo, TabOwner, TabVisualMarker, classify_site_url,
-    site_action_requires_user,
+    ReadGrant, SitePolicy, TabId, TabInfo, TabOwner, TabVisualMarker,
+    classify_site_url_with_owned_domains, site_action_requires_user,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1991,6 +1991,25 @@ fn read_grant_from_grant_value(value: Option<&str>) -> Result<ReadGrant> {
             "unsupported read_grant {other:?}; expected full_truth, FullTruth, visible_summary_only, or VisibleSummaryOnly"
         ),
     }
+}
+
+fn classify_site_url(url: &str) -> SitePolicy {
+    let owned_domains = runtime_owned_domains();
+    classify_site_url_with_owned_domains(url, &owned_domains)
+}
+
+fn runtime_owned_domains() -> Vec<String> {
+    std::env::var("SACCADE_OWNED_DOMAINS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|domain| !domain.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn tabs_takeover_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {

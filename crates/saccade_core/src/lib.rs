@@ -16,5 +16,8 @@ pub use model::{
     RenderedTarget, RunCounters, ScoreState, TabId, TabInfo, TabOwner, TabVisualMarker,
     TargetCandidate, TargetEvidence, TargetId, TargetSource, TrackerEvent, VerificationResult,
 };
-pub use site_policy::{SitePolicy, SiteRiskLevel, classify_site_url, site_action_requires_user};
+pub use site_policy::{
+    SitePolicy, SiteRiskLevel, classify_site_url, classify_site_url_with_owned_domains,
+    site_action_requires_user,
+};
 pub use time::{Clock, Ns};

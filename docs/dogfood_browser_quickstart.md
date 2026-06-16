@@ -65,6 +65,18 @@ RUST_LOG=error cargo run -q -p saccade-shell -- inspect-editors --url https://gi
 
 If this reports `route_login_or_non_authoring_page`, the profile has probably not reached the real authoring editor yet.
 
+Mark owned domains as first-party dogfood surfaces:
+
+```bash
+export SACCADE_OWNED_DOMAINS=nanmesh.ai,mythcastera.com,mysterypartynow.com
+RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://nanmesh.ai
+```
+
+The allowlist only changes normal owned sites to `owned_domain` Green in
+Saccade policy reports. It does not override login, government, financial,
+healthcare, cloud-console, payment, legal, security, CAPTCHA, or anti-abuse
+blocks.
+
 Open the pinned-default baseline profile:
 
 ```bash

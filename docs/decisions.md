@@ -95,6 +95,8 @@
 - Implemented the first shared `saccade_core` site/action policy classifier. MCP and the official ServoShell bridge now return `site_policy`; Red sites block agent truth/inspect/actions, and high-risk actions such as login, OTP, CAPTCHA, payment, release, submit, delete, signing, credentials, and security changes require the user.
 - Added redacted block reports for official ServoShell bridge control errors. The bridge writes `control/block_report.json` without screenshots or full page dumps, strips URL query/fragment data, extracts visible request IDs when present, and points the user to the safe fallback path.
 - Added `saccade.report.redacted_note` as the first safe copy/paste fallback path. It accepts user-supplied redacted text, strips obvious emails/long numbers/URL query fragments, writes an AI review prompt artifact, and keeps the agent away from the live high-risk site.
+- Added `SACCADE_OWNED_DOMAINS` as a first-party dogfood allowlist for normal owned sites. The classifier reports these as `owned_domain` Green only after high-risk auth, government, financial, healthcare, cloud, shopping, and social classes have had priority, so it is not an anti-abuse bypass.
+- Added a paste-ready handoff prompt for other Codex sessions in `docs/SACCADE_DOGFOOD_HANDOFF.md`, so web/game/product sessions know when to use Saccade, when to compare with Chrome, and when to route through the redacted fallback packet.
 
 ## N1B - Login handoff
 

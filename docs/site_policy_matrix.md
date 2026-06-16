@@ -70,8 +70,8 @@ When Saccade is blocked or the site is high-risk:
 | SP-002 | P0 | DONE: Add high-risk action gating. | Login, OTP, password, CAPTCHA, payment, submit, release, delete, sign, API key, and security actions return `requires_user`. Evidence: `saccade_core::site_policy` unit tests plus MCP selftest. |
 | SP-003 | P1 | DONE: Add block evidence artifact. | Blocked bridge control runs write a redacted `control/block_report.json` with URL, class, error text, request id, and fallback recommendation. Evidence: `cargo test -p saccade-servoshell block_report`. |
 | SP-004 | P1 | DONE: Add a user-facing fallback copy path. | `saccade.report.redacted_note` creates a local `runs/redacted_notes/note_*/` AI review packet from user-supplied redacted text without live-site access. Evidence: `runs/mcp/selftest_1781645696687/report.json`. |
-| SP-005 | P1 | Add allowlist lanes for owned/local apps. | Localhost, file fixtures, and explicitly owned domains can run Green gates without repeated prompts. |
-| SP-006 | P2 | Add policy docs to the handoff prompt for other sessions. | Other Codex sessions know when to use Saccade and when to fall back. |
+| SP-005 | P1 | DONE: Add allowlist lanes for owned/local apps. | Localhost/file are Green by default; `SACCADE_OWNED_DOMAINS=nanmesh.ai,mythcastera.com` marks owned non-high-risk domains as `owned_domain` Green without overriding auth/financial/government/high-risk classes. Evidence: `cargo test -p saccade_core owned_domains`. |
+| SP-006 | P2 | DONE: Add policy docs to the handoff prompt for other sessions. | `docs/SACCADE_DOGFOOD_HANDOFF.md` includes a paste-ready prompt for other sessions covering Saccade use, risk levels, fallback, and `saccade.report.redacted_note`. |
 
 ## Sources Checked
 

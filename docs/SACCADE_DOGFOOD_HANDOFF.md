@@ -124,3 +124,48 @@ node scripts/run_local_game_reflex_loop.js \
 The command prints `report`, `review`, `replay`, `facts`, and
 `semantic_facts` paths. `review.html` is the first artifact to open for a quick
 human read.
+
+## Prompt For Other Codex Sessions
+
+Give another session this prompt when it needs to dogfood web work through
+Saccade:
+
+```text
+Use Saccade first for local/owned/public low-risk browser checks.
+
+Repo:
+/Users/waynema/Documents/GitHub/SACCADE
+
+Before using Saccade, read:
+- docs/dogfood_browser_quickstart.md
+- docs/site_policy_matrix.md
+- docs/SACCADE_DOGFOOD_HANDOFF.md
+
+Default browser command for owned/local dogfood:
+RUST_LOG=error SACCADE_OWNED_DOMAINS=nanmesh.ai,mythcastera.com,mysterypartynow.com \
+  cargo run -q -p saccade-shell -- browse --url <URL> --width 1440 --height 1000
+
+For exact mainstream rendering, use Chrome/reference as the comparison browser.
+For local game reflex evidence, ask the Saccade session to run
+scripts/run_local_game_reflex_loop.js with --policy visual.
+
+Safety policy:
+- Green: local dev, file fixtures, public docs/pages, owned domains. Saccade can read/click/fill non-sensitive fields.
+- Yellow: logged-in low-risk dashboards, GitHub/Gist/forum drafts. Saccade may draft/fill/check, but submit/publish/delete requires the user.
+- Orange: App Store Connect, cloud consoles, government forms, healthcare, financial, job/reputation workflows. Use Saccade only for redacted analysis/checklists/drafts.
+- Red: login, password, OTP, CAPTCHA, account recovery, payment, legal signature, security settings. Human-only.
+
+Never ask Saccade to bypass anti-bot, CAPTCHA, login, payment, release, signing,
+or security controls.
+
+If a high-risk site blocks Saccade:
+1. Record the visible error/request id if safe.
+2. Do not screenshot sensitive content.
+3. Let the user handle login/submit/payment/release manually in Safari/Chrome/the official app.
+4. If AI help is needed, use saccade.report.redacted_note with user-supplied redacted_text.
+5. Read the generated ai_review_prompt.md and answer with:
+   Risk And Context Assessment
+   Questions For Human
+   Edited Draft
+   Final Human Confirmation Checklist
+```

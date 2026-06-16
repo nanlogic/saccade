@@ -13,7 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use clap::{Parser, Subcommand, ValueEnum};
-use saccade_core::{classify_site_url, site_action_requires_user};
+use saccade_core::{SitePolicy, classify_site_url_with_owned_domains, site_action_requires_user};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -2525,6 +2525,25 @@ fn bridge_current_url(state: &BridgeControlState) -> Result<String> {
         .as_str()
         .unwrap_or("")
         .to_string())
+}
+
+fn classify_site_url(url: &str) -> SitePolicy {
+    let owned_domains = runtime_owned_domains();
+    classify_site_url_with_owned_domains(url, &owned_domains)
+}
+
+fn runtime_owned_domains() -> Vec<String> {
+    std::env::var("SACCADE_OWNED_DOMAINS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|domain| !domain.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn bridge_record_control_success(
