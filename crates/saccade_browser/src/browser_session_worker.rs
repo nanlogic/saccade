@@ -3228,7 +3228,7 @@ pub(crate) fn inspect_fields_script(fields_json: &str) -> String {
     )
 }
 
-const FORMMAX_LIVE_FILL_JS: &str = r##"
+pub(crate) const FORMMAX_LIVE_FILL_JS: &str = r##"
 (() => {
   const fixture = window.__FORMMAX_FIXTURE;
   const module = window.FormmaxFixture;

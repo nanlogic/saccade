@@ -1468,10 +1468,14 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "same_webview_control_ping": same_webview_control_ping,
         "same_webview_control": same_webview_control,
         "same_webview_attached": attached_via_control,
-        "same_webview_capabilities": if attached_via_control { json!(["ping", "truth", "actions"]) } else { json!([]) },
+        "same_webview_capabilities": if attached_via_control {
+            json!(["ping", "truth", "actions", "fill_agent_fields", "inspect_fields", "act", "formmax_live_fill"])
+        } else {
+            json!([])
+        },
         "transport_status": transport_status,
         "transport_note": if attached_via_control {
-            "MCP v0 validates the visible browser grant and reads redacted truth/actions from the same dogfood WebView control endpoint. Fill/act still need the next bridge step."
+            "MCP v0 validates the visible browser grant and routes truth/actions/fill/inspect/act/formmax through the same dogfood WebView control endpoint."
         } else {
             "MCP v0 validates the visible browser grant and can ping the same dogfood WebView control endpoint when present. Truth/actions use a live worker when no control endpoint is available."
         },
@@ -1663,8 +1667,13 @@ fn call_dogfood_control(
     let addr = dogfood_control_socket_addr(endpoint)?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
+    let read_timeout = if method == "formmax_live_fill" {
+        Duration::from_secs(65)
+    } else {
+        Duration::from_secs(5)
+    };
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
+        .set_read_timeout(Some(read_timeout))
         .context("failed to set dogfood control read timeout")?;
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
@@ -2237,8 +2246,10 @@ fn web_fill_form_live_tool(state: &mut McpSessionState, arguments: Value) -> Res
     }
 
     ensure_agent_input_allowed(state, tab_id)?;
-    if !state.browser_workers.contains_key(&tab_id.0) {
-        bail!("live saccade.web.fill_form requires a live browser worker tab");
+    let has_live_session = state.browser_workers.contains_key(&tab_id.0)
+        || state.dogfood_controls.contains_key(&tab_id.0);
+    if !has_live_session {
+        bail!("live saccade.web.fill_form requires a live browser session tab");
     }
     let current_revision = state
         .find_tab(tab_id)
@@ -2253,17 +2264,30 @@ fn web_fill_form_live_tool(state: &mut McpSessionState, arguments: Value) -> Res
         );
     }
 
-    let live_fill = call_browser_worker(
-        state,
-        tab_id,
-        "formmax_live_fill",
-        json!({
-            "policy": {
-                "block_sensitive": true,
-                "local_fixture_only": true,
-            }
-        }),
-    )?;
+    let live_fill = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        call_dogfood_control(
+            &endpoint,
+            "formmax_live_fill",
+            json!({
+                "policy": {
+                    "block_sensitive": true,
+                    "local_fixture_only": true,
+                }
+            }),
+        )?
+    } else {
+        call_browser_worker(
+            state,
+            tab_id,
+            "formmax_live_fill",
+            json!({
+                "policy": {
+                    "block_sensitive": true,
+                    "local_fixture_only": true,
+                }
+            }),
+        )?
+    };
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &live_fill);
     }
@@ -2274,7 +2298,7 @@ fn web_fill_form_live_tool(state: &mut McpSessionState, arguments: Value) -> Res
     Ok(json!({
         "status": "ok",
         "summary": "FORMMAX capacity fixture filled and validated through the live Saccade browser session",
-        "runtime": "browser_session_worker_v0",
+        "runtime": tab_runtime(state, tab_id),
         "engine": live_fill.get("engine").cloned().unwrap_or_else(|| json!("saccade-browser-session-formmax-live-v0")),
         "tab_id": tab_id.0,
         "basis_page_revision": basis_page_revision,
@@ -2285,6 +2309,7 @@ fn web_fill_form_live_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "blocked_sensitive": live_fill.get("blocked_sensitive").cloned().unwrap_or(Value::Null),
         "receipt_verified": live_fill.get("receipt_verified").cloned().unwrap_or(Value::Null),
         "validation_errors": live_fill.get("validation_errors").cloned().unwrap_or(Value::Null),
+        "replay_events": live_fill.get("replay_events").cloned().unwrap_or(Value::Null),
         "receipt": live_fill.get("receipt").cloned().unwrap_or(Value::Null),
         "policy": {
             "block_sensitive": true,
@@ -3856,6 +3881,15 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
             .map(|status| status == "ok")
     })
     .unwrap_or(false);
+
+    // The remaining checks spawn independent runners. Release live Servo workers first so the
+    // macOS GL path is not overloaded by several background WebViews during static FORMMAX.
+    for worker in state.browser_workers.values_mut() {
+        worker.close();
+    }
+    state.browser_workers.clear();
+    state.dogfood_controls.clear();
+
     let dev_fill_smoke_form = handle_json_rpc(
         &mut state,
         JsonRpcRequest {

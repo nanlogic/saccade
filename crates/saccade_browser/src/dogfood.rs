@@ -29,8 +29,8 @@ use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
 use crate::browser_session_worker::{
-    PROBE_JS, action_enabled, action_id_for, action_map, fill_agent_fields_script,
-    inspect_fields_script, probe_changed, sensitive_action_count,
+    FORMMAX_LIVE_FILL_JS, PROBE_JS, action_enabled, action_id_for, action_map,
+    fill_agent_fields_script, inspect_fields_script, probe_changed, sensitive_action_count,
 };
 use crate::{RenderingProfile, RenderingProfileSettings};
 use serde::Deserialize;
@@ -38,6 +38,7 @@ use serde_json::{Value, json};
 
 const DEFAULT_WIDTH: u32 = 1440;
 const DEFAULT_HEIGHT: u32 = 1000;
+const FORMMAX_CONTROL_TIMEOUT: Duration = Duration::from_secs(65);
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
@@ -158,6 +159,13 @@ fn handle_dogfood_control_stream(
         let (respond_to, response_rx) = mpsc::channel();
         let request =
             serde_json::from_str::<DogfoodControlRequest>(&line).map_err(|error| error.to_string());
+        let timeout = request
+            .as_ref()
+            .ok()
+            .and_then(|request| {
+                (request.method == "formmax_live_fill").then_some(FORMMAX_CONTROL_TIMEOUT)
+            })
+            .unwrap_or_else(|| Duration::from_secs(5));
         if tx
             .send(DogfoodControlCommand {
                 request,
@@ -168,7 +176,7 @@ fn handle_dogfood_control_stream(
             return;
         }
         let _ = proxy.send_event(WakerEvent);
-        match response_rx.recv_timeout(Duration::from_secs(5)) {
+        match response_rx.recv_timeout(timeout) {
             Ok(response) => {
                 let _ = writeln!(stream, "{response}");
                 let _ = stream.flush();
@@ -757,11 +765,52 @@ impl DogfoodBrowserState {
             "actions" => self.handle_control_probe(id, DogfoodControlProbeMethod::Actions),
             "fill_agent_fields" => self.handle_control_fill_agent_fields(id, _params),
             "inspect_fields" => self.handle_control_inspect_fields(id, _params),
+            "formmax_live_fill" => self.handle_control_formmax_live_fill(id, _params),
             "act" => self.handle_control_act(id, _params),
             other => json!({
                 "id": id,
                 "ok": false,
                 "error": format!("unknown dogfood control method {other:?}"),
+            }),
+        }
+    }
+
+    fn handle_control_formmax_live_fill(&self, id: Value, params: Value) -> Value {
+        if let Some(policy) = params.get("policy") {
+            if policy
+                .get("block_sensitive")
+                .and_then(Value::as_bool)
+                .is_some_and(|enabled| !enabled)
+            {
+                return json!({
+                    "id": id,
+                    "ok": false,
+                    "error": "formmax_live_fill requires block_sensitive=true",
+                });
+            }
+            if policy
+                .get("local_fixture_only")
+                .and_then(Value::as_bool)
+                .is_some_and(|enabled| !enabled)
+            {
+                return json!({
+                    "id": id,
+                    "ok": false,
+                    "error": "formmax_live_fill requires local_fixture_only=true",
+                });
+            }
+        }
+
+        match self.run_control_script_with_timeout(FORMMAX_LIVE_FILL_JS, FORMMAX_CONTROL_TIMEOUT) {
+            Ok(value) => json!({
+                "id": id,
+                "ok": true,
+                "result": self.control_formmax_live_fill_response(&value),
+            }),
+            Err(error) => json!({
+                "id": id,
+                "ok": false,
+                "error": error,
             }),
         }
     }
@@ -975,6 +1024,14 @@ impl DogfoodBrowserState {
     }
 
     fn run_control_script(&self, script: &'static str) -> std::result::Result<Value, String> {
+        self.run_control_script_with_timeout(script, Duration::from_secs(5))
+    }
+
+    fn run_control_script_with_timeout(
+        &self,
+        script: &'static str,
+        timeout: Duration,
+    ) -> std::result::Result<Value, String> {
         let webview = self
             .webview
             .borrow()
@@ -992,7 +1049,7 @@ impl DogfoodBrowserState {
         });
 
         let started = Instant::now();
-        while started.elapsed() < Duration::from_secs(5) {
+        while started.elapsed() < timeout {
             self.servo.spin_event_loop();
             match rx.try_recv() {
                 Ok(Ok(value)) => {
@@ -1007,7 +1064,7 @@ impl DogfoodBrowserState {
                 }
             }
         }
-        Err("dogfood control probe timed out".into())
+        Err("dogfood control script timed out".into())
     }
 
     fn control_probe_response(&self, probe: &Value, method: DogfoodControlProbeMethod) -> Value {
@@ -1074,6 +1131,78 @@ impl DogfoodBrowserState {
                 "layout_probes": probe.get("layoutProbes").cloned().unwrap_or(Value::Null),
                 "sensitive_fields": sensitive_count,
                 "findings": [],
+            },
+            "artifacts": {
+                "report": null,
+                "replay": null,
+            },
+        })
+    }
+
+    fn control_formmax_live_fill_response(&self, result: &Value) -> Value {
+        let rows = result.get("rows").and_then(Value::as_u64).unwrap_or(0);
+        let pages = result.get("pages").and_then(Value::as_u64).unwrap_or(0);
+        let filled = result.get("filled").and_then(Value::as_u64).unwrap_or(0);
+        let blocked_sensitive = result
+            .get("blocked_sensitive")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let receipt_verified = result
+            .get("receipt_verified")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let validation_errors = result
+            .get("validation_errors")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let replay_events = result
+            .get("replay_events")
+            .and_then(Value::as_u64)
+            .unwrap_or_else(|| {
+                result
+                    .get("events")
+                    .and_then(Value::as_array)
+                    .map(|events| events.len() as u64)
+                    .unwrap_or(0)
+            });
+        let receipt_row_count = result
+            .pointer("/receipt/row_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+
+        if filled > 0 {
+            self.control_page_revision
+                .set(self.control_page_revision.get().saturating_add(1));
+        }
+
+        json!({
+            "status": "ok",
+            "runtime": "saccade-dogfood-control-v0",
+            "engine": "saccade-dogfood-control-formmax-live-v0",
+            "summary": "FORMMAX capacity fixture filled and verified inside the same dogfood WebView",
+            "same_webview_control": true,
+            "rendering_profile": self.rendering_settings.profile.name(),
+            "page_revision": self.control_page_revision.get(),
+            "rows": rows,
+            "pages": pages,
+            "filled": filled,
+            "blocked_sensitive": blocked_sensitive,
+            "receipt_verified": receipt_verified,
+            "validation_errors": validation_errors,
+            "replay_events": replay_events,
+            "receipt": {
+                "row_count": receipt_row_count,
+                "validation": result.pointer("/receipt/validation").cloned().unwrap_or(Value::Null),
+                "sensitive_fields_present": result
+                    .pointer("/receipt/sensitive_fields_present")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            },
+            "policy": {
+                "block_sensitive": true,
+                "local_fixture_only": true,
+                "same_live_tab": true,
+                "values_logged": false,
             },
             "artifacts": {
                 "report": null,
@@ -1744,7 +1873,7 @@ fn current_tab_copilot_grant_payload(
         "mcp_tool": "saccade.tabs.grant_current",
         "control_endpoint": control_endpoint,
         "transport_status": "url_grant_artifact_v0",
-        "note": "MCP v0 should call saccade.tabs.grant_current with this artifact. The control endpoint currently supports same-WebView ping; truth/action transport is still pending.",
+        "note": "MCP v0 should call saccade.tabs.grant_current with this artifact. The control endpoint supports same-WebView truth/actions/fill/inspect/act/formmax.",
         "written_unix_ms": written_unix_ms,
     })
 }

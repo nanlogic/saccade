@@ -730,3 +730,31 @@
   fields rejected=2, sensitive inspected values redacted=2, and Submit remained
   blocked by `user confirmation required`.
 - Next work is current-tab FORMMAX plus browser shell basics for normal users.
+
+## DECISION_N8_008 - Current-tab FORMMAX runs through the same dogfood WebView
+
+- Dogfood control endpoint now supports `formmax_live_fill` in addition to
+  `ping`, `truth`, `actions`, `fill_agent_fields`, `inspect_fields`, and `act`.
+- MCP `saccade.web.fill_form` now treats dogfood control as a live browser
+  session and prefers the same-WebView route when a current-tab grant artifact
+  includes a live `control_endpoint`.
+- The dogfood FORMMAX response returns counts, validation status, and masked
+  sensitive-field presence only. It does not return the filled table values or
+  sensitive values.
+- FORMMAX control timeout is longer than ordinary probes because the local
+  fixture intentionally fills 96 rows across two pages; ordinary truth/action
+  probes keep the short timeout.
+- MCP selftest now explicitly closes live browser workers before spawning the
+  standalone static FORMMAX runner, preventing macOS GL/WebView resource
+  contention during the full selftest sequence.
+- Smoke evidence:
+  `runs/mcp/same_webview_formmax_smoke_1781578030042.json`.
+- Grant artifact:
+  `runs/current_tab_grants/mcp_formmax_live_smoke.json`.
+- Result: `runtime=saccade-dogfood-control-v0`,
+  `engine=saccade-dogfood-control-formmax-live-v0`, rows=96, pages=2,
+  filled=672, blocked_sensitive=3, receipt_verified=true,
+  validation_errors=0, replay_events=2711.
+- Latest full MCP selftest:
+  `runs/mcp/selftest_1781578578728/report.json`.
+- Next work is browser shell basics and real editor/contenteditable dogfood.
