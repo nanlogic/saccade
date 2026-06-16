@@ -90,8 +90,9 @@ Current state:
   grant artifact at `runs/current_tab_grants/latest.json`.
 - Dogfood grant artifacts now include a loopback `control_endpoint`. MCP can
   ping that endpoint and prove it is talking to the same live dogfood WebView.
-  Redacted truth and action-map reads now use that same endpoint when present;
-  safe fill/act still need the next N8 bridge step.
+  Redacted truth, action-map reads, safe agent-owned field fill, redacted field
+  inspect, and safe non-side-effect act now use that same endpoint when present;
+  submit/external side effects still require user confirmation.
 - Mouse Back/Forward buttons now navigate browser history when available.
 - Page mouse press now recovers from active address-entry/select shell modes and still forwards the click to Servo.
 - Not done: clickable editable URL bar, visible clickable Back/Forward/Reload/Stop controls, and visible focus-recovery chrome.

@@ -2489,7 +2489,7 @@ fn formmax_live_fill_response(state: &Rc<WorkerState>, result: &Value) -> Value 
     })
 }
 
-fn probe_changed(before_probe: &Value, after_probe: &Value) -> bool {
+pub(crate) fn probe_changed(before_probe: &Value, after_probe: &Value) -> bool {
     before_probe.get("bodyTextLength") != after_probe.get("bodyTextLength")
         || before_probe.get("bodyChildCount") != after_probe.get("bodyChildCount")
         || before_probe.get("pageRevision") != after_probe.get("pageRevision")
@@ -2649,7 +2649,7 @@ fn action_labels(actions: &[Value]) -> Vec<String> {
     actions.iter().map(probe_action_label).collect()
 }
 
-fn action_id_for(action: &Value) -> String {
+pub(crate) fn action_id_for(action: &Value) -> String {
     let label = probe_action_label(action);
     if label.eq_ignore_ascii_case("submit") {
         "act_submit".into()
@@ -2673,7 +2673,7 @@ fn probe_action_label(action: &Value) -> String {
         .to_string()
 }
 
-fn action_enabled(action: &Value) -> bool {
+pub(crate) fn action_enabled(action: &Value) -> bool {
     !action
         .get("disabled")
         .and_then(Value::as_bool)
@@ -3089,7 +3089,7 @@ fn type_focused_contenteditable_insert_script(text_json: &str) -> String {
     )
 }
 
-fn fill_agent_fields_script(fields_json: &str) -> String {
+pub(crate) fn fill_agent_fields_script(fields_json: &str) -> String {
     format!(
         r#"
 (() => {{
@@ -3156,7 +3156,7 @@ fn fill_agent_fields_script(fields_json: &str) -> String {
     )
 }
 
-fn inspect_fields_script(fields_json: &str) -> String {
+pub(crate) fn inspect_fields_script(fields_json: &str) -> String {
     format!(
         r#"
 (() => {{

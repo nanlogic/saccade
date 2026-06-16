@@ -1862,7 +1862,36 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         );
     }
     ensure_agent_input_allowed(state, tab_id)?;
-    if state.browser_workers.contains_key(&tab_id.0) {
+    if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        let live_act = call_dogfood_control(
+            &endpoint,
+            "act",
+            json!({
+                "action_id": action_id.clone(),
+                "basis_page_revision": basis_page_revision,
+            }),
+        )?;
+        if let Some(tab) = state.find_tab_mut(tab_id) {
+            update_session_tab_from_browser_result(tab, &live_act);
+        }
+        let tab = state
+            .find_tab(tab_id)
+            .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        return Ok(json!({
+            "status": "ok",
+            "summary": "action dispatched through same dogfood WebView",
+            "runtime": tab_runtime(state, tab_id),
+            "tab_id": tab_id.0,
+            "action_id": action_id,
+            "basis_page_revision": basis_page_revision,
+            "new_page_revision": tab.info.page_revision,
+            "verification": live_act.get("verification").cloned().unwrap_or(Value::Null),
+            "artifacts": {
+                "report": tab.last_report_path,
+                "replay": tab.last_replay_path,
+            },
+        }));
+    } else if state.browser_workers.contains_key(&tab_id.0) {
         let live_act = call_browser_worker(
             state,
             tab_id,
@@ -1985,13 +2014,17 @@ fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> 
             .and_then(Value::as_bool)
             .is_some_and(|enabled| !enabled)
         {
-            bail!("saccade.web.fill_agent_fields requires live_worker_only=true");
+            bail!(
+                "saccade.web.fill_agent_fields requires live_worker_only=true for live browser sessions"
+            );
         }
     }
 
     ensure_agent_input_allowed(state, tab_id)?;
-    if !state.browser_workers.contains_key(&tab_id.0) {
-        bail!("saccade.web.fill_agent_fields requires a live browser worker tab");
+    let has_live_session = state.browser_workers.contains_key(&tab_id.0)
+        || state.dogfood_controls.contains_key(&tab_id.0);
+    if !has_live_session {
+        bail!("saccade.web.fill_agent_fields requires a live browser session tab");
     }
     let current_revision = state
         .find_tab(tab_id)
@@ -2006,14 +2039,24 @@ fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> 
         );
     }
 
-    let live_fill = call_browser_worker(
-        state,
-        tab_id,
-        "fill_agent_fields",
-        json!({
-            "fields": Value::Object(fields.clone()),
-        }),
-    )?;
+    let live_fill = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        call_dogfood_control(
+            &endpoint,
+            "fill_agent_fields",
+            json!({
+                "fields": Value::Object(fields.clone()),
+            }),
+        )?
+    } else {
+        call_browser_worker(
+            state,
+            tab_id,
+            "fill_agent_fields",
+            json!({
+                "fields": Value::Object(fields.clone()),
+            }),
+        )?
+    };
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &live_fill);
     }
@@ -2023,7 +2066,7 @@ fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> 
     Ok(json!({
         "status": "ok",
         "summary": "agent-owned non-sensitive fields filled through live Saccade browser session",
-        "runtime": "browser_session_worker_v0",
+        "runtime": tab_runtime(state, tab_id),
         "tab_id": tab_id.0,
         "basis_page_revision": basis_page_revision,
         "new_page_revision": tab.info.page_revision,
@@ -2074,22 +2117,36 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
             .and_then(Value::as_bool)
             .is_some_and(|enabled| !enabled)
         {
-            bail!("saccade.web.inspect_fields requires live_worker_only=true");
+            bail!(
+                "saccade.web.inspect_fields requires live_worker_only=true for live browser sessions"
+            );
         }
     }
 
     ensure_truth_allowed(state, tab_id)?;
-    if !state.browser_workers.contains_key(&tab_id.0) {
-        bail!("saccade.web.inspect_fields requires a live browser worker tab");
+    let has_live_session = state.browser_workers.contains_key(&tab_id.0)
+        || state.dogfood_controls.contains_key(&tab_id.0);
+    if !has_live_session {
+        bail!("saccade.web.inspect_fields requires a live browser session tab");
     }
-    let live_inspect = call_browser_worker(
-        state,
-        tab_id,
-        "inspect_fields",
-        json!({
-            "fields": Value::Array(fields.clone()),
-        }),
-    )?;
+    let live_inspect = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        call_dogfood_control(
+            &endpoint,
+            "inspect_fields",
+            json!({
+                "fields": Value::Array(fields.clone()),
+            }),
+        )?
+    } else {
+        call_browser_worker(
+            state,
+            tab_id,
+            "inspect_fields",
+            json!({
+                "fields": Value::Array(fields.clone()),
+            }),
+        )?
+    };
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &live_inspect);
     }
@@ -2122,7 +2179,7 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
     Ok(json!({
         "status": "ok",
         "summary": "explicit field inspection completed through live Saccade browser session",
-        "runtime": "browser_session_worker_v0",
+        "runtime": tab_runtime(state, tab_id),
         "tab_id": tab_id.0,
         "page_revision": tab.info.page_revision,
         "fields": inspected,

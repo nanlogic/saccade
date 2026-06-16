@@ -707,3 +707,26 @@
   `runtime=saccade-dogfood-control-v0`, with `same_webview_attached=true`,
   `transport_status=same_webview_control_truth_v0`, and `actions_count=6`.
 - Next work is moving safe fill and safe act over the same bridge.
+
+## DECISION_N8_007 - Same-WebView co-pilot bridge can fill, inspect, and safe-act
+
+- Dogfood control endpoint now supports `fill_agent_fields`, `inspect_fields`,
+  and `act`.
+- The fill and inspect methods reuse the browser-session worker's existing
+  field scripts, so agent-owned non-sensitive fields can be filled while
+  sensitive fields are rejected or redacted.
+- MCP `saccade.web.fill_agent_fields` and `saccade.web.inspect_fields` now treat
+  dogfood control as a live browser session, while keeping the existing worker
+  fallback.
+- MCP `saccade.web.act` can dispatch safe non-side-effect actions through the
+  same dogfood WebView. Submit/export/delete/payment/sign/confirm-like actions
+  still stop at the MCP confirmation gate.
+- Smoke evidence:
+  `runs/mcp/same_webview_fill_act_smoke_1781576647007.json`.
+- Grant artifact:
+  `runs/current_tab_grants/mcp_fill_act_smoke.json`.
+- Result: fill, inspect, actions, and safe act all returned
+  `runtime=saccade-dogfood-control-v0`; ordinary fields filled=3, sensitive
+  fields rejected=2, sensitive inspected values redacted=2, and Submit remained
+  blocked by `user confirmation required`.
+- Next work is current-tab FORMMAX plus browser shell basics for normal users.

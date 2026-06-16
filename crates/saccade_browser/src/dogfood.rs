@@ -28,7 +28,10 @@ use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
-use crate::browser_session_worker::{PROBE_JS, action_map, sensitive_action_count};
+use crate::browser_session_worker::{
+    PROBE_JS, action_enabled, action_id_for, action_map, fill_agent_fields_script,
+    inspect_fields_script, probe_changed, sensitive_action_count,
+};
 use crate::{RenderingProfile, RenderingProfileSettings};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -327,6 +330,7 @@ struct DogfoodBrowserState {
     copilot_granted: Cell<bool>,
     copilot_grant_error: RefCell<Option<String>>,
     copilot_grant_path: Option<PathBuf>,
+    control_page_revision: Cell<u64>,
     control_endpoint: DogfoodControlEndpoint,
     control_rx: Receiver<DogfoodControlCommand>,
     active_select: RefCell<Option<ActiveSelect>>,
@@ -751,12 +755,204 @@ impl DogfoodBrowserState {
             }),
             "truth" => self.handle_control_probe(id, DogfoodControlProbeMethod::Truth),
             "actions" => self.handle_control_probe(id, DogfoodControlProbeMethod::Actions),
+            "fill_agent_fields" => self.handle_control_fill_agent_fields(id, _params),
+            "inspect_fields" => self.handle_control_inspect_fields(id, _params),
+            "act" => self.handle_control_act(id, _params),
             other => json!({
                 "id": id,
                 "ok": false,
                 "error": format!("unknown dogfood control method {other:?}"),
             }),
         }
+    }
+
+    fn handle_control_fill_agent_fields(&self, id: Value, params: Value) -> Value {
+        let Some(fields) = params.get("fields").and_then(Value::as_object) else {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "fill_agent_fields requires object params.fields",
+            });
+        };
+        if fields.is_empty() {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "fill_agent_fields requires at least one field",
+            });
+        }
+        let fields_json = match serde_json::to_string(fields) {
+            Ok(value) => value,
+            Err(error) => {
+                return json!({
+                    "id": id,
+                    "ok": false,
+                    "error": format!("failed to serialize fields: {error}"),
+                });
+            }
+        };
+        let script = Box::leak(fill_agent_fields_script(&fields_json).into_boxed_str());
+        match self.run_control_script(script) {
+            Ok(value) => json!({
+                "id": id,
+                "ok": true,
+                "result": self.control_fill_agent_fields_response(fields.len(), &value),
+            }),
+            Err(error) => json!({
+                "id": id,
+                "ok": false,
+                "error": error,
+            }),
+        }
+    }
+
+    fn handle_control_inspect_fields(&self, id: Value, params: Value) -> Value {
+        let Some(fields) = params.get("fields").and_then(Value::as_array) else {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "inspect_fields requires array params.fields",
+            });
+        };
+        if fields.is_empty() {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "inspect_fields requires at least one field",
+            });
+        }
+        if fields.iter().any(|field| field.as_str().is_none()) {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "inspect_fields field ids must be strings",
+            });
+        }
+        let fields_json = match serde_json::to_string(fields) {
+            Ok(value) => value,
+            Err(error) => {
+                return json!({
+                    "id": id,
+                    "ok": false,
+                    "error": format!("failed to serialize field ids: {error}"),
+                });
+            }
+        };
+        let script = Box::leak(inspect_fields_script(&fields_json).into_boxed_str());
+        match self.run_control_script(script) {
+            Ok(value) => json!({
+                "id": id,
+                "ok": true,
+                "result": self.control_inspect_fields_response(fields.len(), &value),
+            }),
+            Err(error) => json!({
+                "id": id,
+                "ok": false,
+                "error": error,
+            }),
+        }
+    }
+
+    fn handle_control_act(&self, id: Value, params: Value) -> Value {
+        let Some(action_id) = params.get("action_id").and_then(Value::as_str) else {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "act requires string action_id",
+            });
+        };
+        let Some(basis) = params.get("basis_page_revision").and_then(Value::as_u64) else {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "act requires integer basis_page_revision",
+            });
+        };
+        let current_revision = self.control_page_revision.get();
+        if basis != current_revision {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": format!("stale action basis: requested {basis}, current {current_revision}"),
+            });
+        }
+
+        let before_probe = match self.run_control_probe() {
+            Ok(value) => value,
+            Err(error) => {
+                return json!({
+                    "id": id,
+                    "ok": false,
+                    "error": error,
+                });
+            }
+        };
+        let Some(action) = before_probe
+            .get("actions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|action| action_id_for(action) == action_id)
+            .cloned()
+        else {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": format!("unknown action_id {action_id:?}"),
+            });
+        };
+        if !action_enabled(&action) {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": format!("action {action_id:?} is not enabled"),
+            });
+        }
+        if action
+            .pointer("/sensitivity/kind")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind != "none")
+        {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": format!("action {action_id:?} targets a sensitive field and requires user control"),
+            });
+        }
+        let Some(webview) = self.webview.borrow().as_ref().cloned() else {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "act requires an active WebView",
+            });
+        };
+        self.click_control_action(&webview, &action);
+
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_millis(160) {
+            self.servo.spin_event_loop();
+            thread::sleep(Duration::from_millis(5));
+        }
+        let after_probe = match self.run_control_probe() {
+            Ok(value) => value,
+            Err(error) => {
+                return json!({
+                    "id": id,
+                    "ok": false,
+                    "error": error,
+                });
+            }
+        };
+        if probe_changed(&before_probe, &after_probe) {
+            self.control_page_revision
+                .set(self.control_page_revision.get().saturating_add(1));
+        }
+
+        json!({
+            "id": id,
+            "ok": true,
+            "result": self.control_act_response(action_id, basis, &before_probe, &after_probe),
+        })
     }
 
     fn handle_control_probe(&self, id: Value, method: DogfoodControlProbeMethod) -> Value {
@@ -775,6 +971,10 @@ impl DogfoodBrowserState {
     }
 
     fn run_control_probe(&self) -> std::result::Result<Value, String> {
+        self.run_control_script(PROBE_JS)
+    }
+
+    fn run_control_script(&self, script: &'static str) -> std::result::Result<Value, String> {
         let webview = self
             .webview
             .borrow()
@@ -782,7 +982,7 @@ impl DogfoodBrowserState {
             .cloned()
             .ok_or_else(|| "dogfood control probe requires an active WebView".to_string())?;
         let (tx, rx) = mpsc::channel();
-        webview.evaluate_javascript(PROBE_JS, move |result| {
+        webview.evaluate_javascript(script, move |result| {
             let value = match result {
                 Ok(JSValue::String(value)) => Ok(value),
                 Ok(value) => Ok(format!("{value:?}")),
@@ -825,7 +1025,8 @@ impl DogfoodBrowserState {
             .get("pageRevision")
             .and_then(Value::as_u64)
             .filter(|value| *value > 0)
-            .unwrap_or(1);
+            .unwrap_or(1)
+            .max(self.control_page_revision.get());
         let engine = match method {
             DogfoodControlProbeMethod::Truth => "saccade-dogfood-control-truth-v0",
             DogfoodControlProbeMethod::Actions => "saccade-dogfood-control-actions-v0",
@@ -879,6 +1080,114 @@ impl DogfoodBrowserState {
                 "replay": null,
             },
         })
+    }
+
+    fn control_fill_agent_fields_response(&self, requested: usize, fill_result: &Value) -> Value {
+        let filled = fill_result
+            .get("filled")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if !filled.is_empty() {
+            self.control_page_revision
+                .set(self.control_page_revision.get().saturating_add(1));
+        }
+        json!({
+            "status": "ok",
+            "runtime": "saccade-dogfood-control-v0",
+            "engine": "saccade-dogfood-control-fill-v0",
+            "summary": "agent-owned non-sensitive fields filled in the same dogfood WebView",
+            "same_webview_control": true,
+            "rendering_profile": self.rendering_settings.profile.name(),
+            "page_revision": self.control_page_revision.get(),
+            "requested": requested,
+            "filled": fill_result.get("filled").cloned().unwrap_or_else(|| json!([])),
+            "rejected": fill_result.get("rejected").cloned().unwrap_or_else(|| json!([])),
+            "sensitive_fields_seen": fill_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+            "artifacts": {
+                "report": null,
+                "replay": null,
+            },
+        })
+    }
+
+    fn control_inspect_fields_response(&self, requested: usize, inspect_result: &Value) -> Value {
+        json!({
+            "status": "ok",
+            "runtime": "saccade-dogfood-control-v0",
+            "engine": "saccade-dogfood-control-inspect-fields-v0",
+            "summary": "explicit field inspection completed in the same dogfood WebView with sensitive values masked",
+            "same_webview_control": true,
+            "rendering_profile": self.rendering_settings.profile.name(),
+            "page_revision": self.control_page_revision.get(),
+            "requested": requested,
+            "fields": inspect_result.get("fields").cloned().unwrap_or_else(|| json!([])),
+            "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+            "artifacts": {
+                "report": null,
+                "replay": null,
+            },
+        })
+    }
+
+    fn control_act_response(
+        &self,
+        action_id: &str,
+        basis_page_revision: u64,
+        before_probe: &Value,
+        after_probe: &Value,
+    ) -> Value {
+        let actions = action_map(after_probe);
+        let sensitive_count = sensitive_action_count(&actions);
+        let changed = probe_changed(before_probe, after_probe);
+        json!({
+            "status": "ok",
+            "runtime": "saccade-dogfood-control-v0",
+            "engine": "saccade-dogfood-control-act-v0",
+            "summary": "action dispatched through the same dogfood WebView",
+            "same_webview_control": true,
+            "rendering_profile": self.rendering_settings.profile.name(),
+            "page_revision": self.control_page_revision.get(),
+            "actions": actions,
+            "verification": {
+                "mode": "dogfood_control_native_click_v0",
+                "action_id": action_id,
+                "action_sent": true,
+                "changed": changed,
+                "no_effect": !changed,
+                "basis_page_revision": basis_page_revision,
+                "new_page_revision": self.control_page_revision.get(),
+                "body_text_length_changed": before_probe.get("bodyTextLength") != after_probe.get("bodyTextLength"),
+                "body_child_count_changed": before_probe.get("bodyChildCount") != after_probe.get("bodyChildCount"),
+                "dom_page_revision_before": before_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
+                "dom_page_revision_after": after_probe.get("pageRevision").cloned().unwrap_or(Value::Null),
+            },
+            "truth": {
+                "sensitive_fields": sensitive_count,
+            },
+            "artifacts": {
+                "report": null,
+                "replay": null,
+            },
+        })
+    }
+
+    fn click_control_action(&self, webview: &WebView, action: &Value) {
+        let rect = action.get("rect").unwrap_or(&Value::Null);
+        let x = (value_f64(rect, "left") + value_f64(rect, "width") / 2.0) as f32;
+        let y = (value_f64(rect, "top") + value_f64(rect, "height") / 2.0) as f32;
+        let point = WebViewPoint::Page(Point2D::<f32, CSSPixel>::new(x, y));
+        webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(point)));
+        webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+            MouseButtonAction::Down,
+            MouseButton::Left,
+            point,
+        )));
+        webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+            MouseButtonAction::Up,
+            MouseButton::Left,
+            point,
+        )));
     }
 
     fn runtime_geometry(&self, webview: &WebView) -> Value {
@@ -1092,6 +1401,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             copilot_granted: Cell::new(false),
             copilot_grant_error: RefCell::new(None),
             copilot_grant_path: config.copilot_grant_path.clone(),
+            control_page_revision: Cell::new(1),
             control_endpoint: control_bridge.endpoint.clone(),
             control_rx: control_bridge.rx,
             active_select: RefCell::new(None),
@@ -1372,6 +1682,10 @@ fn parse_location_input(input: &str) -> Result<Url, url::ParseError> {
         "https://"
     };
     Url::parse(&format!("{prefix}{trimmed}"))
+}
+
+fn value_f64(value: &Value, key: &str) -> f64 {
+    value.get(key).and_then(Value::as_f64).unwrap_or(0.0)
 }
 
 fn has_url_scheme(input: &str) -> bool {
