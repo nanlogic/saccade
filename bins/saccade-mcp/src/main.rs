@@ -4468,7 +4468,17 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
     let button_url = start_test_server(workspace.join("test_pages").join("browser_session"))?;
     let formmax_url = start_test_server(workspace.join("test_pages").join("formmax"))?;
 
-    let mut child = ProcessCommand::new("cargo")
+    let servoshell_bin = std::env::var_os("SACCADE_SERVOSHELL_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/Applications/Servo.app/Contents/MacOS/servoshell"));
+    if !servoshell_bin.exists() {
+        bail!(
+            "SACCADE_SERVOSHELL_BIN does not exist: {}",
+            servoshell_bin.display()
+        );
+    }
+    let mut command = ProcessCommand::new("cargo");
+    command
         .args([
             "run",
             "-q",
@@ -4476,6 +4486,10 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             "saccade-servoshell",
             "--",
             "bridge",
+            "--servoshell",
+        ])
+        .arg(&servoshell_bin)
+        .args([
             "--url",
             copilot_url.as_str(),
             "--output-dir",
@@ -4492,9 +4506,13 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
         .current_dir(&workspace)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("failed to launch saccade-servoshell bridge")?;
+        .stderr(Stdio::null());
+    let mut child = command.spawn().with_context(|| {
+        format!(
+            "failed to launch saccade-servoshell bridge with {}",
+            servoshell_bin.display()
+        )
+    })?;
 
     let mut endpoint_for_shutdown: Option<DogfoodControlEndpoint> = None;
     let verification = (|| -> Result<bool> {

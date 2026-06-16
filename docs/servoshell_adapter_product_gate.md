@@ -121,8 +121,15 @@ If any of the following fail, Option B becomes justified:
    `control/replay.jsonl`, FORMMAX appends no-value replay events, and
    `shell_status` exposes Human owner, FullTruth read grant, agent input grant,
    and sensitive-value redaction state.
-11. TODO: Run the same bridge gate against one newer official ServoShell build
-   or record a clear compatibility failure.
+11. DONE: Run the same bridge gate against a second ServoShell build. The
+   MCP bridge attach/fill/inspect/act/FORMMAX/artifact gate passes with
+   `SACCADE_SERVOSHELL_BIN=/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell`
+   (`Servo 0.3.0-805e6a423`), in addition to installed `/Applications/Servo.app`
+   (`Servo 0.3.0-302457869`).
+12. ROUTED: Visible trusted Human/Agent/Copilot badge in official ServoShell
+   chrome requires a thin UI fork or upstream chrome hook. The external bridge
+   exposes the state through `shell_status`, but should not inject a webpage
+   overlay or stylesheet that can be confused with site content.
 
 ## Latest Evidence
 
@@ -176,8 +183,8 @@ If any of the following fail, Option B becomes justified:
   endpoint with protocol `saccade-dogfood-control-v0`, and verified
   `ping/truth/actions` over that endpoint.
 - MCP live bridge attach/fill/inspect/act/FORMMAX:
-  `runs/mcp/selftest_1781634612147/report.json` and
-  `runs/mcp/servoshell_bridge_grant_1781634660859/report.json`
+  `runs/mcp/selftest_1781636671768/report.json` and
+  `runs/mcp/servoshell_bridge_grant_1781636716084/report.json`
 - MCP now attaches to the official ServoShell bridge grant, receives advertised
   bridge capabilities, fills only agent-owned non-sensitive fields, rejects
   human-owned sensitive fields, redacts sensitive field inspection, navigates
@@ -186,12 +193,21 @@ If any of the following fail, Option B becomes justified:
   pages=2, filled=672, blocked_sensitive=3, receipt_verified=true, and
   validation_errors=0.
 - Bridge control artifacts:
-  `runs/mcp/servoshell_bridge_grant_1781634660859/control/report.json` and
-  `runs/mcp/servoshell_bridge_grant_1781634660859/control/replay.jsonl`
+  `runs/mcp/servoshell_bridge_grant_1781636716084/control/report.json` and
+  `runs/mcp/servoshell_bridge_grant_1781636716084/control/replay.jsonl`
 - MCP verifies `servoshell_bridge_artifacts=true`; replay summary reads 2728
   events with `value_like_fields=0`. `shell_status` now reports
   `copilot.status=granted`, `owner=Human`, `read_grant=FullTruth`,
   `agent_input_grant=true`, and `sensitive_values_exposed_to_agent=false`.
+- Upgradeability bridge gate:
+  `runs/mcp/selftest_1781636405474/report.json` and
+  `runs/mcp/servoshell_bridge_grant_1781636453696/control/replay.jsonl`
+- The same MCP bridge gate passed against source-release ServoShell
+  `0.3.0-805e6a423` using
+  `/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell`.
+  The run again reported `servoshell_bridge_grant=true`,
+  `servoshell_bridge_formmax_live=true`, `servoshell_bridge_artifacts=true`,
+  `web_fill_form_live=true`, and `browser_navigate=true`.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781484941056/report.json`
 - Local game `http://127.0.0.1:4173/` loaded in official ServoShell with

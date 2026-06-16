@@ -975,6 +975,30 @@
 - Visible in-window Human/Agent badge remains an AI-004 product UI task and may
   require a thin ServoShell fork; the MCP/source-of-truth state is now present.
 - Evidence:
-  `runs/mcp/selftest_1781634612147/report.json`,
-  `runs/mcp/servoshell_bridge_grant_1781634660859/control/report.json`, and
-  `runs/mcp/servoshell_bridge_grant_1781634660859/control/replay.jsonl`.
+  `runs/mcp/selftest_1781636671768/report.json`,
+  `runs/mcp/servoshell_bridge_grant_1781636716084/control/report.json`, and
+  `runs/mcp/servoshell_bridge_grant_1781636716084/control/replay.jsonl`.
+
+## DECISION_SERVOSHELL_017 - Upgradeability passes; trusted visible badge routes to UI fork
+
+- The same MCP bridge gate now runs against a caller-selected ServoShell binary
+  through `SACCADE_SERVOSHELL_BIN`.
+- Installed official Servo.app evidence remains
+  `Servo 0.3.0-302457869`.
+- Source-release evidence uses
+  `/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell`,
+  which reports `Servo 0.3.0-805e6a423`.
+- Result: `RUST_LOG=error SACCADE_SERVOSHELL_BIN=... cargo run -q -p
+  saccade-mcp -- selftest` passed with
+  `servoshell_bridge_grant=true`,
+  `servoshell_bridge_formmax_live=true`,
+  `servoshell_bridge_artifacts=true`,
+  `web_fill_form_live=true`, and `browser_navigate=true`.
+- Evidence:
+  `runs/mcp/selftest_1781636405474/report.json` and
+  `runs/mcp/servoshell_bridge_grant_1781636453696/control/replay.jsonl`.
+- Visible badge decision: do not inject a page overlay, user stylesheet, or
+  `document.title` mutation to fake a trusted Human/Agent/Copilot browser badge.
+  Those options are spoofable or change the page the user is trying to inspect.
+  External bridge state is available through `shell_status`; a trusted in-window
+  badge belongs in a thin ServoShell UI fork or upstream chrome hook.
