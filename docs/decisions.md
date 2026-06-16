@@ -93,6 +93,7 @@
 - Added `saccade-shell browse --url ...` as the first human-facing dogfood browser shell on macOS. It supports one Servo WebView with mouse click, wheel scroll, keyboard text entry, basic `<select>` handoff, reload, back, and forward. This is intentionally a dogfood shell, not a packaged Chrome-parity browser UI yet.
 - Added `docs/site_policy_matrix.md` as the first product boundary for third-party sites. Saccade should run by default on local/owned/public low-risk pages, assist with human-in-loop on ordinary logged-in work, and fall back for high-risk auth, payment, legal, government identity, app release, security, and anti-automation blocks. The response to an explicit site block is evidence plus fallback, not stealth or bypass.
 - Implemented the first shared `saccade_core` site/action policy classifier. MCP and the official ServoShell bridge now return `site_policy`; Red sites block agent truth/inspect/actions, and high-risk actions such as login, OTP, CAPTCHA, payment, release, submit, delete, signing, credentials, and security changes require the user.
+- Added redacted block reports for official ServoShell bridge control errors. The bridge writes `control/block_report.json` without screenshots or full page dumps, strips URL query/fragment data, extracts visible request IDs when present, and points the user to the safe fallback path.
 
 ## N1B - Login handoff
 

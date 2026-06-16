@@ -2510,7 +2510,12 @@ fn bridge_artifacts(state: &BridgeControlState) -> Value {
         "run_dir": state.output_dir.display().to_string(),
         "report": state.report_path.display().to_string(),
         "replay": state.replay_path.display().to_string(),
+        "block_report": bridge_block_report_path(state).display().to_string(),
     })
+}
+
+fn bridge_block_report_path(state: &BridgeControlState) -> PathBuf {
+    state.output_dir.join("block_report.json")
 }
 
 fn bridge_current_url(state: &BridgeControlState) -> Result<String> {
@@ -2535,7 +2540,7 @@ fn bridge_record_control_success(
 fn bridge_record_control_error(
     state: &BridgeControlState,
     method: &str,
-    _error: &str,
+    error: &str,
 ) -> Result<()> {
     let event = bridge_control_event(
         state,
@@ -2548,7 +2553,65 @@ fn bridge_record_control_error(
         }),
     );
     bridge_append_replay(state, &event)?;
-    bridge_write_control_report(state, &event)
+    bridge_write_control_report(state, &event)?;
+    let _ = bridge_write_block_report(state, method, error, &event);
+    Ok(())
+}
+
+fn bridge_write_block_report(
+    state: &BridgeControlState,
+    method: &str,
+    error: &str,
+    latest_event: &Value,
+) -> Result<()> {
+    let page = bridge_visible_block_page(state).unwrap_or_else(|fallback_error| {
+        json!({
+            "url": Value::Null,
+            "title": Value::Null,
+            "visible_text": "",
+            "collection_error": redact_block_text(&fallback_error.to_string(), 240),
+        })
+    });
+    let url = page.get("url").and_then(Value::as_str).unwrap_or("");
+    let visible_text = page
+        .get("visible_text")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let site_policy = classify_site_url(url);
+    let visible_error_excerpt = visible_block_excerpt(visible_text);
+    let request_id =
+        extract_visible_request_id(visible_text).or_else(|| extract_visible_request_id(error));
+    let block_kind = classify_block_kind(error, visible_text, &site_policy);
+    let report = json!({
+        "ok": false,
+        "kind": "saccade_block_report",
+        "run_id": state.run_id.as_str(),
+        "method": method,
+        "block_kind": block_kind,
+        "url": redacted_url_for_block_report(url),
+        "title": page.get("title").cloned().unwrap_or(Value::Null),
+        "site_policy": site_policy,
+        "error": redact_block_text(error, 320),
+        "visible_error_excerpt": visible_error_excerpt,
+        "request_id": request_id,
+        "fallback_recommendation": fallback_recommendation(&site_policy),
+        "values_logged": false,
+        "screenshot_captured": false,
+        "latest_event": latest_event,
+        "artifacts": bridge_artifacts(state),
+    });
+    write_json(&bridge_block_report_path(state), &report)
+}
+
+fn bridge_visible_block_page(state: &BridgeControlState) -> Result<Value> {
+    state.client.execute_sync(
+        &state.session_id,
+        "return {
+          url: location.href,
+          title: document.title,
+          visible_text: document.body ? document.body.innerText : ''
+        };",
+    )
 }
 
 fn bridge_control_event(
@@ -2616,6 +2679,152 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "policy": result.get("policy").cloned().unwrap_or(Value::Null),
         "counts": Value::Object(counts),
     })
+}
+
+fn classify_block_kind(
+    error: &str,
+    visible_text: &str,
+    site_policy: &saccade_core::SitePolicy,
+) -> &'static str {
+    let text = format!("{error}\n{visible_text}").to_lowercase();
+    if text.contains("site policy") {
+        return "saccade_site_policy";
+    }
+    if text.contains("captcha")
+        || text.contains("recaptcha")
+        || text.contains("unusual traffic")
+        || text.contains("access denied")
+        || text.contains("can't process")
+        || text.contains("cannot process")
+        || text.contains("forbidden")
+        || text.contains("blocked")
+    {
+        return "site_or_provider_block";
+    }
+    match site_policy.level {
+        saccade_core::SiteRiskLevel::Orange | saccade_core::SiteRiskLevel::Red => {
+            "high_risk_site_fallback"
+        }
+        _ => "control_error",
+    }
+}
+
+fn fallback_recommendation(site_policy: &saccade_core::SitePolicy) -> &'static str {
+    match site_policy.level {
+        saccade_core::SiteRiskLevel::Red => {
+            "Use the normal browser or official app for login/auth/security. The agent may continue only after a redacted handoff on a lower-risk page."
+        }
+        saccade_core::SiteRiskLevel::Orange => {
+            "Use the normal browser for login and high-impact actions. Provide redacted non-sensitive text if you want the agent to summarize, draft, or checklist the next step."
+        }
+        saccade_core::SiteRiskLevel::Yellow => {
+            "Keep the human in the loop. The agent may draft or inspect redacted state, but submit/publish/delete/payment/security actions require the user."
+        }
+        saccade_core::SiteRiskLevel::Green => {
+            "Treat this as a compatibility or site block. Compare with a reference browser, record the request id, and do not add stealth or bypass behavior."
+        }
+    }
+}
+
+fn redacted_url_for_block_report(url: &str) -> Value {
+    let Ok(mut parsed) = Url::parse(url) else {
+        return Value::Null;
+    };
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    json!(parsed.as_str())
+}
+
+fn visible_block_excerpt(text: &str) -> Value {
+    let lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| is_block_related_line(line) || extract_visible_request_id(line).is_some())
+        .take(6)
+        .map(|line| redact_block_text(line, 180))
+        .collect::<Vec<_>>();
+    json!(lines)
+}
+
+fn is_block_related_line(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    [
+        "can't process",
+        "cannot process",
+        "access denied",
+        "blocked",
+        "forbidden",
+        "not authorized",
+        "try again",
+        "contact us",
+        "request id",
+        "captcha",
+        "verify",
+        "unusual traffic",
+        "error",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn extract_visible_request_id(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .map(|token| {
+            token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+        })
+        .find(|token| looks_like_request_id(token))
+        .map(ToOwned::to_owned)
+}
+
+fn looks_like_request_id(token: &str) -> bool {
+    let len = token.len();
+    if !(24..=80).contains(&len) {
+        return false;
+    }
+    let hyphen_count = token.chars().filter(|c| *c == '-').count();
+    let hexish = token
+        .chars()
+        .all(|c| c.is_ascii_hexdigit() || c == '-' || c == '_');
+    hexish && hyphen_count >= 2
+}
+
+fn redact_block_text(text: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for token in text.split_whitespace() {
+        let redacted = redact_block_token(token);
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&redacted);
+        if out.len() >= max_chars {
+            out.truncate(max_chars);
+            out.push_str("...");
+            break;
+        }
+    }
+    out
+}
+
+fn redact_block_token(token: &str) -> String {
+    if token.contains('@') && token.contains('.') {
+        return "[redacted-email]".into();
+    }
+    if token.starts_with("http://") || token.starts_with("https://") {
+        return Url::parse(token)
+            .ok()
+            .map(|mut url| {
+                url.set_query(None);
+                url.set_fragment(None);
+                url.to_string()
+            })
+            .unwrap_or_else(|| "[redacted-url]".into());
+    }
+    let digits = token.chars().filter(|c| c.is_ascii_digit()).count();
+    if digits >= 8 && !looks_like_request_id(token) {
+        return "[redacted-number]".into();
+    }
+    token.to_string()
 }
 
 fn bridge_insert_count(
@@ -3546,6 +3755,39 @@ fn unix_ms() -> u128 {
 fn write_json(path: &Path, value: &Value) -> Result<()> {
     fs::write(path, serde_json::to_vec_pretty(value)?)
         .with_context(|| format!("write {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_report_extracts_apple_style_request_id() {
+        let text = "We can't process your request.\nGo back and try again.\n0fa693e0-e6ef-425f-91e3-05fdac5581d7";
+        assert_eq!(
+            extract_visible_request_id(text).as_deref(),
+            Some("0fa693e0-e6ef-425f-91e3-05fdac5581d7")
+        );
+        let excerpt = visible_block_excerpt(text);
+        assert!(excerpt.to_string().contains("can't process"));
+        assert!(excerpt.to_string().contains("0fa693e0-e6ef"));
+    }
+
+    #[test]
+    fn block_report_redacts_url_and_obvious_values() {
+        let url = redacted_url_for_block_report(
+            "https://appstoreconnect.apple.com/apps?token=secret#fragment",
+        );
+        assert_eq!(url.as_str(), Some("https://appstoreconnect.apple.com/apps"));
+        let text = redact_block_text(
+            "contact wayne@example.com card 4242424242424242 https://example.com/path?token=secret",
+            240,
+        );
+        assert!(text.contains("[redacted-email]"));
+        assert!(text.contains("[redacted-number]"));
+        assert!(text.contains("https://example.com/path"));
+        assert!(!text.contains("token=secret"));
+    }
 }
 
 fn finish_child(mut child: Child) -> Value {
