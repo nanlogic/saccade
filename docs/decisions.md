@@ -97,6 +97,7 @@
 - Added `saccade.report.redacted_note` as the first safe copy/paste fallback path. It accepts user-supplied redacted text, strips obvious emails/long numbers/URL query fragments, writes an AI review prompt artifact, and keeps the agent away from the live high-risk site.
 - Added `SACCADE_OWNED_DOMAINS` as a first-party dogfood allowlist for normal owned sites. The classifier reports these as `owned_domain` Green only after high-risk auth, government, financial, healthcare, cloud, shopping, and social classes have had priority, so it is not an anti-abuse bypass.
 - Added a paste-ready handoff prompt for other Codex sessions in `docs/SACCADE_DOGFOOD_HANDOFF.md`, so web/game/product sessions know when to use Saccade, when to compare with Chrome, and when to route through the redacted fallback packet.
+- Added `scripts/create_redacted_note_packet.js` so high-risk site fallback is easy to dogfood from the command line. It calls the existing MCP redacted-note tool, strips URL query/fragment data, and writes the same local AI review packet without live-site access.
 
 ## N1B - Login handoff
 

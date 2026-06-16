@@ -162,10 +162,26 @@ If a high-risk site blocks Saccade:
 1. Record the visible error/request id if safe.
 2. Do not screenshot sensitive content.
 3. Let the user handle login/submit/payment/release manually in Safari/Chrome/the official app.
-4. If AI help is needed, use saccade.report.redacted_note with user-supplied redacted_text.
+4. If AI help is needed, create a redacted-note packet from user-supplied
+   redacted text.
 5. Read the generated ai_review_prompt.md and answer with:
    Risk And Context Assessment
    Questions For Human
    Edited Draft
    Final Human Confirmation Checklist
 ```
+
+Convenience command for step 4:
+
+```bash
+node scripts/create_redacted_note_packet.js \
+  --source-url https://appstoreconnect.apple.com/apps \
+  --title "App Store Connect review note" \
+  --task evaluate_edit \
+  --audience "Apple app review reply" \
+  --text-file /path/to/redacted-note.txt
+```
+
+The script calls `saccade.report.redacted_note` through the MCP stdio server and
+writes `note.json`, `redacted_note.md`, and `ai_review_prompt.md` under
+`runs/redacted_notes/note_*/`. It does not access the live site.
