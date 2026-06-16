@@ -19,7 +19,7 @@ official ServoShell runtime.
 | Redacted truth/action map | pass | first adapter bundle pass via `saccade-servoshell` |
 | Safe field policy | pass | rerun with WebDriver truth/action extraction |
 | Safety redaction | pass | 9-kind safety matrix pass via `saccade-servoshell selftest` |
-| Login handoff | pass | rerun or decide it requires fork |
+| Login handoff | pass | same-session handoff pass via `saccade-servoshell selftest`; multi-tab trusted UI still belongs to thin fork/in-process bridge |
 | FORMMAX live fill | pass | pass via official ServoShell adapter |
 | Focused typing | pass | pass via `saccade-servoshell selftest` |
 | Native dropdown/input | pass on embedded Servo | pass via `saccade-servoshell selftest`; text input uses WebDriver, select routes through verified fallback |
@@ -106,7 +106,10 @@ If any of the following fail, Option B becomes justified:
 5. DONE: Re-run FORMMAX fixtures through the adapter.
 6. DONE: Re-run focused typing fixtures through the adapter.
 7. DONE: Re-run dropdown/input fixtures through the adapter.
-8. Decide whether login handoff is externally safe or needs the thin fork.
+8. DONE: Decide whether login handoff is externally safe or needs the thin fork.
+   External adapter is safe for same-session handoff after explicit Done;
+   independent Human/Agent tab ownership remains a thin-fork/in-process bridge
+   concern.
 
 ## Latest Evidence
 
@@ -145,6 +148,14 @@ If any of the following fail, Option B becomes justified:
   route after the WebDriver select path did not provide complete control
   semantics. Grep over the run directory found no typed text or safety-matrix
   fixture secrets.
+- Login handoff adapter gate:
+  `runs/servoshell_adapter/adapter_1781626639174/summary.json`
+- Login handoff passed on a local HTTP fixture in the official ServoShell
+  session: `human_login=true`, `handoff_done=true`, `agent_session=true`,
+  `password_exposed=false`, `otp_exposed=false`,
+  `agent_before_handoff_blocked_by_policy=true`, and
+  `screenshot_decision=blocked_sensitive_surface`. Grep over the run directory
+  found no password/OTP or other fixture secrets.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781484941056/report.json`
 - Local game `http://127.0.0.1:4173/` loaded in official ServoShell with

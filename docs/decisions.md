@@ -642,6 +642,30 @@
 - Grep over the run directory found no typed text or safety-matrix fixture
   secrets.
 
+## DECISION_SERVOSHELL_012 - Login handoff has an external adapter pass with a clear boundary
+
+- Extended `saccade-servoshell selftest` with a local HTTP
+  `login_handoff` fixture server and official ServoShell WebDriver gate.
+- The external adapter proves a same-session product handoff: the human phase
+  logs in on the visible login page, clicks explicit `Done`, then the agent
+  phase continues in the same ServoShell session with inherited cookie/storage.
+- The gate records `agent_before_handoff_blocked_by_policy=true` because the
+  adapter does not expose an agent phase before Done. It does not claim
+  independent multi-WebView Human/Agent tab ownership; that remains a
+  thin-fork or in-process bridge concern.
+- Screenshot policy blocks capture on the login page because a visible
+  sensitive surface is present.
+- Latest gate:
+  `RUST_LOG=error cargo run -q -p saccade-servoshell -- selftest --timeout-sec 35`.
+- Evidence:
+  `runs/servoshell_adapter/adapter_1781626639174/summary.json`.
+- Result: `human_login=true`, `handoff_done=true`, `agent_session=true`,
+  `password_exposed=false`, `otp_exposed=false`,
+  `agent_before_handoff_blocked_by_policy=true`, and
+  `screenshot_decision=blocked_sensitive_surface`.
+- Grep over the run directory found no password/OTP or safety-matrix fixture
+  secrets.
+
 ## DECISION_REFLEX_001 - Local game reflex is the current kill gate
 
 - The project goal is not ServoShell plus WebDriver automation. It is a

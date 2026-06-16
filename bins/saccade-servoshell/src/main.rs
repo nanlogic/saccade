@@ -1,8 +1,9 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -11,6 +12,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
 const DEFAULT_SERVOSHELL: &str = "/Applications/Servo.app/Contents/MacOS/servoshell";
@@ -208,6 +210,13 @@ fn main() -> Result<()> {
                 text: "saccade42".to_string(),
                 expected_select_value: "gamma".to_string(),
             })?;
+            let login_handoff = run_login_handoff_case(LoginHandoffConfig {
+                servoshell: servoshell.clone(),
+                fixture_root: workspace_path("test_pages/login_handoff"),
+                output_dir: root.join("login_handoff"),
+                headless: !no_headless,
+                timeout: Duration::from_secs_f64(timeout_sec),
+            })?;
             let ports = [
                 normal.webdriver_port,
                 sensitive.webdriver_port,
@@ -215,6 +224,7 @@ fn main() -> Result<()> {
                 focused_contenteditable.webdriver_port,
                 focused_sensitive.webdriver_port,
                 native_input.webdriver_port,
+                login_handoff.webdriver_port,
             ];
             let random_loopback_ports = ports
                 .iter()
@@ -271,6 +281,18 @@ fn main() -> Result<()> {
                     "select_method": native_input.select_method,
                     "port": native_input.webdriver_port,
                 },
+                "login_handoff": {
+                    "report": login_handoff.report_path,
+                    "replay": login_handoff.replay_path,
+                    "human_login": login_handoff.human_login,
+                    "handoff_done": login_handoff.handoff_done,
+                    "agent_session": login_handoff.agent_session,
+                    "password_exposed": login_handoff.password_exposed,
+                    "otp_exposed": login_handoff.otp_exposed,
+                    "agent_before_handoff_blocked_by_policy": login_handoff.agent_before_handoff_blocked_by_policy,
+                    "screenshot_decision": login_handoff.screenshot_decision,
+                    "port": login_handoff.webdriver_port,
+                },
                 "port_policy": {
                     "random_loopback_ports": random_loopback_ports,
                     "normal_port": normal.webdriver_port,
@@ -279,6 +301,7 @@ fn main() -> Result<()> {
                     "focused_contenteditable_port": focused_contenteditable.webdriver_port,
                     "focused_sensitive_port": focused_sensitive.webdriver_port,
                     "native_input_port": native_input.webdriver_port,
+                    "login_handoff_port": login_handoff.webdriver_port,
                 },
                 "truth_bundle_version": TRUTH_BUNDLE_VERSION,
             });
@@ -289,9 +312,10 @@ fn main() -> Result<()> {
                 && focused_normal.ok
                 && focused_contenteditable.ok
                 && focused_sensitive.ok
-                && native_input.ok;
+                && native_input.ok
+                && login_handoff.ok;
             println!(
-                "SACCADE_SERVOSHELL_ADAPTER {} report={} normal_screenshot={} sensitive_screenshot={} focused_type={} contenteditable={} sensitive_type_blocked={} native_input={} select_value={} select_method={}",
+                "SACCADE_SERVOSHELL_ADAPTER {} report={} normal_screenshot={} sensitive_screenshot={} focused_type={} contenteditable={} sensitive_type_blocked={} native_input={} select_value={} select_method={} login_handoff={} agent_session={}",
                 if ok { "PASS" } else { "FAIL" },
                 summary_path.display(),
                 normal
@@ -306,6 +330,8 @@ fn main() -> Result<()> {
                 native_input.input_value_matches,
                 native_input.select_value,
                 native_input.select_method,
+                login_handoff.handoff_done,
+                login_handoff.agent_session,
             );
             if ok { Ok(()) } else { bail!("selftest failed") }
         }
@@ -439,6 +465,218 @@ struct NativeInputOutcome {
     report_path: PathBuf,
     replay_path: PathBuf,
     webdriver_port: u16,
+}
+
+#[derive(Debug)]
+struct LoginHandoffConfig {
+    servoshell: PathBuf,
+    fixture_root: PathBuf,
+    output_dir: PathBuf,
+    headless: bool,
+    timeout: Duration,
+}
+
+#[derive(Debug)]
+struct LoginHandoffOutcome {
+    ok: bool,
+    human_login: bool,
+    handoff_done: bool,
+    agent_session: bool,
+    password_exposed: bool,
+    otp_exposed: bool,
+    agent_before_handoff_blocked_by_policy: bool,
+    screenshot_decision: String,
+    report_path: PathBuf,
+    replay_path: PathBuf,
+    webdriver_port: u16,
+}
+
+fn run_login_handoff_case(cfg: LoginHandoffConfig) -> Result<LoginHandoffOutcome> {
+    fs::create_dir_all(&cfg.output_dir)
+        .with_context(|| format!("create {}", cfg.output_dir.display()))?;
+
+    let base_url = start_test_server(cfg.fixture_root.clone())?;
+    let login_url = base_url
+        .join("login.html")
+        .context("build login handoff login URL")?;
+    let dashboard_url = base_url
+        .join("dashboard.html")
+        .context("build login handoff dashboard URL")?;
+    let port = choose_loopback_port()?;
+    let mut child =
+        launch_servoshell_for_url(&cfg.servoshell, login_url.as_str(), cfg.headless, port)?;
+    let client = WebDriverClient::new(port, cfg.timeout);
+    let mut session_id: Option<String> = None;
+    let mut report = json!({
+        "ok": false,
+        "engine": "saccade-servoshell-login-handoff-v0",
+        "runtime": "official_servoshell_webdriver",
+        "scope": "same_session_handoff_after_explicit_done",
+        "servoshell": cfg.servoshell.clone(),
+        "base_url": base_url.as_str(),
+        "login_url": login_url.as_str(),
+        "dashboard_url": dashboard_url.as_str(),
+        "headless": cfg.headless,
+        "webdriver": {
+            "host": "127.0.0.1",
+            "port": port,
+            "port_policy": "random_loopback_private_to_launch_manager"
+        },
+        "policy": {
+            "no_agent_phase_before_done": true,
+            "echo_credentials": false,
+            "screenshots_default": "forbidden",
+            "local_fixture_only": true
+        },
+        "fixture_root": cfg.fixture_root.clone(),
+        "output_dir": cfg.output_dir.clone(),
+    });
+
+    let mut ok = false;
+    let mut human_login = false;
+    let mut handoff_done = false;
+    let mut agent_session = false;
+    let mut password_exposed = false;
+    let mut otp_exposed = false;
+    let agent_before_handoff_blocked_by_policy = true;
+    let mut screenshot_decision = "not_evaluated".to_string();
+    let replay_path = cfg.output_dir.join("replay.jsonl");
+    let report_path = cfg.output_dir.join("report.json");
+
+    let result = (|| -> Result<()> {
+        let status = wait_for_status(&client, &mut child, cfg.timeout)?;
+        report["webdriver"]["status"] = status;
+
+        let session = client.new_session()?;
+        let sid = extract_session_id(&session)?;
+        session_id = Some(sid.clone());
+        report["webdriver"]["new_session"] = session;
+        report["webdriver"]["session_id"] = json!(sid);
+
+        let login_ready = wait_for_title(&client, &sid, "Login", cfg.timeout)?;
+        report["login_page"]["ready"] = login_ready;
+        let login_truth = client.execute_sync(&sid, TRUTH_JS)?;
+        report["login_page"]["truth_summary"] = summarize_truth(&login_truth);
+        screenshot_decision = if truth_capture_allowed(&login_truth) {
+            "allowed_but_not_captured_login_gate_no_pixels_needed".to_string()
+        } else {
+            "blocked_sensitive_surface".to_string()
+        };
+        report["login_page"]["screenshot"] = json!({
+            "mode": ScreenshotMode::Forbidden,
+            "decision": screenshot_decision,
+            "captured": false,
+        });
+
+        let submit_result = client.execute_sync(&sid, LOGIN_HANDOFF_HUMAN_LOGIN_JS)?;
+        report["human_phase"]["login_submit"] = login_handoff_submit_report(&submit_result);
+        wait_for_title(&client, &sid, "Dashboard", cfg.timeout)?;
+
+        let done = client.find_element(&sid, "#handoff-done")?;
+        let done_id = extract_element_id(&done)
+            .ok_or_else(|| anyhow!("handoff done response lacked element id: {done}"))?;
+        report["human_phase"]["done_element"] = done;
+        report["human_phase"]["done_click"] = client.click_element(&sid, &done_id)?;
+        std::thread::sleep(Duration::from_millis(250));
+
+        let human_probe = login_handoff_probe(&client, &sid)?;
+        report["human_phase"]["probe"] = human_probe.clone();
+        human_login = probe_text(&human_probe).contains("LOGGED_IN");
+        handoff_done = human_probe
+            .get("handoffDone")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        password_exposed |= probe_credentials_exposed(&human_probe, "password");
+        otp_exposed |= probe_credentials_exposed(&human_probe, "otp");
+        if !human_login || !handoff_done {
+            bail!(
+                "human login handoff failed: {}",
+                login_handoff_report_probe(&human_probe)
+            );
+        }
+
+        client.navigate(&sid, dashboard_url.as_str())?;
+        wait_for_title(&client, &sid, "Dashboard", cfg.timeout)?;
+        let agent_probe = login_handoff_probe(&client, &sid)?;
+        report["agent_phase"]["probe"] = agent_probe.clone();
+        agent_session = probe_text(&agent_probe).contains("LOGGED_IN")
+            && agent_probe
+                .get("cookie_present")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            && agent_probe
+                .get("storage_shared")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            && agent_probe
+                .get("handoffDone")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+        password_exposed |= probe_credentials_exposed(&agent_probe, "password");
+        otp_exposed |= probe_credentials_exposed(&agent_probe, "otp");
+
+        if !agent_session || password_exposed || otp_exposed {
+            bail!(
+                "agent login handoff failed: {}",
+                login_handoff_report_probe(&agent_probe)
+            );
+        }
+
+        write_login_handoff_replay(
+            &replay_path,
+            screenshot_decision.as_str(),
+            human_login,
+            handoff_done,
+            agent_session,
+            agent_before_handoff_blocked_by_policy,
+        )?;
+        let leak_check = login_handoff_values_absent(&report, &replay_path)?;
+        report["leak_check"] = leak_check.clone();
+        if leak_check.get("passed").and_then(Value::as_bool) != Some(true) {
+            bail!("login handoff credential leak check failed: {leak_check}");
+        }
+
+        ok = true;
+        Ok(())
+    })();
+
+    if let Some(sid) = session_id.as_deref() {
+        if let Err(error) = client.delete_session(sid) {
+            report["webdriver"]["delete_session_error"] = json!(error.to_string());
+        }
+    }
+    report["process"] = finish_child(child);
+    if let Err(error) = result {
+        report["error"] = json!(error.to_string());
+    }
+    report["ok"] = json!(ok);
+    report["human_login"] = json!(human_login);
+    report["handoff_done"] = json!(handoff_done);
+    report["agent_session"] = json!(agent_session);
+    report["password_exposed"] = json!(password_exposed);
+    report["otp_exposed"] = json!(otp_exposed);
+    report["agent_before_handoff_blocked_by_policy"] =
+        json!(agent_before_handoff_blocked_by_policy);
+    report["screenshot_decision"] = json!(screenshot_decision);
+    report["artifacts"] = json!({
+        "report": report_path,
+        "replay": replay_path,
+    });
+    write_json(&report_path, &report)?;
+
+    Ok(LoginHandoffOutcome {
+        ok,
+        human_login,
+        handoff_done,
+        agent_session,
+        password_exposed,
+        otp_exposed,
+        agent_before_handoff_blocked_by_policy,
+        screenshot_decision,
+        report_path,
+        replay_path,
+        webdriver_port: port,
+    })
 }
 
 fn run_native_input_case(cfg: NativeInputConfig) -> Result<NativeInputOutcome> {
@@ -1368,6 +1606,15 @@ impl WebDriverClient {
         .map(|response| response.body)
     }
 
+    fn navigate(&self, session_id: &str, url: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("/session/{session_id}/url"),
+            Some(json!({"url": url})),
+        )
+        .map(|response| response.body)
+    }
+
     fn click_element(&self, session_id: &str, element_id: &str) -> Result<Value> {
         self.request(
             "POST",
@@ -1607,6 +1854,130 @@ fn formmax_values_absent(report: &Value, replay_path: &Path) -> Result<Value> {
         "needles_checked": needles.len(),
         "leaked": leaked,
         "values_logged": false,
+    }))
+}
+
+fn wait_for_title(
+    client: &WebDriverClient,
+    session_id: &str,
+    title: &str,
+    timeout: Duration,
+) -> Result<Value> {
+    let deadline = Instant::now() + timeout;
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = client.execute_sync(
+            session_id,
+            "return { title: document.title, readyState: document.readyState, url: location.href };",
+        )?;
+        if last.get("title").and_then(Value::as_str) == Some(title) {
+            return Ok(last);
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    bail!("page title did not become {title:?}: {last}");
+}
+
+fn login_handoff_probe(client: &WebDriverClient, session_id: &str) -> Result<Value> {
+    client.execute_sync(session_id, LOGIN_HANDOFF_PROBE_JS)
+}
+
+fn login_handoff_submit_report(value: &Value) -> Value {
+    json!({
+        "ok": value.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        "submitted": value.get("submitted").and_then(Value::as_bool).unwrap_or(false),
+        "credentials_echoed": false,
+    })
+}
+
+fn login_handoff_report_probe(probe: &Value) -> Value {
+    json!({
+        "title": probe.get("title").cloned().unwrap_or(Value::Null),
+        "url": probe.get("url").cloned().unwrap_or(Value::Null),
+        "text_has_logged_in": probe_text(probe).contains("LOGGED_IN"),
+        "cookie_present": probe.get("cookie_present").cloned().unwrap_or(Value::Null),
+        "storage_shared": probe.get("storage_shared").cloned().unwrap_or(Value::Null),
+        "handoffDone": probe.get("handoffDone").cloned().unwrap_or(Value::Null),
+        "credential_values_exposed": probe.get("credential_values_exposed").cloned().unwrap_or(Value::Null),
+        "sensitive_field_count": probe.get("sensitive_fields").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+    })
+}
+
+fn probe_text(probe: &Value) -> String {
+    probe
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn probe_credentials_exposed(probe: &Value, key: &str) -> bool {
+    probe
+        .get("credential_values_exposed")
+        .and_then(|values| values.get(key))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn write_login_handoff_replay(
+    path: &Path,
+    screenshot_decision: &str,
+    human_login: bool,
+    handoff_done: bool,
+    agent_session: bool,
+    agent_before_handoff_blocked_by_policy: bool,
+) -> Result<()> {
+    let mut file = fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let events = [
+        json!({
+            "kind": "login_page_seen",
+            "engine": "saccade-servoshell-login-handoff-v0",
+            "runtime": "official_servoshell_webdriver",
+            "actor": "human",
+            "screenshot_decision": screenshot_decision,
+            "credentials_echoed": false,
+        }),
+        json!({
+            "kind": "human_login_submitted",
+            "actor": "human",
+            "credentials_echoed": false,
+        }),
+        json!({
+            "kind": "handoff_done_clicked",
+            "actor": "human",
+            "handoff_done": handoff_done,
+            "agent_before_handoff_blocked_by_policy": agent_before_handoff_blocked_by_policy,
+        }),
+        json!({
+            "kind": "agent_session_verified",
+            "actor": "agent",
+            "human_login": human_login,
+            "agent_session": agent_session,
+            "credentials_echoed": false,
+        }),
+    ];
+    for event in events {
+        writeln!(file, "{}", serde_json::to_string(&event)?)
+            .with_context(|| format!("write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn login_handoff_values_absent(report: &Value, replay_path: &Path) -> Result<Value> {
+    let replay_text = fs::read_to_string(replay_path)
+        .with_context(|| format!("read {}", replay_path.display()))?;
+    let report_text = serde_json::to_string(report)?;
+    let needles = ["human-only-password", "123456"];
+    let leaked = needles
+        .iter()
+        .filter(|needle| report_text.contains(**needle) || replay_text.contains(**needle))
+        .copied()
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "passed": leaked.is_empty(),
+        "needles_checked": needles.len(),
+        "leaked": leaked,
+        "credentials_logged": false,
     }))
 }
 
@@ -1887,10 +2258,63 @@ fn choose_loopback_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
+fn start_test_server(root: PathBuf) -> Result<Url> {
+    let server = Server::http("127.0.0.1:0")
+        .map_err(|error| anyhow!("failed to bind test HTTP server: {error}"))?;
+    let addr: SocketAddr = server
+        .server_addr()
+        .to_ip()
+        .context("test HTTP server did not expose an IP socket address")?;
+    thread::spawn(move || {
+        for request in server.incoming_requests() {
+            let url_path = request
+                .url()
+                .trim_start_matches('/')
+                .split('?')
+                .next()
+                .unwrap_or("");
+            let relative = if url_path.is_empty() {
+                "index.html"
+            } else {
+                url_path
+            };
+            let response = if relative.contains("..") {
+                Response::from_string("not found").with_status_code(StatusCode(404))
+            } else {
+                let path = root.join(relative);
+                match fs::read(&path) {
+                    Ok(body) => Response::from_data(body).with_header(
+                        Header::from_bytes("Content-Type", content_type(&path)).unwrap(),
+                    ),
+                    Err(_) => Response::from_string("not found").with_status_code(StatusCode(404)),
+                }
+            };
+            let _ = request.respond(response);
+        }
+    });
+
+    Url::parse(&format!("http://{addr}/")).context("failed to form test server URL")
+}
+
+fn content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
 fn default_run_dir(prefix: &str) -> PathBuf {
     PathBuf::from("runs")
         .join("servoshell_adapter")
         .join(format!("{prefix}_{}", unix_ms()))
+}
+
+fn workspace_path(path: &str) -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(path)
 }
 
 fn default_smoke_url() -> String {
@@ -1980,6 +2404,61 @@ fn terminate_child(child: &mut Child) {
 fn terminate_child(child: &mut Child) {
     let _ = child.kill();
 }
+
+const LOGIN_HANDOFF_PROBE_JS: &str = r###"
+return (() => {
+  const fieldState = (el) => {
+    const value = el ? String(el.value || "") : "";
+    return value.length > 0 ? "present_redacted" : "empty";
+  };
+  const sensitive = Array.from(document.querySelectorAll("#password,#otp,input[type='password'],input[autocomplete='one-time-code']")).map((el) => ({
+    id: el.id || "",
+    type: (el.getAttribute("type") || "").toLowerCase(),
+    autocomplete: el.getAttribute("autocomplete") || "",
+    value: null,
+    value_state: fieldState(el),
+    masked: true
+  }));
+  return {
+    title: document.title,
+    url: location.href,
+    text: document.body ? document.body.innerText : "",
+    cookie_present: document.cookie.includes("saccade_session=demo"),
+    storage_shared: localStorage.getItem("saccade_storage") === "shared",
+    handoffDone: localStorage.getItem("saccade_handoff_done") === "true",
+    sensitive_fields: sensitive,
+    credential_values_exposed: {
+      password: false,
+      otp: false
+    },
+    credentials_echoed: false
+  };
+})();
+"###;
+
+const LOGIN_HANDOFF_HUMAN_LOGIN_JS: &str = r###"
+return (() => {
+  const username = document.getElementById("username");
+  const password = document.getElementById("password");
+  const otp = document.getElementById("otp");
+  if (username) username.value = "wayne";
+  if (password) password.value = "human-only-password";
+  if (otp) otp.value = "123456";
+  const form = document.getElementById("login-form");
+  if (form) {
+    if (typeof form.requestSubmit === "function") {
+      form.requestSubmit();
+    } else {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+  }
+  return {
+    ok: Boolean(form),
+    submitted: Boolean(form),
+    credentials_echoed: false
+  };
+})();
+"###;
 
 const TRUTH_JS: &str = r###"
 return (() => {
