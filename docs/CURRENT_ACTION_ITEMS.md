@@ -10,6 +10,8 @@ This file is the short, current action list. Use it with
 ## Now
 
 Active next item: AI-012. AI-001 is blocked by the pinned Servo public API.
+Use `docs/site_policy_matrix.md` before dogfooding third-party logged-in or
+high-risk sites.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
@@ -27,6 +29,7 @@ Active next item: AI-012. AI-001 is blocked by the pinned Servo public API.
 | AI-008 | P1 | parked | Canvas/WebGL | Keep Canvas/WebGL routed to Chrome/reference until the Servo `take_screenshot()` versus manual readback path is re-investigated. | New investigation compares official ServoShell/reference, Saccade readback, and `take_screenshot()` on the reductions. |
 | AI-009 | P1 | open | DEVMAX | Add screenshot/finding crops and multi-action click verification polish. | DEVMAX gauntlet reports include crops for findings and verified multi-action receipts. |
 | AI-010 | P2 | open | Packaging | Add macOS packaging/signing checklist and dev-signed local path. | A doc or script explains the unsigned/dev-signed run path without mixing with renderer fixes. |
+| AI-013 | P0 | open | Safety/product policy | Implement the site/action risk classifier from `docs/site_policy_matrix.md` in the bridge/MCP path. | Current URL/action returns green/yellow/orange/red plus `requires_user` for login, OTP, password, CAPTCHA, payment, submit, release, delete, sign, API key, and security actions. |
 
 ## Recently Closed
 
@@ -45,3 +48,4 @@ Active next item: AI-012. AI-001 is blocked by the pinned Servo public API.
 | AI-012F | current checkpoint | Official ServoShell bridge now advertises and handles `formmax_live_fill`; MCP selftest navigates the same granted ServoShell bridge tab to the FORMMAX fixture and verifies rows=96, pages=2, filled=672, blocked_sensitive=3, receipt_verified=true, validation_errors=0. Evidence: `runs/mcp/selftest_1781632241481/report.json` with `servoshell_bridge_formmax_live=true` and `runs/mcp/servoshell_bridge_grant_1781632282911/report.json`. |
 | AI-012G | current checkpoint | Official ServoShell bridge control calls now write sanitized `control/report.json` and `control/replay.jsonl` artifacts, append FORMMAX no-value replay events, and expose Copilot grant state through `shell_status`. MCP selftest verifies `servoshell_bridge_artifacts=true` and replay summary readability. Evidence: `runs/mcp/selftest_1781636671768/report.json`, `runs/mcp/servoshell_bridge_grant_1781636716084/control/report.json`, and `runs/mcp/servoshell_bridge_grant_1781636716084/control/replay.jsonl`. |
 | AI-012H | current checkpoint | Official ServoShell bridge upgradeability gate passes against the local source-release ServoShell `0.3.0-805e6a423` by rerunning the same MCP bridge attach/fill/inspect/act/FORMMAX/artifact gate with `SACCADE_SERVOSHELL_BIN=/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell`. Evidence: `runs/mcp/selftest_1781636405474/report.json` and `runs/mcp/servoshell_bridge_grant_1781636453696/control/replay.jsonl`. |
+| AI-013A | current docs update | Added `docs/site_policy_matrix.md`, the first practical Green/Yellow/Orange/Red site list for Saccade dogfood, high-risk site fallback, and no-bypass boundaries. |
