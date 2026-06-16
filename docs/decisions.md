@@ -665,3 +665,23 @@
   `SHOULD-NOT-WRITE`, or `SHOULD_NOT_WRITE` in the new MCP run and worker
   artifacts.
 - Next work is direct MCP access to the already-open dogfood WebView.
+
+## DECISION_N8_005 - Dogfood current-tab grants expose same-WebView control ping
+
+- Dogfood browser now starts a loopback JSONL control endpoint for the live
+  browser window.
+- Current-tab grant artifacts include that `control_endpoint` with protocol
+  `saccade-dogfood-control-v0`, scheme `tcp`, loopback host, and port.
+- MCP validates the endpoint from the grant artifact and sends a `ping` before
+  continuing with the existing worker-backed truth/action path.
+- The MCP response now reports `same_webview_control_ping=true`,
+  `same_webview_attached=false`, and
+  `transport_status=same_webview_control_ping_plus_worker_truth_v0` when the
+  ping succeeds. This is deliberately not yet a same-WebView truth/action claim.
+- Smoke evidence:
+  `runs/mcp/same_webview_control_smoke_1781572417690.json`.
+- Grant artifact:
+  `runs/current_tab_grants/mcp_bridge_smoke.json`.
+- Result: MCP can prove it is connected to the already-open dogfood WebView's
+  control plane. Next work is moving redacted truth, safe fill, and safe act
+  commands over that same bridge.

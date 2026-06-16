@@ -1,7 +1,11 @@
 use std::cell::{Cell, RefCell};
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -25,6 +29,7 @@ use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
 use crate::{RenderingProfile, RenderingProfileSettings};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 const DEFAULT_WIDTH: u32 = 1440;
@@ -85,11 +90,96 @@ pub fn run_dogfood_browser(config: DogfoodBrowserConfig) -> Result<()> {
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
-    let mut app = DogfoodBrowserApp::new(&event_loop, config, rendering_settings);
+    let control_bridge = start_dogfood_control_bridge(&event_loop)?;
+    let mut app = DogfoodBrowserApp::new(&event_loop, config, rendering_settings, control_bridge);
 
     event_loop
         .run_app(&mut app)
         .context("dogfood browser event loop failed")
+}
+
+fn start_dogfood_control_bridge(
+    event_loop: &EventLoop<WakerEvent>,
+) -> Result<DogfoodControlBridge> {
+    let listener =
+        TcpListener::bind("127.0.0.1:0").context("failed to bind dogfood control listener")?;
+    let addr = listener
+        .local_addr()
+        .context("failed to read dogfood control listener address")?;
+    let endpoint = DogfoodControlEndpoint { addr };
+    let (tx, rx) = mpsc::channel::<DogfoodControlCommand>();
+    let proxy = event_loop.create_proxy();
+    thread::spawn(move || accept_dogfood_control(listener, tx, proxy));
+    Ok(DogfoodControlBridge { endpoint, rx })
+}
+
+fn accept_dogfood_control(
+    listener: TcpListener,
+    tx: Sender<DogfoodControlCommand>,
+    proxy: EventLoopProxy<WakerEvent>,
+) {
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else {
+            continue;
+        };
+        let tx = tx.clone();
+        let proxy = proxy.clone();
+        thread::spawn(move || handle_dogfood_control_stream(stream, tx, proxy));
+    }
+}
+
+fn handle_dogfood_control_stream(
+    mut stream: TcpStream,
+    tx: Sender<DogfoodControlCommand>,
+    proxy: EventLoopProxy<WakerEvent>,
+) {
+    let Ok(reader_stream) = stream.try_clone() else {
+        return;
+    };
+    let reader = BufReader::new(reader_stream);
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) if line.trim().is_empty() => continue,
+            Ok(line) => line,
+            Err(error) => {
+                let _ = writeln!(
+                    stream,
+                    "{}",
+                    json!({"id": Value::Null, "ok": false, "error": error.to_string()})
+                );
+                let _ = stream.flush();
+                return;
+            }
+        };
+        let (respond_to, response_rx) = mpsc::channel();
+        let request =
+            serde_json::from_str::<DogfoodControlRequest>(&line).map_err(|error| error.to_string());
+        if tx
+            .send(DogfoodControlCommand {
+                request,
+                respond_to,
+            })
+            .is_err()
+        {
+            return;
+        }
+        let _ = proxy.send_event(WakerEvent);
+        match response_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(response) => {
+                let _ = writeln!(stream, "{response}");
+                let _ = stream.flush();
+            }
+            Err(error) => {
+                let _ = writeln!(
+                    stream,
+                    "{}",
+                    json!({"id": Value::Null, "ok": false, "error": format!("dogfood control response timeout: {error}")})
+                );
+                let _ = stream.flush();
+                return;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +193,30 @@ struct ActiveSelect {
     control: SelectElement,
     choices: Vec<SelectChoice>,
     cursor: usize,
+}
+
+#[derive(Debug, Clone)]
+struct DogfoodControlEndpoint {
+    addr: SocketAddr,
+}
+
+struct DogfoodControlBridge {
+    endpoint: DogfoodControlEndpoint,
+    rx: Receiver<DogfoodControlCommand>,
+}
+
+#[derive(Debug)]
+struct DogfoodControlCommand {
+    request: std::result::Result<DogfoodControlRequest, String>,
+    respond_to: Sender<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DogfoodControlRequest {
+    id: Option<Value>,
+    method: String,
+    #[serde(default)]
+    params: Value,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -206,6 +320,8 @@ struct DogfoodBrowserState {
     copilot_granted: Cell<bool>,
     copilot_grant_error: RefCell<Option<String>>,
     copilot_grant_path: Option<PathBuf>,
+    control_endpoint: DogfoodControlEndpoint,
+    control_rx: Receiver<DogfoodControlCommand>,
     active_select: RefCell<Option<ActiveSelect>>,
     started_at: Instant,
     auto_close_after: Option<Duration>,
@@ -583,11 +699,55 @@ impl DogfoodBrowserState {
             &current_url,
             page_title.as_deref(),
             self.rendering_settings.profile.name(),
+            Some(&self.control_endpoint),
             unix_ms()?,
         );
         fs::write(path, serde_json::to_vec_pretty(&payload)?)
             .with_context(|| format!("failed to write {}", path.display()))?;
         Ok(())
+    }
+
+    fn drain_control_commands(&self) {
+        while let Ok(command) = self.control_rx.try_recv() {
+            let response = match command.request {
+                Ok(request) => self.handle_control_request(request),
+                Err(error) => json!({
+                    "id": Value::Null,
+                    "ok": false,
+                    "error": format!("invalid dogfood control request: {error}"),
+                }),
+            };
+            let _ = command.respond_to.send(response);
+        }
+    }
+
+    fn handle_control_request(&self, request: DogfoodControlRequest) -> Value {
+        let id = request.id.unwrap_or(Value::Null);
+        let _params = request.params;
+        match request.method.as_str() {
+            "ping" => json!({
+                "id": id,
+                "ok": true,
+                "result": {
+                    "status": "ok",
+                    "runtime": "saccade-dogfood-control-v0",
+                    "same_webview_control": true,
+                    "rendering_profile": self.rendering_settings.profile.name(),
+                    "renderer_engine": self.rendering_settings.profile.engine(),
+                    "servo_grid_enabled": self.rendering_settings.layout_grid_enabled,
+                    "url": self.current_url.borrow().as_str(),
+                    "title": self.page_title.borrow().clone(),
+                    "load_state": self.load_state.get().label(),
+                    "copilot_granted": self.copilot_granted.get(),
+                    "has_webview": self.webview.borrow().is_some(),
+                },
+            }),
+            other => json!({
+                "id": id,
+                "ok": false,
+                "error": format!("unknown dogfood control method {other:?}"),
+            }),
+        }
     }
 }
 
@@ -645,6 +805,7 @@ enum DogfoodBrowserApp {
         waker: Waker,
         config: DogfoodBrowserConfig,
         rendering_settings: RenderingProfileSettings,
+        control_bridge: Option<DogfoodControlBridge>,
     },
     Running {
         state: Rc<DogfoodBrowserState>,
@@ -657,11 +818,13 @@ impl DogfoodBrowserApp {
         event_loop: &EventLoop<WakerEvent>,
         config: DogfoodBrowserConfig,
         rendering_settings: RenderingProfileSettings,
+        control_bridge: DogfoodControlBridge,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             config,
             rendering_settings,
+            control_bridge: Some(control_bridge),
         }
     }
 
@@ -687,8 +850,13 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             waker,
             config,
             rendering_settings,
+            control_bridge,
         } = self
         else {
+            return;
+        };
+        let Some(control_bridge) = control_bridge.take() else {
+            event_loop.exit();
             return;
         };
 
@@ -772,6 +940,8 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             copilot_granted: Cell::new(false),
             copilot_grant_error: RefCell::new(None),
             copilot_grant_path: config.copilot_grant_path.clone(),
+            control_endpoint: control_bridge.endpoint.clone(),
+            control_rx: control_bridge.rx,
             active_select: RefCell::new(None),
             started_at: Instant::now(),
             auto_close_after: config.auto_close_after,
@@ -796,6 +966,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: WakerEvent) {
         if let Self::Running { state } = self {
             state.servo.spin_event_loop();
+            state.drain_control_commands();
         }
         self.after_spin(event_loop);
     }
@@ -808,6 +979,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
     ) {
         if let Self::Running { state } = self {
             state.servo.spin_event_loop();
+            state.drain_control_commands();
 
             match event {
                 WindowEvent::CloseRequested => {
@@ -899,6 +1071,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Self::Running { state } = self {
+            state.drain_control_commands();
+        }
         self.after_spin(event_loop);
     }
 }
@@ -1073,8 +1248,19 @@ fn current_tab_copilot_grant_payload(
     url: &str,
     title: Option<&str>,
     profile: &str,
+    control_endpoint: Option<&DogfoodControlEndpoint>,
     written_unix_ms: u128,
 ) -> Value {
+    let control_endpoint = control_endpoint
+        .map(|endpoint| {
+            json!({
+                "protocol": "saccade-dogfood-control-v0",
+                "scheme": "tcp",
+                "host": endpoint.addr.ip().to_string(),
+                "port": endpoint.addr.port(),
+            })
+        })
+        .unwrap_or(Value::Null);
     json!({
         "status": "granted",
         "runtime": "saccade-dogfood-browser-v0",
@@ -1090,8 +1276,9 @@ fn current_tab_copilot_grant_payload(
         "rendering_profile": profile,
         "shortcut": "Cmd+Shift+G",
         "mcp_tool": "saccade.tabs.grant_current",
+        "control_endpoint": control_endpoint,
         "transport_status": "url_grant_artifact_v0",
-        "note": "MCP v0 should call saccade.tabs.grant_current with this URL; direct in-process attachment to this dogfood WebView is still pending.",
+        "note": "MCP v0 should call saccade.tabs.grant_current with this artifact. The control endpoint currently supports same-WebView ping; truth/action transport is still pending.",
         "written_unix_ms": written_unix_ms,
     })
 }
@@ -1220,6 +1407,11 @@ mod tests {
             "https://example.com/form",
             Some("Example Form"),
             "servo-modern",
+            Some(&DogfoodControlEndpoint {
+                addr: "127.0.0.1:49321"
+                    .parse()
+                    .expect("test address should parse"),
+            }),
             123,
         );
 
@@ -1230,6 +1422,12 @@ mod tests {
         assert_eq!(payload["mcp_tool"], "saccade.tabs.grant_current");
         assert_eq!(payload["url"], "https://example.com/form");
         assert_eq!(payload["title"], "Example Form");
+        assert_eq!(
+            payload["control_endpoint"]["protocol"],
+            "saccade-dogfood-control-v0"
+        );
+        assert_eq!(payload["control_endpoint"]["host"], "127.0.0.1");
+        assert_eq!(payload["control_endpoint"]["port"], 49321);
         assert_eq!(payload["written_unix_ms"], 123);
     }
 

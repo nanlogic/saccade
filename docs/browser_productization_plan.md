@@ -88,6 +88,10 @@ Current state:
 - Current-tab co-pilot grant shortcut: `Cmd+Shift+G` marks the visible dogfood
   browser tab as granted, updates the title to `copilot=granted`, and writes a
   grant artifact at `runs/current_tab_grants/latest.json`.
+- Dogfood grant artifacts now include a loopback `control_endpoint`. MCP can
+  ping that endpoint and prove it is talking to the same live dogfood WebView;
+  redacted truth and safe actions still use the worker path until the next N8
+  bridge step lands.
 - Mouse Back/Forward buttons now navigate browser history when available.
 - Page mouse press now recovers from active address-entry/select shell modes and still forwards the click to Servo.
 - Not done: clickable editable URL bar, visible clickable Back/Forward/Reload/Stop controls, and visible focus-recovery chrome.

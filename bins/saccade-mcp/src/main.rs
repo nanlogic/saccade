@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command as ProcessCommand, Stdio};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
@@ -1391,10 +1391,23 @@ struct CurrentTabGrantRequest {
     read_grant: ReadGrant,
     source: &'static str,
     grant_path: Option<String>,
+    control_endpoint: Option<DogfoodControlEndpoint>,
+}
+
+#[derive(Debug, Clone)]
+struct DogfoodControlEndpoint {
+    host: String,
+    port: u16,
+    protocol: String,
 }
 
 fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let grant = current_tab_grant_from_args(&arguments)?;
+    let same_webview_control = grant
+        .control_endpoint
+        .as_ref()
+        .map(call_dogfood_control_ping)
+        .transpose()?;
 
     let tab_id = state.allocate_tab_id();
     let info = tab(
@@ -1421,6 +1434,14 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
     update_session_tab_from_browser_result(&mut tab, &live_truth);
     state.tabs.push(tab.clone());
     state.browser_workers.insert(tab_id.0, worker);
+    let same_webview_control_ping = same_webview_control.is_some();
+    let transport_status = if grant.source == "grant_artifact" && same_webview_control_ping {
+        "same_webview_control_ping_plus_worker_truth_v0"
+    } else if grant.source == "grant_artifact" {
+        "worker_from_grant_artifact_v0"
+    } else {
+        "worker_from_direct_url_grant_v0"
+    };
 
     Ok(json!({
         "status": "ok",
@@ -1433,13 +1454,11 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "reason": grant.reason,
         "source": grant.source,
         "grant_path": grant.grant_path,
+        "same_webview_control_ping": same_webview_control_ping,
+        "same_webview_control": same_webview_control,
         "same_webview_attached": false,
-        "transport_status": if grant.source == "grant_artifact" {
-            "worker_from_grant_artifact_v0"
-        } else {
-            "worker_from_direct_url_grant_v0"
-        },
-        "transport_note": "MCP v0 validates the visible browser grant, then starts a live worker for the granted URL. Direct same-WebView transport is still pending.",
+        "transport_status": transport_status,
+        "transport_note": "MCP v0 validates the visible browser grant and can ping the same dogfood WebView control endpoint when present. Truth/actions still use a live worker until direct same-WebView command transport lands.",
         "tab": tab.info,
         "truth": {
             "engine": tab.last_engine.clone(),
@@ -1505,6 +1524,7 @@ fn current_tab_grant_from_direct_args(arguments: &Value) -> Result<CurrentTabGra
         )?,
         source: "direct_url",
         grant_path: None,
+        control_endpoint: None,
     })
 }
 
@@ -1555,6 +1575,7 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         .map(str::trim)
         .unwrap_or("dogfood browser current-tab grant artifact");
     let read_grant = read_grant_from_grant_value(grant.get("read_grant").and_then(Value::as_str))?;
+    let control_endpoint = dogfood_control_endpoint_from_grant(&grant)?;
 
     Ok(CurrentTabGrantRequest {
         url,
@@ -1562,7 +1583,101 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         read_grant,
         source: "grant_artifact",
         grant_path: Some(grant_path.display().to_string()),
+        control_endpoint,
     })
+}
+
+fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodControlEndpoint>> {
+    let Some(endpoint) = grant
+        .get("control_endpoint")
+        .filter(|value| !value.is_null())
+    else {
+        return Ok(None);
+    };
+    let protocol = endpoint
+        .get("protocol")
+        .and_then(Value::as_str)
+        .context("control_endpoint must include string protocol")?;
+    if protocol != "saccade-dogfood-control-v0" {
+        bail!("unsupported control endpoint protocol {protocol:?}");
+    }
+    let scheme = endpoint
+        .get("scheme")
+        .and_then(Value::as_str)
+        .context("control_endpoint must include string scheme")?;
+    if scheme != "tcp" {
+        bail!("unsupported control endpoint scheme {scheme:?}");
+    }
+    let host = endpoint
+        .get("host")
+        .and_then(Value::as_str)
+        .context("control_endpoint must include string host")?;
+    if !matches!(host, "127.0.0.1" | "localhost" | "::1") {
+        bail!("control endpoint host must be loopback; got {host:?}");
+    }
+    let port = endpoint
+        .get("port")
+        .and_then(Value::as_u64)
+        .context("control_endpoint must include integer port")?;
+    if port == 0 || port > u16::MAX as u64 {
+        bail!("control endpoint port is out of range: {port}");
+    }
+    Ok(Some(DogfoodControlEndpoint {
+        host: host.to_string(),
+        port: port as u16,
+        protocol: protocol.to_string(),
+    }))
+}
+
+fn call_dogfood_control_ping(endpoint: &DogfoodControlEndpoint) -> Result<Value> {
+    let addr = dogfood_control_socket_addr(endpoint)?;
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
+        .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .context("failed to set dogfood control read timeout")?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .context("failed to set dogfood control write timeout")?;
+    writeln!(
+        stream,
+        "{}",
+        json!({
+            "id": 1,
+            "method": "ping",
+            "params": {
+                "protocol": endpoint.protocol,
+            }
+        })
+    )
+    .context("failed to write dogfood control ping")?;
+    stream
+        .flush()
+        .context("failed to flush dogfood control ping")?;
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader
+        .read_line(&mut line)
+        .context("failed to read dogfood control ping response")?;
+    let response: Value =
+        serde_json::from_str(&line).context("failed to parse dogfood control ping response")?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        let error = response
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("dogfood control ping failed");
+        bail!("{error}");
+    }
+    Ok(response.get("result").cloned().unwrap_or(Value::Null))
+}
+
+fn dogfood_control_socket_addr(endpoint: &DogfoodControlEndpoint) -> Result<SocketAddr> {
+    let ip = match endpoint.host.as_str() {
+        "127.0.0.1" | "localhost" => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        "::1" => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        other => bail!("control endpoint host must be loopback; got {other:?}"),
+    };
+    Ok(SocketAddr::new(ip, endpoint.port))
 }
 
 fn read_grant_from_grant_value(value: Option<&str>) -> Result<ReadGrant> {
@@ -4039,4 +4154,36 @@ fn workspace_root() -> Result<PathBuf> {
         .and_then(Path::parent)
         .map(Path::to_path_buf)
         .context("failed to resolve workspace root")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dogfood_control_socket_addr_maps_allowed_loopback_hosts() {
+        let endpoint = DogfoodControlEndpoint {
+            host: "localhost".to_string(),
+            port: 49321,
+            protocol: "saccade-dogfood-control-v0".to_string(),
+        };
+        assert_eq!(
+            dogfood_control_socket_addr(&endpoint)
+                .expect("localhost should map to loopback")
+                .to_string(),
+            "127.0.0.1:49321"
+        );
+
+        let endpoint = DogfoodControlEndpoint {
+            host: "::1".to_string(),
+            port: 49322,
+            protocol: "saccade-dogfood-control-v0".to_string(),
+        };
+        assert_eq!(
+            dogfood_control_socket_addr(&endpoint)
+                .expect("ipv6 loopback should map to loopback")
+                .to_string(),
+            "[::1]:49322"
+        );
+    }
 }
