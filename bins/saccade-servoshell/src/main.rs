@@ -2380,6 +2380,7 @@ fn bridge_control_result(
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
         "act" => bridge_act_response(state, params),
+        "formmax_live_fill" => bridge_formmax_live_fill_response(state, params),
         "navigate" => {
             let url = params
                 .get("url")
@@ -2454,6 +2455,7 @@ fn bridge_status_response(
             "fill_agent_fields",
             "inspect_fields",
             "act",
+            "formmax_live_fill",
             "navigate",
             "reload",
             "back",
@@ -2648,6 +2650,157 @@ fn bridge_act_response(state: &BridgeControlState, params: Value) -> Result<Valu
     }))
 }
 
+fn bridge_formmax_live_fill_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    let policy = params.get("policy").cloned().unwrap_or_else(|| json!({}));
+    if policy
+        .get("block_sensitive")
+        .and_then(Value::as_bool)
+        .is_some_and(|enabled| !enabled)
+    {
+        bail!("formmax_live_fill requires block_sensitive=true");
+    }
+    if policy
+        .get("local_fixture_only")
+        .and_then(Value::as_bool)
+        .is_some_and(|enabled| !enabled)
+    {
+        bail!("formmax_live_fill requires local_fixture_only=true");
+    }
+
+    wait_for_formmax_ready(&state.client, &state.session_id, state.client.timeout)?;
+    state.client.execute_sync_args(
+        &state.session_id,
+        FORMMAX_INIT_JS,
+        &[json!(FORMMAX_HELPERS_JS)],
+    )?;
+    state.client.execute_sync_args(
+        &state.session_id,
+        FORMMAX_RENDER_PAGE_JS,
+        &[json!(FORMMAX_HELPERS_JS), json!(0)],
+    )?;
+    for start in (0..48).step_by(16) {
+        state.client.execute_sync_args(
+            &state.session_id,
+            FORMMAX_FILL_CHUNK_JS,
+            &[
+                json!(FORMMAX_HELPERS_JS),
+                json!(0),
+                json!(start),
+                json!(start + 16),
+            ],
+        )?;
+    }
+    state.client.execute_sync_args(
+        &state.session_id,
+        FORMMAX_SUBMIT_PAGE_JS,
+        &[json!(FORMMAX_HELPERS_JS), json!(1), json!(2)],
+    )?;
+    state.client.execute_sync_args(
+        &state.session_id,
+        FORMMAX_RENDER_PAGE_JS,
+        &[json!(FORMMAX_HELPERS_JS), json!(1)],
+    )?;
+    for start in (0..48).step_by(16) {
+        state.client.execute_sync_args(
+            &state.session_id,
+            FORMMAX_FILL_CHUNK_JS,
+            &[
+                json!(FORMMAX_HELPERS_JS),
+                json!(1),
+                json!(start),
+                json!(start + 16),
+            ],
+        )?;
+    }
+    state.client.execute_sync_args(
+        &state.session_id,
+        FORMMAX_BLOCK_SENSITIVE_JS,
+        &[json!(FORMMAX_HELPERS_JS)],
+    )?;
+    let result = state.client.execute_sync_args(
+        &state.session_id,
+        FORMMAX_FINALIZE_JS,
+        &[json!(FORMMAX_HELPERS_JS)],
+    )?;
+    let filled = result.get("filled").and_then(Value::as_u64).unwrap_or(0);
+    if filled > 0 {
+        state.page_revision.fetch_add(1, Ordering::SeqCst);
+    }
+    Ok(bridge_formmax_response(
+        "saccade-servoshell-bridge-v0",
+        "saccade-servoshell-bridge-formmax-live-v0",
+        state.page_revision.load(Ordering::SeqCst),
+        &result,
+    ))
+}
+
+fn bridge_formmax_response(
+    runtime: &str,
+    engine: &str,
+    page_revision: u64,
+    result: &Value,
+) -> Value {
+    let rows = result.get("rows").and_then(Value::as_u64).unwrap_or(0);
+    let pages = result.get("pages").and_then(Value::as_u64).unwrap_or(0);
+    let filled = result.get("filled").and_then(Value::as_u64).unwrap_or(0);
+    let blocked_sensitive = result
+        .get("blocked_sensitive")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let receipt_verified = result
+        .get("receipt_verified")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let validation_errors = result
+        .get("validation_errors")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let replay_events = result
+        .get("events")
+        .and_then(Value::as_array)
+        .map(|events| events.len() as u64)
+        .unwrap_or(0)
+        + 1;
+    let receipt_row_count = result
+        .pointer("/receipt/row_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+
+    json!({
+        "status": "ok",
+        "runtime": runtime,
+        "engine": engine,
+        "summary": "FORMMAX capacity fixture filled and verified through official ServoShell bridge",
+        "same_webview_control": true,
+        "page_revision": page_revision,
+        "rows": rows,
+        "pages": pages,
+        "filled": filled,
+        "blocked_sensitive": blocked_sensitive,
+        "receipt_verified": receipt_verified,
+        "validation_errors": validation_errors,
+        "replay_events": replay_events,
+        "receipt": {
+            "row_count": receipt_row_count,
+            "validation": result.pointer("/receipt/validation").cloned().unwrap_or(Value::Null),
+            "sensitive_fields_present": result
+                .pointer("/receipt/sensitive_fields_present")
+                .cloned()
+                .unwrap_or(Value::Null),
+        },
+        "policy": {
+            "block_sensitive": true,
+            "local_fixture_only": true,
+            "same_live_tab": true,
+            "values_logged": false,
+        },
+        "artifacts": {
+            "report": null,
+            "replay": null,
+        },
+    })
+}
+
 fn bridge_action_matches(action: &Value, action_id: &str) -> bool {
     action.get("action_id").and_then(Value::as_str) == Some(action_id)
         || action.get("id").and_then(Value::as_str) == Some(action_id)
@@ -2751,7 +2904,7 @@ fn write_bridge_grant(
         "mcp_tool": "saccade.tabs.grant_current",
         "control_endpoint": bridge_endpoint_json(endpoint),
         "transport_status": "official_servoshell_bridge_control_v0",
-        "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, safe non-sensitive fill/inspect/act, navigate, reload, back, and forward through official ServoShell WebDriver.",
+        "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, safe non-sensitive fill/inspect/act, local FORMMAX fill, navigate, reload, back, and forward through official ServoShell WebDriver.",
         "written_unix_ms": unix_ms(),
     });
     write_json(path, &payload)

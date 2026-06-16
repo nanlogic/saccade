@@ -99,6 +99,7 @@ struct SelftestEvidence {
     tabs_grant_current: bool,
     tabs_grant_artifact: bool,
     servoshell_bridge_grant: bool,
+    servoshell_bridge_formmax_live: bool,
     browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
@@ -230,6 +231,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.tabs_grant_current
         && stdio_evidence.tabs_grant_artifact
         && stdio_evidence.servoshell_bridge_grant
+        && stdio_evidence.servoshell_bridge_formmax_live
         && stdio_evidence.browser_navigate
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
@@ -260,6 +262,7 @@ fn selftest() -> Result<()> {
         tabs_grant_current: stdio_evidence.tabs_grant_current,
         tabs_grant_artifact: stdio_evidence.tabs_grant_artifact,
         servoshell_bridge_grant: stdio_evidence.servoshell_bridge_grant,
+        servoshell_bridge_formmax_live: stdio_evidence.servoshell_bridge_formmax_live,
         browser_navigate: stdio_evidence.browser_navigate,
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
@@ -593,6 +596,7 @@ struct JsonRpcEvidence {
     tabs_grant_current: bool,
     tabs_grant_artifact: bool,
     servoshell_bridge_grant: bool,
+    servoshell_bridge_formmax_live: bool,
     browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
@@ -1882,8 +1886,9 @@ fn call_dogfood_control(
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
     let read_timeout = match method {
-        "formmax_live_fill" => Duration::from_secs(65),
-        "fill_agent_fields" | "inspect_fields" | "act" => Duration::from_secs(30),
+        "formmax_live_fill" | "fill_agent_fields" | "inspect_fields" | "act" => {
+            Duration::from_secs(65)
+        }
         _ => Duration::from_secs(5),
     };
     stream
@@ -4426,6 +4431,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         tabs_grant_current,
         tabs_grant_artifact,
         servoshell_bridge_grant,
+        servoshell_bridge_formmax_live: servoshell_bridge_grant,
         browser_navigate,
         web_truth,
         web_actions,
@@ -4455,6 +4461,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
     let grant_path = run_dir.join("grant.json");
     let copilot_url = start_test_server(workspace.join("test_pages").join("current_tab_copilot"))?;
     let button_url = start_test_server(workspace.join("test_pages").join("browser_session"))?;
+    let formmax_url = start_test_server(workspace.join("test_pages").join("formmax"))?;
 
     let mut child = ProcessCommand::new("cargo")
         .args([
@@ -4545,7 +4552,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             && has_capability("fill_agent_fields")
             && has_capability("inspect_fields")
             && has_capability("act")
-            && !has_capability("formmax_live_fill");
+            && has_capability("formmax_live_fill");
 
         let truth_content = json_rpc_tool_content(
             &mut state,
@@ -4768,6 +4775,58 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                 .and_then(Value::as_str)
                 == Some("servoshell_bridge_webdriver_click_v0");
 
+        let formmax_navigate_content = json_rpc_tool_content(
+            &mut state,
+            510,
+            "saccade.browser.navigate",
+            json!({
+                "tab_id": tab_id,
+                "action": "navigate",
+                "url": formmax_url.as_str(),
+                "policy": {
+                    "same_webview_only": true,
+                    "user_granted_tab_only": true
+                }
+            }),
+        )?;
+        let formmax_basis_page_revision = formmax_navigate_content
+            .get("page_revision")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        let formmax_content = json_rpc_tool_content(
+            &mut state,
+            511,
+            "saccade.web.fill_form",
+            json!({
+                "tab_id": tab_id,
+                "basis_page_revision": formmax_basis_page_revision,
+                "policy": {
+                    "block_sensitive": true,
+                    "local_fixture_only": true,
+                    "live_worker_only": true
+                }
+            }),
+        )?;
+        let formmax_ok = formmax_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && formmax_content.get("engine").and_then(Value::as_str)
+                == Some("saccade-servoshell-bridge-formmax-live-v0")
+            && formmax_content.get("rows").and_then(Value::as_u64) == Some(96)
+            && formmax_content.get("pages").and_then(Value::as_u64) == Some(2)
+            && formmax_content.get("filled").and_then(Value::as_u64) == Some(672)
+            && formmax_content
+                .get("blocked_sensitive")
+                .and_then(Value::as_u64)
+                == Some(3)
+            && formmax_content
+                .get("receipt_verified")
+                .and_then(Value::as_bool)
+                == Some(true)
+            && formmax_content
+                .get("validation_errors")
+                .and_then(Value::as_u64)
+                == Some(0);
+
         let bridge_ok = grant_attached
             && truth_ok
             && actions_ok
@@ -4776,7 +4835,8 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             && inspect_ok
             && no_sensitive_leak
             && navigate_ok
-            && act_ok;
+            && act_ok
+            && formmax_ok;
         if !bridge_ok {
             bail!(
                 "servoshell bridge MCP gate failed: {}",
@@ -4790,6 +4850,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                     "no_sensitive_leak": no_sensitive_leak,
                     "navigate_ok": navigate_ok,
                     "act_ok": act_ok,
+                    "formmax_ok": formmax_ok,
                     "capabilities": capabilities,
                     "fill": {
                         "runtime": fill_content.get("runtime").cloned().unwrap_or(Value::Null),
@@ -4809,6 +4870,16 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                         "runtime": act_content.get("runtime").cloned().unwrap_or(Value::Null),
                         "mode": act_content.pointer("/verification/mode").cloned().unwrap_or(Value::Null),
                         "changed": act_content.pointer("/verification/changed").cloned().unwrap_or(Value::Null),
+                    },
+                    "formmax": {
+                        "runtime": formmax_content.get("runtime").cloned().unwrap_or(Value::Null),
+                        "engine": formmax_content.get("engine").cloned().unwrap_or(Value::Null),
+                        "rows": formmax_content.get("rows").cloned().unwrap_or(Value::Null),
+                        "pages": formmax_content.get("pages").cloned().unwrap_or(Value::Null),
+                        "filled": formmax_content.get("filled").cloned().unwrap_or(Value::Null),
+                        "blocked_sensitive": formmax_content.get("blocked_sensitive").cloned().unwrap_or(Value::Null),
+                        "receipt_verified": formmax_content.get("receipt_verified").cloned().unwrap_or(Value::Null),
+                        "validation_errors": formmax_content.get("validation_errors").cloned().unwrap_or(Value::Null),
                     },
                 })
             );
