@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ab_glyph = "0.2.32"
 anyhow.workspace = true
 euclid.workspace = true
 glow = "0.17"
@@ -15,5 +16,6 @@ saccade_detect = { path = "../saccade_detect" }
 saccade_motor = { path = "../saccade_motor" }
 saccade_replay = { path = "../saccade_replay" }
 servo = "=0.2.0"
+tiny-skia = "0.11.4"
 url.workspace = true
 winit.workspace = true

@@ -5503,6 +5503,7 @@ dependencies = [
 name = "saccade_browser"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "anyhow",
  "euclid",
  "glow",
@@ -5514,6 +5515,7 @@ dependencies = [
  "serde",
  "serde_json",
  "servo",
+ "tiny-skia",
  "url",
  "winit",
 ]

@@ -4,10 +4,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::OnceLock;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use anyhow::{Context, Result};
 use euclid::{Point2D, Scale};
 use glow::HasContext;
@@ -17,6 +19,9 @@ use servo::{
     NamedKey as ServoNamedKey, Opts, RenderingContext, SelectElement,
     SelectElementOptionOrOptgroup, Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate,
     WebViewPoint, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
+};
+use tiny_skia::{
+    FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Rect as SkiaRect, Stroke, Transform,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -46,7 +51,21 @@ const SHELL_TOOLBAR_BUTTON: f32 = 32.0;
 const SHELL_TOOLBAR_GAP: f32 = 6.0;
 const SHELL_TOOLBAR_GRANT_WIDTH: f32 = 104.0;
 const SHELL_TOOLBAR_TEXT_PX: f32 = 1.6;
+#[allow(dead_code)]
 const SHELL_TOOLBAR_LABEL_PX: f32 = 1.45;
+const SHELL_TOOLBAR_TEXT_SIZE: f32 = 13.5;
+const SHELL_TOOLBAR_LABEL_SIZE: f32 = 13.0;
+const TOOLBAR_FONT_PATHS: &[&str] = &[
+    "/System/Library/Fonts/SFNS.ttf",
+    "/System/Library/Fonts/SFCompact.ttf",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Supplemental/Verdana.ttf",
+    "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+];
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
@@ -317,6 +336,21 @@ impl ToolbarRect {
 #[derive(Debug, Clone, Copy)]
 struct ToolbarColor(f32, f32, f32, f32);
 
+impl ToolbarColor {
+    fn to_rgba8(self) -> (u8, u8, u8, u8) {
+        fn channel(value: f32) -> u8 {
+            (value.clamp(0.0, 1.0) * 255.0).round() as u8
+        }
+
+        (
+            channel(self.0),
+            channel(self.1),
+            channel(self.2),
+            channel(self.3),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ShellToolbarMetrics {
     bounds: ToolbarRect,
@@ -572,25 +606,56 @@ impl DogfoodBrowserState {
         let address_error = self.address_error.get();
         let copilot_error = self.copilot_grant_error.borrow().is_some();
         let copilot_granted = self.copilot_granted.get();
+        let pixmap = self.render_toolbar_canvas(
+            physical_size,
+            scale,
+            metrics,
+            can_go_back,
+            can_go_forward,
+            address_active,
+            address_error,
+            copilot_granted,
+            copilot_error,
+        )?;
 
         self.rendering_context.prepare_for_rendering();
         unsafe {
             gl.disable(glow::DEPTH_TEST);
             gl.disable(glow::STENCIL_TEST);
             gl.disable(glow::CULL_FACE);
-            gl.enable(glow::SCISSOR_TEST);
+            gl.disable(glow::SCISSOR_TEST);
         }
+        draw_toolbar_pixmap_overlay(&gl, physical_size, &pixmap)?;
+        Ok(())
+    }
 
-        fill_logical_rect(
-            &gl,
-            physical_size,
-            scale,
-            metrics.bounds,
+    fn render_toolbar_canvas(
+        &self,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        metrics: ShellToolbarMetrics,
+        can_go_back: bool,
+        can_go_forward: bool,
+        address_active: bool,
+        address_error: bool,
+        copilot_granted: bool,
+        copilot_error: bool,
+    ) -> std::result::Result<Pixmap, String> {
+        let width = physical_size.width.max(1);
+        let height = ((SHELL_TOOLBAR_HEIGHT * scale).ceil() as u32).max(1);
+        let mut pixmap = Pixmap::new(width, height)
+            .ok_or_else(|| "failed to allocate toolbar pixmap".to_string())?;
+
+        fill_canvas_rect_physical(
+            &mut pixmap,
+            0.0,
+            0.0,
+            width as f32,
+            height as f32,
             ToolbarColor(0.955, 0.962, 0.972, 1.0),
         );
-        fill_logical_rect(
-            &gl,
-            physical_size,
+        fill_canvas_rect(
+            &mut pixmap,
             scale,
             ToolbarRect {
                 x: 0.0,
@@ -601,35 +666,449 @@ impl DogfoodBrowserState {
             ToolbarColor(0.78, 0.81, 0.86, 1.0),
         );
 
-        self.draw_toolbar_button(&gl, physical_size, scale, metrics.back, can_go_back);
-        self.draw_back_icon(&gl, physical_size, scale, metrics.back, can_go_back);
-        self.draw_toolbar_button(&gl, physical_size, scale, metrics.forward, can_go_forward);
-        self.draw_forward_icon(&gl, physical_size, scale, metrics.forward, can_go_forward);
-        self.draw_toolbar_button(&gl, physical_size, scale, metrics.reload, true);
-        self.draw_reload_icon(&gl, physical_size, scale, metrics.reload);
-        self.draw_address_bar(
-            &gl,
-            physical_size,
+        self.draw_canvas_toolbar_button(&mut pixmap, scale, metrics.back, can_go_back);
+        self.draw_canvas_back_icon(&mut pixmap, scale, metrics.back, can_go_back);
+        self.draw_canvas_toolbar_button(&mut pixmap, scale, metrics.forward, can_go_forward);
+        self.draw_canvas_forward_icon(&mut pixmap, scale, metrics.forward, can_go_forward);
+        self.draw_canvas_toolbar_button(&mut pixmap, scale, metrics.reload, true);
+        self.draw_canvas_reload_icon(&mut pixmap, scale, metrics.reload);
+        self.draw_canvas_address_bar(
+            &mut pixmap,
             scale,
             metrics.address,
             address_active,
             address_error,
         );
-        self.draw_grant_button(
-            &gl,
-            physical_size,
+        self.draw_canvas_grant_button(
+            &mut pixmap,
             scale,
             metrics.grant,
             copilot_granted,
             copilot_error,
         );
 
-        unsafe {
-            gl.disable(glow::SCISSOR_TEST);
-        }
-        Ok(())
+        Ok(pixmap)
     }
 
+    fn draw_canvas_toolbar_button(
+        &self,
+        pixmap: &mut Pixmap,
+        scale: f32,
+        rect: ToolbarRect,
+        enabled: bool,
+    ) {
+        let border = if enabled {
+            ToolbarColor(0.68, 0.72, 0.78, 1.0)
+        } else {
+            ToolbarColor(0.80, 0.83, 0.88, 1.0)
+        };
+        let fill = if enabled {
+            ToolbarColor(0.992, 0.995, 1.0, 1.0)
+        } else {
+            ToolbarColor(0.930, 0.940, 0.955, 1.0)
+        };
+        fill_canvas_soft_bordered_rect(pixmap, scale, rect, border, fill);
+    }
+
+    fn draw_canvas_back_icon(
+        &self,
+        pixmap: &mut Pixmap,
+        scale: f32,
+        rect: ToolbarRect,
+        enabled: bool,
+    ) {
+        let color = toolbar_glyph_color(enabled);
+        let x = rect.x * scale;
+        let y = rect.y * scale;
+        stroke_canvas_polyline(
+            pixmap,
+            &[
+                (x + 20.0 * scale, y + 9.5 * scale),
+                (x + 12.0 * scale, y + 16.0 * scale),
+                (x + 20.0 * scale, y + 22.5 * scale),
+            ],
+            2.5 * scale,
+            color,
+        );
+    }
+
+    fn draw_canvas_forward_icon(
+        &self,
+        pixmap: &mut Pixmap,
+        scale: f32,
+        rect: ToolbarRect,
+        enabled: bool,
+    ) {
+        let color = toolbar_glyph_color(enabled);
+        let x = rect.x * scale;
+        let y = rect.y * scale;
+        stroke_canvas_polyline(
+            pixmap,
+            &[
+                (x + 12.0 * scale, y + 9.5 * scale),
+                (x + 20.0 * scale, y + 16.0 * scale),
+                (x + 12.0 * scale, y + 22.5 * scale),
+            ],
+            2.5 * scale,
+            color,
+        );
+    }
+
+    fn draw_canvas_reload_icon(&self, pixmap: &mut Pixmap, scale: f32, rect: ToolbarRect) {
+        let color = toolbar_glyph_color(true);
+        let x = rect.x * scale;
+        let y = rect.y * scale;
+        let mut pb = PathBuilder::new();
+        pb.move_to(x + 21.5 * scale, y + 10.5 * scale);
+        pb.cubic_to(
+            x + 17.0 * scale,
+            y + 7.0 * scale,
+            x + 10.0 * scale,
+            y + 9.0 * scale,
+            x + 9.0 * scale,
+            y + 15.5 * scale,
+        );
+        pb.cubic_to(
+            x + 8.0 * scale,
+            y + 23.0 * scale,
+            x + 17.5 * scale,
+            y + 26.0 * scale,
+            x + 22.5 * scale,
+            y + 20.5 * scale,
+        );
+        if let Some(path) = pb.finish() {
+            let mut stroke = Stroke::default();
+            stroke.width = 2.4 * scale;
+            stroke.line_cap = LineCap::Round;
+            stroke.line_join = LineJoin::Round;
+            pixmap.stroke_path(
+                &path,
+                &canvas_paint(color),
+                &stroke,
+                Transform::identity(),
+                None,
+            );
+        }
+        fill_canvas_triangle(
+            pixmap,
+            [
+                (x + 22.0 * scale, y + 8.0 * scale),
+                (x + 24.0 * scale, y + 14.0 * scale),
+                (x + 17.8 * scale, y + 12.7 * scale),
+            ],
+            color,
+        );
+    }
+
+    fn draw_canvas_address_bar(
+        &self,
+        pixmap: &mut Pixmap,
+        scale: f32,
+        rect: ToolbarRect,
+        active: bool,
+        error: bool,
+    ) {
+        if rect.width <= 0.0 {
+            return;
+        }
+        let border = if error {
+            ToolbarColor(0.90, 0.24, 0.23, 1.0)
+        } else if active {
+            ToolbarColor(0.24, 0.46, 0.84, 1.0)
+        } else {
+            ToolbarColor(0.70, 0.75, 0.82, 1.0)
+        };
+        let fill = if error {
+            ToolbarColor(1.0, 0.975, 0.975, 1.0)
+        } else if active {
+            ToolbarColor(0.965, 0.982, 1.0, 1.0)
+        } else {
+            ToolbarColor(0.995, 0.997, 1.0, 1.0)
+        };
+        fill_canvas_soft_bordered_rect(pixmap, scale, rect, border, fill);
+
+        let status_color = match self.load_state.get() {
+            BrowserLoadState::Starting | BrowserLoadState::Loading => {
+                Some(ToolbarColor(0.95, 0.62, 0.18, 1.0))
+            }
+            BrowserLoadState::HeadParsed => Some(ToolbarColor(0.32, 0.53, 0.92, 1.0)),
+            BrowserLoadState::Complete => None,
+        };
+        if let Some(status_color) = status_color {
+            fill_canvas_rect(
+                pixmap,
+                scale,
+                ToolbarRect {
+                    x: rect.x + 2.0,
+                    y: rect.y + rect.height - 3.0,
+                    width: (rect.width - 4.0).max(0.0),
+                    height: 2.0,
+                },
+                status_color,
+            );
+        }
+
+        let is_secure = self
+            .address_entry
+            .borrow()
+            .as_deref()
+            .map(|input| input.trim_start().starts_with("https://"))
+            .unwrap_or_else(|| self.current_url.borrow().as_str().starts_with("https://"));
+        if is_secure {
+            self.draw_canvas_lock_icon(
+                pixmap,
+                scale,
+                ToolbarRect {
+                    x: rect.x + 7.0,
+                    y: rect.y + 8.0,
+                    width: 14.0,
+                    height: 16.0,
+                },
+                if active {
+                    ToolbarColor(0.10, 0.36, 0.20, 1.0)
+                } else {
+                    ToolbarColor(0.26, 0.48, 0.34, 1.0)
+                },
+            );
+        } else {
+            self.draw_canvas_search_icon(
+                pixmap,
+                scale,
+                ToolbarRect {
+                    x: rect.x + 7.0,
+                    y: rect.y + 8.0,
+                    width: 14.0,
+                    height: 16.0,
+                },
+                ToolbarColor(0.40, 0.45, 0.52, 1.0),
+            );
+        }
+
+        let entry = self.address_entry.borrow().clone();
+        let current_url = self.current_url.borrow().to_string();
+        let (raw_text, text_color, placeholder) = if let Some(entry) = entry.as_deref() {
+            (
+                entry,
+                if error {
+                    ToolbarColor(0.74, 0.12, 0.14, 1.0)
+                } else {
+                    ToolbarColor(0.09, 0.12, 0.18, 1.0)
+                },
+                false,
+            )
+        } else if current_url.trim().is_empty() || current_url == "about:blank" {
+            (
+                "Search or enter website name",
+                ToolbarColor(0.45, 0.49, 0.56, 1.0),
+                true,
+            )
+        } else {
+            (
+                current_url.as_str(),
+                ToolbarColor(0.16, 0.19, 0.25, 1.0),
+                false,
+            )
+        };
+        let text_x = rect.x + 28.0;
+        let text_y = rect.y + (rect.height - SHELL_TOOLBAR_TEXT_SIZE) / 2.0 - 0.5;
+        let max_text_width = (rect.width - 43.0).max(0.0);
+        let display_text =
+            fit_toolbar_canvas_text(raw_text, max_text_width, SHELL_TOOLBAR_TEXT_SIZE);
+        let text_end = draw_toolbar_canvas_text(
+            pixmap,
+            scale,
+            text_x,
+            text_y,
+            &display_text,
+            SHELL_TOOLBAR_TEXT_SIZE,
+            text_color,
+        );
+        if active && !placeholder {
+            let caret_x = text_end.min(rect.x + rect.width - 10.0);
+            fill_canvas_rect(
+                pixmap,
+                scale,
+                ToolbarRect {
+                    x: caret_x + 1.0,
+                    y: rect.y + 8.0,
+                    width: 1.5,
+                    height: rect.height - 16.0,
+                },
+                if error {
+                    ToolbarColor(0.74, 0.12, 0.14, 1.0)
+                } else {
+                    ToolbarColor(0.20, 0.44, 0.88, 1.0)
+                },
+            );
+        }
+    }
+
+    fn draw_canvas_search_icon(
+        &self,
+        pixmap: &mut Pixmap,
+        scale: f32,
+        rect: ToolbarRect,
+        color: ToolbarColor,
+    ) {
+        let x = rect.x * scale;
+        let y = rect.y * scale;
+        let radius = 4.6 * scale;
+        if let Some(circle) = PathBuilder::from_circle(x + 6.5 * scale, y + 6.5 * scale, radius) {
+            let mut stroke = Stroke::default();
+            stroke.width = 1.8 * scale;
+            pixmap.stroke_path(
+                &circle,
+                &canvas_paint(color),
+                &stroke,
+                Transform::identity(),
+                None,
+            );
+        }
+        stroke_canvas_polyline(
+            pixmap,
+            &[
+                (x + 10.2 * scale, y + 10.2 * scale),
+                (x + 14.0 * scale, y + 14.0 * scale),
+            ],
+            1.9 * scale,
+            color,
+        );
+    }
+
+    fn draw_canvas_lock_icon(
+        &self,
+        pixmap: &mut Pixmap,
+        scale: f32,
+        rect: ToolbarRect,
+        color: ToolbarColor,
+    ) {
+        let x = rect.x * scale;
+        let y = rect.y * scale;
+        let mut shackle = PathBuilder::new();
+        shackle.move_to(x + 3.0 * scale, y + 7.2 * scale);
+        shackle.cubic_to(
+            x + 3.0 * scale,
+            y + 1.8 * scale,
+            x + 11.0 * scale,
+            y + 1.8 * scale,
+            x + 11.0 * scale,
+            y + 7.2 * scale,
+        );
+        if let Some(path) = shackle.finish() {
+            let mut stroke = Stroke::default();
+            stroke.width = 1.8 * scale;
+            stroke.line_cap = LineCap::Round;
+            pixmap.stroke_path(
+                &path,
+                &canvas_paint(color),
+                &stroke,
+                Transform::identity(),
+                None,
+            );
+        }
+        fill_canvas_rounded_rect_physical(
+            pixmap,
+            x + 2.0 * scale,
+            y + 7.0 * scale,
+            10.0 * scale,
+            8.0 * scale,
+            2.2 * scale,
+            color,
+        );
+    }
+
+    fn draw_canvas_grant_button(
+        &self,
+        pixmap: &mut Pixmap,
+        scale: f32,
+        rect: ToolbarRect,
+        granted: bool,
+        error: bool,
+    ) {
+        let (border, fill, glyph, label, label_color) = if error {
+            (
+                ToolbarColor(0.78, 0.24, 0.24, 1.0),
+                ToolbarColor(1.0, 0.94, 0.94, 1.0),
+                ToolbarColor(0.78, 0.20, 0.20, 1.0),
+                "Error",
+                ToolbarColor(0.60, 0.12, 0.12, 1.0),
+            )
+        } else if granted {
+            (
+                ToolbarColor(0.28, 0.60, 0.42, 1.0),
+                ToolbarColor(0.92, 0.985, 0.95, 1.0),
+                ToolbarColor(0.18, 0.52, 0.34, 1.0),
+                "On",
+                ToolbarColor(0.12, 0.34, 0.24, 1.0),
+            )
+        } else {
+            (
+                ToolbarColor(0.68, 0.72, 0.78, 1.0),
+                ToolbarColor(0.992, 0.995, 1.0, 1.0),
+                ToolbarColor(0.42, 0.46, 0.54, 1.0),
+                "Agent",
+                ToolbarColor(0.20, 0.24, 0.30, 1.0),
+            )
+        };
+        fill_canvas_soft_bordered_rect(pixmap, scale, rect, border, fill);
+
+        let cx = (rect.x + 13.0) * scale;
+        let cy = (rect.y + rect.height / 2.0) * scale;
+        if let Some(outer) = PathBuilder::from_circle(cx, cy, 4.7 * scale) {
+            pixmap.fill_path(
+                &outer,
+                &canvas_paint(glyph),
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+        if granted {
+            stroke_canvas_polyline(
+                pixmap,
+                &[
+                    (cx - 3.0 * scale, cy - 0.2 * scale),
+                    (cx - 0.8 * scale, cy + 2.2 * scale),
+                    (cx + 3.3 * scale, cy - 2.7 * scale),
+                ],
+                1.5 * scale,
+                ToolbarColor(1.0, 1.0, 1.0, 1.0),
+            );
+        } else if error {
+            stroke_canvas_polyline(
+                pixmap,
+                &[
+                    (cx - 2.5 * scale, cy - 2.5 * scale),
+                    (cx + 2.5 * scale, cy + 2.5 * scale),
+                ],
+                1.6 * scale,
+                ToolbarColor(1.0, 1.0, 1.0, 1.0),
+            );
+            stroke_canvas_polyline(
+                pixmap,
+                &[
+                    (cx + 2.5 * scale, cy - 2.5 * scale),
+                    (cx - 2.5 * scale, cy + 2.5 * scale),
+                ],
+                1.6 * scale,
+                ToolbarColor(1.0, 1.0, 1.0, 1.0),
+            );
+        }
+
+        if rect.width >= 72.0 {
+            draw_toolbar_canvas_text(
+                pixmap,
+                scale,
+                rect.x + 24.0,
+                rect.y + (rect.height - SHELL_TOOLBAR_LABEL_SIZE) / 2.0 - 0.5,
+                label,
+                SHELL_TOOLBAR_LABEL_SIZE,
+                label_color,
+            );
+        }
+    }
+
+    #[allow(dead_code)]
     fn draw_toolbar_button(
         &self,
         gl: &glow::Context,
@@ -651,6 +1130,7 @@ impl DogfoodBrowserState {
         draw_soft_bordered_rect(gl, physical_size, scale, rect, border, fill);
     }
 
+    #[allow(dead_code)]
     fn draw_back_icon(
         &self,
         gl: &glow::Context,
@@ -696,6 +1176,7 @@ impl DogfoodBrowserState {
         }
     }
 
+    #[allow(dead_code)]
     fn draw_forward_icon(
         &self,
         gl: &glow::Context,
@@ -741,6 +1222,7 @@ impl DogfoodBrowserState {
         }
     }
 
+    #[allow(dead_code)]
     fn draw_reload_icon(
         &self,
         gl: &glow::Context,
@@ -779,6 +1261,7 @@ impl DogfoodBrowserState {
         }
     }
 
+    #[allow(dead_code)]
     fn draw_address_bar(
         &self,
         gl: &glow::Context,
@@ -924,6 +1407,7 @@ impl DogfoodBrowserState {
         }
     }
 
+    #[allow(dead_code)]
     fn draw_search_icon(
         &self,
         gl: &glow::Context,
@@ -994,6 +1478,7 @@ impl DogfoodBrowserState {
         );
     }
 
+    #[allow(dead_code)]
     fn draw_lock_icon(
         &self,
         gl: &glow::Context,
@@ -1032,6 +1517,7 @@ impl DogfoodBrowserState {
         }
     }
 
+    #[allow(dead_code)]
     fn draw_grant_button(
         &self,
         gl: &glow::Context,
@@ -2237,7 +2723,7 @@ impl DogfoodBrowserState {
         json!({
             "visible": true,
             "clickable": true,
-            "draw_mode": "native_gl_toolbar_text_v1",
+            "draw_mode": "native_gl_antialiased_toolbar_v3",
             "page_dom_injected": false,
             "webview_resized_for_toolbar": false,
             "height_css_px": SHELL_TOOLBAR_HEIGHT,
@@ -2614,6 +3100,491 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
     }
 }
 
+fn canvas_paint(color: ToolbarColor) -> Paint<'static> {
+    let (red, green, blue, alpha) = color.to_rgba8();
+    let mut paint = Paint::default();
+    paint.anti_alias = true;
+    paint.set_color_rgba8(red, green, blue, alpha);
+    paint
+}
+
+fn fill_canvas_rect(pixmap: &mut Pixmap, scale: f32, rect: ToolbarRect, color: ToolbarColor) {
+    fill_canvas_rect_physical(
+        pixmap,
+        rect.x * scale,
+        rect.y * scale,
+        rect.width * scale,
+        rect.height * scale,
+        color,
+    );
+}
+
+fn fill_canvas_rect_physical(
+    pixmap: &mut Pixmap,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    color: ToolbarColor,
+) {
+    if width <= 0.0 || height <= 0.0 {
+        return;
+    }
+    if let Some(rect) = SkiaRect::from_xywh(x, y, width, height) {
+        pixmap.fill_rect(rect, &canvas_paint(color), Transform::identity(), None);
+    }
+}
+
+fn fill_canvas_soft_bordered_rect(
+    pixmap: &mut Pixmap,
+    scale: f32,
+    rect: ToolbarRect,
+    border: ToolbarColor,
+    fill: ToolbarColor,
+) {
+    let radius = toolbar_control_radius(rect);
+    fill_canvas_rounded_rect(pixmap, scale, rect, radius, border);
+    let inner = rect.inset(1.0);
+    fill_canvas_rounded_rect(pixmap, scale, inner, (radius - 1.0).max(0.0), fill);
+}
+
+fn fill_canvas_rounded_rect(
+    pixmap: &mut Pixmap,
+    scale: f32,
+    rect: ToolbarRect,
+    radius: f32,
+    color: ToolbarColor,
+) {
+    fill_canvas_rounded_rect_physical(
+        pixmap,
+        rect.x * scale,
+        rect.y * scale,
+        rect.width * scale,
+        rect.height * scale,
+        radius * scale,
+        color,
+    );
+}
+
+fn fill_canvas_rounded_rect_physical(
+    pixmap: &mut Pixmap,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+    color: ToolbarColor,
+) {
+    if width <= 0.0 || height <= 0.0 {
+        return;
+    }
+    let radius = radius.min(width / 2.0).min(height / 2.0).max(0.0);
+    let path = rounded_canvas_rect_path(x, y, width, height, radius);
+    pixmap.fill_path(
+        &path,
+        &canvas_paint(color),
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+}
+
+fn rounded_canvas_rect_path(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+) -> tiny_skia::Path {
+    if radius <= 0.0 {
+        return PathBuilder::from_rect(SkiaRect::from_xywh(x, y, width, height).unwrap());
+    }
+
+    let right = x + width;
+    let bottom = y + height;
+    let k = 0.552_284_8;
+    let c = radius * k;
+    let mut path = PathBuilder::new();
+    path.move_to(x + radius, y);
+    path.line_to(right - radius, y);
+    path.cubic_to(
+        right - radius + c,
+        y,
+        right,
+        y + radius - c,
+        right,
+        y + radius,
+    );
+    path.line_to(right, bottom - radius);
+    path.cubic_to(
+        right,
+        bottom - radius + c,
+        right - radius + c,
+        bottom,
+        right - radius,
+        bottom,
+    );
+    path.line_to(x + radius, bottom);
+    path.cubic_to(
+        x + radius - c,
+        bottom,
+        x,
+        bottom - radius + c,
+        x,
+        bottom - radius,
+    );
+    path.line_to(x, y + radius);
+    path.cubic_to(x, y + radius - c, x + radius - c, y, x + radius, y);
+    path.close();
+    path.finish().unwrap()
+}
+
+fn stroke_canvas_polyline(
+    pixmap: &mut Pixmap,
+    points: &[(f32, f32)],
+    width: f32,
+    color: ToolbarColor,
+) {
+    if points.len() < 2 || width <= 0.0 {
+        return;
+    }
+    let mut path = PathBuilder::new();
+    path.move_to(points[0].0, points[0].1);
+    for point in points.iter().skip(1) {
+        path.line_to(point.0, point.1);
+    }
+    if let Some(path) = path.finish() {
+        let mut stroke = Stroke::default();
+        stroke.width = width;
+        stroke.line_cap = LineCap::Round;
+        stroke.line_join = LineJoin::Round;
+        pixmap.stroke_path(
+            &path,
+            &canvas_paint(color),
+            &stroke,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+fn fill_canvas_triangle(pixmap: &mut Pixmap, points: [(f32, f32); 3], color: ToolbarColor) {
+    let mut path = PathBuilder::new();
+    path.move_to(points[0].0, points[0].1);
+    path.line_to(points[1].0, points[1].1);
+    path.line_to(points[2].0, points[2].1);
+    path.close();
+    if let Some(path) = path.finish() {
+        pixmap.fill_path(
+            &path,
+            &canvas_paint(color),
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+fn toolbar_font() -> Option<&'static FontArc> {
+    static TOOLBAR_FONT: OnceLock<Option<FontArc>> = OnceLock::new();
+    TOOLBAR_FONT.get_or_init(load_toolbar_font).as_ref()
+}
+
+fn load_toolbar_font() -> Option<FontArc> {
+    for path in TOOLBAR_FONT_PATHS {
+        let Ok(bytes) = fs::read(path) else {
+            continue;
+        };
+        if let Ok(font) = FontArc::try_from_vec(bytes)
+            && toolbar_font_has_drawable_ascii(&font)
+        {
+            return Some(font);
+        }
+    }
+    None
+}
+
+fn toolbar_font_has_drawable_ascii(font: &FontArc) -> bool {
+    let scale = PxScale::from(16.0);
+    let scaled = font.as_scaled(scale);
+    ['A', 'g', '0'].into_iter().all(|ch| {
+        let glyph_id = scaled.glyph_id(ch);
+        scaled.h_advance(glyph_id) > 0.0
+            && font
+                .outline_glyph(glyph_id.with_scale_and_position(scale, point(0.0, 16.0)))
+                .is_some()
+    })
+}
+
+const TOOLBAR_TEXTURE_VERTEX_SHADER_150: &str = r#"#version 150
+in vec2 a_pos;
+in vec2 a_uv;
+out vec2 v_uv;
+
+void main() {
+    v_uv = a_uv;
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+"#;
+
+const TOOLBAR_TEXTURE_FRAGMENT_SHADER_150: &str = r#"#version 150
+uniform sampler2D u_texture;
+in vec2 v_uv;
+out vec4 out_color;
+
+void main() {
+    out_color = texture(u_texture, v_uv);
+}
+"#;
+
+const TOOLBAR_TEXTURE_VERTEX_SHADER_100: &str = r#"attribute vec2 a_pos;
+attribute vec2 a_uv;
+varying vec2 v_uv;
+
+void main() {
+    v_uv = a_uv;
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+"#;
+
+const TOOLBAR_TEXTURE_FRAGMENT_SHADER_100: &str = r#"uniform sampler2D u_texture;
+varying vec2 v_uv;
+
+void main() {
+    gl_FragColor = texture2D(u_texture, v_uv);
+}
+"#;
+
+fn draw_toolbar_pixmap_overlay(
+    gl: &glow::Context,
+    physical_size: PhysicalSize<u32>,
+    pixmap: &Pixmap,
+) -> std::result::Result<(), String> {
+    if physical_size.width == 0
+        || physical_size.height == 0
+        || pixmap.width() == 0
+        || pixmap.height() == 0
+    {
+        return Ok(());
+    }
+
+    let toolbar_bottom = 1.0 - (pixmap.height() as f32 / physical_size.height as f32) * 2.0;
+    let vertices: [f32; 24] = [
+        -1.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        -1.0,
+        toolbar_bottom,
+        0.0,
+        1.0,
+        -1.0,
+        toolbar_bottom,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        toolbar_bottom,
+        1.0,
+        1.0,
+    ];
+
+    unsafe {
+        let program = compile_toolbar_texture_program(gl)?;
+        let texture = gl.create_texture()?;
+        let vertex_array = gl.create_vertex_array()?;
+        let vertex_buffer = gl.create_buffer()?;
+
+        gl.viewport(
+            0,
+            0,
+            physical_size.width as i32,
+            physical_size.height as i32,
+        );
+        gl.disable(glow::SCISSOR_TEST);
+        gl.active_texture(glow::TEXTURE0);
+        gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+        gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MIN_FILTER,
+            glow::LINEAR as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MAG_FILTER,
+            glow::LINEAR as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_S,
+            glow::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_T,
+            glow::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_image_2d(
+            glow::TEXTURE_2D,
+            0,
+            glow::RGBA as i32,
+            pixmap.width() as i32,
+            pixmap.height() as i32,
+            0,
+            glow::RGBA,
+            glow::UNSIGNED_BYTE,
+            glow::PixelUnpackData::Slice(Some(pixmap.data())),
+        );
+
+        gl.use_program(Some(program));
+        let texture_uniform = gl.get_uniform_location(program, "u_texture");
+        gl.uniform_1_i32(texture_uniform.as_ref(), 0);
+
+        gl.bind_vertex_array(Some(vertex_array));
+        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vertex_buffer));
+        gl.buffer_data_u8_slice(
+            glow::ARRAY_BUFFER,
+            f32_slice_as_u8(&vertices),
+            glow::STATIC_DRAW,
+        );
+
+        let position_location = gl
+            .get_attrib_location(program, "a_pos")
+            .ok_or_else(|| "toolbar texture shader missing a_pos".to_string())?;
+        let uv_location = gl
+            .get_attrib_location(program, "a_uv")
+            .ok_or_else(|| "toolbar texture shader missing a_uv".to_string())?;
+        let stride = (4 * std::mem::size_of::<f32>()) as i32;
+        gl.enable_vertex_attrib_array(position_location);
+        gl.vertex_attrib_pointer_f32(position_location, 2, glow::FLOAT, false, stride, 0);
+        gl.enable_vertex_attrib_array(uv_location);
+        gl.vertex_attrib_pointer_f32(
+            uv_location,
+            2,
+            glow::FLOAT,
+            false,
+            stride,
+            (2 * std::mem::size_of::<f32>()) as i32,
+        );
+
+        gl.enable(glow::BLEND);
+        gl.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+        gl.draw_arrays(glow::TRIANGLES, 0, 6);
+        gl.disable(glow::BLEND);
+
+        gl.disable_vertex_attrib_array(position_location);
+        gl.disable_vertex_attrib_array(uv_location);
+        gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        gl.bind_vertex_array(None);
+        gl.bind_texture(glow::TEXTURE_2D, None);
+        gl.use_program(None);
+        gl.delete_buffer(vertex_buffer);
+        gl.delete_vertex_array(vertex_array);
+        gl.delete_texture(texture);
+        gl.delete_program(program);
+    }
+
+    Ok(())
+}
+
+unsafe fn compile_toolbar_texture_program(
+    gl: &glow::Context,
+) -> std::result::Result<glow::NativeProgram, String> {
+    unsafe {
+        let mut last_error = String::new();
+        for (vertex_source, fragment_source) in [
+            (
+                TOOLBAR_TEXTURE_VERTEX_SHADER_150,
+                TOOLBAR_TEXTURE_FRAGMENT_SHADER_150,
+            ),
+            (
+                TOOLBAR_TEXTURE_VERTEX_SHADER_100,
+                TOOLBAR_TEXTURE_FRAGMENT_SHADER_100,
+            ),
+        ] {
+            match compile_toolbar_texture_program_with_sources(gl, vertex_source, fragment_source) {
+                Ok(program) => return Ok(program),
+                Err(error) => last_error = error,
+            }
+        }
+        Err(last_error)
+    }
+}
+
+unsafe fn compile_toolbar_texture_program_with_sources(
+    gl: &glow::Context,
+    vertex_source: &str,
+    fragment_source: &str,
+) -> std::result::Result<glow::NativeProgram, String> {
+    unsafe {
+        let vertex_shader = compile_toolbar_shader(gl, glow::VERTEX_SHADER, vertex_source)?;
+        let fragment_shader =
+            match compile_toolbar_shader(gl, glow::FRAGMENT_SHADER, fragment_source) {
+                Ok(shader) => shader,
+                Err(error) => {
+                    gl.delete_shader(vertex_shader);
+                    return Err(error);
+                }
+            };
+        let program = match gl.create_program() {
+            Ok(program) => program,
+            Err(error) => {
+                gl.delete_shader(vertex_shader);
+                gl.delete_shader(fragment_shader);
+                return Err(error);
+            }
+        };
+        gl.attach_shader(program, vertex_shader);
+        gl.attach_shader(program, fragment_shader);
+        gl.link_program(program);
+        gl.detach_shader(program, vertex_shader);
+        gl.detach_shader(program, fragment_shader);
+        gl.delete_shader(vertex_shader);
+        gl.delete_shader(fragment_shader);
+
+        if gl.get_program_link_status(program) {
+            Ok(program)
+        } else {
+            let log = gl.get_program_info_log(program);
+            gl.delete_program(program);
+            Err(format!("toolbar texture shader link failed: {log}"))
+        }
+    }
+}
+
+unsafe fn compile_toolbar_shader(
+    gl: &glow::Context,
+    kind: u32,
+    source: &str,
+) -> std::result::Result<glow::NativeShader, String> {
+    unsafe {
+        let shader = gl.create_shader(kind)?;
+        gl.shader_source(shader, source);
+        gl.compile_shader(shader);
+        if gl.get_shader_compile_status(shader) {
+            Ok(shader)
+        } else {
+            let log = gl.get_shader_info_log(shader);
+            gl.delete_shader(shader);
+            Err(format!("toolbar texture shader compile failed: {log}"))
+        }
+    }
+}
+
+fn f32_slice_as_u8(values: &[f32]) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), std::mem::size_of_val(values))
+    }
+}
+
 fn toolbar_glyph_color(enabled: bool) -> ToolbarColor {
     if enabled {
         ToolbarColor(0.11, 0.14, 0.19, 1.0)
@@ -2622,6 +3593,7 @@ fn toolbar_glyph_color(enabled: bool) -> ToolbarColor {
     }
 }
 
+#[allow(dead_code)]
 fn draw_toolbar_text(
     gl: &glow::Context,
     physical_size: PhysicalSize<u32>,
@@ -2725,6 +3697,184 @@ fn toolbar_char_advance(ch: char, pixel: f32) -> f32 {
         '.' | ':' | '/' | '-' | '_' => 4.0 * pixel,
         _ => 6.0 * pixel,
     }
+}
+
+fn fit_toolbar_canvas_text(text: &str, max_width: f32, font_size: f32) -> String {
+    if max_width <= 0.0 || font_size <= 0.0 {
+        return String::new();
+    }
+
+    let normalized = normalize_toolbar_text(text);
+    let Some(full_width) = toolbar_canvas_text_width(&normalized, font_size) else {
+        return fit_toolbar_text(text, max_width, SHELL_TOOLBAR_TEXT_PX);
+    };
+    if full_width <= max_width {
+        return normalized;
+    }
+
+    let ellipsis = "...";
+    let ellipsis_width = toolbar_canvas_text_width(ellipsis, font_size).unwrap_or(0.0);
+    if ellipsis_width > max_width {
+        let mut dots = String::new();
+        while toolbar_canvas_text_width(&(dots.clone() + "."), font_size).unwrap_or(f32::MAX)
+            <= max_width
+        {
+            dots.push('.');
+        }
+        return dots;
+    }
+
+    let mut fitted = String::new();
+    let mut fitted_width = 0.0;
+    for ch in normalized.chars() {
+        let next_width = toolbar_canvas_text_width(&ch.to_string(), font_size).unwrap_or(0.0);
+        if fitted_width + next_width + ellipsis_width > max_width {
+            break;
+        }
+        fitted.push(ch);
+        fitted_width += next_width;
+    }
+    fitted.push_str(ellipsis);
+    fitted
+}
+
+fn toolbar_canvas_text_width(text: &str, font_size: f32) -> Option<f32> {
+    let font = toolbar_font()?;
+    let scaled = font.as_scaled(PxScale::from(font_size));
+    let mut width = 0.0;
+    let mut previous = None;
+    for ch in text.chars() {
+        let glyph_id = scaled.glyph_id(ch);
+        if let Some(previous) = previous {
+            width += scaled.kern(previous, glyph_id);
+        }
+        width += scaled.h_advance(glyph_id);
+        previous = Some(glyph_id);
+    }
+    Some(width)
+}
+
+fn draw_toolbar_canvas_text(
+    pixmap: &mut Pixmap,
+    scale: f32,
+    x: f32,
+    y: f32,
+    text: &str,
+    font_size: f32,
+    color: ToolbarColor,
+) -> f32 {
+    let Some(font) = toolbar_font() else {
+        return draw_toolbar_canvas_bitmap_text(
+            pixmap,
+            scale,
+            x,
+            y,
+            text,
+            SHELL_TOOLBAR_TEXT_PX,
+            color,
+        );
+    };
+
+    let px_size = font_size * scale;
+    let scaled = font.as_scaled(PxScale::from(px_size));
+    let mut cursor_x = x * scale;
+    let baseline_y = y * scale + scaled.ascent();
+    let mut previous = None;
+
+    for ch in text.chars() {
+        let glyph_id = scaled.glyph_id(ch);
+        if let Some(previous) = previous {
+            cursor_x += scaled.kern(previous, glyph_id);
+        }
+        let glyph =
+            glyph_id.with_scale_and_position(PxScale::from(px_size), point(cursor_x, baseline_y));
+        if let Some(outlined) = font.outline_glyph(glyph) {
+            let bounds = outlined.px_bounds();
+            let bounds_x = bounds.min.x as i32;
+            let bounds_y = bounds.min.y as i32;
+            outlined.draw(|pixel_x, pixel_y, coverage| {
+                let x = bounds_x + pixel_x as i32;
+                let y = bounds_y + pixel_y as i32;
+                if x < 0 || y < 0 {
+                    return;
+                }
+                blend_toolbar_canvas_pixel(
+                    pixmap,
+                    x as u32,
+                    y as u32,
+                    color,
+                    coverage.clamp(0.0, 1.0),
+                );
+            });
+        }
+        cursor_x += scaled.h_advance(glyph_id);
+        previous = Some(glyph_id);
+    }
+
+    cursor_x / scale
+}
+
+fn draw_toolbar_canvas_bitmap_text(
+    pixmap: &mut Pixmap,
+    scale: f32,
+    x: f32,
+    y: f32,
+    text: &str,
+    pixel: f32,
+    color: ToolbarColor,
+) -> f32 {
+    let mut cursor_x = x;
+    for ch in text.chars() {
+        let pattern = toolbar_glyph_pattern(ch);
+        for (row_index, row) in pattern.iter().enumerate() {
+            for (column_index, column) in row.chars().enumerate() {
+                if column != '#' {
+                    continue;
+                }
+                fill_canvas_rect(
+                    pixmap,
+                    scale,
+                    ToolbarRect {
+                        x: cursor_x + column_index as f32 * pixel,
+                        y: y + row_index as f32 * pixel,
+                        width: pixel,
+                        height: pixel,
+                    },
+                    color,
+                );
+            }
+        }
+        cursor_x += toolbar_char_advance(ch, pixel);
+    }
+    cursor_x
+}
+
+fn blend_toolbar_canvas_pixel(
+    pixmap: &mut Pixmap,
+    x: u32,
+    y: u32,
+    color: ToolbarColor,
+    coverage: f32,
+) {
+    if x >= pixmap.width() || y >= pixmap.height() || coverage <= 0.0 {
+        return;
+    }
+    let idx = ((y * pixmap.width() + x) * 4) as usize;
+    let data = pixmap.data_mut();
+    let src_alpha = (color.3 * coverage).clamp(0.0, 1.0);
+    let inv_alpha = 1.0 - src_alpha;
+    let src_r = color.0.clamp(0.0, 1.0) * src_alpha;
+    let src_g = color.1.clamp(0.0, 1.0) * src_alpha;
+    let src_b = color.2.clamp(0.0, 1.0) * src_alpha;
+    let dst_r = data[idx] as f32 / 255.0;
+    let dst_g = data[idx + 1] as f32 / 255.0;
+    let dst_b = data[idx + 2] as f32 / 255.0;
+    let dst_a = data[idx + 3] as f32 / 255.0;
+
+    data[idx] = ((src_r + dst_r * inv_alpha) * 255.0).round() as u8;
+    data[idx + 1] = ((src_g + dst_g * inv_alpha) * 255.0).round() as u8;
+    data[idx + 2] = ((src_b + dst_b * inv_alpha) * 255.0).round() as u8;
+    data[idx + 3] = ((src_alpha + dst_a * inv_alpha) * 255.0).round() as u8;
 }
 
 fn toolbar_lowercase_glyph_pattern(ch: char) -> [&'static str; 7] {
@@ -3013,6 +4163,7 @@ fn toolbar_rect_json(rect: ToolbarRect) -> Value {
     })
 }
 
+#[allow(dead_code)]
 fn draw_soft_bordered_rect(
     gl: &glow::Context,
     physical_size: PhysicalSize<u32>,
@@ -3021,58 +4172,83 @@ fn draw_soft_bordered_rect(
     border: ToolbarColor,
     fill: ToolbarColor,
 ) {
-    let corner = 2.0;
-    fill_logical_rect(
-        gl,
-        physical_size,
-        scale,
-        ToolbarRect {
-            x: rect.x + corner,
-            y: rect.y,
-            width: (rect.width - corner * 2.0).max(0.0),
-            height: rect.height,
-        },
-        border,
-    );
-    fill_logical_rect(
-        gl,
-        physical_size,
-        scale,
-        ToolbarRect {
-            x: rect.x,
-            y: rect.y + corner,
-            width: rect.width,
-            height: (rect.height - corner * 2.0).max(0.0),
-        },
-        border,
-    );
+    let radius = toolbar_control_radius(rect);
+    fill_rounded_rect(gl, physical_size, scale, rect, radius, border);
     let inner = rect.inset(1.0);
-    fill_logical_rect(
+    fill_rounded_rect(
         gl,
         physical_size,
         scale,
-        ToolbarRect {
-            x: inner.x + corner,
-            y: inner.y,
-            width: (inner.width - corner * 2.0).max(0.0),
-            height: inner.height,
-        },
-        fill,
-    );
-    fill_logical_rect(
-        gl,
-        physical_size,
-        scale,
-        ToolbarRect {
-            x: inner.x,
-            y: inner.y + corner,
-            width: inner.width,
-            height: (inner.height - corner * 2.0).max(0.0),
-        },
+        inner,
+        (radius - 1.0).max(0.0),
         fill,
     );
 }
 
+fn toolbar_control_radius(rect: ToolbarRect) -> f32 {
+    (rect.width.min(rect.height) / 2.0).min(14.0)
+}
+
+#[allow(dead_code)]
+fn fill_rounded_rect(
+    gl: &glow::Context,
+    physical_size: PhysicalSize<u32>,
+    scale: f32,
+    rect: ToolbarRect,
+    radius: f32,
+    color: ToolbarColor,
+) {
+    if rect.width <= 0.0 || rect.height <= 0.0 {
+        return;
+    }
+    let radius = radius.min(rect.width / 2.0).min(rect.height / 2.0);
+    if radius <= 0.0 {
+        fill_logical_rect(gl, physical_size, scale, rect, color);
+        return;
+    }
+
+    let row_count = rect.height.ceil().max(1.0) as u32;
+    for row in 0..row_count {
+        let y = row as f32;
+        let row_height = (rect.height - y).min(1.0).max(0.0);
+        if row_height <= 0.0 {
+            continue;
+        }
+        let center_y = y + row_height / 2.0;
+        let inset = rounded_rect_row_inset(center_y, rect.height, radius);
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + inset,
+                y: rect.y + y,
+                width: (rect.width - inset * 2.0).max(0.0),
+                height: row_height,
+            },
+            color,
+        );
+    }
+}
+
+fn rounded_rect_row_inset(center_y: f32, height: f32, radius: f32) -> f32 {
+    let radius = radius.min(height / 2.0).max(0.0);
+    if radius <= 0.0 || height <= 0.0 {
+        return 0.0;
+    }
+
+    let circle_center_y = if center_y < radius {
+        radius
+    } else if center_y > height - radius {
+        height - radius
+    } else {
+        return 0.0;
+    };
+    let dy = (center_y - circle_center_y).abs();
+    radius - (radius * radius - dy * dy).max(0.0).sqrt()
+}
+
+#[allow(dead_code)]
 fn fill_logical_rect(
     gl: &glow::Context,
     physical_size: PhysicalSize<u32>,
@@ -3517,6 +4693,36 @@ mod tests {
         assert_eq!(
             normalize_toolbar_text("  https://Example.com/\n"),
             "https://Example.com/"
+        );
+    }
+
+    #[test]
+    fn rounded_toolbar_inset_is_zero_in_middle_and_positive_at_edges() {
+        let height = 32.0;
+        let radius = 14.0;
+
+        assert_eq!(rounded_rect_row_inset(16.0, height, radius), 0.0);
+        assert!(rounded_rect_row_inset(0.5, height, radius) > 0.0);
+        assert!(rounded_rect_row_inset(31.5, height, radius) > 0.0);
+        assert!(
+            (rounded_rect_row_inset(0.5, height, radius)
+                - rounded_rect_row_inset(31.5, height, radius))
+            .abs()
+                < 0.001
+        );
+    }
+
+    #[test]
+    fn toolbar_font_loader_returns_drawable_ascii_when_available() {
+        let Some(font) = toolbar_font() else {
+            assert!(!cfg!(target_os = "macos"));
+            return;
+        };
+
+        assert!(toolbar_font_has_drawable_ascii(font));
+        assert!(
+            toolbar_canvas_text_width("https://example.com/", SHELL_TOOLBAR_TEXT_SIZE).unwrap()
+                > 80.0
         );
     }
 
