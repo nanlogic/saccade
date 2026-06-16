@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command as ProcessCommand, Stdio};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
@@ -98,6 +98,7 @@ struct SelftestEvidence {
     browser_backed_tabs: bool,
     tabs_grant_current: bool,
     tabs_grant_artifact: bool,
+    servoshell_bridge_grant: bool,
     browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
@@ -228,6 +229,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.browser_backed_tabs
         && stdio_evidence.tabs_grant_current
         && stdio_evidence.tabs_grant_artifact
+        && stdio_evidence.servoshell_bridge_grant
         && stdio_evidence.browser_navigate
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
@@ -257,6 +259,7 @@ fn selftest() -> Result<()> {
         browser_backed_tabs: stdio_evidence.browser_backed_tabs,
         tabs_grant_current: stdio_evidence.tabs_grant_current,
         tabs_grant_artifact: stdio_evidence.tabs_grant_artifact,
+        servoshell_bridge_grant: stdio_evidence.servoshell_bridge_grant,
         browser_navigate: stdio_evidence.browser_navigate,
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
@@ -547,6 +550,8 @@ struct McpSessionState {
     tabs: Vec<SessionTab>,
     browser_workers: BTreeMap<u64, BrowserWorkerClient>,
     dogfood_controls: BTreeMap<u64, DogfoodControlEndpoint>,
+    dogfood_control_runtimes: BTreeMap<u64, String>,
+    dogfood_control_capabilities: BTreeMap<u64, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -587,6 +592,7 @@ struct JsonRpcEvidence {
     browser_backed_tabs: bool,
     tabs_grant_current: bool,
     tabs_grant_artifact: bool,
+    servoshell_bridge_grant: bool,
     browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
@@ -1317,6 +1323,7 @@ fn browser_navigate_tool(state: &mut McpSessionState, arguments: Value) -> Resul
         other => bail!("unsupported browser navigation action {other:?}"),
     };
 
+    ensure_dogfood_control_capability(state, tab_id, method)?;
     let shell_result = call_dogfood_control(&endpoint, method, params)?;
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &shell_result);
@@ -1521,6 +1528,10 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         .map(call_dogfood_control_ping)
         .transpose()?;
     let same_webview_control_ping = same_webview_control.is_some();
+    let same_webview_control_capabilities =
+        control_capabilities_from_ping(same_webview_control.as_ref());
+    let advertised_same_webview_capabilities =
+        advertised_same_webview_capabilities(&same_webview_control_capabilities);
 
     let tab_id = state.allocate_tab_id();
     let info = tab(
@@ -1546,6 +1557,13 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
     {
         let live_truth = call_dogfood_control(endpoint, "truth", json!({}))?;
         state.dogfood_controls.insert(tab_id.0, endpoint.clone());
+        state.dogfood_control_runtimes.insert(
+            tab_id.0,
+            control_runtime_from_ping(same_webview_control.as_ref(), endpoint),
+        );
+        state
+            .dogfood_control_capabilities
+            .insert(tab_id.0, same_webview_control_capabilities.clone());
         (live_truth, true)
     } else {
         let mut worker = BrowserWorkerClient::spawn(&grant.url)?;
@@ -1577,16 +1595,16 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "source": grant.source,
         "grant_path": grant.grant_path,
         "same_webview_control_ping": same_webview_control_ping,
-        "same_webview_control": same_webview_control,
+        "same_webview_control": same_webview_control.clone(),
         "same_webview_attached": attached_via_control,
         "same_webview_capabilities": if attached_via_control {
-            json!(["ping", "shell_status", "saccade.browser.navigate", "navigate", "back", "forward", "reload", "truth", "actions", "fill_agent_fields", "inspect_fields", "act", "formmax_live_fill"])
+            json!(advertised_same_webview_capabilities)
         } else {
             json!([])
         },
         "transport_status": transport_status,
         "transport_note": if attached_via_control {
-            "MCP v0 validates the visible browser grant and routes shell navigation, truth/actions/fill/inspect/act/formmax through the same dogfood WebView control endpoint."
+            "MCP v0 validates the visible browser grant and routes only advertised same-WebView control capabilities through the granted browser endpoint."
         } else {
             "MCP v0 validates the visible browser grant and can ping the same dogfood WebView control endpoint when present. Truth/actions use a live worker when no control endpoint is available."
         },
@@ -1770,6 +1788,91 @@ fn call_dogfood_control_ping(endpoint: &DogfoodControlEndpoint) -> Result<Value>
     )
 }
 
+fn control_runtime_from_ping(ping: Option<&Value>, endpoint: &DogfoodControlEndpoint) -> String {
+    ping.and_then(|value| value.get("runtime"))
+        .and_then(Value::as_str)
+        .filter(|runtime| !runtime.trim().is_empty())
+        .unwrap_or(endpoint.protocol.as_str())
+        .to_string()
+}
+
+fn control_capabilities_from_ping(ping: Option<&Value>) -> Vec<String> {
+    ping.and_then(|value| value.get("capabilities"))
+        .and_then(Value::as_array)
+        .map(|capabilities| {
+            capabilities
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|capability| !capability.trim().is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|capabilities| !capabilities.is_empty())
+        .unwrap_or_else(default_dogfood_control_capabilities)
+}
+
+fn default_dogfood_control_capabilities() -> Vec<String> {
+    [
+        "ping",
+        "shell_status",
+        "truth",
+        "actions",
+        "navigate",
+        "back",
+        "forward",
+        "reload",
+        "fill_agent_fields",
+        "inspect_fields",
+        "act",
+        "formmax_live_fill",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect()
+}
+
+fn advertised_same_webview_capabilities(capabilities: &[String]) -> Vec<String> {
+    let mut advertised = Vec::new();
+    for capability in capabilities {
+        push_unique_capability(&mut advertised, capability.as_str());
+    }
+    if capabilities.iter().any(|capability| {
+        matches!(
+            capability.as_str(),
+            "shell_status" | "navigate" | "back" | "forward" | "reload"
+        )
+    }) {
+        push_unique_capability(&mut advertised, "saccade.browser.navigate");
+    }
+    advertised
+}
+
+fn push_unique_capability(capabilities: &mut Vec<String>, capability: &str) {
+    if !capabilities.iter().any(|existing| existing == capability) {
+        capabilities.push(capability.to_string());
+    }
+}
+
+fn ensure_dogfood_control_capability(
+    state: &McpSessionState,
+    tab_id: TabId,
+    method: &str,
+) -> Result<()> {
+    let Some(capabilities) = state.dogfood_control_capabilities.get(&tab_id.0) else {
+        return Ok(());
+    };
+    if capabilities
+        .iter()
+        .any(|capability| capability.as_str() == method)
+    {
+        return Ok(());
+    }
+    bail!(
+        "same-WebView control endpoint for tab_id {} does not advertise capability {method:?}",
+        tab_id.0
+    )
+}
+
 fn call_dogfood_control(
     endpoint: &DogfoodControlEndpoint,
     method: &str,
@@ -1876,6 +1979,8 @@ fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
         worker.close();
     }
     state.dogfood_controls.remove(&tab_id.0);
+    state.dogfood_control_runtimes.remove(&tab_id.0);
+    state.dogfood_control_capabilities.remove(&tab_id.0);
     let before = state.tabs.len();
     state.tabs.retain(|tab| tab.info.tab_id != tab_id);
     if state.tabs.len() == before {
@@ -1892,6 +1997,7 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
     if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        ensure_dogfood_control_capability(state, tab_id, "truth")?;
         let live_truth = call_dogfood_control(&endpoint, "truth", json!({}))?;
         if let Some(tab) = state.find_tab_mut(tab_id) {
             update_session_tab_from_browser_result(tab, &live_truth);
@@ -1936,6 +2042,7 @@ fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Val
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
     if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        ensure_dogfood_control_capability(state, tab_id, "actions")?;
         let live_actions = call_dogfood_control(&endpoint, "actions", json!({}))?;
         if let Some(tab) = state.find_tab_mut(tab_id) {
             update_session_tab_from_browser_result(tab, &live_actions);
@@ -1983,6 +2090,7 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
     }
     ensure_agent_input_allowed(state, tab_id)?;
     if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        ensure_dogfood_control_capability(state, tab_id, "act")?;
         let live_act = call_dogfood_control(
             &endpoint,
             "act",
@@ -2160,6 +2268,7 @@ fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> 
     }
 
     let live_fill = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        ensure_dogfood_control_capability(state, tab_id, "fill_agent_fields")?;
         call_dogfood_control(
             &endpoint,
             "fill_agent_fields",
@@ -2250,6 +2359,7 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
         bail!("saccade.web.inspect_fields requires a live browser session tab");
     }
     let live_inspect = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        ensure_dogfood_control_capability(state, tab_id, "inspect_fields")?;
         call_dogfood_control(
             &endpoint,
             "inspect_fields",
@@ -2376,6 +2486,7 @@ fn web_fill_form_live_tool(state: &mut McpSessionState, arguments: Value) -> Res
     }
 
     let live_fill = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
+        ensure_dogfood_control_capability(state, tab_id, "formmax_live_fill")?;
         call_dogfood_control(
             &endpoint,
             "formmax_live_fill",
@@ -2922,13 +3033,15 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
         .map(ToOwned::to_owned);
 }
 
-fn tab_runtime(state: &McpSessionState, tab_id: TabId) -> &'static str {
-    if state.dogfood_controls.contains_key(&tab_id.0) {
-        "saccade-dogfood-control-v0"
+fn tab_runtime(state: &McpSessionState, tab_id: TabId) -> String {
+    if let Some(runtime) = state.dogfood_control_runtimes.get(&tab_id.0) {
+        runtime.clone()
+    } else if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0) {
+        endpoint.protocol.clone()
     } else if state.browser_workers.contains_key(&tab_id.0) {
-        "browser_session_worker_v0"
+        "browser_session_worker_v0".to_string()
     } else {
-        "mcp_report_backed_v0"
+        "mcp_report_backed_v0".to_string()
     }
 }
 
@@ -4201,6 +4314,10 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
     }
     state.browser_workers.clear();
     state.dogfood_controls.clear();
+    state.dogfood_control_runtimes.clear();
+    state.dogfood_control_capabilities.clear();
+
+    let servoshell_bridge_grant = verify_servoshell_bridge_grant_json_rpc_surface()?;
 
     let dev_fill_smoke_form = handle_json_rpc(
         &mut state,
@@ -4308,6 +4425,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         browser_backed_tabs,
         tabs_grant_current,
         tabs_grant_artifact,
+        servoshell_bridge_grant,
         browser_navigate,
         web_truth,
         web_actions,
@@ -4324,6 +4442,249 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         report_replay_summary,
         audit_report,
     })
+}
+
+fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
+    let workspace = workspace_root()?;
+    let run_dir = workspace
+        .join("runs")
+        .join("mcp")
+        .join(format!("servoshell_bridge_grant_{}", unix_ms()?));
+    fs::create_dir_all(&run_dir)
+        .with_context(|| format!("failed to create {}", run_dir.display()))?;
+    let grant_path = run_dir.join("grant.json");
+    let url = start_test_server(workspace.join("test_pages").join("browser_session"))?;
+
+    let mut child = ProcessCommand::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "-p",
+            "saccade-servoshell",
+            "--",
+            "bridge",
+            "--url",
+            url.as_str(),
+            "--output-dir",
+            run_dir
+                .to_str()
+                .context("servoshell bridge run_dir is not valid UTF-8")?,
+            "--grant-path",
+            grant_path
+                .to_str()
+                .context("servoshell bridge grant_path is not valid UTF-8")?,
+            "--timeout-sec",
+            "45",
+        ])
+        .current_dir(&workspace)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("failed to launch saccade-servoshell bridge")?;
+
+    let mut endpoint_for_shutdown: Option<DogfoodControlEndpoint> = None;
+    let verification = (|| -> Result<bool> {
+        wait_for_file_or_child_exit(&grant_path, &mut child, Duration::from_secs(75))?;
+        let grant: Value = serde_json::from_slice(
+            &fs::read(&grant_path)
+                .with_context(|| format!("failed to read {}", grant_path.display()))?,
+        )
+        .with_context(|| format!("failed to parse {}", grant_path.display()))?;
+        let endpoint = dogfood_control_endpoint_from_grant(&grant)?
+            .context("servoshell bridge grant did not include a control endpoint")?;
+        endpoint_for_shutdown = Some(endpoint);
+
+        let mut state = McpSessionState::default();
+        let grant_content = json_rpc_tool_content(
+            &mut state,
+            501,
+            "saccade.tabs.grant_current",
+            json!({
+                "grant_path": grant_path.display().to_string(),
+                "reason": "selftest attached official ServoShell bridge grant",
+                "policy": {
+                    "local_dev_only": true,
+                    "explicit_user_grant": true
+                }
+            }),
+        )?;
+        let tab_id = grant_content
+            .pointer("/tab/tab_id")
+            .and_then(Value::as_u64)
+            .context("servoshell bridge grant attach did not return tab_id")?;
+        let capabilities = grant_content
+            .get("same_webview_capabilities")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let has_capability = |needle: &str| {
+            capabilities
+                .iter()
+                .any(|value| value.as_str() == Some(needle))
+        };
+        let grant_attached = grant_content.get("status").and_then(Value::as_str) == Some("ok")
+            && grant_content.get("runtime").and_then(Value::as_str)
+                == Some("saccade-servoshell-bridge-v0")
+            && grant_content
+                .get("same_webview_attached")
+                .and_then(Value::as_bool)
+                == Some(true)
+            && grant_content
+                .get("transport_status")
+                .and_then(Value::as_str)
+                == Some("same_webview_control_truth_v0")
+            && grant_content
+                .pointer("/truth/engine")
+                .and_then(Value::as_str)
+                == Some("saccade-servoshell-bridge-truth-v0")
+            && has_capability("truth")
+            && has_capability("actions")
+            && has_capability("saccade.browser.navigate")
+            && !has_capability("fill_agent_fields")
+            && !has_capability("inspect_fields")
+            && !has_capability("act")
+            && !has_capability("formmax_live_fill");
+
+        let truth_content = json_rpc_tool_content(
+            &mut state,
+            502,
+            "saccade.web.truth",
+            json!({
+                "tab_id": tab_id,
+                "engine": "servo"
+            }),
+        )?;
+        let truth_ok = truth_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && truth_content
+                .pointer("/truth/engine")
+                .and_then(Value::as_str)
+                == Some("saccade-servoshell-bridge-truth-v0");
+
+        let actions_content = json_rpc_tool_content(
+            &mut state,
+            503,
+            "saccade.web.actions",
+            json!({
+                "tab_id": tab_id,
+                "engine": "servo"
+            }),
+        )?;
+        let actions_ok = actions_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && actions_content
+                .get("actions")
+                .and_then(Value::as_array)
+                .is_some_and(|actions| !actions.is_empty());
+
+        let status_content = json_rpc_tool_content(
+            &mut state,
+            504,
+            "saccade.browser.navigate",
+            json!({
+                "tab_id": tab_id,
+                "action": "status",
+                "policy": {
+                    "same_webview_only": true,
+                    "user_granted_tab_only": true
+                }
+            }),
+        )?;
+        let status_ok = status_content.get("runtime").and_then(Value::as_str)
+            == Some("saccade-servoshell-bridge-v0")
+            && status_content
+                .pointer("/shell/engine")
+                .and_then(Value::as_str)
+                == Some("saccade-servoshell-bridge-shell-status-v0");
+
+        Ok(grant_attached && truth_ok && actions_ok && status_ok)
+    })();
+
+    let shutdown = endpoint_for_shutdown
+        .as_ref()
+        .map(|endpoint| call_dogfood_control(endpoint, "shutdown", json!({})));
+    let finish = finish_child_with_timeout(&mut child, Duration::from_secs(15));
+    if let Some(Err(error)) = shutdown {
+        if verification.is_ok() {
+            return Err(error.context("failed to shutdown servoshell bridge control endpoint"));
+        }
+    }
+    if let Err(error) = finish {
+        if verification.is_ok() {
+            return Err(error.context("failed to finish servoshell bridge child"));
+        }
+    }
+    verification
+}
+
+fn json_rpc_tool_content(
+    state: &mut McpSessionState,
+    id: u64,
+    name: &str,
+    arguments: Value,
+) -> Result<Value> {
+    let response = handle_json_rpc(
+        state,
+        JsonRpcRequest {
+            id: Some(json!(id)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": name,
+                "arguments": arguments,
+            }),
+        },
+    )
+    .with_context(|| format!("{name} did not return a JSON-RPC response"))?;
+    if let Some(error) = response.get("error") {
+        bail!("{name} failed: {error}");
+    }
+    response
+        .pointer("/result/structuredContent")
+        .cloned()
+        .with_context(|| format!("{name} response did not include structuredContent"))
+}
+
+fn wait_for_file_or_child_exit(path: &Path, child: &mut Child, timeout: Duration) -> Result<()> {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if path.exists() {
+            return Ok(());
+        }
+        if let Some(status) = child
+            .try_wait()
+            .context("failed to poll servoshell bridge child")?
+        {
+            bail!(
+                "servoshell bridge exited before writing {}: {status}",
+                path.display()
+            );
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    bail!(
+        "timed out waiting for servoshell bridge grant {}",
+        path.display()
+    )
+}
+
+fn finish_child_with_timeout(child: &mut Child, timeout: Duration) -> Result<()> {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if child
+            .try_wait()
+            .context("failed to poll servoshell bridge child")?
+            .is_some()
+        {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    child
+        .kill()
+        .context("failed to kill timed-out servoshell bridge child")?;
+    let _ = child.wait();
+    bail!("servoshell bridge child did not exit before timeout and was killed")
 }
 
 #[derive(Debug, Clone, Copy)]
