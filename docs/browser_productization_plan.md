@@ -96,7 +96,10 @@ Current state:
   submit/external side effects still require user confirmation.
 - Mouse Back/Forward buttons now navigate browser history when available.
 - Page mouse press now recovers from active address-entry/select shell modes and still forwards the click to Servo.
-- Not done: clickable editable URL bar, visible clickable Back/Forward/Reload/Stop controls, and visible focus-recovery chrome.
+- Native toolbar overlay v0 now shows and consumes hit-zones for Back,
+  Forward, Reload, address command, and Copilot grant without injecting DOM.
+- Not done: Stop behavior, toolbar-internal URL text editing, non-obscuring
+  compositor/viewport chrome, and visible focus-recovery polish.
 
 ### P2 - CSS Layout Compatibility
 
@@ -181,7 +184,7 @@ The product should tell the user why it routed:
 | --- | --- | --- | --- |
 | BP-001 | Narrow `form_controls` window overflows right column and can become action-unsafe | Fixed for the local fixture: after strict local form CSS, 390px `form_controls` has Chrome hit-test `8/8` and max click escape `1.0px` | Keep as regression |
 | BP-002 | Native form controls have large rect deltas versus Chrome | Width modes report: auto input/textarea stay about `136.5px` in Saccade while Chrome expands to `302-440px`; `width:100%` makes rect widths match | Use `width:100%` plus `min-width:0` in Saccade-owned forms; route third-party pages by measured action safety |
-| BP-003 | Browser shell lacks clickable URL/back/forward/reload UI | First-stage shell state landed: title bar shows URL/title/load/nav state; `Cmd+L` opens a keyboard address command; `Cmd+R`, `Cmd+[`, and `Cmd+]` cover reload/back/forward. See `docs/browser_shell_basics_report.md` | Add clickable editable URL bar and clickable navigation controls |
+| BP-003 | Browser shell lacks product-grade browser chrome | Native toolbar overlay v0 landed: visible shell hit-zones for Back, Forward, Reload, address command, and Copilot grant; title bar still shows/edit URL state. See `docs/browser_shell_basics_report.md` | Add Stop behavior, toolbar-internal URL text editing, and non-obscuring compositor/viewport chrome |
 | BP-004 | GitHub/Gist body editor visible but not focusable/actionable | Local editor reduction passes with route `usable_ignore_hidden_backing_fields`: visible contenteditable and CodeMirror-like shell have positive rects; hidden backing fields produce `zero_rect_count=2`; sensitive textarea is counted without value leakage | Inspect authenticated real Gist again and route if the writable body remains zero-rect |
 | BP-005 | MouseAccuracy public demo still needs mainstream visual reference | Chrome/Safari references exist, Firefox missing | Keep Servo evidence separate from Chrome visual proof |
 | BP-006 | Font metrics and control text sizing still rough | Manual screenshots after HiDPI fix | Add font/line-height fixture and Chrome/Saccade metrics |

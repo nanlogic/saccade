@@ -18,6 +18,14 @@ Updated: 2026-06-15
   - `Cmd+[`: back,
   - `Cmd+]`: forward.
 - Mouse Back/Forward buttons now navigate browser history when the hardware exposes them.
+- Dogfood windows now paint a native GL toolbar overlay above the page:
+  - Back,
+  - Forward,
+  - Reload,
+  - address command hit-zone,
+  - Copilot grant hit-zone.
+- Toolbar clicks are consumed by the shell and are not forwarded into the page,
+  so page truth/action maps stay free of injected toolbar DOM.
 - Address command mode keeps page layout untouched:
   - type a URL in the title bar prompt,
   - bare domains such as `ign.com` become `https://ign.com`,
@@ -35,7 +43,7 @@ Updated: 2026-06-15
   - `back`,
   - `forward`.
 
-This is still a first shell stage, not the final browser chrome. It gives dogfood users enough visible state and direct navigation to know where the agent is acting without squeezing or overlaying page content.
+This is still a first shell stage, not the final browser chrome. It gives dogfood users enough visible state and direct navigation to know where the agent is acting without injecting browser UI into the page.
 
 ## Verification
 
@@ -45,6 +53,7 @@ Commands:
 cargo test -p saccade_browser shell_title
 cargo check -p saccade-shell
 cargo run -p saccade-shell -- browse --url https://example.com --width 900 --height 650 --smoke-seconds 2 --rendering-profile servo-modern
+RUST_LOG=error cargo run -q -p saccade-shell -- browse --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/current_tab_copilot/index.html --width 900 --height 650 --smoke-seconds 8 --rendering-profile servo-modern
 ```
 
 macOS title smoke on the local form fixture returned:
@@ -59,14 +68,26 @@ Same-WebView shell navigation smoke:
 SHELL_NAV PASS runtime=saccade-dogfood-control-v0 initial=current_tab_copilot navigated=formmax reload_changed=true back_changed=true forward_changed=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_shell_nav_smoke_1781579239152.json grant=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_shell_nav_smoke.json
 ```
 
+Visible toolbar smoke screenshot:
+
+```text
+runs/browser_shell/visible_toolbar_file_smoke.png
+```
+
 ## Still Open
 
-- Clickable editable URL bar. The temporary address command is keyboard-only through `Cmd+L`.
-- Visible clickable Back, Forward, Reload, and Stop controls.
-- Visible chrome affordance for focus recovery and active shell mode.
+- Stop button and final loading/stop behavior.
+- URL text is still edited through the title-bar address prompt; the toolbar
+  address strip is a clickable hit-zone, not a fully painted text editor yet.
+- The v0 toolbar overlays the top 44 CSS px of page content. A final browser
+  chrome should use a compositor/viewport arrangement that does not obscure the
+  page.
+- More polished visible chrome affordance for focus recovery and active shell
+  mode.
 - Error state beyond load-state text.
 - MCP-facing named browser navigation tool; the dogfood endpoint has the
   primitive commands, but the public MCP tool surface still needs product API
   design.
 
-Ledger: BP-003 remains `investigating` until the clickable toolbar exists.
+Ledger: BP-003 is partially mitigated by the native clickable toolbar v0 and
+remains `investigating` until the final non-obscuring browser chrome exists.

@@ -10,6 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use euclid::{Point2D, Scale};
+use glow::HasContext;
 use servo::{
     CSSPixel, EmbedderControl, InputEvent, JSValue, Key as ServoKey, KeyState, KeyboardEvent,
     LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent,
@@ -19,7 +20,7 @@ use servo::{
 };
 use url::Url;
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalPosition};
+use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{
     ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent,
 };
@@ -39,6 +40,11 @@ use serde_json::{Value, json};
 const DEFAULT_WIDTH: u32 = 1440;
 const DEFAULT_HEIGHT: u32 = 1000;
 const FORMMAX_CONTROL_TIMEOUT: Duration = Duration::from_secs(65);
+const SHELL_TOOLBAR_HEIGHT: f32 = 44.0;
+const SHELL_TOOLBAR_MARGIN: f32 = 8.0;
+const SHELL_TOOLBAR_BUTTON: f32 = 32.0;
+const SHELL_TOOLBAR_GAP: f32 = 6.0;
+const SHELL_TOOLBAR_GRANT_WIDTH: f32 = 104.0;
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
@@ -283,6 +289,52 @@ struct AddressEntryTitle<'a> {
     invalid: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ToolbarRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+impl ToolbarRect {
+    fn contains(self, x: f32, y: f32) -> bool {
+        x >= self.x && x <= self.x + self.width && y >= self.y && y <= self.y + self.height
+    }
+
+    fn inset(self, amount: f32) -> Self {
+        Self {
+            x: self.x + amount,
+            y: self.y + amount,
+            width: (self.width - amount * 2.0).max(0.0),
+            height: (self.height - amount * 2.0).max(0.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ToolbarColor(f32, f32, f32, f32);
+
+#[derive(Debug, Clone, Copy)]
+struct ShellToolbarMetrics {
+    bounds: ToolbarRect,
+    back: ToolbarRect,
+    forward: ToolbarRect,
+    reload: ToolbarRect,
+    address: ToolbarRect,
+    grant: ToolbarRect,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum ShellToolbarTarget {
+    Back,
+    Forward,
+    Reload,
+    Address,
+    Grant,
+    Strip,
+}
+
 fn format_shell_title(parts: ShellTitleParts<'_>) -> String {
     let back = if parts.can_go_back { "y" } else { "n" };
     let forward = if parts.can_go_forward { "y" } else { "n" };
@@ -342,6 +394,8 @@ struct DogfoodBrowserState {
     control_endpoint: DogfoodControlEndpoint,
     control_rx: Receiver<DogfoodControlCommand>,
     active_select: RefCell<Option<ActiveSelect>>,
+    toolbar_mouse_capture: Cell<bool>,
+    toolbar_draw_error_reported: Cell<bool>,
     started_at: Instant,
     auto_close_after: Option<Duration>,
     rendering_settings: RenderingProfileSettings,
@@ -360,6 +414,464 @@ impl DogfoodBrowserState {
             self.cursor_x.get(),
             self.cursor_y.get(),
         ))
+    }
+
+    fn logical_window_size(&self) -> (f32, f32) {
+        let size = self.window.inner_size();
+        let scale = self.window.scale_factor() as f32;
+        let scale = if scale > 0.0 { scale } else { 1.0 };
+        (size.width as f32 / scale, size.height as f32 / scale)
+    }
+
+    fn toolbar_metrics(&self) -> ShellToolbarMetrics {
+        let (window_width, _) = self.logical_window_size();
+        let bounds = ToolbarRect {
+            x: 0.0,
+            y: 0.0,
+            width: window_width.max(1.0),
+            height: SHELL_TOOLBAR_HEIGHT,
+        };
+        let button_y = (SHELL_TOOLBAR_HEIGHT - SHELL_TOOLBAR_BUTTON) / 2.0;
+        let back = ToolbarRect {
+            x: SHELL_TOOLBAR_MARGIN,
+            y: button_y,
+            width: SHELL_TOOLBAR_BUTTON,
+            height: SHELL_TOOLBAR_BUTTON,
+        };
+        let forward = ToolbarRect {
+            x: back.x + SHELL_TOOLBAR_BUTTON + SHELL_TOOLBAR_GAP,
+            y: button_y,
+            width: SHELL_TOOLBAR_BUTTON,
+            height: SHELL_TOOLBAR_BUTTON,
+        };
+        let reload = ToolbarRect {
+            x: forward.x + SHELL_TOOLBAR_BUTTON + SHELL_TOOLBAR_GAP,
+            y: button_y,
+            width: SHELL_TOOLBAR_BUTTON,
+            height: SHELL_TOOLBAR_BUTTON,
+        };
+        let grant_width = if window_width >= 520.0 {
+            SHELL_TOOLBAR_GRANT_WIDTH
+        } else {
+            SHELL_TOOLBAR_BUTTON
+        };
+        let grant = ToolbarRect {
+            x: (window_width - SHELL_TOOLBAR_MARGIN - grant_width).max(0.0),
+            y: button_y,
+            width: grant_width,
+            height: SHELL_TOOLBAR_BUTTON,
+        };
+        let address_x = reload.x + SHELL_TOOLBAR_BUTTON + SHELL_TOOLBAR_GAP * 1.5;
+        let address_right = (grant.x - SHELL_TOOLBAR_GAP).max(address_x);
+        let address = ToolbarRect {
+            x: address_x,
+            y: button_y,
+            width: (address_right - address_x).max(0.0),
+            height: SHELL_TOOLBAR_BUTTON,
+        };
+
+        ShellToolbarMetrics {
+            bounds,
+            back,
+            forward,
+            reload,
+            address,
+            grant,
+        }
+    }
+
+    fn toolbar_target_at(&self, x: f32, y: f32) -> Option<ShellToolbarTarget> {
+        let metrics = self.toolbar_metrics();
+        if !metrics.bounds.contains(x, y) {
+            return None;
+        }
+        if metrics.back.contains(x, y) {
+            return Some(ShellToolbarTarget::Back);
+        }
+        if metrics.forward.contains(x, y) {
+            return Some(ShellToolbarTarget::Forward);
+        }
+        if metrics.reload.contains(x, y) {
+            return Some(ShellToolbarTarget::Reload);
+        }
+        if metrics.grant.contains(x, y) {
+            return Some(ShellToolbarTarget::Grant);
+        }
+        if metrics.address.width > 0.0 && metrics.address.contains(x, y) {
+            return Some(ShellToolbarTarget::Address);
+        }
+        Some(ShellToolbarTarget::Strip)
+    }
+
+    fn cursor_toolbar_target(&self) -> Option<ShellToolbarTarget> {
+        self.toolbar_target_at(self.cursor_x.get(), self.cursor_y.get())
+    }
+
+    fn cursor_over_toolbar(&self) -> bool {
+        self.cursor_toolbar_target().is_some()
+    }
+
+    fn handle_toolbar_mouse_input(
+        &self,
+        button_state: ElementState,
+        button: WinitMouseButton,
+    ) -> bool {
+        if self.toolbar_mouse_capture.get() {
+            if button_state == ElementState::Released {
+                self.toolbar_mouse_capture.set(false);
+            }
+            return true;
+        }
+
+        let Some(target) = self.cursor_toolbar_target() else {
+            return false;
+        };
+        if button_state != ElementState::Pressed {
+            return false;
+        }
+
+        self.toolbar_mouse_capture.set(true);
+        if button != WinitMouseButton::Left {
+            return true;
+        }
+
+        match target {
+            ShellToolbarTarget::Back => {
+                self.navigate_back();
+            }
+            ShellToolbarTarget::Forward => {
+                self.navigate_forward();
+            }
+            ShellToolbarTarget::Reload => {
+                self.reload_current_page();
+            }
+            ShellToolbarTarget::Address => {
+                self.begin_address_entry();
+            }
+            ShellToolbarTarget::Grant => {
+                self.grant_current_tab_to_copilot();
+            }
+            ShellToolbarTarget::Strip => {}
+        }
+        true
+    }
+
+    fn draw_toolbar_overlay(&self) -> std::result::Result<(), String> {
+        self.rendering_context
+            .make_current()
+            .map_err(|error| format!("toolbar make_current failed: {error:?}"))?;
+        let gl = self.rendering_context.glow_gl_api();
+        let physical_size = self.window.inner_size();
+        let scale = self.window.scale_factor() as f32;
+        let scale = if scale > 0.0 { scale } else { 1.0 };
+        let metrics = self.toolbar_metrics();
+        let (can_go_back, can_go_forward) = self.webview_nav_state();
+        let address_active = self.address_entry.borrow().is_some();
+        let address_error = self.address_error.get();
+        let copilot_error = self.copilot_grant_error.borrow().is_some();
+        let copilot_granted = self.copilot_granted.get();
+
+        self.rendering_context.prepare_for_rendering();
+        unsafe {
+            gl.disable(glow::DEPTH_TEST);
+            gl.disable(glow::STENCIL_TEST);
+            gl.disable(glow::CULL_FACE);
+            gl.enable(glow::SCISSOR_TEST);
+        }
+
+        fill_logical_rect(
+            &gl,
+            physical_size,
+            scale,
+            metrics.bounds,
+            ToolbarColor(0.965, 0.972, 0.982, 1.0),
+        );
+        fill_logical_rect(
+            &gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: 0.0,
+                y: SHELL_TOOLBAR_HEIGHT - 1.0,
+                width: metrics.bounds.width,
+                height: 1.0,
+            },
+            ToolbarColor(0.68, 0.72, 0.78, 1.0),
+        );
+
+        self.draw_toolbar_button(&gl, physical_size, scale, metrics.back, can_go_back);
+        self.draw_back_icon(&gl, physical_size, scale, metrics.back, can_go_back);
+        self.draw_toolbar_button(&gl, physical_size, scale, metrics.forward, can_go_forward);
+        self.draw_forward_icon(&gl, physical_size, scale, metrics.forward, can_go_forward);
+        self.draw_toolbar_button(&gl, physical_size, scale, metrics.reload, true);
+        self.draw_reload_icon(&gl, physical_size, scale, metrics.reload);
+        self.draw_address_bar(
+            &gl,
+            physical_size,
+            scale,
+            metrics.address,
+            address_active,
+            address_error,
+        );
+        self.draw_grant_button(
+            &gl,
+            physical_size,
+            scale,
+            metrics.grant,
+            copilot_granted,
+            copilot_error,
+        );
+
+        unsafe {
+            gl.disable(glow::SCISSOR_TEST);
+        }
+        Ok(())
+    }
+
+    fn draw_toolbar_button(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+        enabled: bool,
+    ) {
+        let border = if enabled {
+            ToolbarColor(0.60, 0.66, 0.74, 1.0)
+        } else {
+            ToolbarColor(0.78, 0.81, 0.86, 1.0)
+        };
+        let fill = if enabled {
+            ToolbarColor(0.985, 0.990, 1.0, 1.0)
+        } else {
+            ToolbarColor(0.920, 0.935, 0.955, 1.0)
+        };
+        draw_bordered_rect(gl, physical_size, scale, rect, border, fill);
+    }
+
+    fn draw_back_icon(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+        enabled: bool,
+    ) {
+        let color = toolbar_glyph_color(enabled);
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 10.0,
+                y: rect.y + 14.0,
+                width: 14.0,
+                height: 4.0,
+            },
+            color,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 10.0,
+                y: rect.y + 10.0,
+                width: 4.0,
+                height: 12.0,
+            },
+            color,
+        );
+    }
+
+    fn draw_forward_icon(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+        enabled: bool,
+    ) {
+        let color = toolbar_glyph_color(enabled);
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 8.0,
+                y: rect.y + 14.0,
+                width: 14.0,
+                height: 4.0,
+            },
+            color,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 20.0,
+                y: rect.y + 10.0,
+                width: 4.0,
+                height: 12.0,
+            },
+            color,
+        );
+    }
+
+    fn draw_reload_icon(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+    ) {
+        let color = toolbar_glyph_color(true);
+        for segment in [
+            ToolbarRect {
+                x: rect.x + 10.0,
+                y: rect.y + 9.0,
+                width: 13.0,
+                height: 3.0,
+            },
+            ToolbarRect {
+                x: rect.x + 20.0,
+                y: rect.y + 9.0,
+                width: 3.0,
+                height: 10.0,
+            },
+            ToolbarRect {
+                x: rect.x + 9.0,
+                y: rect.y + 20.0,
+                width: 13.0,
+                height: 3.0,
+            },
+            ToolbarRect {
+                x: rect.x + 9.0,
+                y: rect.y + 13.0,
+                width: 3.0,
+                height: 10.0,
+            },
+        ] {
+            fill_logical_rect(gl, physical_size, scale, segment, color);
+        }
+    }
+
+    fn draw_address_bar(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+        active: bool,
+        error: bool,
+    ) {
+        if rect.width <= 0.0 {
+            return;
+        }
+        let border = if error {
+            ToolbarColor(0.90, 0.24, 0.23, 1.0)
+        } else if active {
+            ToolbarColor(0.20, 0.44, 0.88, 1.0)
+        } else {
+            ToolbarColor(0.62, 0.68, 0.76, 1.0)
+        };
+        draw_bordered_rect(
+            gl,
+            physical_size,
+            scale,
+            rect,
+            border,
+            ToolbarColor(1.0, 1.0, 1.0, 1.0),
+        );
+        let status_color = match self.load_state.get() {
+            BrowserLoadState::Starting | BrowserLoadState::Loading => {
+                ToolbarColor(0.95, 0.62, 0.18, 1.0)
+            }
+            BrowserLoadState::HeadParsed => ToolbarColor(0.32, 0.53, 0.92, 1.0),
+            BrowserLoadState::Complete => ToolbarColor(0.14, 0.62, 0.44, 1.0),
+        };
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 7.0,
+                y: rect.y + 10.0,
+                width: 12.0,
+                height: 12.0,
+            },
+            status_color,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 26.0,
+                y: rect.y + 14.0,
+                width: (rect.width - 38.0).max(0.0),
+                height: 4.0,
+            },
+            ToolbarColor(0.74, 0.78, 0.84, 1.0),
+        );
+    }
+
+    fn draw_grant_button(
+        &self,
+        gl: &glow::Context,
+        physical_size: PhysicalSize<u32>,
+        scale: f32,
+        rect: ToolbarRect,
+        granted: bool,
+        error: bool,
+    ) {
+        let fill = if error {
+            ToolbarColor(0.96, 0.34, 0.34, 1.0)
+        } else if granted {
+            ToolbarColor(0.20, 0.64, 0.44, 1.0)
+        } else {
+            ToolbarColor(0.94, 0.68, 0.24, 1.0)
+        };
+        draw_bordered_rect(
+            gl,
+            physical_size,
+            scale,
+            rect,
+            ToolbarColor(0.60, 0.66, 0.74, 1.0),
+            fill,
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 10.0,
+                y: rect.y + 9.0,
+                width: 8.0,
+                height: 14.0,
+            },
+            ToolbarColor(1.0, 1.0, 1.0, 1.0),
+        );
+        fill_logical_rect(
+            gl,
+            physical_size,
+            scale,
+            ToolbarRect {
+                x: rect.x + 18.0,
+                y: rect.y + 14.0,
+                width: (rect.width - 28.0).max(0.0),
+                height: 4.0,
+            },
+            ToolbarColor(1.0, 1.0, 1.0, 1.0),
+        );
+    }
+
+    fn report_toolbar_draw_error_once(&self, error: String) {
+        if self.toolbar_draw_error_reported.replace(true) {
+            return;
+        }
+        eprintln!("SACCADE_TOOLBAR_OVERLAY disabled: {error}");
     }
 
     fn update_window_title(&self) {
@@ -391,6 +903,7 @@ impl DogfoodBrowserState {
             }),
             active_select_label: active_select_label.as_deref(),
         }));
+        self.window.request_redraw();
     }
 
     fn copilot_title_label(&self) -> String {
@@ -782,6 +1295,7 @@ impl DogfoodBrowserState {
                     "load_state": self.load_state.get().label(),
                     "copilot_granted": self.copilot_granted.get(),
                     "has_webview": self.webview.borrow().is_some(),
+                    "toolbar": self.control_toolbar_status_response(),
                 },
             }),
             "shell_status" => json!({
@@ -1270,6 +1784,7 @@ impl DogfoodBrowserState {
             "can_go_back": can_go_back,
             "can_go_forward": can_go_forward,
             "copilot_granted": self.copilot_granted.get(),
+            "toolbar": self.control_toolbar_status_response(),
             "artifacts": {
                 "report": null,
                 "replay": null,
@@ -1477,6 +1992,45 @@ impl DogfoodBrowserState {
             "hidpi_scale_factor": webview.hidpi_scale_factor().0,
         })
     }
+
+    fn control_toolbar_status_response(&self) -> Value {
+        let metrics = self.toolbar_metrics();
+        let (can_go_back, can_go_forward) = self.webview_nav_state();
+        json!({
+            "visible": true,
+            "clickable": true,
+            "draw_mode": "native_gl_scissor_overlay_v0",
+            "page_dom_injected": false,
+            "webview_resized_for_toolbar": false,
+            "height_css_px": SHELL_TOOLBAR_HEIGHT,
+            "targets": {
+                "back": {
+                    "enabled": can_go_back,
+                    "rect": toolbar_rect_json(metrics.back),
+                },
+                "forward": {
+                    "enabled": can_go_forward,
+                    "rect": toolbar_rect_json(metrics.forward),
+                },
+                "reload": {
+                    "enabled": self.webview.borrow().is_some(),
+                    "rect": toolbar_rect_json(metrics.reload),
+                },
+                "address": {
+                    "enabled": self.webview.borrow().is_some(),
+                    "active": self.address_entry.borrow().is_some(),
+                    "invalid": self.address_error.get(),
+                    "rect": toolbar_rect_json(metrics.address),
+                },
+                "copilot_grant": {
+                    "enabled": true,
+                    "granted": self.copilot_granted.get(),
+                    "error": self.copilot_grant_error.borrow().is_some(),
+                    "rect": toolbar_rect_json(metrics.grant),
+                },
+            },
+        })
+    }
 }
 
 impl WebViewDelegate for DogfoodBrowserState {
@@ -1672,6 +2226,8 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             control_endpoint: control_bridge.endpoint.clone(),
             control_rx: control_bridge.rx,
             active_select: RefCell::new(None),
+            toolbar_mouse_capture: Cell::new(false),
+            toolbar_draw_error_reported: Cell::new(false),
             started_at: Instant::now(),
             auto_close_after: config.auto_close_after,
             rendering_settings: rendering_settings.clone(),
@@ -1719,6 +2275,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                 WindowEvent::RedrawRequested => {
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         webview.paint();
+                        if let Err(error) = state.draw_toolbar_overlay() {
+                            state.report_toolbar_draw_error_once(error);
+                        }
                         state.rendering_context.present();
                     }
                 }
@@ -1727,6 +2286,7 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                         webview
                             .set_hidpi_scale_factor(Scale::new(state.window.scale_factor() as f32));
                         webview.resize(new_size);
+                        state.window.request_redraw();
                     }
                 }
                 WindowEvent::CursorMoved { position, .. } => {
@@ -1736,6 +2296,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                         .set(state.cursor_move_count.get().saturating_add(1));
                     state.last_cursor_move_at.set(Some(Instant::now()));
                     state.trace_cursor_moved(position);
+                    if state.cursor_over_toolbar() {
+                        return;
+                    }
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(
                             state.page_point(),
@@ -1751,6 +2314,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                         "mouse_input",
                         format_args!("state={button_state:?} button={button:?}"),
                     );
+                    if state.handle_toolbar_mouse_input(button_state, button) {
+                        return;
+                    }
                     if button_state == ElementState::Pressed {
                         if state.handle_mouse_navigation_button(button) {
                             return;
@@ -1767,6 +2333,9 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
                     state.trace_pointer_event("mouse_wheel", format_args!("delta={delta:?}"));
+                    if state.cursor_over_toolbar() {
+                        return;
+                    }
                     if let Some(webview) = state.webview.borrow().as_ref() {
                         let (x, y, mode) = wheel_delta(delta);
                         webview.notify_input_event(InputEvent::Wheel(WheelEvent::new(
@@ -1804,6 +2373,84 @@ impl ApplicationHandler<WakerEvent> for DogfoodBrowserApp {
             state.drain_control_commands();
         }
         self.after_spin(event_loop);
+    }
+}
+
+fn toolbar_glyph_color(enabled: bool) -> ToolbarColor {
+    if enabled {
+        ToolbarColor(0.11, 0.14, 0.19, 1.0)
+    } else {
+        ToolbarColor(0.58, 0.62, 0.68, 1.0)
+    }
+}
+
+fn toolbar_rect_json(rect: ToolbarRect) -> Value {
+    json!({
+        "x": rect.x,
+        "y": rect.y,
+        "width": rect.width,
+        "height": rect.height,
+    })
+}
+
+fn draw_bordered_rect(
+    gl: &glow::Context,
+    physical_size: PhysicalSize<u32>,
+    scale: f32,
+    rect: ToolbarRect,
+    border: ToolbarColor,
+    fill: ToolbarColor,
+) {
+    fill_logical_rect(gl, physical_size, scale, rect, border);
+    fill_logical_rect(gl, physical_size, scale, rect.inset(1.0), fill);
+}
+
+fn fill_logical_rect(
+    gl: &glow::Context,
+    physical_size: PhysicalSize<u32>,
+    scale: f32,
+    rect: ToolbarRect,
+    color: ToolbarColor,
+) {
+    if rect.width <= 0.0
+        || rect.height <= 0.0
+        || physical_size.width == 0
+        || physical_size.height == 0
+    {
+        return;
+    }
+
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    let mut x = (rect.x * scale).round() as i32;
+    let mut y_from_top = (rect.y * scale).round() as i32;
+    let mut width = (rect.width * scale).round().max(1.0) as i32;
+    let mut height = (rect.height * scale).round().max(1.0) as i32;
+    let physical_width = physical_size.width as i32;
+    let physical_height = physical_size.height as i32;
+
+    if x < 0 {
+        width += x;
+        x = 0;
+    }
+    if y_from_top < 0 {
+        height += y_from_top;
+        y_from_top = 0;
+    }
+    if x + width > physical_width {
+        width = physical_width - x;
+    }
+    if y_from_top + height > physical_height {
+        height = physical_height - y_from_top;
+    }
+    if width <= 0 || height <= 0 {
+        return;
+    }
+
+    let y = physical_height - y_from_top - height;
+    unsafe {
+        gl.scissor(x, y, width, height);
+        gl.clear_color(color.0, color.1, color.2, color.3);
+        gl.clear(glow::COLOR_BUFFER_BIT);
     }
 }
 

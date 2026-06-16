@@ -458,7 +458,8 @@
 
 - Added dogfood browser handling for hardware mouse Back/Forward buttons.
 - Back/Forward side-button presses now call the same browser history helpers as `Cmd+[` and `Cmd+]` instead of being forwarded as ordinary page mouse events.
-- Visible clickable toolbar buttons are still pending, but users with hardware side buttons can now navigate history without keyboard shortcuts.
+- Visible clickable toolbar buttons were still pending at this point; see
+  DECISION_BROWSER_020 for the native toolbar v0.
 
 ## DECISION_BROWSER_019 - Same-WebView shell navigation control plane
 
@@ -478,8 +479,29 @@
   returned `runtime=saccade-dogfood-control-v0`; the smoke navigated from
   `current_tab_copilot` to `formmax`, reloaded, went back, and went forward in
   the same visible dogfood window.
-- Next work is the visible clickable toolbar or an MCP-facing named navigation
-  tool, both backed by this control plane.
+- This is the control plane that backs the native toolbar v0 in
+  DECISION_BROWSER_020. The MCP-facing named navigation tool remains open.
+
+## DECISION_BROWSER_020 - Dogfood browser has native clickable toolbar v0
+
+- Added a native shell toolbar overlay to the dogfood browser using Servo's
+  exposed `RenderingContext::glow_gl_api()` plus
+  `RenderingContext::prepare_for_rendering()`.
+- The toolbar is not page DOM and does not inject CSS or JS into the loaded
+  page. It paints in the shell after `WebView::paint()` and before
+  `present()`.
+- Toolbar hit-zones are consumed by the shell:
+  Back, Forward, Reload, address command, and Copilot current-tab grant.
+- The same control endpoint now reports toolbar status under `ping` and
+  `shell_status`, including target rects and `page_dom_injected=false`.
+- Smoke evidence:
+  `runs/browser_shell/visible_toolbar_file_smoke.png`.
+- Verification:
+  `cargo check -p saccade_browser`, `cargo check -p saccade-shell`,
+  `git diff --check`, and two short `saccade-shell browse` smoke runs.
+- Known limitation: v0 overlays the top 44 CSS px of page content. A final
+  browser chrome should use an offscreen/compositor or viewport layout so the
+  toolbar does not obscure page content.
 
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 

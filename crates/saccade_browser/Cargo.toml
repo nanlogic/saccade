@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 euclid.workspace = true
+glow = "0.17"
 image.workspace = true
 serde.workspace = true
 serde_json.workspace = true

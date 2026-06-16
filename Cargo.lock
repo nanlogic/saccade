@@ -5505,6 +5505,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "euclid",
+ "glow",
  "image",
  "saccade_core",
  "saccade_detect",

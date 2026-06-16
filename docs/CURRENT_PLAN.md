@@ -70,8 +70,10 @@ N8 now has a local shell selftest, an MCP API gate, a visible dogfood browser
 grant shortcut, MCP import of that grant artifact, and a same-WebView control
 ping plus redacted truth/actions, safe field fill, redacted field inspect, and
 safe non-side-effect act from MCP into the already-open dogfood window. Current
-tab FORMMAX also runs inside the same user-granted dogfood WebView. Submit and
-other side-effect actions still require user confirmation.
+tab FORMMAX also runs inside the same user-granted dogfood WebView. The
+dogfood browser now has a visible native toolbar v0 with shell-consumed
+Back/Forward/Reload/address/Copilot hit-zones. Submit and other side-effect
+actions still require user confirmation.
 
 ## Next Gate: N8 Current Tab Co-Pilot
 
@@ -157,8 +159,8 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 ## Priority Order
 
-1. Browser shell basics: clickable URL bar, Back, Forward, Reload, Stop,
-   visible Human/Agent badge.
+1. Browser shell basics: Stop behavior, toolbar URL text editing,
+   non-obscuring chrome, visible Human/Agent badge.
 2. Editor/contenteditable gate: Gist-like editor and forum composer.
 3. DEVMAX gauntlet polish: multi-action verification, screenshots/finding crops,
    Chrome comparison.
