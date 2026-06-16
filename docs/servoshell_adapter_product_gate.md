@@ -116,6 +116,13 @@ If any of the following fail, Option B becomes justified:
    `shell_status`, `truth`, `actions`, safe `fill_agent_fields`,
    `inspect_fields`, non-side-effect `act`, `formmax_live_fill`, `navigate`,
    `reload`, `back`, and `forward`.
+10. DONE: Add bridge control report/replay artifacts and Copilot state. Live
+   control calls now write sanitized `control/report.json` and
+   `control/replay.jsonl`, FORMMAX appends no-value replay events, and
+   `shell_status` exposes Human owner, FullTruth read grant, agent input grant,
+   and sensitive-value redaction state.
+11. TODO: Run the same bridge gate against one newer official ServoShell build
+   or record a clear compatibility failure.
 
 ## Latest Evidence
 
@@ -169,8 +176,8 @@ If any of the following fail, Option B becomes justified:
   endpoint with protocol `saccade-dogfood-control-v0`, and verified
   `ping/truth/actions` over that endpoint.
 - MCP live bridge attach/fill/inspect/act/FORMMAX:
-  `runs/mcp/selftest_1781632241481/report.json` and
-  `runs/mcp/servoshell_bridge_grant_1781632282911/report.json`
+  `runs/mcp/selftest_1781634612147/report.json` and
+  `runs/mcp/servoshell_bridge_grant_1781634660859/report.json`
 - MCP now attaches to the official ServoShell bridge grant, receives advertised
   bridge capabilities, fills only agent-owned non-sensitive fields, rejects
   human-owned sensitive fields, redacts sensitive field inspection, navigates
@@ -178,6 +185,13 @@ If any of the following fail, Option B becomes justified:
   navigates the same granted bridge tab to FORMMAX and verifies rows=96,
   pages=2, filled=672, blocked_sensitive=3, receipt_verified=true, and
   validation_errors=0.
+- Bridge control artifacts:
+  `runs/mcp/servoshell_bridge_grant_1781634660859/control/report.json` and
+  `runs/mcp/servoshell_bridge_grant_1781634660859/control/replay.jsonl`
+- MCP verifies `servoshell_bridge_artifacts=true`; replay summary reads 2728
+  events with `value_like_fields=0`. `shell_status` now reports
+  `copilot.status=granted`, `owner=Human`, `read_grant=FullTruth`,
+  `agent_input_grant=true`, and `sensitive_values_exposed_to_agent=false`.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781484941056/report.json`
 - Local game `http://127.0.0.1:4173/` loaded in official ServoShell with

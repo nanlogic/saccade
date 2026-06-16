@@ -503,6 +503,11 @@ struct BridgeControlState {
     session_id: String,
     webdriver_port: u16,
     page_revision: Arc<AtomicU64>,
+    run_id: String,
+    output_dir: PathBuf,
+    report_path: PathBuf,
+    replay_path: PathBuf,
+    control_seq: Arc<AtomicU64>,
 }
 
 struct BridgeControlServer {
@@ -631,12 +636,21 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         let ready = wait_for_document_ready(&client, &sid, cfg.timeout)?;
         report["page"]["ready"] = ready.clone();
 
+        let control_dir = cfg.output_dir.join("control");
+        fs::create_dir_all(&control_dir)
+            .with_context(|| format!("create {}", control_dir.display()))?;
         let state = BridgeControlState {
             client: client.clone(),
             session_id: sid,
             webdriver_port,
             page_revision: Arc::new(AtomicU64::new(1)),
+            run_id: format!("servoshell_bridge_{}", unix_ms()),
+            output_dir: control_dir.clone(),
+            report_path: control_dir.join("report.json"),
+            replay_path: control_dir.join("replay.jsonl"),
+            control_seq: Arc::new(AtomicU64::new(0)),
         };
+        report["control_artifacts"] = bridge_artifacts(&state);
         let server = start_bridge_control_server(state)?;
         let grant_path = cfg
             .grant_path
@@ -2359,8 +2373,15 @@ fn bridge_control_response(
     let method = request.get("method").and_then(Value::as_str).unwrap_or("");
     let params = request.get("params").cloned().unwrap_or(Value::Null);
     match bridge_control_result(state, shutdown, method, params) {
-        Ok(result) => json!({"id": id, "ok": true, "result": result}),
-        Err(error) => json!({"id": id, "ok": false, "error": error.to_string()}),
+        Ok(result) => match bridge_record_control_success(state, method, &result) {
+            Ok(()) => json!({"id": id, "ok": true, "result": result}),
+            Err(error) => json!({"id": id, "ok": false, "error": error.to_string()}),
+        },
+        Err(error) => {
+            let error_text = error.to_string();
+            let _ = bridge_record_control_error(state, method, &error_text);
+            json!({"id": id, "ok": false, "error": error_text})
+        }
     }
 }
 
@@ -2443,6 +2464,7 @@ fn bridge_status_response(
         "load_state": page.get("readyState").cloned().unwrap_or(Value::Null),
         "page_revision": state.page_revision.load(Ordering::SeqCst),
         "changed": changed,
+        "copilot": bridge_copilot_state(),
         "webdriver": {
             "host": "127.0.0.1",
             "port": state.webdriver_port,
@@ -2461,11 +2483,174 @@ fn bridge_status_response(
             "back",
             "forward"
         ],
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        },
+        "artifacts": bridge_artifacts(state),
     }))
+}
+
+fn bridge_copilot_state() -> Value {
+    json!({
+        "status": "granted",
+        "badge": "Copilot Granted",
+        "owner": "Human",
+        "read_grant": "FullTruth",
+        "agent_input_grant": true,
+        "user_confirmation_required_for_side_effects": true,
+        "sensitive_values_visible_to_user": true,
+        "sensitive_values_exposed_to_agent": false,
+        "page_dom_injected": false,
+        "visible_ui": "official_servoshell_external_ui",
+    })
+}
+
+fn bridge_artifacts(state: &BridgeControlState) -> Value {
+    json!({
+        "run_dir": state.output_dir.display().to_string(),
+        "report": state.report_path.display().to_string(),
+        "replay": state.replay_path.display().to_string(),
+    })
+}
+
+fn bridge_record_control_success(
+    state: &BridgeControlState,
+    method: &str,
+    result: &Value,
+) -> Result<()> {
+    let event = bridge_control_event(state, method, true, bridge_result_summary(method, result));
+    bridge_append_replay(state, &event)?;
+    bridge_write_control_report(state, &event)
+}
+
+fn bridge_record_control_error(
+    state: &BridgeControlState,
+    method: &str,
+    _error: &str,
+) -> Result<()> {
+    let event = bridge_control_event(
+        state,
+        method,
+        false,
+        json!({
+            "method": method,
+            "status": "error",
+            "error": "redacted_control_error",
+        }),
+    );
+    bridge_append_replay(state, &event)?;
+    bridge_write_control_report(state, &event)
+}
+
+fn bridge_control_event(
+    state: &BridgeControlState,
+    method: &str,
+    ok: bool,
+    result_summary: Value,
+) -> Value {
+    let seq = state.control_seq.fetch_add(1, Ordering::SeqCst) + 1;
+    json!({
+        "kind": "servoshell_bridge_control",
+        "run_id": state.run_id.as_str(),
+        "seq": seq,
+        "method": method,
+        "ok": ok,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "values_logged": false,
+        "result": result_summary,
+        "copilot": bridge_copilot_state(),
+    })
+}
+
+fn bridge_result_summary(method: &str, result: &Value) -> Value {
+    let mut counts = serde_json::Map::new();
+    bridge_insert_count(&mut counts, "actions", result.get("actions"));
+    bridge_insert_count(&mut counts, "fields", result.get("fields"));
+    bridge_insert_count(&mut counts, "filled", result.get("filled"));
+    bridge_insert_count(&mut counts, "rejected", result.get("rejected"));
+    for key in [
+        "rows",
+        "pages",
+        "blocked_sensitive",
+        "validation_errors",
+        "replay_events",
+        "requested",
+    ] {
+        if let Some(value) = result.get(key).and_then(Value::as_u64) {
+            counts.insert(key.to_string(), json!(value));
+        }
+    }
+    if let Some(fields) = result.get("fields").and_then(Value::as_array) {
+        let values_returned = fields
+            .iter()
+            .filter(|field| field.get("value_returned").and_then(Value::as_bool) == Some(true))
+            .count();
+        let values_redacted = fields
+            .iter()
+            .filter(|field| field.get("value_redacted").and_then(Value::as_bool) == Some(true))
+            .count();
+        counts.insert("values_returned".to_string(), json!(values_returned));
+        counts.insert("values_redacted".to_string(), json!(values_redacted));
+    }
+
+    json!({
+        "method": method,
+        "status": result.get("status").cloned().unwrap_or(Value::Null),
+        "runtime": result.get("runtime").cloned().unwrap_or(Value::Null),
+        "engine": result.get("engine").cloned().unwrap_or(Value::Null),
+        "same_webview_control": result.get("same_webview_control").cloned().unwrap_or(Value::Null),
+        "page_revision": result.get("page_revision").cloned().unwrap_or(Value::Null),
+        "changed": result.get("changed").cloned().unwrap_or(Value::Null),
+        "receipt_verified": result.get("receipt_verified").cloned().unwrap_or(Value::Null),
+        "verification": result.get("verification").cloned().unwrap_or(Value::Null),
+        "policy": result.get("policy").cloned().unwrap_or(Value::Null),
+        "counts": Value::Object(counts),
+    })
+}
+
+fn bridge_insert_count(
+    counts: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<&Value>,
+) {
+    let Some(value) = value else {
+        return;
+    };
+    let count = if let Some(items) = value.as_array() {
+        Some(items.len() as u64)
+    } else {
+        value.as_u64()
+    };
+    if let Some(count) = count {
+        counts.insert(key.to_string(), json!(count));
+    }
+}
+
+fn bridge_append_replay(state: &BridgeControlState, event: &Value) -> Result<()> {
+    if let Some(parent) = state.replay_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&state.replay_path)
+        .with_context(|| format!("open {}", state.replay_path.display()))?;
+    writeln!(file, "{event}").with_context(|| format!("write {}", state.replay_path.display()))
+}
+
+fn bridge_write_control_report(state: &BridgeControlState, latest: &Value) -> Result<()> {
+    let report = json!({
+        "ok": latest.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        "run_id": state.run_id.as_str(),
+        "engine": "saccade-servoshell-bridge-v0",
+        "runtime": "official_servoshell_webdriver",
+        "webdriver": {
+            "host": "127.0.0.1",
+            "port": state.webdriver_port,
+        },
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "copilot": bridge_copilot_state(),
+        "latest": latest,
+        "artifacts": bridge_artifacts(state),
+    });
+    write_json(&state.report_path, &report)
 }
 
 fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Value> {
@@ -2493,10 +2678,7 @@ fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Val
             "redaction_count": truth.get("redactions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
             "action_count": truth.get("actions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
         },
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        },
+        "artifacts": bridge_artifacts(state),
     }))
 }
 
@@ -2532,10 +2714,7 @@ fn bridge_fill_agent_fields_response(state: &BridgeControlState, params: Value) 
         "filled": fill_result.get("filled").cloned().unwrap_or_else(|| json!([])),
         "rejected": fill_result.get("rejected").cloned().unwrap_or_else(|| json!([])),
         "sensitive_fields_seen": fill_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        },
+        "artifacts": bridge_artifacts(state),
     }))
 }
 
@@ -2565,10 +2744,7 @@ fn bridge_inspect_fields_response(state: &BridgeControlState, params: Value) -> 
         "requested": fields.len(),
         "fields": inspect_result.get("fields").cloned().unwrap_or_else(|| json!([])),
         "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        },
+        "artifacts": bridge_artifacts(state),
     }))
 }
 
@@ -2643,10 +2819,7 @@ fn bridge_act_response(state: &BridgeControlState, params: Value) -> Result<Valu
         "truth": {
             "sensitive_fields": after_truth.pointer("/safety/sensitive_count").cloned().unwrap_or(Value::Null),
         },
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        },
+        "artifacts": bridge_artifacts(state),
     }))
 }
 
@@ -2726,7 +2899,9 @@ fn bridge_formmax_live_fill_response(state: &BridgeControlState, params: Value) 
     if filled > 0 {
         state.page_revision.fetch_add(1, Ordering::SeqCst);
     }
+    bridge_append_formmax_events(state, &result)?;
     Ok(bridge_formmax_response(
+        state,
         "saccade-servoshell-bridge-v0",
         "saccade-servoshell-bridge-formmax-live-v0",
         state.page_revision.load(Ordering::SeqCst),
@@ -2734,7 +2909,33 @@ fn bridge_formmax_live_fill_response(state: &BridgeControlState, params: Value) 
     ))
 }
 
+fn bridge_append_formmax_events(state: &BridgeControlState, result: &Value) -> Result<()> {
+    let events = result
+        .get("events")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for event in events {
+        let mut event = event;
+        if let Some(object) = event.as_object_mut() {
+            object.insert("run_id".into(), json!(state.run_id.as_str()));
+            object.insert(
+                "page_revision".into(),
+                json!(state.page_revision.load(Ordering::SeqCst)),
+            );
+            object.insert("values_logged".into(), json!(false));
+            object.insert(
+                "bridge_runtime".into(),
+                json!("saccade-servoshell-bridge-v0"),
+            );
+        }
+        bridge_append_replay(state, &event)?;
+    }
+    Ok(())
+}
+
 fn bridge_formmax_response(
+    state: &BridgeControlState,
     runtime: &str,
     engine: &str,
     page_revision: u64,
@@ -2794,10 +2995,7 @@ fn bridge_formmax_response(
             "same_live_tab": true,
             "values_logged": false,
         },
-        "artifacts": {
-            "report": null,
-            "replay": null,
-        },
+        "artifacts": bridge_artifacts(state),
     })
 }
 
@@ -2898,6 +3096,7 @@ fn write_bridge_grant(
         "owner": "Human",
         "read_grant": "FullTruth",
         "agent_input_grant": true,
+        "copilot": bridge_copilot_state(),
         "url": url,
         "title": title,
         "rendering_profile": "official-servoshell",

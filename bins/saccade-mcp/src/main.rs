@@ -100,6 +100,7 @@ struct SelftestEvidence {
     tabs_grant_artifact: bool,
     servoshell_bridge_grant: bool,
     servoshell_bridge_formmax_live: bool,
+    servoshell_bridge_artifacts: bool,
     browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
@@ -232,6 +233,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.tabs_grant_artifact
         && stdio_evidence.servoshell_bridge_grant
         && stdio_evidence.servoshell_bridge_formmax_live
+        && stdio_evidence.servoshell_bridge_artifacts
         && stdio_evidence.browser_navigate
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
@@ -263,6 +265,7 @@ fn selftest() -> Result<()> {
         tabs_grant_artifact: stdio_evidence.tabs_grant_artifact,
         servoshell_bridge_grant: stdio_evidence.servoshell_bridge_grant,
         servoshell_bridge_formmax_live: stdio_evidence.servoshell_bridge_formmax_live,
+        servoshell_bridge_artifacts: stdio_evidence.servoshell_bridge_artifacts,
         browser_navigate: stdio_evidence.browser_navigate,
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
@@ -597,6 +600,7 @@ struct JsonRpcEvidence {
     tabs_grant_artifact: bool,
     servoshell_bridge_grant: bool,
     servoshell_bridge_formmax_live: bool,
+    servoshell_bridge_artifacts: bool,
     browser_navigate: bool,
     web_truth: bool,
     web_actions: bool,
@@ -4432,6 +4436,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         tabs_grant_artifact,
         servoshell_bridge_grant,
         servoshell_bridge_formmax_live: servoshell_bridge_grant,
+        servoshell_bridge_artifacts: servoshell_bridge_grant,
         browser_navigate,
         web_truth,
         web_actions,
@@ -4604,7 +4609,15 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             && status_content
                 .pointer("/shell/engine")
                 .and_then(Value::as_str)
-                == Some("saccade-servoshell-bridge-shell-status-v0");
+                == Some("saccade-servoshell-bridge-shell-status-v0")
+            && status_content
+                .pointer("/shell/copilot/status")
+                .and_then(Value::as_str)
+                == Some("granted")
+            && status_content
+                .pointer("/shell/copilot/sensitive_values_exposed_to_agent")
+                .and_then(Value::as_bool)
+                == Some(false);
 
         let fill_basis_page_revision = grant_content
             .pointer("/tab/page_revision")
@@ -4826,6 +4839,39 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                 .get("validation_errors")
                 .and_then(Value::as_u64)
                 == Some(0);
+        let formmax_report_path = formmax_content
+            .pointer("/artifacts/report")
+            .and_then(Value::as_str)
+            .context("ServoShell bridge FORMMAX did not return report artifact")?;
+        let formmax_replay_path = formmax_content
+            .pointer("/artifacts/replay")
+            .and_then(Value::as_str)
+            .context("ServoShell bridge FORMMAX did not return replay artifact")?;
+        let formmax_report_path = safe_workspace_path(formmax_report_path)?;
+        let formmax_replay_path = safe_workspace_path(formmax_replay_path)?;
+        let formmax_replay_summary = json_rpc_tool_content(
+            &mut state,
+            512,
+            "saccade.report.replay_summary",
+            json!({
+                "replay_path": formmax_replay_path.display().to_string()
+            }),
+        )?;
+        let expected_formmax_replay_events = formmax_content
+            .get("replay_events")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let formmax_artifacts_ok = formmax_report_path.exists()
+            && formmax_replay_path.exists()
+            && formmax_replay_summary.get("status").and_then(Value::as_str) == Some("ok")
+            && formmax_replay_summary
+                .get("events")
+                .and_then(Value::as_u64)
+                .is_some_and(|events| events >= expected_formmax_replay_events)
+            && formmax_replay_summary
+                .get("value_like_fields")
+                .and_then(Value::as_u64)
+                == Some(0);
 
         let bridge_ok = grant_attached
             && truth_ok
@@ -4836,7 +4882,8 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             && no_sensitive_leak
             && navigate_ok
             && act_ok
-            && formmax_ok;
+            && formmax_ok
+            && formmax_artifacts_ok;
         if !bridge_ok {
             bail!(
                 "servoshell bridge MCP gate failed: {}",
@@ -4851,6 +4898,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                     "navigate_ok": navigate_ok,
                     "act_ok": act_ok,
                     "formmax_ok": formmax_ok,
+                    "formmax_artifacts_ok": formmax_artifacts_ok,
                     "capabilities": capabilities,
                     "fill": {
                         "runtime": fill_content.get("runtime").cloned().unwrap_or(Value::Null),
@@ -4880,6 +4928,8 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                         "blocked_sensitive": formmax_content.get("blocked_sensitive").cloned().unwrap_or(Value::Null),
                         "receipt_verified": formmax_content.get("receipt_verified").cloned().unwrap_or(Value::Null),
                         "validation_errors": formmax_content.get("validation_errors").cloned().unwrap_or(Value::Null),
+                        "artifacts": formmax_content.get("artifacts").cloned().unwrap_or(Value::Null),
+                        "replay_summary": formmax_replay_summary,
                     },
                 })
             );

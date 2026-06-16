@@ -957,3 +957,24 @@
 - Decision: do not fake Stop with reload/navigation. Keep Stop as
   `blocked-public-api` in `docs/CURRENT_ACTION_ITEMS.md`; revisit only through
   official ServoShell source, newer Servo API proof, or a deliberate fork hook.
+
+## DECISION_SERVOSHELL_016 - Productize external ServoShell bridge with artifacts before UI fork
+
+- The official ServoShell bridge can already route truth/actions/fill/inspect/
+  safe-act/FORMMAX/navigation through one user-granted Human tab.
+- Product evidence was still incomplete because live bridge responses returned
+  summary data while `artifacts.report` and `artifacts.replay` were null.
+- Decision: keep official ServoShell UI intact for now and productize the
+  external bridge contract first. Each control request writes sanitized
+  `control/report.json` and `control/replay.jsonl`; FORMMAX appends its
+  no-value event stream; the generic control summary records method, counts,
+  policy, and verification metadata without request values.
+- `shell_status` now includes a Copilot state object: Human owner, FullTruth
+  read grant, agent input grant, side-effect confirmation requirement, and
+  `sensitive_values_exposed_to_agent=false`.
+- Visible in-window Human/Agent badge remains an AI-004 product UI task and may
+  require a thin ServoShell fork; the MCP/source-of-truth state is now present.
+- Evidence:
+  `runs/mcp/selftest_1781634612147/report.json`,
+  `runs/mcp/servoshell_bridge_grant_1781634660859/control/report.json`, and
+  `runs/mcp/servoshell_bridge_grant_1781634660859/control/replay.jsonl`.
