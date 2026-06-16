@@ -310,6 +310,121 @@ struct AddressEntryTitle<'a> {
     invalid: bool,
 }
 
+#[derive(Debug, Clone)]
+struct AddressEntryState {
+    text: String,
+    selection_anchor: usize,
+    selection_focus: usize,
+}
+
+impl AddressEntryState {
+    fn new_selected(text: String) -> Self {
+        let end = text.len();
+        Self {
+            text,
+            selection_anchor: 0,
+            selection_focus: end,
+        }
+    }
+
+    fn selection_range(&self) -> (usize, usize) {
+        (
+            self.selection_anchor.min(self.selection_focus),
+            self.selection_anchor.max(self.selection_focus),
+        )
+    }
+
+    fn has_selection(&self) -> bool {
+        self.selection_anchor != self.selection_focus
+    }
+
+    fn caret(&self) -> usize {
+        self.selection_focus
+    }
+
+    fn select_all(&mut self) {
+        self.selection_anchor = 0;
+        self.selection_focus = self.text.len();
+    }
+
+    fn replace_selection(&mut self, replacement: &str) {
+        let (start, end) = self.selection_range();
+        self.text.replace_range(start..end, replacement);
+        self.collapse_to(start + replacement.len());
+    }
+
+    fn backspace(&mut self) {
+        if self.has_selection() {
+            self.replace_selection("");
+            return;
+        }
+
+        let caret = self.caret();
+        if caret == 0 {
+            return;
+        }
+        let previous = previous_char_boundary(&self.text, caret);
+        self.text.replace_range(previous..caret, "");
+        self.collapse_to(previous);
+    }
+
+    fn delete_forward(&mut self) {
+        if self.has_selection() {
+            self.replace_selection("");
+            return;
+        }
+
+        let caret = self.caret();
+        if caret >= self.text.len() {
+            return;
+        }
+        let next = next_char_boundary(&self.text, caret);
+        self.text.replace_range(caret..next, "");
+        self.collapse_to(caret);
+    }
+
+    fn move_left(&mut self, extend: bool) {
+        let next = if self.has_selection() && !extend {
+            self.selection_range().0
+        } else {
+            previous_char_boundary(&self.text, self.caret())
+        };
+        self.move_focus_to(next, extend);
+    }
+
+    fn move_right(&mut self, extend: bool) {
+        let next = if self.has_selection() && !extend {
+            self.selection_range().1
+        } else {
+            next_char_boundary(&self.text, self.caret())
+        };
+        self.move_focus_to(next, extend);
+    }
+
+    fn move_to_start(&mut self, extend: bool) {
+        self.move_focus_to(0, extend);
+    }
+
+    fn move_to_end(&mut self, extend: bool) {
+        self.move_focus_to(self.text.len(), extend);
+    }
+
+    fn move_focus_to(&mut self, index: usize, extend: bool) {
+        let index = clamp_to_char_boundary(&self.text, index);
+        if extend {
+            self.selection_focus = index;
+        } else {
+            self.collapse_to(index);
+        }
+    }
+
+    fn collapse_to(&mut self, index: usize) {
+        let index = clamp_to_char_boundary(&self.text, index);
+        self.selection_anchor = index;
+        self.selection_focus = index;
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ToolbarRect {
     x: f32,
@@ -421,7 +536,7 @@ struct DogfoodBrowserState {
     modifiers: Cell<ModifiersState>,
     load_state: Cell<BrowserLoadState>,
     page_title: RefCell<Option<String>>,
-    address_entry: RefCell<Option<String>>,
+    address_entry: RefCell<Option<AddressEntryState>>,
     address_error: Cell<bool>,
     copilot_granted: Cell<bool>,
     copilot_grant_error: RefCell<Option<String>>,
@@ -582,7 +697,7 @@ impl DogfoodBrowserState {
                 self.reload_current_page();
             }
             ShellToolbarTarget::Address => {
-                self.begin_address_entry();
+                self.focus_address_entry_from_pointer();
             }
             ShellToolbarTarget::Grant => {
                 self.grant_current_tab_to_copilot();
@@ -851,8 +966,8 @@ impl DogfoodBrowserState {
         let is_secure = self
             .address_entry
             .borrow()
-            .as_deref()
-            .map(|input| input.trim_start().starts_with("https://"))
+            .as_ref()
+            .map(|entry| entry.text.trim_start().starts_with("https://"))
             .unwrap_or_else(|| self.current_url.borrow().as_str().starts_with("https://"));
         if is_secure {
             self.draw_canvas_lock_icon(
@@ -886,9 +1001,9 @@ impl DogfoodBrowserState {
 
         let entry = self.address_entry.borrow().clone();
         let current_url = self.current_url.borrow().to_string();
-        let (raw_text, text_color, placeholder) = if let Some(entry) = entry.as_deref() {
+        let (raw_text, text_color, placeholder) = if let Some(entry) = entry.as_ref() {
             (
-                entry,
+                entry.text.as_str(),
                 if error {
                     ToolbarColor(0.74, 0.12, 0.14, 1.0)
                 } else {
@@ -914,17 +1029,85 @@ impl DogfoodBrowserState {
         let max_text_width = (rect.width - 43.0).max(0.0);
         let display_text =
             fit_toolbar_canvas_text(raw_text, max_text_width, SHELL_TOOLBAR_TEXT_SIZE);
-        let text_end = draw_toolbar_canvas_text(
-            pixmap,
-            scale,
-            text_x,
-            text_y,
-            &display_text,
-            SHELL_TOOLBAR_TEXT_SIZE,
-            text_color,
-        );
-        if active && !placeholder {
-            let caret_x = text_end.min(rect.x + rect.width - 10.0);
+        let visible_selection = entry.as_ref().and_then(|entry| {
+            let (start, end) = entry.selection_range();
+            visible_selection_range(&display_text, start, end)
+        });
+        if let Some((selection_start, selection_end)) = visible_selection {
+            let selection_x = text_x
+                + toolbar_canvas_text_width_lossy(
+                    &display_text[..selection_start],
+                    SHELL_TOOLBAR_TEXT_SIZE,
+                );
+            let selection_width = toolbar_canvas_text_width_lossy(
+                &display_text[selection_start..selection_end],
+                SHELL_TOOLBAR_TEXT_SIZE,
+            )
+            .max(2.0);
+            fill_canvas_rounded_rect(
+                pixmap,
+                scale,
+                ToolbarRect {
+                    x: selection_x - 1.5,
+                    y: text_y - 2.0,
+                    width: selection_width + 3.0,
+                    height: SHELL_TOOLBAR_TEXT_SIZE + 5.0,
+                },
+                3.0,
+                ToolbarColor(0.24, 0.46, 0.84, 0.92),
+            );
+            let mut segment_x = text_x;
+            segment_x = draw_toolbar_canvas_text(
+                pixmap,
+                scale,
+                segment_x,
+                text_y,
+                &display_text[..selection_start],
+                SHELL_TOOLBAR_TEXT_SIZE,
+                text_color,
+            );
+            segment_x = draw_toolbar_canvas_text(
+                pixmap,
+                scale,
+                segment_x,
+                text_y,
+                &display_text[selection_start..selection_end],
+                SHELL_TOOLBAR_TEXT_SIZE,
+                ToolbarColor(1.0, 1.0, 1.0, 1.0),
+            );
+            draw_toolbar_canvas_text(
+                pixmap,
+                scale,
+                segment_x,
+                text_y,
+                &display_text[selection_end..],
+                SHELL_TOOLBAR_TEXT_SIZE,
+                text_color,
+            );
+        } else {
+            draw_toolbar_canvas_text(
+                pixmap,
+                scale,
+                text_x,
+                text_y,
+                &display_text,
+                SHELL_TOOLBAR_TEXT_SIZE,
+                text_color,
+            );
+        }
+        if active && !placeholder && visible_selection.is_none() {
+            let caret_index = entry
+                .as_ref()
+                .map(AddressEntryState::caret)
+                .unwrap_or(display_text.len());
+            let caret_index =
+                clamp_to_char_boundary(&display_text, caret_index.min(display_text.len()));
+            let caret_x = (text_x
+                + toolbar_canvas_text_width_lossy(
+                    &display_text[..caret_index],
+                    SHELL_TOOLBAR_TEXT_SIZE,
+                ))
+            .min(rect.x + rect.width - 10.0);
             fill_canvas_rect(
                 pixmap,
                 scale,
@@ -1313,8 +1496,8 @@ impl DogfoodBrowserState {
         let is_secure = self
             .address_entry
             .borrow()
-            .as_deref()
-            .map(|input| input.trim_start().starts_with("https://"))
+            .as_ref()
+            .map(|entry| entry.text.trim_start().starts_with("https://"))
             .unwrap_or_else(|| self.current_url.borrow().as_str().starts_with("https://"));
         if is_secure {
             self.draw_lock_icon(
@@ -1349,9 +1532,9 @@ impl DogfoodBrowserState {
         }
         let entry = self.address_entry.borrow().clone();
         let current_url = self.current_url.borrow().to_string();
-        let (raw_text, text_color, placeholder) = if let Some(entry) = entry.as_deref() {
+        let (raw_text, text_color, placeholder) = if let Some(entry) = entry.as_ref() {
             (
-                entry,
+                entry.text.as_str(),
                 if error {
                     ToolbarColor(0.74, 0.12, 0.14, 1.0)
                 } else {
@@ -1621,8 +1804,8 @@ impl DogfoodBrowserState {
             page_title: page_title.as_deref(),
             current_url: current_url.as_str(),
             copilot_label: copilot_label.as_str(),
-            address_entry: address_entry.as_deref().map(|input| AddressEntryTitle {
-                input,
+            address_entry: address_entry.as_ref().map(|entry| AddressEntryTitle {
+                input: entry.text.as_str(),
                 invalid: self.address_error.get(),
             }),
             active_select_label: active_select_label.as_deref(),
@@ -1696,7 +1879,33 @@ impl DogfoodBrowserState {
 
     fn begin_address_entry(&self) {
         self.active_select.borrow_mut().take();
-        *self.address_entry.borrow_mut() = Some(self.current_url.borrow().to_string());
+        *self.address_entry.borrow_mut() = Some(AddressEntryState::new_selected(
+            self.current_url.borrow().to_string(),
+        ));
+        self.address_error.set(false);
+        self.update_window_title();
+    }
+
+    fn focus_address_entry_from_pointer(&self) {
+        if self.address_entry.borrow().is_none() {
+            self.begin_address_entry();
+            return;
+        }
+
+        let metrics = self.toolbar_metrics();
+        let text_x = metrics.address.x + 28.0;
+        let max_text_width = (metrics.address.width - 43.0).max(0.0);
+        let click_x = self.cursor_x.get();
+        if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+            let index = address_text_index_for_x(
+                &entry.text,
+                click_x,
+                text_x,
+                max_text_width,
+                SHELL_TOOLBAR_TEXT_SIZE,
+            );
+            entry.collapse_to(index);
+        }
         self.address_error.set(false);
         self.update_window_title();
     }
@@ -1708,10 +1917,10 @@ impl DogfoodBrowserState {
     }
 
     fn submit_address_entry(&self) {
-        let Some(input) = self.address_entry.borrow().clone() else {
+        let Some(entry) = self.address_entry.borrow().clone() else {
             return;
         };
-        let Ok(url) = parse_location_input(&input) else {
+        let Ok(url) = parse_location_input(&entry.text) else {
             self.address_error.set(true);
             self.update_window_title();
             return;
@@ -1797,6 +2006,7 @@ impl DogfoodBrowserState {
             return true;
         }
 
+        let modifiers = self.modifiers.get();
         match &event.logical_key {
             WinitKey::Named(WinitNamedKey::Enter) => {
                 self.submit_address_entry();
@@ -1808,14 +2018,63 @@ impl DogfoodBrowserState {
             }
             WinitKey::Named(WinitNamedKey::Backspace) => {
                 if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
-                    entry.pop();
+                    entry.backspace();
+                }
+                self.address_error.set(false);
+                self.update_window_title();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::Delete) => {
+                if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                    entry.delete_forward();
+                }
+                self.address_error.set(false);
+                self.update_window_title();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::ArrowLeft) => {
+                if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                    entry.move_left(modifiers.shift_key());
+                }
+                self.address_error.set(false);
+                self.update_window_title();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::ArrowRight) => {
+                if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                    entry.move_right(modifiers.shift_key());
+                }
+                self.address_error.set(false);
+                self.update_window_title();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::Home) => {
+                if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                    entry.move_to_start(modifiers.shift_key());
+                }
+                self.address_error.set(false);
+                self.update_window_title();
+                true
+            }
+            WinitKey::Named(WinitNamedKey::End) => {
+                if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                    entry.move_to_end(modifiers.shift_key());
                 }
                 self.address_error.set(false);
                 self.update_window_title();
                 true
             }
             _ => {
-                let modifiers = self.modifiers.get();
+                if address_select_all_shortcut(event, modifiers)
+                    || address_focus_shortcut(event, modifiers)
+                {
+                    if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
+                        entry.select_all();
+                    }
+                    self.address_error.set(false);
+                    self.update_window_title();
+                    return true;
+                }
                 if modifiers.super_key() || modifiers.control_key() || modifiers.alt_key() {
                     return true;
                 }
@@ -1823,7 +2082,7 @@ impl DogfoodBrowserState {
                     return true;
                 };
                 if let Some(entry) = self.address_entry.borrow_mut().as_mut() {
-                    entry.push_str(&text);
+                    entry.replace_selection(&text);
                 }
                 self.address_error.set(false);
                 self.update_window_title();
@@ -2720,6 +2979,16 @@ impl DogfoodBrowserState {
     fn control_toolbar_status_response(&self) -> Value {
         let metrics = self.toolbar_metrics();
         let (can_go_back, can_go_forward) = self.webview_nav_state();
+        let address_entry = self.address_entry.borrow().clone();
+        let address_selection = address_entry.as_ref().map(|entry| {
+            let (start, end) = entry.selection_range();
+            json!({
+                "start": start,
+                "end": end,
+                "caret": entry.caret(),
+                "has_selection": entry.has_selection(),
+            })
+        });
         json!({
             "visible": true,
             "clickable": true,
@@ -2742,8 +3011,9 @@ impl DogfoodBrowserState {
                 },
                 "address": {
                     "enabled": self.webview.borrow().is_some(),
-                    "active": self.address_entry.borrow().is_some(),
+                    "active": address_entry.is_some(),
                     "invalid": self.address_error.get(),
+                    "selection": address_selection,
                     "rect": toolbar_rect_json(metrics.address),
                 },
                 "copilot_grant": {
@@ -3754,6 +4024,65 @@ fn toolbar_canvas_text_width(text: &str, font_size: f32) -> Option<f32> {
     Some(width)
 }
 
+fn toolbar_canvas_text_width_lossy(text: &str, font_size: f32) -> f32 {
+    toolbar_canvas_text_width(text, font_size)
+        .unwrap_or_else(|| toolbar_text_width(text, SHELL_TOOLBAR_TEXT_PX))
+}
+
+fn visible_selection_range(
+    display_text: &str,
+    selection_start: usize,
+    selection_end: usize,
+) -> Option<(usize, usize)> {
+    if selection_start == selection_end || display_text.is_empty() {
+        return None;
+    }
+    let start = clamp_to_char_boundary(display_text, selection_start.min(display_text.len()));
+    let end = clamp_to_char_boundary(display_text, selection_end.min(display_text.len()));
+    if start < end {
+        Some((start, end))
+    } else {
+        None
+    }
+}
+
+fn address_text_index_for_x(
+    text: &str,
+    click_x: f32,
+    text_x: f32,
+    max_width: f32,
+    font_size: f32,
+) -> usize {
+    let display_text = fit_toolbar_canvas_text(text, max_width, font_size);
+    if display_text.is_empty() || click_x <= text_x {
+        return 0;
+    }
+
+    let normalized = normalize_toolbar_text(text);
+    let visible_text = if display_text.ends_with("...") && display_text.len() < normalized.len() {
+        &display_text[..display_text.len() - 3]
+    } else {
+        display_text.as_str()
+    };
+    if visible_text.is_empty() {
+        return 0;
+    }
+
+    let relative_x = click_x - text_x;
+    let mut char_start_x = 0.0;
+    for (index, ch) in visible_text.char_indices() {
+        let next_index = index + ch.len_utf8();
+        let char_width =
+            toolbar_canvas_text_width_lossy(&visible_text[index..next_index], font_size);
+        if relative_x <= char_start_x + char_width / 2.0 {
+            return clamp_to_char_boundary(text, index.min(text.len()));
+        }
+        char_start_x += char_width;
+    }
+
+    clamp_to_char_boundary(text, visible_text.len().min(text.len()))
+}
+
 fn draw_toolbar_canvas_text(
     pixmap: &mut Pixmap,
     scale: f32,
@@ -4428,6 +4757,58 @@ fn typed_text(event: &KeyEvent) -> Option<String> {
     }
 }
 
+fn address_select_all_shortcut(event: &KeyEvent, modifiers: ModifiersState) -> bool {
+    if !(modifiers.super_key() || modifiers.control_key()) || modifiers.alt_key() {
+        return false;
+    }
+    matches!(
+        &event.logical_key,
+        WinitKey::Character(text) if text.eq_ignore_ascii_case("a")
+    )
+}
+
+fn address_focus_shortcut(event: &KeyEvent, modifiers: ModifiersState) -> bool {
+    if !modifiers.super_key() || modifiers.alt_key() {
+        return false;
+    }
+    matches!(
+        &event.logical_key,
+        WinitKey::Character(text) if text.eq_ignore_ascii_case("l")
+    )
+}
+
+fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn previous_char_boundary(text: &str, index: usize) -> usize {
+    let index = clamp_to_char_boundary(text, index);
+    if index == 0 {
+        return 0;
+    }
+    text[..index]
+        .char_indices()
+        .last()
+        .map(|(offset, _)| offset)
+        .unwrap_or(0)
+}
+
+fn next_char_boundary(text: &str, index: usize) -> usize {
+    let index = clamp_to_char_boundary(text, index);
+    if index >= text.len() {
+        return text.len();
+    }
+    text[index..]
+        .char_indices()
+        .nth(1)
+        .map(|(offset, _)| index + offset)
+        .unwrap_or(text.len())
+}
+
 fn parse_location_input(input: &str) -> Result<Url, url::ParseError> {
     let trimmed = input.trim();
     if has_url_scheme(trimmed) {
@@ -4723,6 +5104,80 @@ mod tests {
         assert!(
             toolbar_canvas_text_width("https://example.com/", SHELL_TOOLBAR_TEXT_SIZE).unwrap()
                 > 80.0
+        );
+    }
+
+    #[test]
+    fn address_entry_starts_selected_and_typing_replaces_selection() {
+        let mut entry = AddressEntryState::new_selected("https://example.com/".to_string());
+
+        assert_eq!(entry.selection_range(), (0, "https://example.com/".len()));
+        assert!(entry.has_selection());
+
+        entry.replace_selection("ign.com");
+
+        assert_eq!(entry.text, "ign.com");
+        assert_eq!(entry.caret(), "ign.com".len());
+        assert!(!entry.has_selection());
+    }
+
+    #[test]
+    fn address_entry_backspace_delete_and_arrows_preserve_utf8_boundaries() {
+        let mut entry = AddressEntryState::new_selected("abé".to_string());
+        entry.move_right(false);
+        entry.backspace();
+
+        assert_eq!(entry.text, "ab");
+        assert_eq!(entry.caret(), 2);
+
+        entry.move_left(false);
+        entry.delete_forward();
+        assert_eq!(entry.text, "a");
+        assert_eq!(entry.caret(), 1);
+    }
+
+    #[test]
+    fn address_entry_collapsed_caret_inserts_without_replacing() {
+        let mut entry = AddressEntryState::new_selected("example.com".to_string());
+        entry.collapse_to("example".len());
+        entry.replace_selection("-dev");
+
+        assert_eq!(entry.text, "example-dev.com");
+        assert_eq!(entry.caret(), "example-dev".len());
+        assert!(!entry.has_selection());
+    }
+
+    #[test]
+    fn visible_selection_clips_to_display_text() {
+        assert_eq!(
+            visible_selection_range("https://example...", 0, 200),
+            Some((0, 18))
+        );
+        assert_eq!(visible_selection_range("abc", 3, 3), None);
+    }
+
+    #[test]
+    fn address_text_index_for_x_tracks_visible_caret_position() {
+        let text = "abc";
+        let origin = 100.0;
+        let font_size = SHELL_TOOLBAR_TEXT_SIZE;
+        let first_width = toolbar_canvas_text_width_lossy("a", font_size);
+
+        assert_eq!(
+            address_text_index_for_x(text, origin - 8.0, origin, 300.0, font_size),
+            0
+        );
+        assert_eq!(
+            address_text_index_for_x(text, origin + first_width * 0.25, origin, 300.0, font_size),
+            0
+        );
+        assert_eq!(
+            address_text_index_for_x(text, origin + first_width * 0.75, origin, 300.0, font_size),
+            1
+        );
+        assert_eq!(
+            address_text_index_for_x(text, origin + 1000.0, origin, 300.0, font_size),
+            text.len()
         );
     }
 
