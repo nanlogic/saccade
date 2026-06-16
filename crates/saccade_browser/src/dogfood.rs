@@ -45,7 +45,8 @@ const SHELL_TOOLBAR_MARGIN: f32 = 8.0;
 const SHELL_TOOLBAR_BUTTON: f32 = 32.0;
 const SHELL_TOOLBAR_GAP: f32 = 6.0;
 const SHELL_TOOLBAR_GRANT_WIDTH: f32 = 104.0;
-const SHELL_TOOLBAR_TEXT_PX: f32 = 2.0;
+const SHELL_TOOLBAR_TEXT_PX: f32 = 1.6;
+const SHELL_TOOLBAR_LABEL_PX: f32 = 1.45;
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
@@ -585,7 +586,7 @@ impl DogfoodBrowserState {
             physical_size,
             scale,
             metrics.bounds,
-            ToolbarColor(0.965, 0.972, 0.982, 1.0),
+            ToolbarColor(0.955, 0.962, 0.972, 1.0),
         );
         fill_logical_rect(
             &gl,
@@ -597,7 +598,7 @@ impl DogfoodBrowserState {
                 width: metrics.bounds.width,
                 height: 1.0,
             },
-            ToolbarColor(0.68, 0.72, 0.78, 1.0),
+            ToolbarColor(0.78, 0.81, 0.86, 1.0),
         );
 
         self.draw_toolbar_button(&gl, physical_size, scale, metrics.back, can_go_back);
@@ -638,16 +639,16 @@ impl DogfoodBrowserState {
         enabled: bool,
     ) {
         let border = if enabled {
-            ToolbarColor(0.60, 0.66, 0.74, 1.0)
+            ToolbarColor(0.68, 0.72, 0.78, 1.0)
         } else {
-            ToolbarColor(0.78, 0.81, 0.86, 1.0)
+            ToolbarColor(0.80, 0.83, 0.88, 1.0)
         };
         let fill = if enabled {
-            ToolbarColor(0.985, 0.990, 1.0, 1.0)
+            ToolbarColor(0.992, 0.995, 1.0, 1.0)
         } else {
-            ToolbarColor(0.920, 0.935, 0.955, 1.0)
+            ToolbarColor(0.930, 0.940, 0.955, 1.0)
         };
-        draw_bordered_rect(gl, physical_size, scale, rect, border, fill);
+        draw_soft_bordered_rect(gl, physical_size, scale, rect, border, fill);
     }
 
     fn draw_back_icon(
@@ -659,30 +660,40 @@ impl DogfoodBrowserState {
         enabled: bool,
     ) {
         let color = toolbar_glyph_color(enabled);
-        fill_logical_rect(
-            gl,
-            physical_size,
-            scale,
+        for segment in [
             ToolbarRect {
-                x: rect.x + 10.0,
-                y: rect.y + 14.0,
-                width: 14.0,
+                x: rect.x + 17.0,
+                y: rect.y + 9.0,
+                width: 4.0,
                 height: 4.0,
             },
-            color,
-        );
-        fill_logical_rect(
-            gl,
-            physical_size,
-            scale,
             ToolbarRect {
-                x: rect.x + 10.0,
-                y: rect.y + 10.0,
+                x: rect.x + 13.0,
+                y: rect.y + 13.0,
                 width: 4.0,
-                height: 12.0,
+                height: 4.0,
             },
-            color,
-        );
+            ToolbarRect {
+                x: rect.x + 9.0,
+                y: rect.y + 16.0,
+                width: 4.0,
+                height: 4.0,
+            },
+            ToolbarRect {
+                x: rect.x + 13.0,
+                y: rect.y + 19.0,
+                width: 4.0,
+                height: 4.0,
+            },
+            ToolbarRect {
+                x: rect.x + 17.0,
+                y: rect.y + 23.0,
+                width: 4.0,
+                height: 4.0,
+            },
+        ] {
+            fill_logical_rect(gl, physical_size, scale, segment, color);
+        }
     }
 
     fn draw_forward_icon(
@@ -694,30 +705,40 @@ impl DogfoodBrowserState {
         enabled: bool,
     ) {
         let color = toolbar_glyph_color(enabled);
-        fill_logical_rect(
-            gl,
-            physical_size,
-            scale,
+        for segment in [
             ToolbarRect {
-                x: rect.x + 8.0,
-                y: rect.y + 14.0,
-                width: 14.0,
+                x: rect.x + 11.0,
+                y: rect.y + 9.0,
+                width: 4.0,
                 height: 4.0,
             },
-            color,
-        );
-        fill_logical_rect(
-            gl,
-            physical_size,
-            scale,
             ToolbarRect {
-                x: rect.x + 20.0,
-                y: rect.y + 10.0,
+                x: rect.x + 15.0,
+                y: rect.y + 13.0,
                 width: 4.0,
-                height: 12.0,
+                height: 4.0,
             },
-            color,
-        );
+            ToolbarRect {
+                x: rect.x + 19.0,
+                y: rect.y + 16.0,
+                width: 4.0,
+                height: 4.0,
+            },
+            ToolbarRect {
+                x: rect.x + 15.0,
+                y: rect.y + 19.0,
+                width: 4.0,
+                height: 4.0,
+            },
+            ToolbarRect {
+                x: rect.x + 11.0,
+                y: rect.y + 23.0,
+                width: 4.0,
+                height: 4.0,
+            },
+        ] {
+            fill_logical_rect(gl, physical_size, scale, segment, color);
+        }
     }
 
     fn draw_reload_icon(
@@ -773,18 +794,18 @@ impl DogfoodBrowserState {
         let border = if error {
             ToolbarColor(0.90, 0.24, 0.23, 1.0)
         } else if active {
-            ToolbarColor(0.20, 0.44, 0.88, 1.0)
+            ToolbarColor(0.24, 0.46, 0.84, 1.0)
         } else {
-            ToolbarColor(0.62, 0.68, 0.76, 1.0)
+            ToolbarColor(0.70, 0.75, 0.82, 1.0)
         };
-        draw_bordered_rect(
-            gl,
-            physical_size,
-            scale,
-            rect,
-            border,
-            ToolbarColor(1.0, 1.0, 1.0, 1.0),
-        );
+        let fill = if error {
+            ToolbarColor(1.0, 0.975, 0.975, 1.0)
+        } else if active {
+            ToolbarColor(0.965, 0.982, 1.0, 1.0)
+        } else {
+            ToolbarColor(0.995, 0.997, 1.0, 1.0)
+        };
+        draw_soft_bordered_rect(gl, physical_size, scale, rect, border, fill);
         let status_color = match self.load_state.get() {
             BrowserLoadState::Starting | BrowserLoadState::Loading => {
                 Some(ToolbarColor(0.95, 0.62, 0.18, 1.0))
@@ -1020,45 +1041,68 @@ impl DogfoodBrowserState {
         granted: bool,
         error: bool,
     ) {
-        let fill = if error {
-            ToolbarColor(0.96, 0.34, 0.34, 1.0)
+        let (border, fill, glyph, label, label_color) = if error {
+            (
+                ToolbarColor(0.78, 0.24, 0.24, 1.0),
+                ToolbarColor(1.0, 0.94, 0.94, 1.0),
+                ToolbarColor(0.78, 0.20, 0.20, 1.0),
+                "Error",
+                ToolbarColor(0.60, 0.12, 0.12, 1.0),
+            )
         } else if granted {
-            ToolbarColor(0.20, 0.64, 0.44, 1.0)
+            (
+                ToolbarColor(0.28, 0.60, 0.42, 1.0),
+                ToolbarColor(0.92, 0.985, 0.95, 1.0),
+                ToolbarColor(0.18, 0.52, 0.34, 1.0),
+                "On",
+                ToolbarColor(0.12, 0.34, 0.24, 1.0),
+            )
         } else {
-            ToolbarColor(0.94, 0.68, 0.24, 1.0)
+            (
+                ToolbarColor(0.68, 0.72, 0.78, 1.0),
+                ToolbarColor(0.992, 0.995, 1.0, 1.0),
+                ToolbarColor(0.42, 0.46, 0.54, 1.0),
+                "Agent",
+                ToolbarColor(0.20, 0.24, 0.30, 1.0),
+            )
         };
-        draw_bordered_rect(
+        draw_soft_bordered_rect(gl, physical_size, scale, rect, border, fill);
+        fill_logical_rect(
             gl,
             physical_size,
             scale,
-            rect,
-            ToolbarColor(0.60, 0.66, 0.74, 1.0),
-            fill,
+            ToolbarRect {
+                x: rect.x + 9.0,
+                y: rect.y + 10.0,
+                width: 7.0,
+                height: 7.0,
+            },
+            glyph,
         );
         fill_logical_rect(
             gl,
             physical_size,
             scale,
             ToolbarRect {
-                x: rect.x + 10.0,
-                y: rect.y + 9.0,
-                width: 8.0,
-                height: 14.0,
+                x: rect.x + 11.0,
+                y: rect.y + 17.0,
+                width: 3.0,
+                height: 5.0,
             },
-            ToolbarColor(1.0, 1.0, 1.0, 1.0),
+            glyph,
         );
-        fill_logical_rect(
-            gl,
-            physical_size,
-            scale,
-            ToolbarRect {
-                x: rect.x + 18.0,
-                y: rect.y + 14.0,
-                width: (rect.width - 28.0).max(0.0),
-                height: 4.0,
-            },
-            ToolbarColor(1.0, 1.0, 1.0, 1.0),
-        );
+        if rect.width >= 72.0 {
+            draw_toolbar_text(
+                gl,
+                physical_size,
+                scale,
+                rect.x + 23.0,
+                rect.y + (rect.height - 7.0 * SHELL_TOOLBAR_LABEL_PX) / 2.0,
+                label,
+                SHELL_TOOLBAR_LABEL_PX,
+                label_color,
+            );
+        }
     }
 
     fn report_toolbar_draw_error_once(&self, error: String) {
@@ -2683,7 +2727,96 @@ fn toolbar_char_advance(ch: char, pixel: f32) -> f32 {
     }
 }
 
+fn toolbar_lowercase_glyph_pattern(ch: char) -> [&'static str; 7] {
+    match ch {
+        'a' => [
+            "     ", "     ", " ### ", "    #", " ####", "#   #", " ####",
+        ],
+        'b' => [
+            "#    ", "#    ", "# ## ", "##  #", "#   #", "#   #", "#### ",
+        ],
+        'c' => [
+            "     ", "     ", " ####", "#    ", "#    ", "#    ", " ####",
+        ],
+        'd' => [
+            "    #", "    #", " ## #", "#  ##", "#   #", "#   #", " ####",
+        ],
+        'e' => [
+            "     ", "     ", " ### ", "#   #", "#####", "#    ", " ####",
+        ],
+        'f' => [
+            "  ###", " #   ", " #   ", "#### ", " #   ", " #   ", " #   ",
+        ],
+        'g' => [
+            "     ", " ####", "#   #", "#   #", " ####", "    #", " ### ",
+        ],
+        'h' => [
+            "#    ", "#    ", "# ## ", "##  #", "#   #", "#   #", "#   #",
+        ],
+        'i' => [
+            "  #  ", "     ", " ##  ", "  #  ", "  #  ", "  #  ", " ### ",
+        ],
+        'j' => [
+            "   # ", "     ", "  ## ", "   # ", "   # ", "#  # ", " ##  ",
+        ],
+        'k' => [
+            "#    ", "#    ", "#  # ", "# #  ", "##   ", "# #  ", "#  # ",
+        ],
+        'l' => [
+            " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### ",
+        ],
+        'm' => [
+            "     ", "     ", "## # ", "# # #", "# # #", "#   #", "#   #",
+        ],
+        'n' => [
+            "     ", "     ", "# ## ", "##  #", "#   #", "#   #", "#   #",
+        ],
+        'o' => [
+            "     ", "     ", " ### ", "#   #", "#   #", "#   #", " ### ",
+        ],
+        'p' => [
+            "     ", "     ", "#### ", "#   #", "#### ", "#    ", "#    ",
+        ],
+        'q' => [
+            "     ", "     ", " ####", "#   #", " ####", "    #", "    #",
+        ],
+        'r' => [
+            "     ", "     ", "# ## ", "##  #", "#    ", "#    ", "#    ",
+        ],
+        's' => [
+            "     ", "     ", " ####", "#    ", " ### ", "    #", "#### ",
+        ],
+        't' => [
+            " #   ", " #   ", "#### ", " #   ", " #   ", " #   ", "  ## ",
+        ],
+        'u' => [
+            "     ", "     ", "#   #", "#   #", "#   #", "#  ##", " ## #",
+        ],
+        'v' => [
+            "     ", "     ", "#   #", "#   #", "#   #", " # # ", "  #  ",
+        ],
+        'w' => [
+            "     ", "     ", "#   #", "#   #", "# # #", "# # #", " # # ",
+        ],
+        'x' => [
+            "     ", "     ", "#   #", " # # ", "  #  ", " # # ", "#   #",
+        ],
+        'y' => [
+            "     ", "     ", "#   #", "#   #", " ####", "    #", " ### ",
+        ],
+        'z' => [
+            "     ", "     ", "#####", "   # ", "  #  ", " #   ", "#####",
+        ],
+        _ => [
+            " ### ", "#   #", "    #", "   # ", "  #  ", "     ", "  #  ",
+        ],
+    }
+}
+
 fn toolbar_glyph_pattern(ch: char) -> [&'static str; 7] {
+    if ch.is_ascii_lowercase() {
+        return toolbar_lowercase_glyph_pattern(ch);
+    }
     match ch.to_ascii_uppercase() {
         'A' => [
             " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #",
@@ -2880,7 +3013,7 @@ fn toolbar_rect_json(rect: ToolbarRect) -> Value {
     })
 }
 
-fn draw_bordered_rect(
+fn draw_soft_bordered_rect(
     gl: &glow::Context,
     physical_size: PhysicalSize<u32>,
     scale: f32,
@@ -2888,8 +3021,56 @@ fn draw_bordered_rect(
     border: ToolbarColor,
     fill: ToolbarColor,
 ) {
-    fill_logical_rect(gl, physical_size, scale, rect, border);
-    fill_logical_rect(gl, physical_size, scale, rect.inset(1.0), fill);
+    let corner = 2.0;
+    fill_logical_rect(
+        gl,
+        physical_size,
+        scale,
+        ToolbarRect {
+            x: rect.x + corner,
+            y: rect.y,
+            width: (rect.width - corner * 2.0).max(0.0),
+            height: rect.height,
+        },
+        border,
+    );
+    fill_logical_rect(
+        gl,
+        physical_size,
+        scale,
+        ToolbarRect {
+            x: rect.x,
+            y: rect.y + corner,
+            width: rect.width,
+            height: (rect.height - corner * 2.0).max(0.0),
+        },
+        border,
+    );
+    let inner = rect.inset(1.0);
+    fill_logical_rect(
+        gl,
+        physical_size,
+        scale,
+        ToolbarRect {
+            x: inner.x + corner,
+            y: inner.y,
+            width: (inner.width - corner * 2.0).max(0.0),
+            height: inner.height,
+        },
+        fill,
+    );
+    fill_logical_rect(
+        gl,
+        physical_size,
+        scale,
+        ToolbarRect {
+            x: inner.x,
+            y: inner.y + corner,
+            width: inner.width,
+            height: (inner.height - corner * 2.0).max(0.0),
+        },
+        fill,
+    );
 }
 
 fn fill_logical_rect(
@@ -3314,7 +3495,7 @@ mod tests {
         );
 
         assert!(text.ends_with("..."));
-        assert!(toolbar_text_width(&text, SHELL_TOOLBAR_TEXT_PX) <= 96.0);
+        assert!(toolbar_text_width(&text, SHELL_TOOLBAR_TEXT_PX) <= 96.5);
     }
 
     #[test]
@@ -3328,6 +3509,15 @@ mod tests {
                 "missing visible toolbar glyph for {ch:?}"
             );
         }
+    }
+
+    #[test]
+    fn toolbar_glyphs_keep_lowercase_distinct() {
+        assert_ne!(toolbar_glyph_pattern('h'), toolbar_glyph_pattern('H'));
+        assert_eq!(
+            normalize_toolbar_text("  https://Example.com/\n"),
+            "https://Example.com/"
+        );
     }
 
     #[test]
