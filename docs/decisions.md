@@ -666,6 +666,31 @@
 - Grep over the run directory found no password/OTP or safety-matrix fixture
   secrets.
 
+## DECISION_SERVOSHELL_013 - Official ServoShell bridge writes MCP-compatible current-tab grants
+
+- Added `saccade-servoshell bridge`.
+- The bridge launches official ServoShell with WebDriver, creates one
+  WebDriver session, starts a loopback line-delimited JSON control endpoint,
+  and writes `runs/current_tab_grants/servoshell_latest.json`.
+- The grant artifact uses `grant_type=current_tab_copilot`, `owner=Human`,
+  `read_grant=FullTruth`, `agent_input_grant=true`, and the existing
+  `saccade-dogfood-control-v0` endpoint protocol so MCP can parse it without a
+  new schema.
+- Bridge v0 supports `ping`, `shell_status`, `truth`, `actions`, `navigate`,
+  `reload`, `back`, and `forward`.
+- It intentionally does not yet claim `fill_agent_fields`, `inspect_fields`,
+  `act`, or `formmax_live_fill`; those require another adapter pass or MCP
+  capability negotiation.
+- Smoke gate:
+  `RUST_LOG=error cargo run -q -p saccade-servoshell -- bridge --smoke --timeout-sec 35`.
+- Evidence:
+  `runs/servoshell_adapter/bridge_1781627953527/report.json`.
+- Result: bridge smoke wrote
+  `runs/current_tab_grants/servoshell_latest.json`, verified endpoint
+  `ping/truth/actions`, saw one action on the smoke fixture, and preserved the
+  full existing `saccade-servoshell selftest` pass afterward at
+  `runs/servoshell_adapter/adapter_1781627800314/summary.json`.
+
 ## DECISION_REFLEX_001 - Local game reflex is the current kill gate
 
 - The project goal is not ServoShell plus WebDriver automation. It is a

@@ -20,6 +20,7 @@ official ServoShell runtime.
 | Safe field policy | pass | rerun with WebDriver truth/action extraction |
 | Safety redaction | pass | 9-kind safety matrix pass via `saccade-servoshell selftest` |
 | Login handoff | pass | same-session handoff pass via `saccade-servoshell selftest`; multi-tab trusted UI still belongs to thin fork/in-process bridge |
+| Live bridge / grant artifact | pass on dogfood shell | first pass via `saccade-servoshell bridge --smoke`; grant artifact and control endpoint are MCP-compatible |
 | FORMMAX live fill | pass | pass via official ServoShell adapter |
 | Focused typing | pass | pass via `saccade-servoshell selftest` |
 | Native dropdown/input | pass on embedded Servo | pass via `saccade-servoshell selftest`; text input uses WebDriver, select routes through verified fallback |
@@ -110,6 +111,10 @@ If any of the following fail, Option B becomes justified:
    External adapter is safe for same-session handoff after explicit Done;
    independent Human/Agent tab ownership remains a thin-fork/in-process bridge
    concern.
+9. DONE: Add first official ServoShell live bridge mode. The bridge writes an
+   MCP-compatible current-tab grant artifact and supports `ping`,
+   `shell_status`, `truth`, `actions`, `navigate`, `reload`, `back`, and
+   `forward`.
 
 ## Latest Evidence
 
@@ -156,6 +161,14 @@ If any of the following fail, Option B becomes justified:
   `agent_before_handoff_blocked_by_policy=true`, and
   `screenshot_decision=blocked_sensitive_surface`. Grep over the run directory
   found no password/OTP or other fixture secrets.
+- Live bridge smoke:
+  `runs/servoshell_adapter/bridge_1781627953527/report.json`
+- The bridge launched official ServoShell, wrote
+  `runs/current_tab_grants/servoshell_latest.json`, exposed a loopback control
+  endpoint with protocol `saccade-dogfood-control-v0`, and verified
+  `ping/truth/actions` over that endpoint. Current v0 bridge supports
+  navigation/status/truth/action-map primitives; fill/inspect/act/formmax are
+  still next-step MCP/product bridge work.
 - Local game probe:
   `runs/servoshell_adapter/probe_1781484941056/report.json`
 - Local game `http://127.0.0.1:4173/` loaded in official ServoShell with

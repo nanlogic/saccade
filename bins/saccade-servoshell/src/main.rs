@@ -1,9 +1,12 @@
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -65,6 +68,22 @@ enum Command {
         no_headless: bool,
         #[arg(long, default_value_t = 35.0)]
         timeout_sec: f64,
+    },
+    Bridge {
+        #[arg(long, default_value = DEFAULT_SERVOSHELL)]
+        servoshell: PathBuf,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+        #[arg(long)]
+        grant_path: Option<PathBuf>,
+        #[arg(long)]
+        no_headless: bool,
+        #[arg(long, default_value_t = 35.0)]
+        timeout_sec: f64,
+        #[arg(long)]
+        smoke: bool,
     },
 }
 
@@ -366,6 +385,33 @@ fn main() -> Result<()> {
                 bail!("formmax selftest failed")
             }
         }
+        Command::Bridge {
+            servoshell,
+            url,
+            output_dir,
+            grant_path,
+            no_headless,
+            timeout_sec,
+            smoke,
+        } => {
+            let outcome = run_bridge(BridgeConfig {
+                servoshell,
+                url: url.unwrap_or_else(default_smoke_url),
+                output_dir: output_dir.unwrap_or_else(|| default_run_dir("bridge")),
+                grant_path,
+                headless: !no_headless,
+                timeout: Duration::from_secs_f64(timeout_sec),
+                smoke,
+            })?;
+            println!(
+                "SACCADE_SERVOSHELL_BRIDGE {} endpoint={} grant={} report={}",
+                if outcome.ok { "PASS" } else { "READY" },
+                outcome.endpoint,
+                outcome.grant_path.display(),
+                outcome.report_path.display(),
+            );
+            Ok(())
+        }
     }
 }
 
@@ -417,6 +463,52 @@ struct FormmaxOutcome {
     receipt_verified: bool,
     report_path: PathBuf,
     replay_path: PathBuf,
+}
+
+#[derive(Debug)]
+struct BridgeConfig {
+    servoshell: PathBuf,
+    url: String,
+    output_dir: PathBuf,
+    grant_path: Option<PathBuf>,
+    headless: bool,
+    timeout: Duration,
+    smoke: bool,
+}
+
+#[derive(Debug)]
+struct BridgeOutcome {
+    ok: bool,
+    endpoint: String,
+    grant_path: PathBuf,
+    report_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct BridgeControlEndpoint {
+    host: String,
+    port: u16,
+    protocol: String,
+}
+
+impl BridgeControlEndpoint {
+    fn display_addr(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
+#[derive(Clone)]
+struct BridgeControlState {
+    client: WebDriverClient,
+    session_id: String,
+    webdriver_port: u16,
+    page_revision: Arc<AtomicU64>,
+}
+
+struct BridgeControlServer {
+    endpoint: BridgeControlEndpoint,
+    shutdown: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
 }
 
 #[derive(Debug)]
@@ -489,6 +581,158 @@ struct LoginHandoffOutcome {
     report_path: PathBuf,
     replay_path: PathBuf,
     webdriver_port: u16,
+}
+
+fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
+    fs::create_dir_all(&cfg.output_dir)
+        .with_context(|| format!("create {}", cfg.output_dir.display()))?;
+
+    let webdriver_port = choose_loopback_port()?;
+    let mut child = launch_servoshell_for_url(
+        &cfg.servoshell,
+        cfg.url.as_str(),
+        cfg.headless,
+        webdriver_port,
+    )?;
+    let client = WebDriverClient::new(webdriver_port, cfg.timeout);
+    let mut session_id: Option<String> = None;
+    let report_path = cfg.output_dir.join("report.json");
+    let mut report = json!({
+        "ok": false,
+        "engine": "saccade-servoshell-bridge-v0",
+        "runtime": "official_servoshell_webdriver",
+        "servoshell": cfg.servoshell.clone(),
+        "url": cfg.url.clone(),
+        "headless": cfg.headless,
+        "webdriver": {
+            "host": "127.0.0.1",
+            "port": webdriver_port,
+            "port_policy": "random_loopback_private_to_launch_manager"
+        },
+        "policy": {
+            "current_tab_grant_artifact": true,
+            "agent_input_grant": true,
+            "screenshots_default": "forbidden",
+            "control_protocol_compat": "saccade-dogfood-control-v0"
+        },
+        "output_dir": cfg.output_dir.clone(),
+    });
+
+    let result = (|| -> Result<(BridgeControlServer, PathBuf)> {
+        let status = wait_for_status(&client, &mut child, cfg.timeout)?;
+        report["webdriver"]["status"] = status;
+
+        let session = client.new_session()?;
+        let sid = extract_session_id(&session)?;
+        session_id = Some(sid.clone());
+        report["webdriver"]["new_session"] = session;
+        report["webdriver"]["session_id"] = json!(sid);
+
+        let ready = wait_for_document_ready(&client, &sid, cfg.timeout)?;
+        report["page"]["ready"] = ready.clone();
+
+        let state = BridgeControlState {
+            client: client.clone(),
+            session_id: sid,
+            webdriver_port,
+            page_revision: Arc::new(AtomicU64::new(1)),
+        };
+        let server = start_bridge_control_server(state)?;
+        let grant_path = cfg
+            .grant_path
+            .clone()
+            .unwrap_or_else(default_servoshell_bridge_grant_path);
+        write_bridge_grant(
+            &grant_path,
+            &cfg.url,
+            ready.get("title").and_then(Value::as_str),
+            &server.endpoint,
+        )?;
+        report["control_endpoint"] = bridge_endpoint_json(&server.endpoint);
+        report["grant_path"] = json!(grant_path);
+
+        if cfg.smoke {
+            let ping = bridge_control_call(&server.endpoint, "ping", json!({}), cfg.timeout)?;
+            let truth = bridge_control_call(&server.endpoint, "truth", json!({}), cfg.timeout)?;
+            let actions = bridge_control_call(&server.endpoint, "actions", json!({}), cfg.timeout)?;
+            report["smoke"] = json!({
+                "ping": ping,
+                "truth_engine": truth.get("engine").cloned().unwrap_or(Value::Null),
+                "actions_count": actions.get("actions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+                "same_webview_control": truth.get("same_webview_control").cloned().unwrap_or(Value::Null),
+            });
+            bridge_control_call(&server.endpoint, "shutdown", json!({}), cfg.timeout)?;
+        }
+
+        Ok((server, grant_path))
+    })();
+
+    match result {
+        Ok((server, grant_path)) => {
+            report["ok"] = json!(cfg.smoke);
+            report["live"] = json!(!cfg.smoke);
+            write_json(&report_path, &report)?;
+            if cfg.smoke {
+                stop_bridge_control_server(server);
+                if let Some(sid) = session_id.as_deref() {
+                    if let Err(error) = client.delete_session(sid) {
+                        report["webdriver"]["delete_session_error"] = json!(error.to_string());
+                    }
+                }
+                report["process"] = finish_child(child);
+                write_json(&report_path, &report)?;
+                Ok(BridgeOutcome {
+                    ok: true,
+                    endpoint: report["control_endpoint"]
+                        .get("host")
+                        .and_then(Value::as_str)
+                        .zip(
+                            report["control_endpoint"]
+                                .get("port")
+                                .and_then(Value::as_u64),
+                        )
+                        .map(|(host, port)| format!("{host}:{port}"))
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    grant_path,
+                    report_path,
+                })
+            } else {
+                let endpoint_addr = server.endpoint.display_addr();
+                println!(
+                    "SACCADE_SERVOSHELL_BRIDGE READY endpoint={} grant={} report={}",
+                    endpoint_addr,
+                    grant_path.display(),
+                    report_path.display(),
+                );
+                let _ = server.handle.join();
+                if let Some(sid) = session_id.as_deref() {
+                    if let Err(error) = client.delete_session(sid) {
+                        report["webdriver"]["delete_session_error"] = json!(error.to_string());
+                    }
+                }
+                report["live_stopped"] = json!(true);
+                report["process"] = finish_child(child);
+                write_json(&report_path, &report)?;
+                Ok(BridgeOutcome {
+                    ok: false,
+                    endpoint: endpoint_addr,
+                    grant_path,
+                    report_path,
+                })
+            }
+        }
+        Err(error) => {
+            report["error"] = json!(error.to_string());
+            if let Some(sid) = session_id.as_deref() {
+                if let Err(error) = client.delete_session(sid) {
+                    report["webdriver"]["delete_session_error"] = json!(error.to_string());
+                }
+            }
+            report["process"] = finish_child(child);
+            write_json(&report_path, &report)?;
+            Err(error)
+        }
+    }
 }
 
 fn run_login_handoff_case(cfg: LoginHandoffConfig) -> Result<LoginHandoffOutcome> {
@@ -1615,6 +1859,33 @@ impl WebDriverClient {
         .map(|response| response.body)
     }
 
+    fn refresh(&self, session_id: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("/session/{session_id}/refresh"),
+            Some(json!({})),
+        )
+        .map(|response| response.body)
+    }
+
+    fn back(&self, session_id: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("/session/{session_id}/back"),
+            Some(json!({})),
+        )
+        .map(|response| response.body)
+    }
+
+    fn forward(&self, session_id: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("/session/{session_id}/forward"),
+            Some(json!({})),
+        )
+        .map(|response| response.body)
+    }
+
     fn click_element(&self, session_id: &str, element_id: &str) -> Result<Value> {
         self.request(
             "POST",
@@ -1878,6 +2149,27 @@ fn wait_for_title(
     bail!("page title did not become {title:?}: {last}");
 }
 
+fn wait_for_document_ready(
+    client: &WebDriverClient,
+    session_id: &str,
+    timeout: Duration,
+) -> Result<Value> {
+    let deadline = Instant::now() + timeout;
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = client.execute_sync(
+            session_id,
+            "return { title: document.title, readyState: document.readyState, url: location.href };",
+        )?;
+        let ready_state = last.get("readyState").and_then(Value::as_str).unwrap_or("");
+        if matches!(ready_state, "interactive" | "complete") {
+            return Ok(last);
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    bail!("document did not become ready: {last}");
+}
+
 fn login_handoff_probe(client: &WebDriverClient, session_id: &str) -> Result<Value> {
     client.execute_sync(session_id, LOGIN_HANDOFF_PROBE_JS)
 }
@@ -1979,6 +2271,307 @@ fn login_handoff_values_absent(report: &Value, replay_path: &Path) -> Result<Val
         "leaked": leaked,
         "credentials_logged": false,
     }))
+}
+
+fn start_bridge_control_server(state: BridgeControlState) -> Result<BridgeControlServer> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).context("bind bridge control endpoint")?;
+    listener
+        .set_nonblocking(true)
+        .context("set bridge control endpoint nonblocking")?;
+    let addr = listener
+        .local_addr()
+        .context("read bridge control address")?;
+    let endpoint = BridgeControlEndpoint {
+        host: "127.0.0.1".to_string(),
+        port: addr.port(),
+        protocol: "saccade-dogfood-control-v0".to_string(),
+    };
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_for_thread = shutdown.clone();
+    let handle = thread::spawn(move || {
+        while !shutdown_for_thread.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((stream, _addr)) => {
+                    handle_bridge_control_stream(stream, &state, &shutdown_for_thread);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+    });
+
+    Ok(BridgeControlServer {
+        endpoint,
+        shutdown,
+        handle,
+    })
+}
+
+fn stop_bridge_control_server(server: BridgeControlServer) {
+    server.shutdown.store(true, Ordering::SeqCst);
+    let _ = TcpStream::connect((server.endpoint.host.as_str(), server.endpoint.port));
+    let _ = server.handle.join();
+}
+
+fn handle_bridge_control_stream(
+    mut stream: TcpStream,
+    state: &BridgeControlState,
+    shutdown: &Arc<AtomicBool>,
+) {
+    let mut line = String::new();
+    let read_result = {
+        let mut reader = BufReader::new(&mut stream);
+        reader.read_line(&mut line)
+    };
+    let response = match read_result {
+        Ok(0) => json!({"id": null, "ok": false, "error": "empty bridge control request"}),
+        Ok(_) => match serde_json::from_str::<Value>(&line) {
+            Ok(request) => bridge_control_response(state, shutdown, &request),
+            Err(error) => json!({
+                "id": null,
+                "ok": false,
+                "error": format!("parse bridge control request: {error}"),
+            }),
+        },
+        Err(error) => json!({
+            "id": null,
+            "ok": false,
+            "error": format!("read bridge control request: {error}"),
+        }),
+    };
+    let _ = writeln!(
+        stream,
+        "{}",
+        serde_json::to_string(&response).unwrap_or_default()
+    );
+}
+
+fn bridge_control_response(
+    state: &BridgeControlState,
+    shutdown: &Arc<AtomicBool>,
+    request: &Value,
+) -> Value {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+    let params = request.get("params").cloned().unwrap_or(Value::Null);
+    match bridge_control_result(state, shutdown, method, params) {
+        Ok(result) => json!({"id": id, "ok": true, "result": result}),
+        Err(error) => json!({"id": id, "ok": false, "error": error.to_string()}),
+    }
+}
+
+fn bridge_control_result(
+    state: &BridgeControlState,
+    shutdown: &Arc<AtomicBool>,
+    method: &str,
+    params: Value,
+) -> Result<Value> {
+    match method {
+        "ping" => bridge_status_response(state, "saccade-servoshell-bridge-ping-v0", false),
+        "shell_status" => {
+            bridge_status_response(state, "saccade-servoshell-bridge-shell-status-v0", false)
+        }
+        "truth" => bridge_probe_response(state, "saccade-servoshell-bridge-truth-v0"),
+        "actions" => bridge_probe_response(state, "saccade-servoshell-bridge-actions-v0"),
+        "navigate" => {
+            let url = params
+                .get("url")
+                .and_then(Value::as_str)
+                .context("navigate requires params.url")?;
+            Url::parse(url).with_context(|| format!("invalid navigate URL: {url}"))?;
+            state.client.navigate(&state.session_id, url)?;
+            wait_for_document_ready(&state.client, &state.session_id, state.client.timeout)?;
+            state.page_revision.fetch_add(1, Ordering::SeqCst);
+            bridge_status_response(state, "saccade-servoshell-bridge-navigate-v0", true)
+        }
+        "reload" => {
+            state.client.refresh(&state.session_id)?;
+            wait_for_document_ready(&state.client, &state.session_id, state.client.timeout)?;
+            state.page_revision.fetch_add(1, Ordering::SeqCst);
+            bridge_status_response(state, "saccade-servoshell-bridge-reload-v0", true)
+        }
+        "back" => {
+            state.client.back(&state.session_id)?;
+            wait_for_document_ready(&state.client, &state.session_id, state.client.timeout)?;
+            state.page_revision.fetch_add(1, Ordering::SeqCst);
+            bridge_status_response(state, "saccade-servoshell-bridge-back-v0", true)
+        }
+        "forward" => {
+            state.client.forward(&state.session_id)?;
+            wait_for_document_ready(&state.client, &state.session_id, state.client.timeout)?;
+            state.page_revision.fetch_add(1, Ordering::SeqCst);
+            bridge_status_response(state, "saccade-servoshell-bridge-forward-v0", true)
+        }
+        "shutdown" => {
+            shutdown.store(true, Ordering::SeqCst);
+            Ok(json!({
+                "status": "ok",
+                "runtime": "saccade-servoshell-bridge-v0",
+                "engine": "saccade-servoshell-bridge-shutdown-v0",
+                "summary": "bridge shutdown requested",
+            }))
+        }
+        other => bail!("unsupported bridge control method {other:?}"),
+    }
+}
+
+fn bridge_status_response(
+    state: &BridgeControlState,
+    engine: &str,
+    changed: bool,
+) -> Result<Value> {
+    let page = state.client.execute_sync(
+        &state.session_id,
+        "return { url: location.href, title: document.title, readyState: document.readyState };",
+    )?;
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": engine,
+        "summary": "official ServoShell WebDriver bridge is attached to the visible browser session",
+        "same_webview_control": true,
+        "url": page.get("url").cloned().unwrap_or(Value::Null),
+        "title": page.get("title").cloned().unwrap_or(Value::Null),
+        "load_state": page.get("readyState").cloned().unwrap_or(Value::Null),
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "changed": changed,
+        "webdriver": {
+            "host": "127.0.0.1",
+            "port": state.webdriver_port,
+        },
+        "capabilities": [
+            "ping",
+            "shell_status",
+            "truth",
+            "actions",
+            "navigate",
+            "reload",
+            "back",
+            "forward"
+        ],
+        "artifacts": {
+            "report": null,
+            "replay": null,
+        },
+    }))
+}
+
+fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Value> {
+    let truth = state.client.execute_sync(&state.session_id, TRUTH_JS)?;
+    let actions = truth
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": engine,
+        "summary": "redacted truth/actions collected from official ServoShell through the live bridge",
+        "same_webview_control": true,
+        "url": truth.pointer("/page/url").cloned().unwrap_or(Value::Null),
+        "title": truth.pointer("/page/title").cloned().unwrap_or(Value::Null),
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "actions": actions,
+        "findings": [],
+        "truth": {
+            "page": truth.get("page").cloned().unwrap_or(Value::Null),
+            "viewport": truth.get("viewport").cloned().unwrap_or(Value::Null),
+            "safety": truth.get("safety").cloned().unwrap_or(Value::Null),
+            "redaction_count": truth.get("redactions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+            "action_count": truth.get("actions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+        },
+        "artifacts": {
+            "report": null,
+            "replay": null,
+        },
+    }))
+}
+
+fn bridge_control_call(
+    endpoint: &BridgeControlEndpoint,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Value> {
+    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port))
+        .with_context(|| format!("connect bridge control {}", endpoint.display_addr()))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .context("set bridge control read timeout")?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .context("set bridge control write timeout")?;
+    writeln!(
+        stream,
+        "{}",
+        json!({
+            "id": 1,
+            "method": method,
+            "params": params,
+        })
+    )
+    .with_context(|| format!("write bridge control {method}"))?;
+    stream.flush().context("flush bridge control request")?;
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader
+        .read_line(&mut line)
+        .with_context(|| format!("read bridge control {method} response"))?;
+    let response: Value = serde_json::from_str(&line)
+        .with_context(|| format!("parse bridge control {method} response"))?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        let error = response
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("bridge control request failed");
+        bail!("{error}");
+    }
+    Ok(response.get("result").cloned().unwrap_or(Value::Null))
+}
+
+fn write_bridge_grant(
+    path: &Path,
+    url: &str,
+    title: Option<&str>,
+    endpoint: &BridgeControlEndpoint,
+) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let payload = json!({
+        "status": "granted",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "grant_type": "current_tab_copilot",
+        "selected_tab_seen": true,
+        "grant_required": true,
+        "grant_given": true,
+        "owner": "Human",
+        "read_grant": "FullTruth",
+        "agent_input_grant": true,
+        "url": url,
+        "title": title,
+        "rendering_profile": "official-servoshell",
+        "mcp_tool": "saccade.tabs.grant_current",
+        "control_endpoint": bridge_endpoint_json(endpoint),
+        "transport_status": "official_servoshell_bridge_control_v0",
+        "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, navigate, reload, back, and forward through official ServoShell WebDriver.",
+        "written_unix_ms": unix_ms(),
+    });
+    write_json(path, &payload)
+}
+
+fn bridge_endpoint_json(endpoint: &BridgeControlEndpoint) -> Value {
+    json!({
+        "protocol": endpoint.protocol,
+        "scheme": "tcp",
+        "host": endpoint.host,
+        "port": endpoint.port,
+    })
 }
 
 fn wait_for_native_input_ready(
@@ -2309,6 +2902,12 @@ fn default_run_dir(prefix: &str) -> PathBuf {
     PathBuf::from("runs")
         .join("servoshell_adapter")
         .join(format!("{prefix}_{}", unix_ms()))
+}
+
+fn default_servoshell_bridge_grant_path() -> PathBuf {
+    PathBuf::from("runs")
+        .join("current_tab_grants")
+        .join("servoshell_latest.json")
 }
 
 fn workspace_path(path: &str) -> PathBuf {
