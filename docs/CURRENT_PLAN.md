@@ -66,9 +66,9 @@ User opens a browser tab first.
 Agent attaches to that current tab after explicit user grant.
 ```
 
-N8 now has a local shell selftest, an MCP API gate, and a visible dogfood
-browser grant shortcut for this bridge. What remains is binding MCP to the same
-live WebView instead of using a URL grant artifact.
+N8 now has a local shell selftest, an MCP API gate, a visible dogfood browser
+grant shortcut, and MCP import of that grant artifact. What remains is binding
+MCP to the same live WebView instead of opening a worker from the granted URL.
 
 ## Next Gate: N8 Current Tab Co-Pilot
 
@@ -85,7 +85,7 @@ Latest evidence:
 
 ```text
 CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_truth=true agent_explains_page=true non_sensitive_filled=true sensitive_write_blocked=true sensitive_values_exposed=false confirmation_required=true replay=runs/browser_session_worker/worker_1781535424701_32946/replay.jsonl report=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_copilot/copilot_1781535424558/report.json
-MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781535319538/report.json
+MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true policy_gate=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/selftest_1781570588214/report.json
 DOGFOOD_GRANT status=granted owner=Human read_grant=FullTruth agent_input_grant=true artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/smoke.json
 ```
 
@@ -127,8 +127,9 @@ replay_written=true
 Current v0 uses `test_pages/current_tab_copilot/index.html`. The shell selftest
 simulates the grant boundary, MCP exposes it as `saccade.tabs.grant_current`,
 and the dogfood browser exposes `Cmd+Shift+G` as a visible current-tab grant
-that writes `runs/current_tab_grants/latest.json`. The next step is replacing
-that URL grant artifact with direct MCP access to the same live WebView.
+that writes `runs/current_tab_grants/latest.json`. MCP can now consume that
+artifact via `grant_path`. The next step is replacing the worker-from-URL
+transport with direct MCP access to the same live WebView.
 
 ### Done When
 

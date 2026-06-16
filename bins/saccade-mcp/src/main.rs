@@ -96,6 +96,7 @@ struct SelftestEvidence {
     persistent_tabs: bool,
     browser_backed_tabs: bool,
     tabs_grant_current: bool,
+    tabs_grant_artifact: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -224,6 +225,7 @@ fn selftest() -> Result<()> {
         && stdio_evidence.persistent_tabs
         && stdio_evidence.browser_backed_tabs
         && stdio_evidence.tabs_grant_current
+        && stdio_evidence.tabs_grant_artifact
         && stdio_evidence.web_truth
         && stdio_evidence.web_actions
         && stdio_evidence.web_act
@@ -251,6 +253,7 @@ fn selftest() -> Result<()> {
         persistent_tabs: stdio_evidence.persistent_tabs,
         browser_backed_tabs: stdio_evidence.browser_backed_tabs,
         tabs_grant_current: stdio_evidence.tabs_grant_current,
+        tabs_grant_artifact: stdio_evidence.tabs_grant_artifact,
         web_truth: stdio_evidence.web_truth,
         web_actions: stdio_evidence.web_actions,
         web_act: stdio_evidence.web_act,
@@ -569,6 +572,7 @@ struct JsonRpcEvidence {
     persistent_tabs: bool,
     browser_backed_tabs: bool,
     tabs_grant_current: bool,
+    tabs_grant_artifact: bool,
     web_truth: bool,
     web_actions: bool,
     web_act: bool,
@@ -839,6 +843,7 @@ fn input_schema(name: &str) -> Value {
             "type": "object",
             "properties": {
                 "url": {"type": "string"},
+                "grant_path": {"type": "string"},
                 "reason": {"type": "string"},
                 "read_grant": {"type": "string", "enum": ["visible_summary_only", "full_truth"], "default": "full_truth"},
                 "policy": {
@@ -850,7 +855,6 @@ fn input_schema(name: &str) -> Value {
                     "additionalProperties": false
                 }
             },
-            "required": ["url", "reason"],
             "additionalProperties": false
         }),
         "saccade.tabs.takeover" | "saccade.tabs.pause_agent" | "saccade.tabs.close" => json!({
@@ -1380,19 +1384,87 @@ fn tabs_request_user_login_tool(state: &mut McpSessionState, arguments: Value) -
     }))
 }
 
+#[derive(Debug, Clone)]
+struct CurrentTabGrantRequest {
+    url: Url,
+    reason: String,
+    read_grant: ReadGrant,
+    source: &'static str,
+    grant_path: Option<String>,
+}
+
 fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
-    let url = required_url_arg(&arguments)?;
-    if !is_local_dev_url(&url) {
-        bail!("grant_current v0 only accepts localhost, loopback, or file URLs: {url}");
+    let grant = current_tab_grant_from_args(&arguments)?;
+
+    let tab_id = state.allocate_tab_id();
+    let info = tab(
+        tab_id.0,
+        TabOwner::Human,
+        grant.read_grant,
+        grant.url.as_str(),
+        "Current Tab Co-Pilot",
+    );
+    let mut tab = SessionTab {
+        info,
+        paused: false,
+        agent_input_grant: true,
+        grant_reason: Some(grant.reason.clone()),
+        last_engine: None,
+        last_summary: None,
+        last_report_path: None,
+        last_replay_path: None,
+        last_actions: Vec::new(),
+        last_findings: Vec::new(),
+    };
+    let mut worker = BrowserWorkerClient::spawn(&grant.url)?;
+    let live_truth = worker.call("truth", json!({}))?;
+    update_session_tab_from_browser_result(&mut tab, &live_truth);
+    state.tabs.push(tab.clone());
+    state.browser_workers.insert(tab_id.0, worker);
+
+    Ok(json!({
+        "status": "ok",
+        "summary": "current Human tab attached to live Saccade co-pilot session after explicit grant",
+        "runtime": "browser_session_worker_v0",
+        "selected_tab_seen": true,
+        "grant_required": true,
+        "grant_given": true,
+        "agent_input_grant": true,
+        "reason": grant.reason,
+        "source": grant.source,
+        "grant_path": grant.grant_path,
+        "same_webview_attached": false,
+        "transport_status": if grant.source == "grant_artifact" {
+            "worker_from_grant_artifact_v0"
+        } else {
+            "worker_from_direct_url_grant_v0"
+        },
+        "transport_note": "MCP v0 validates the visible browser grant, then starts a live worker for the granted URL. Direct same-WebView transport is still pending.",
+        "tab": tab.info,
+        "truth": {
+            "engine": tab.last_engine.clone(),
+            "findings_count": tab.last_findings.len(),
+            "actions_count": tab.last_actions.len(),
+            "findings": tab.last_findings.clone(),
+        },
+        "actions": tab.last_actions.clone(),
+        "artifacts": {
+            "report": tab.last_report_path.clone(),
+            "replay": tab.last_replay_path.clone(),
+        }
+    }))
+}
+
+fn current_tab_grant_from_args(arguments: &Value) -> Result<CurrentTabGrantRequest> {
+    validate_current_tab_grant_policy(arguments)?;
+    if arguments.get("grant_path").is_some() {
+        current_tab_grant_from_artifact(arguments)
+    } else {
+        current_tab_grant_from_direct_args(arguments)
     }
-    let reason = arguments
-        .get("reason")
-        .and_then(Value::as_str)
-        .context("tool arguments must include string field reason")?
-        .trim();
-    if reason.is_empty() {
-        bail!("grant_current reason must not be empty");
-    }
+}
+
+fn validate_current_tab_grant_policy(arguments: &Value) -> Result<()> {
     if let Some(policy) = arguments.get("policy") {
         if policy
             .get("local_dev_only")
@@ -1409,66 +1481,98 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
             bail!("saccade.tabs.grant_current requires explicit_user_grant=true");
         }
     }
-    let read_grant = match arguments
-        .get("read_grant")
+    Ok(())
+}
+
+fn current_tab_grant_from_direct_args(arguments: &Value) -> Result<CurrentTabGrantRequest> {
+    let url = required_url_arg(arguments)?;
+    if !is_local_dev_url(&url) {
+        bail!("grant_current v0 only accepts localhost, loopback, or file URLs: {url}");
+    }
+    let reason = arguments
+        .get("reason")
         .and_then(Value::as_str)
-        .unwrap_or("full_truth")
+        .context("tool arguments must include string field reason when grant_path is absent")?
+        .trim();
+    if reason.is_empty() {
+        bail!("grant_current reason must not be empty");
+    }
+    Ok(CurrentTabGrantRequest {
+        url,
+        reason: reason.to_string(),
+        read_grant: read_grant_from_grant_value(
+            arguments.get("read_grant").and_then(Value::as_str),
+        )?,
+        source: "direct_url",
+        grant_path: None,
+    })
+}
+
+fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantRequest> {
+    let grant_path_arg = arguments
+        .get("grant_path")
+        .and_then(Value::as_str)
+        .context("grant_path must be a string")?;
+    let grant_path = safe_workspace_path(grant_path_arg)?;
+    let grant: Value = serde_json::from_slice(
+        &fs::read(&grant_path)
+            .with_context(|| format!("failed to read {}", grant_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", grant_path.display()))?;
+
+    if grant.get("status").and_then(Value::as_str) != Some("granted") {
+        bail!("grant artifact status is not granted");
+    }
+    if grant.get("grant_type").and_then(Value::as_str) != Some("current_tab_copilot") {
+        bail!("grant artifact is not a current_tab_copilot grant");
+    }
+    if grant.get("selected_tab_seen").and_then(Value::as_bool) != Some(true)
+        || grant.get("grant_required").and_then(Value::as_bool) != Some(true)
+        || grant.get("grant_given").and_then(Value::as_bool) != Some(true)
     {
-        "visible_summary_only" => ReadGrant::VisibleSummaryOnly,
-        "full_truth" => ReadGrant::FullTruth,
-        other => {
-            bail!("unsupported read_grant {other:?}; expected visible_summary_only or full_truth")
-        }
-    };
+        bail!("grant artifact is missing selected-tab grant evidence");
+    }
+    if grant.get("owner").and_then(Value::as_str) != Some("Human") {
+        bail!("grant artifact owner must be Human");
+    }
+    if grant.get("agent_input_grant").and_then(Value::as_bool) != Some(true) {
+        bail!("grant artifact does not allow agent co-pilot input");
+    }
 
-    let tab_id = state.allocate_tab_id();
-    let info = tab(
-        tab_id.0,
-        TabOwner::Human,
+    let url_str = grant
+        .get("url")
+        .and_then(Value::as_str)
+        .context("grant artifact is missing string url")?;
+    let url =
+        Url::parse(url_str).with_context(|| format!("invalid grant artifact URL: {url_str}"))?;
+    if !is_local_dev_url(&url) {
+        bail!("grant artifact URL must be localhost, loopback, or file URL: {url}");
+    }
+    let reason = arguments
+        .get("reason")
+        .and_then(Value::as_str)
+        .filter(|reason| !reason.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or("dogfood browser current-tab grant artifact");
+    let read_grant = read_grant_from_grant_value(grant.get("read_grant").and_then(Value::as_str))?;
+
+    Ok(CurrentTabGrantRequest {
+        url,
+        reason: reason.to_string(),
         read_grant,
-        url.as_str(),
-        "Current Tab Co-Pilot",
-    );
-    let mut tab = SessionTab {
-        info,
-        paused: false,
-        agent_input_grant: true,
-        grant_reason: Some(reason.to_string()),
-        last_engine: None,
-        last_summary: None,
-        last_report_path: None,
-        last_replay_path: None,
-        last_actions: Vec::new(),
-        last_findings: Vec::new(),
-    };
-    let mut worker = BrowserWorkerClient::spawn(&url)?;
-    let live_truth = worker.call("truth", json!({}))?;
-    update_session_tab_from_browser_result(&mut tab, &live_truth);
-    state.tabs.push(tab.clone());
-    state.browser_workers.insert(tab_id.0, worker);
+        source: "grant_artifact",
+        grant_path: Some(grant_path.display().to_string()),
+    })
+}
 
-    Ok(json!({
-        "status": "ok",
-        "summary": "current Human tab attached to live Saccade co-pilot session after explicit grant",
-        "runtime": "browser_session_worker_v0",
-        "selected_tab_seen": true,
-        "grant_required": true,
-        "grant_given": true,
-        "agent_input_grant": true,
-        "reason": reason,
-        "tab": tab.info,
-        "truth": {
-            "engine": tab.last_engine.clone(),
-            "findings_count": tab.last_findings.len(),
-            "actions_count": tab.last_actions.len(),
-            "findings": tab.last_findings.clone(),
-        },
-        "actions": tab.last_actions.clone(),
-        "artifacts": {
-            "report": tab.last_report_path.clone(),
-            "replay": tab.last_replay_path.clone(),
-        }
-    }))
+fn read_grant_from_grant_value(value: Option<&str>) -> Result<ReadGrant> {
+    match value.unwrap_or("full_truth") {
+        "visible_summary_only" | "VisibleSummaryOnly" => Ok(ReadGrant::VisibleSummaryOnly),
+        "full_truth" | "FullTruth" => Ok(ReadGrant::FullTruth),
+        other => bail!(
+            "unsupported read_grant {other:?}; expected full_truth, FullTruth, visible_summary_only, or VisibleSummaryOnly"
+        ),
+    }
 }
 
 fn tabs_takeover_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
@@ -3434,6 +3538,77 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         && copilot_submit_action.is_some()
         && copilot_submit_blocked
         && copilot_no_sensitive_leak;
+    let grant_artifact_dir = workspace_root()?.join("runs").join("mcp");
+    fs::create_dir_all(&grant_artifact_dir)
+        .with_context(|| format!("failed to create {}", grant_artifact_dir.display()))?;
+    let grant_artifact_path =
+        grant_artifact_dir.join(format!("current_tab_grant_{}.json", unix_ms()?));
+    write_json(
+        &grant_artifact_path,
+        &json!({
+            "status": "granted",
+            "runtime": "saccade-dogfood-browser-v0",
+            "grant_type": "current_tab_copilot",
+            "selected_tab_seen": true,
+            "grant_required": true,
+            "grant_given": true,
+            "owner": "Human",
+            "read_grant": "FullTruth",
+            "agent_input_grant": true,
+            "url": copilot_base_url.as_str(),
+            "title": "Current Tab Co-Pilot Fixture",
+            "rendering_profile": "servo-modern",
+            "shortcut": "Cmd+Shift+G",
+            "mcp_tool": "saccade.tabs.grant_current",
+            "transport_status": "url_grant_artifact_v0",
+            "written_unix_ms": unix_ms()?,
+        }),
+    )?;
+    let grant_artifact_response = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(92)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.tabs.grant_current",
+                "arguments": {
+                    "grant_path": grant_artifact_path.display().to_string(),
+                    "reason": "selftest imported dogfood browser grant artifact",
+                    "policy": {
+                        "local_dev_only": true,
+                        "explicit_user_grant": true
+                    }
+                }
+            }),
+        },
+    );
+    let tabs_grant_artifact = grant_artifact_response
+        .as_ref()
+        .and_then(|response| {
+            response
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .map(|content| {
+                    content.get("status").and_then(Value::as_str) == Some("ok")
+                        && content.get("runtime").and_then(Value::as_str)
+                            == Some("browser_session_worker_v0")
+                        && content.get("source").and_then(Value::as_str) == Some("grant_artifact")
+                        && content
+                            .get("same_webview_attached")
+                            .and_then(Value::as_bool)
+                            == Some(false)
+                        && content.get("transport_status").and_then(Value::as_str)
+                            == Some("worker_from_grant_artifact_v0")
+                        && content.pointer("/tab/owner").and_then(Value::as_str) == Some("Human")
+                        && content.pointer("/tab/read_grant").and_then(Value::as_str)
+                            == Some("FullTruth")
+                        && content
+                            .get("grant_path")
+                            .and_then(Value::as_str)
+                            .is_some_and(|path| path.ends_with(".json"))
+                })
+        })
+        .unwrap_or(false);
     let dev_click_all_primary_actions = handle_json_rpc(
         &mut state,
         JsonRpcRequest {
@@ -3565,6 +3740,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         persistent_tabs,
         browser_backed_tabs,
         tabs_grant_current,
+        tabs_grant_artifact,
         web_truth,
         web_actions,
         web_act,

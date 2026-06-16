@@ -644,3 +644,24 @@
 - This is a visible user-grant bridge, not the final shared-process transport.
   MCP v0 still uses the grant URL to attach a worker. Next work is direct MCP
   access to the same live dogfood WebView after the user grants it.
+
+## DECISION_N8_004 - MCP consumes dogfood current-tab grant artifacts
+
+- `saccade.tabs.grant_current` now accepts `grant_path` in addition to direct
+  `url`/`reason` arguments.
+- The MCP tool validates the artifact instead of trusting the path: status must
+  be `granted`, grant type must be `current_tab_copilot`, the selected-tab
+  evidence must be present, owner must be `Human`, `agent_input_grant` must be
+  true, and URL must be localhost, loopback, or file.
+- After validation, MCP starts a live worker for the granted URL and marks the
+  transport as `worker_from_grant_artifact_v0`. It also returns
+  `same_webview_attached=false` so we do not overclaim same-WebView transport.
+- Latest MCP evidence:
+  `runs/mcp/selftest_1781570588214/report.json`.
+- Result: `MCP PASS tools_registered=20 tab_scoping=true local_dev_audit=true
+  policy_gate=true`, with `tabs_grant_current=true` and
+  `tabs_grant_artifact=true`.
+- No sensitive sentinel leak was found for `999-12-3456`,
+  `SHOULD-NOT-WRITE`, or `SHOULD_NOT_WRITE` in the new MCP run and worker
+  artifacts.
+- Next work is direct MCP access to the already-open dogfood WebView.
