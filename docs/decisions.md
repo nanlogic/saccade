@@ -460,6 +460,27 @@
 - Back/Forward side-button presses now call the same browser history helpers as `Cmd+[` and `Cmd+]` instead of being forwarded as ordinary page mouse events.
 - Visible clickable toolbar buttons are still pending, but users with hardware side buttons can now navigate history without keyboard shortcuts.
 
+## DECISION_BROWSER_019 - Same-WebView shell navigation control plane
+
+- Dogfood control endpoint now supports browser-shell primitives:
+  `shell_status`, `navigate`, `reload`, `back`, and `forward`.
+- These commands operate on the already-open dogfood WebView and do not inject
+  toolbar DOM or CSS into the page, so page truth/action maps remain clean.
+- Keyboard navigation and control-plane navigation now share the same internal
+  helpers for URL loading, reload, history back, and history forward.
+- Grant artifacts and MCP grant responses now advertise shell navigation as a
+  same-WebView capability when a live dogfood control endpoint is present.
+- Smoke evidence:
+  `runs/mcp/same_webview_shell_nav_smoke_1781579239152.json`.
+- Grant artifact:
+  `runs/current_tab_grants/mcp_shell_nav_smoke.json`.
+- Result: `shell_status`, `navigate`, `reload`, `back`, and `forward` all
+  returned `runtime=saccade-dogfood-control-v0`; the smoke navigated from
+  `current_tab_copilot` to `formmax`, reloaded, went back, and went forward in
+  the same visible dogfood window.
+- Next work is the visible clickable toolbar or an MCP-facing named navigation
+  tool, both backed by this control plane.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over

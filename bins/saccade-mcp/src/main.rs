@@ -1469,13 +1469,13 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "same_webview_control": same_webview_control,
         "same_webview_attached": attached_via_control,
         "same_webview_capabilities": if attached_via_control {
-            json!(["ping", "truth", "actions", "fill_agent_fields", "inspect_fields", "act", "formmax_live_fill"])
+            json!(["ping", "shell_status", "navigate", "back", "forward", "reload", "truth", "actions", "fill_agent_fields", "inspect_fields", "act", "formmax_live_fill"])
         } else {
             json!([])
         },
         "transport_status": transport_status,
         "transport_note": if attached_via_control {
-            "MCP v0 validates the visible browser grant and routes truth/actions/fill/inspect/act/formmax through the same dogfood WebView control endpoint."
+            "MCP v0 validates the visible browser grant and routes shell navigation, truth/actions/fill/inspect/act/formmax through the same dogfood WebView control endpoint."
         } else {
             "MCP v0 validates the visible browser grant and can ping the same dogfood WebView control endpoint when present. Truth/actions use a live worker when no control endpoint is available."
         },

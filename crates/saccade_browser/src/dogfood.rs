@@ -375,12 +375,7 @@ impl DogfoodBrowserState {
         let current_url = self.current_url.borrow().to_string();
         let copilot_label = self.copilot_title_label();
         let address_entry = self.address_entry.borrow().clone();
-        let (can_go_back, can_go_forward) = self
-            .webview
-            .borrow()
-            .as_ref()
-            .map(|webview| (webview.can_go_back(), webview.can_go_forward()))
-            .unwrap_or((false, false));
+        let (can_go_back, can_go_forward) = self.webview_nav_state();
 
         self.window.set_title(&format_shell_title(ShellTitleParts {
             profile: self.rendering_settings.profile.name(),
@@ -406,6 +401,19 @@ impl DogfoodBrowserState {
         } else {
             "off Cmd+Shift+G".into()
         }
+    }
+
+    fn webview_nav_state(&self) -> (bool, bool) {
+        self.webview
+            .borrow()
+            .as_ref()
+            .map(|webview| (webview.can_go_back(), webview.can_go_forward()))
+            .unwrap_or((false, false))
+    }
+
+    fn bump_control_page_revision(&self) {
+        self.control_page_revision
+            .set(self.control_page_revision.get().saturating_add(1));
     }
 
     fn trace_cursor_moved(&self, position: PhysicalPosition<f64>) {
@@ -472,47 +480,62 @@ impl DogfoodBrowserState {
             return;
         };
 
+        self.navigate_to_url(url);
+    }
+
+    fn navigate_to_url(&self, url: Url) {
         self.address_entry.borrow_mut().take();
+        self.active_select.borrow_mut().take();
         self.address_error.set(false);
         self.load_state.set(BrowserLoadState::Loading);
         *self.page_title.borrow_mut() = None;
         *self.current_url.borrow_mut() = url.clone();
-
+        self.bump_control_page_revision();
         if let Some(webview) = self.webview.borrow().as_ref().cloned() {
             webview.load(url);
         }
         self.update_window_title();
     }
 
-    fn reload_current_page(&self) {
+    fn reload_current_page(&self) -> bool {
         let Some(webview) = self.webview.borrow().as_ref().cloned() else {
-            return;
+            return false;
         };
         self.load_state.set(BrowserLoadState::Loading);
+        self.bump_control_page_revision();
         webview.reload();
         self.update_window_title();
+        true
     }
 
-    fn navigate_back(&self) {
+    fn navigate_back(&self) -> bool {
         let Some(webview) = self.webview.borrow().as_ref().cloned() else {
-            return;
+            return false;
         };
         if webview.can_go_back() {
             self.load_state.set(BrowserLoadState::Loading);
+            self.bump_control_page_revision();
             webview.go_back(1);
+            self.update_window_title();
+            return true;
         }
         self.update_window_title();
+        false
     }
 
-    fn navigate_forward(&self) {
+    fn navigate_forward(&self) -> bool {
         let Some(webview) = self.webview.borrow().as_ref().cloned() else {
-            return;
+            return false;
         };
         if webview.can_go_forward() {
             self.load_state.set(BrowserLoadState::Loading);
+            self.bump_control_page_revision();
             webview.go_forward(1);
+            self.update_window_title();
+            return true;
         }
         self.update_window_title();
+        false
     }
 
     fn handle_mouse_navigation_button(&self, button: WinitMouseButton) -> bool {
@@ -761,6 +784,18 @@ impl DogfoodBrowserState {
                     "has_webview": self.webview.borrow().is_some(),
                 },
             }),
+            "shell_status" => json!({
+                "id": id,
+                "ok": true,
+                "result": self.control_shell_status_response(
+                    "saccade-dogfood-control-shell-status-v0",
+                    "dogfood browser shell status collected from the same live WebView",
+                ),
+            }),
+            "navigate" => self.handle_control_navigate(id, _params),
+            "back" => self.handle_control_back(id),
+            "forward" => self.handle_control_forward(id),
+            "reload" => self.handle_control_reload(id),
             "truth" => self.handle_control_probe(id, DogfoodControlProbeMethod::Truth),
             "actions" => self.handle_control_probe(id, DogfoodControlProbeMethod::Actions),
             "fill_agent_fields" => self.handle_control_fill_agent_fields(id, _params),
@@ -773,6 +808,82 @@ impl DogfoodBrowserState {
                 "error": format!("unknown dogfood control method {other:?}"),
             }),
         }
+    }
+
+    fn handle_control_navigate(&self, id: Value, params: Value) -> Value {
+        let Some(url) = params.get("url").and_then(Value::as_str) else {
+            return json!({
+                "id": id,
+                "ok": false,
+                "error": "navigate requires string params.url",
+            });
+        };
+        match parse_location_input(url) {
+            Ok(url) => {
+                self.navigate_to_url(url);
+                json!({
+                    "id": id,
+                    "ok": true,
+                    "result": self.control_shell_status_response(
+                        "saccade-dogfood-control-shell-navigate-v0",
+                        "dogfood browser shell navigation dispatched through the same live WebView",
+                    ),
+                })
+            }
+            Err(error) => json!({
+                "id": id,
+                "ok": false,
+                "error": format!("invalid navigation URL: {error}"),
+            }),
+        }
+    }
+
+    fn handle_control_back(&self, id: Value) -> Value {
+        let changed = self.navigate_back();
+        let mut result = self.control_shell_status_response(
+            "saccade-dogfood-control-shell-back-v0",
+            "dogfood browser shell back command dispatched through the same live WebView",
+        );
+        if let Some(object) = result.as_object_mut() {
+            object.insert("changed".into(), json!(changed));
+        }
+        json!({
+            "id": id,
+            "ok": true,
+            "result": result,
+        })
+    }
+
+    fn handle_control_forward(&self, id: Value) -> Value {
+        let changed = self.navigate_forward();
+        let mut result = self.control_shell_status_response(
+            "saccade-dogfood-control-shell-forward-v0",
+            "dogfood browser shell forward command dispatched through the same live WebView",
+        );
+        if let Some(object) = result.as_object_mut() {
+            object.insert("changed".into(), json!(changed));
+        }
+        json!({
+            "id": id,
+            "ok": true,
+            "result": result,
+        })
+    }
+
+    fn handle_control_reload(&self, id: Value) -> Value {
+        let changed = self.reload_current_page();
+        let mut result = self.control_shell_status_response(
+            "saccade-dogfood-control-shell-reload-v0",
+            "dogfood browser shell reload command dispatched through the same live WebView",
+        );
+        if let Some(object) = result.as_object_mut() {
+            object.insert("changed".into(), json!(changed));
+        }
+        json!({
+            "id": id,
+            "ok": true,
+            "result": result,
+        })
     }
 
     fn handle_control_formmax_live_fill(&self, id: Value, params: Value) -> Value {
@@ -1132,6 +1243,33 @@ impl DogfoodBrowserState {
                 "sensitive_fields": sensitive_count,
                 "findings": [],
             },
+            "artifacts": {
+                "report": null,
+                "replay": null,
+            },
+        })
+    }
+
+    fn control_shell_status_response(&self, engine: &str, summary: &str) -> Value {
+        let current_url = self.current_url.borrow().to_string();
+        let page_title = self.page_title.borrow().clone();
+        let (can_go_back, can_go_forward) = self.webview_nav_state();
+        json!({
+            "status": "ok",
+            "runtime": "saccade-dogfood-control-v0",
+            "engine": engine,
+            "summary": summary,
+            "same_webview_control": true,
+            "rendering_profile": self.rendering_settings.profile.name(),
+            "renderer_engine": self.rendering_settings.profile.engine(),
+            "servo_grid_enabled": self.rendering_settings.layout_grid_enabled,
+            "url": current_url,
+            "title": page_title,
+            "load_state": self.load_state.get().label(),
+            "page_revision": self.control_page_revision.get(),
+            "can_go_back": can_go_back,
+            "can_go_forward": can_go_forward,
+            "copilot_granted": self.copilot_granted.get(),
             "artifacts": {
                 "report": null,
                 "replay": null,
@@ -1873,7 +2011,7 @@ fn current_tab_copilot_grant_payload(
         "mcp_tool": "saccade.tabs.grant_current",
         "control_endpoint": control_endpoint,
         "transport_status": "url_grant_artifact_v0",
-        "note": "MCP v0 should call saccade.tabs.grant_current with this artifact. The control endpoint supports same-WebView truth/actions/fill/inspect/act/formmax.",
+        "note": "MCP v0 should call saccade.tabs.grant_current with this artifact. The control endpoint supports same-WebView shell navigation, truth/actions/fill/inspect/act/formmax.",
         "written_unix_ms": written_unix_ms,
     })
 }

@@ -1,6 +1,7 @@
 # Browser Shell Basics Report
 
 Date: 2026-06-14
+Updated: 2026-06-15
 
 ## What Changed
 
@@ -27,6 +28,12 @@ Date: 2026-06-14
   - clicking the page cancels the title-bar address command,
   - clicking the page dismisses an active native `<select>` handoff,
   - the same click is still forwarded to Servo.
+- The dogfood same-WebView control endpoint now exposes shell navigation:
+  - `shell_status`,
+  - `navigate`,
+  - `reload`,
+  - `back`,
+  - `forward`.
 
 This is still a first shell stage, not the final browser chrome. It gives dogfood users enough visible state and direct navigation to know where the agent is acting without squeezing or overlaying page content.
 
@@ -46,11 +53,20 @@ macOS title smoke on the local form fixture returned:
 Saccade [servo-modern] load=complete back=n fwd=n | Parity Form Controls | file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/visual_parity/form_controls/index.html
 ```
 
+Same-WebView shell navigation smoke:
+
+```text
+SHELL_NAV PASS runtime=saccade-dogfood-control-v0 initial=current_tab_copilot navigated=formmax reload_changed=true back_changed=true forward_changed=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_shell_nav_smoke_1781579239152.json grant=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_shell_nav_smoke.json
+```
+
 ## Still Open
 
 - Clickable editable URL bar. The temporary address command is keyboard-only through `Cmd+L`.
 - Visible clickable Back, Forward, Reload, and Stop controls.
 - Visible chrome affordance for focus recovery and active shell mode.
 - Error state beyond load-state text.
+- MCP-facing named browser navigation tool; the dogfood endpoint has the
+  primitive commands, but the public MCP tool surface still needs product API
+  design.
 
 Ledger: BP-003 remains `investigating` until the clickable toolbar exists.

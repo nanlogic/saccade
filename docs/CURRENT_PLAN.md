@@ -95,6 +95,7 @@ SAME_WEBVIEW_CONTROL ok=true same_webview_control_ping=true transport_status=sam
 SAME_WEBVIEW_TRUTH_ACTIONS ok=true same_webview_attached=true transport_status=same_webview_control_truth_v0 truth_runtime=saccade-dogfood-control-v0 actions_runtime=saccade-dogfood-control-v0 actions_count=6 report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_truth_actions_smoke_1781575838106.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_truth_actions_smoke.json
 SAME_WEBVIEW_FILL_ACT ok=true fill_runtime=saccade-dogfood-control-v0 inspect_runtime=saccade-dogfood-control-v0 safe_act_runtime=saccade-dogfood-control-v0 filled=3 rejected_sensitive=2 values_redacted=2 submit_blocked=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_fill_act_smoke_1781576647007.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_fill_act_smoke.json
 SAME_WEBVIEW_FORMMAX ok=true fill_runtime=saccade-dogfood-control-v0 engine=saccade-dogfood-control-formmax-live-v0 rows=96 pages=2 filled=672 blocked_sensitive=3 receipt_verified=true validation_errors=0 replay_events=2711 report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_formmax_smoke_1781578030042.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_formmax_live_smoke.json
+SAME_WEBVIEW_SHELL_NAV ok=true runtime=saccade-dogfood-control-v0 initial=current_tab_copilot navigated=formmax reload_changed=true back_changed=true forward_changed=true report=/Users/waynema/Documents/GitHub/SACCADE/runs/mcp/same_webview_shell_nav_smoke_1781579239152.json artifact=/Users/waynema/Documents/GitHub/SACCADE/runs/current_tab_grants/mcp_shell_nav_smoke.json
 ```
 
 ### Goal
@@ -141,7 +142,10 @@ artifact's loopback `control_endpoint`. MCP now reads redacted truth and action
 maps from that same live dogfood WebView, fills agent-owned non-sensitive
 fields, inspects explicitly requested fields with sensitive values masked,
 dispatches safe non-side-effect actions, and runs the long FORMMAX local
-fixture in the user-granted tab. Submit remains user-confirmed.
+fixture in the user-granted tab. The same control endpoint also exposes
+primitive shell navigation commands (`shell_status`, `navigate`, `reload`,
+`back`, `forward`) for the already-open dogfood window. Submit remains
+user-confirmed.
 
 ### Done When
 
