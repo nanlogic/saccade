@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 21;
+const REQUIRED_TOOL_COUNT: usize = 22;
 
 #[derive(Parser)]
 #[command(name = "saccade-mcp")]
@@ -118,6 +118,7 @@ struct SelftestEvidence {
     report_validate_run: bool,
     browser_worker_validate_run: bool,
     report_replay_summary: bool,
+    report_redacted_note: bool,
     normal_field_decision: PolicyDecision,
     sensitive_field_decision: PolicyDecision,
 }
@@ -250,7 +251,8 @@ fn selftest() -> Result<()> {
         && stdio_evidence.dev_get_report
         && stdio_evidence.report_validate_run
         && stdio_evidence.browser_worker_validate_run
-        && stdio_evidence.report_replay_summary;
+        && stdio_evidence.report_replay_summary
+        && stdio_evidence.report_redacted_note;
     let evidence = SelftestEvidence {
         denied_human_input: tab_evidence.denied_human_input,
         denied_human_truth_without_grant: tab_evidence.denied_human_truth_without_grant,
@@ -283,6 +285,7 @@ fn selftest() -> Result<()> {
         report_validate_run: stdio_evidence.report_validate_run,
         browser_worker_validate_run: stdio_evidence.browser_worker_validate_run,
         report_replay_summary: stdio_evidence.report_replay_summary,
+        report_redacted_note: stdio_evidence.report_redacted_note,
         normal_field_decision,
         sensitive_field_decision,
     };
@@ -512,6 +515,15 @@ fn registry() -> ToolRegistry {
                 false,
                 true,
             ),
+            tool(
+                "saccade.report.redacted_note",
+                ToolNamespace::Report,
+                ToolRisk::ReportOnly,
+                "Create a local redacted AI review packet for high-risk fallback content.",
+                true,
+                false,
+                true,
+            ),
         ],
     }
 }
@@ -618,6 +630,7 @@ struct JsonRpcEvidence {
     report_validate_run: bool,
     browser_worker_validate_run: bool,
     report_replay_summary: bool,
+    report_redacted_note: bool,
     audit_report: String,
 }
 
@@ -1026,6 +1039,30 @@ fn input_schema(name: &str) -> Value {
             },
             "additionalProperties": false
         }),
+        "saccade.report.redacted_note" => json!({
+            "type": "object",
+            "properties": {
+                "source_url": {"type": "string"},
+                "title": {"type": "string"},
+                "task": {
+                    "type": "string",
+                    "enum": ["evaluate_edit", "draft_reply", "summarize", "checklist"],
+                    "default": "evaluate_edit"
+                },
+                "audience": {"type": "string"},
+                "redacted_text": {"type": "string"},
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "redacted_user_supplied": {"type": "boolean", "const": true},
+                        "no_live_site_access": {"type": "boolean", "const": true}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["redacted_text"],
+            "additionalProperties": false
+        }),
         _ => json!({
             "type": "object",
             "properties": {},
@@ -1059,6 +1096,7 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.web.fill_form" => web_fill_form_tool(state, arguments),
         "saccade.report.validate_run" => report_validate_run_tool(arguments),
         "saccade.report.replay_summary" => report_replay_summary_tool(arguments),
+        "saccade.report.redacted_note" => report_redacted_note_tool(arguments),
         _ => bail!("tool {name:?} is registered but not implemented in mcp-stdio-v0"),
     }
 }
@@ -3000,6 +3038,224 @@ fn report_replay_summary_tool(arguments: Value) -> Result<Value> {
     }))
 }
 
+fn report_redacted_note_tool(arguments: Value) -> Result<Value> {
+    let raw_text = arguments
+        .get("redacted_text")
+        .and_then(Value::as_str)
+        .context("tool arguments must include string field redacted_text")?
+        .trim();
+    if raw_text.is_empty() {
+        bail!("redacted_text must not be empty");
+    }
+    if raw_text.len() > 24_000 {
+        bail!("redacted_text is too large for a fallback note; keep it under 24000 chars");
+    }
+    if let Some(policy) = arguments.get("policy") {
+        if policy
+            .get("redacted_user_supplied")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.report.redacted_note requires redacted_user_supplied=true");
+        }
+        if policy
+            .get("no_live_site_access")
+            .and_then(Value::as_bool)
+            .is_some_and(|enabled| !enabled)
+        {
+            bail!("saccade.report.redacted_note requires no_live_site_access=true");
+        }
+    }
+
+    let source_url = arguments
+        .get("source_url")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let title = arguments
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Redacted fallback note");
+    let task = arguments
+        .get("task")
+        .and_then(Value::as_str)
+        .unwrap_or("evaluate_edit");
+    let audience = arguments
+        .get("audience")
+        .and_then(Value::as_str)
+        .unwrap_or("human operator and AI reviewer");
+    let site_policy = if source_url.trim().is_empty() {
+        Value::Null
+    } else {
+        json!(classify_site_url(source_url))
+    };
+    let redaction = sanitize_redacted_note_text(raw_text);
+    let run_dir = workspace_root()?
+        .join("runs")
+        .join("redacted_notes")
+        .join(format!("note_{}", unix_ms()?));
+    fs::create_dir_all(&run_dir)
+        .with_context(|| format!("failed to create {}", run_dir.display()))?;
+    let note_path = run_dir.join("redacted_note.md");
+    let prompt_path = run_dir.join("ai_review_prompt.md");
+    let report_path = run_dir.join("note.json");
+    let note_markdown = format_redacted_note_markdown(title, source_url, task, &redaction.text);
+    fs::write(&note_path, note_markdown)
+        .with_context(|| format!("failed to write {}", note_path.display()))?;
+    let prompt_markdown = format_ai_review_prompt(
+        title,
+        source_url,
+        task,
+        audience,
+        &site_policy,
+        &redaction.text,
+    );
+    fs::write(&prompt_path, prompt_markdown)
+        .with_context(|| format!("failed to write {}", prompt_path.display()))?;
+    let report = json!({
+        "status": if redaction.warnings.is_empty() { "ok" } else { "warning" },
+        "engine": "saccade-redacted-note-v0",
+        "summary": "redacted fallback note prepared for AI evaluation/editing without live-site access",
+        "title": title,
+        "task": task,
+        "audience": audience,
+        "source_url": redacted_note_url(source_url),
+        "site_policy": site_policy,
+        "redaction": {
+            "user_supplied_redacted": true,
+            "no_live_site_access": true,
+            "values_logged": false,
+            "warnings": redaction.warnings,
+            "input_chars": raw_text.len(),
+            "sanitized_chars": redaction.text.len(),
+        },
+        "recommended_ai_return_shape": [
+            "risk_and_context_assessment",
+            "questions_for_human",
+            "edited_draft",
+            "final_human_confirmation_checklist"
+        ],
+        "artifacts": {
+            "run_dir": run_dir.display().to_string(),
+            "report": report_path.display().to_string(),
+            "redacted_note": note_path.display().to_string(),
+            "ai_review_prompt": prompt_path.display().to_string(),
+        }
+    });
+    write_json(&report_path, &report)?;
+    let artifact_index = record_artifact_index(
+        "saccade.report.redacted_note",
+        "redacted_ai_review_packet",
+        "redacted fallback note prepared for AI review/edit",
+        report.get("artifacts").cloned().unwrap_or(Value::Null),
+    )?;
+    Ok(json!({
+        "status": report.get("status").cloned().unwrap_or_else(|| json!("ok")),
+        "summary": report.get("summary").cloned().unwrap_or(Value::Null),
+        "task": task,
+        "site_policy": report.get("site_policy").cloned().unwrap_or(Value::Null),
+        "redaction": report.get("redaction").cloned().unwrap_or(Value::Null),
+        "artifacts": report.get("artifacts").cloned().unwrap_or(Value::Null),
+        "artifact_index": artifact_index,
+    }))
+}
+
+#[derive(Debug)]
+struct RedactedNote {
+    text: String,
+    warnings: Vec<String>,
+}
+
+fn sanitize_redacted_note_text(text: &str) -> RedactedNote {
+    let mut warnings = Vec::new();
+    let sanitized = text
+        .split_whitespace()
+        .map(|token| redact_note_token(token, &mut warnings))
+        .collect::<Vec<_>>()
+        .join(" ");
+    warnings.sort();
+    warnings.dedup();
+    RedactedNote {
+        text: sanitized,
+        warnings,
+    }
+}
+
+fn redact_note_token(token: &str, warnings: &mut Vec<String>) -> String {
+    if token.contains('@') && token.contains('.') {
+        warnings.push("email_like_token_redacted".into());
+        return "[redacted-email]".into();
+    }
+    if token.starts_with("http://") || token.starts_with("https://") {
+        if let Ok(mut url) = Url::parse(token) {
+            if url.query().is_some() || url.fragment().is_some() {
+                warnings.push("url_query_or_fragment_removed".into());
+            }
+            url.set_query(None);
+            url.set_fragment(None);
+            return url.to_string();
+        }
+    }
+    let digits = token.chars().filter(|c| c.is_ascii_digit()).count();
+    if digits >= 9 && !looks_like_public_request_id(token) {
+        warnings.push("long_number_redacted".into());
+        return "[redacted-number]".into();
+    }
+    if token.len() >= 24 && token.chars().any(|c| c.is_ascii_digit()) {
+        let alpha = token.chars().filter(|c| c.is_ascii_alphabetic()).count();
+        let numeric = token.chars().filter(|c| c.is_ascii_digit()).count();
+        if alpha >= 8 && numeric >= 4 && !looks_like_public_request_id(token) {
+            warnings.push("token_like_value_redacted".into());
+            return "[redacted-token]".into();
+        }
+    }
+    token.to_string()
+}
+
+fn looks_like_public_request_id(token: &str) -> bool {
+    let cleaned = token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-');
+    let hyphens = cleaned.chars().filter(|c| *c == '-').count();
+    let hexish = cleaned.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    cleaned.len() >= 24 && hyphens >= 2 && hexish
+}
+
+fn redacted_note_url(source_url: &str) -> Value {
+    if source_url.trim().is_empty() {
+        return Value::Null;
+    }
+    let Ok(mut url) = Url::parse(source_url) else {
+        return json!(source_url);
+    };
+    url.set_query(None);
+    url.set_fragment(None);
+    json!(url.as_str())
+}
+
+fn format_redacted_note_markdown(title: &str, source_url: &str, task: &str, text: &str) -> String {
+    format!(
+        "# {title}\n\nSource URL: {}\nTask: `{task}`\n\n## Redacted Content\n\n{text}\n",
+        redacted_note_url(source_url)
+            .as_str()
+            .unwrap_or("not provided")
+    )
+}
+
+fn format_ai_review_prompt(
+    title: &str,
+    source_url: &str,
+    task: &str,
+    audience: &str,
+    site_policy: &Value,
+    text: &str,
+) -> String {
+    format!(
+        "# Saccade Redacted AI Review Packet\n\nTitle: {title}\nSource URL: {}\nTask: `{task}`\nAudience: {audience}\nSite policy: {}\n\nSafety rules:\n- Treat the content below as user-supplied and already redacted, but do not ask for credentials, OTP, payment, legal signature, or private identifiers.\n- Do not claim to have accessed the live website.\n- Do not click, submit, publish, release, pay, sign, or change account/security settings.\n- Evaluate from an AI assistant/product/reviewer perspective, then edit the user-provided draft.\n\nReturn exactly these sections:\n1. Risk And Context Assessment\n2. Questions For Human\n3. Edited Draft\n4. Final Human Confirmation Checklist\n\n## Redacted Content\n\n{text}\n",
+        redacted_note_url(source_url)
+            .as_str()
+            .unwrap_or("not provided"),
+        site_policy
+    )
+}
+
 fn object_has_value_like_field(value: &Value) -> bool {
     match value {
         Value::Object(map) => map.iter().any(|(key, value)| {
@@ -4481,6 +4737,50 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 .map(|status| status == "ok" || status == "warning")
         })
         .unwrap_or(false);
+    let report_redacted_note = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(14)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.report.redacted_note",
+                "arguments": {
+                    "source_url": "https://appstoreconnect.apple.com/apps?token=SHOULD-REMOVE",
+                    "title": "App Review fallback note",
+                    "task": "evaluate_edit",
+                    "audience": "Apple app review reply",
+                    "redacted_text": "We can't process your request. Request 0fa693e0-e6ef-425f-91e3-05fdac5581d7. Draft reply: Thanks for the review. We fixed the sign-in copy and removed test account details. Contact wayne@example.com.",
+                    "policy": {
+                        "redacted_user_supplied": true,
+                        "no_live_site_access": true
+                    }
+                }
+            }),
+        },
+    )
+    .and_then(|response| {
+        let content = response
+            .get("result")
+            .and_then(|result| result.get("structuredContent"))?;
+        let status_ok = content
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| status == "ok" || status == "warning");
+        let prompt_exists = content
+            .pointer("/artifacts/ai_review_prompt")
+            .and_then(Value::as_str)
+            .is_some_and(|path| Path::new(path).exists());
+        let email_redacted = content
+            .pointer("/redaction/warnings")
+            .and_then(Value::as_array)
+            .is_some_and(|warnings| {
+                warnings
+                    .iter()
+                    .any(|warning| warning.as_str() == Some("email_like_token_redacted"))
+            });
+        Some(status_ok && prompt_exists && email_redacted)
+    })
+    .unwrap_or(false);
 
     Ok(JsonRpcEvidence {
         initialize,
@@ -4507,6 +4807,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         report_validate_run,
         browser_worker_validate_run,
         report_replay_summary,
+        report_redacted_note,
         audit_report,
     })
 }

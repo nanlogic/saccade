@@ -69,7 +69,7 @@ When Saccade is blocked or the site is high-risk:
 | SP-001 | P0 | DONE: Add a site-risk classifier to the bridge/MCP layer. | Current URL/action gets `green/yellow/orange/red` and a human-readable reason. Evidence: `runs/mcp/selftest_1781641440418/report.json`. |
 | SP-002 | P0 | DONE: Add high-risk action gating. | Login, OTP, password, CAPTCHA, payment, submit, release, delete, sign, API key, and security actions return `requires_user`. Evidence: `saccade_core::site_policy` unit tests plus MCP selftest. |
 | SP-003 | P1 | DONE: Add block evidence artifact. | Blocked bridge control runs write a redacted `control/block_report.json` with URL, class, error text, request id, and fallback recommendation. Evidence: `cargo test -p saccade-servoshell block_report`. |
-| SP-004 | P1 | Add a user-facing fallback copy path. | User can paste redacted text into a local Saccade note and get analysis without exposing the live high-risk page. |
+| SP-004 | P1 | DONE: Add a user-facing fallback copy path. | `saccade.report.redacted_note` creates a local `runs/redacted_notes/note_*/` AI review packet from user-supplied redacted text without live-site access. Evidence: `runs/mcp/selftest_1781645696687/report.json`. |
 | SP-005 | P1 | Add allowlist lanes for owned/local apps. | Localhost, file fixtures, and explicitly owned domains can run Green gates without repeated prompts. |
 | SP-006 | P2 | Add policy docs to the handoff prompt for other sessions. | Other Codex sessions know when to use Saccade and when to fall back. |
 
