@@ -24,8 +24,6 @@ high-risk sites.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-006 | P1 | open | Browser compatibility | Add font/line-height/control text fixture and Chrome/Saccade metrics. | Fixture emits computed styles, text rects, screenshots, and a pass/yellow/red classification. |
-| AI-007 | P1 | open | Browser compatibility | Add display-boundary/fullscreen probe before using 1600/1920 viewport benchmarks. | Large viewport tests report actual CSS/device size and refuse invalid comparisons. |
 | AI-008 | P1 | parked | Canvas/WebGL | Keep Canvas/WebGL routed to Chrome/reference until the Servo `take_screenshot()` versus manual readback path is re-investigated. | New investigation compares official ServoShell/reference, Saccade readback, and `take_screenshot()` on the reductions. |
 | AI-009 | P1 | open | DEVMAX | Add screenshot/finding crops and multi-action click verification polish. | DEVMAX gauntlet reports include crops for findings and verified multi-action receipts. |
 | AI-010 | P2 | open | Packaging | Add macOS packaging/signing checklist and dev-signed local path. | A doc or script explains the unsigned/dev-signed run path without mixing with renderer fixes. |
@@ -54,3 +52,5 @@ high-risk sites.
 | AI-013E | current checkpoint | Added owned-domain policy lanes through `SACCADE_OWNED_DOMAINS`; MCP and official ServoShell bridge classify explicitly owned non-high-risk domains as `owned_domain` Green while preserving auth/financial/government/high-risk overrides. Evidence: `cargo test -p saccade_core owned_domains`. |
 | AI-013F | current checkpoint | Added paste-ready Saccade dogfood/policy handoff instructions for other Codex sessions, including risk classes, owned-domain launch command, high-risk fallback, and `saccade.report.redacted_note`. Evidence: `docs/SACCADE_DOGFOOD_HANDOFF.md`. |
 | AI-013G | current checkpoint | Added `scripts/create_redacted_note_packet.js`, a convenience CLI that turns user-supplied redacted text into the existing MCP redacted-note packet without live-site access. Evidence: App Store Connect blocker sample run under `runs/redacted_notes/`. |
+| AI-006 | current checkpoint | Added `test_pages/visual_parity/font_control_metrics/`, extra Chrome/Saccade probe fields for text/font/client/scroll metrics, and `scripts/browser_compat_metrics.py` with `GREEN/YELLOW/RED/INVALID_VIEWPORT` classification. Evidence: `docs/browser_compat_metrics_report.md`. |
+| AI-007 | current checkpoint | `scripts/browser_compat_metrics.py` now validates requested CSS viewport against Chrome truth, Saccade truth, and Saccade runtime geometry before trusting large-width comparisons. Evidence: `runs/browser_compat_metrics/metrics_1781650486498/browser_compat_metrics.json` marks `1600x760` as `INVALID_VIEWPORT` because Saccade is capped at `1440x760`. |

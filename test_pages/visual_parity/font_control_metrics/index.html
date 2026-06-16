@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parity Font And Control Metrics</title>
+  <link rel="stylesheet" href="../base.css">
+  <style>
+    main { display: grid; gap: 18px; max-width: 1040px; }
+    .section { padding: 18px; display: grid; gap: 16px; }
+    .samples { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+    .sample { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+    .sample h2 { margin: 0 0 8px; font-size: 18px; line-height: 24px; }
+    .sample p { margin: 0; font-size: 15px; line-height: 22px; color: var(--muted); }
+    .normal-line { font-size: 16px; line-height: normal; }
+    .fixed-line { font-size: 16px; line-height: 24px; }
+    .heavy { font-weight: 700; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; line-height: 20px; }
+    .controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+    label { min-width: 0; display: grid; gap: 7px; color: var(--muted); font-size: 13px; line-height: 18px; }
+    input, select, textarea {
+      width: 100%;
+      min-width: 0;
+      min-height: 42px;
+      border: 1px solid #b8c3d4;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+    }
+    textarea { height: 96px; min-height: 0; resize: none; line-height: 20px; }
+    .control-row { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; display: grid; gap: 12px; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .button-row button { min-width: 120px; }
+    @media (max-width: 720px) {
+      .samples, .controls { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header data-saccade-probe="metrics_header">
+    <h1 data-saccade-probe="metrics_title">Font Metrics</h1>
+    <span class="muted" data-saccade-probe="metrics_header_note">text rects / control sizing</span>
+  </header>
+  <main>
+    <section class="panel section" data-saccade-probe="text_section">
+      <div class="samples" data-saccade-probe="text_samples_grid">
+        <article class="sample" data-saccade-probe="sample_normal">
+          <h2 data-saccade-probe="heading_normal">Normal system text</h2>
+          <p class="normal-line" data-saccade-probe="paragraph_normal">Saccade should measure this line without pretending pixel parity is perfect.</p>
+        </article>
+        <article class="sample" data-saccade-probe="sample_fixed">
+          <h2 class="heavy" data-saccade-probe="heading_heavy">Explicit heavy heading</h2>
+          <p class="fixed-line" data-saccade-probe="paragraph_fixed">This paragraph has an explicit 24px line height for stable comparison.</p>
+        </article>
+        <article class="sample" data-saccade-probe="sample_mono">
+          <h2 data-saccade-probe="heading_mono">Monospace sample</h2>
+          <p class="mono" data-saccade-probe="paragraph_mono">request_id = ABCD-1234-EFGH</p>
+        </article>
+        <article class="sample" data-saccade-probe="sample_wrap">
+          <h2 data-saccade-probe="heading_wrap">Wrapping sample</h2>
+          <p class="fixed-line" data-saccade-probe="paragraph_wrap">A deliberately longer sentence wraps when the viewport becomes narrow enough.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel section" data-saccade-probe="control_section">
+      <div class="controls" data-saccade-probe="control_grid">
+        <div class="control-row" data-saccade-probe="control_row_text">
+          <label data-saccade-probe="label_metrics_input">Project name
+            <input name="project" value="Saccade Product Gate" data-saccade-probe="input_metrics_text">
+          </label>
+          <label data-saccade-probe="label_metrics_date">Target date
+            <input type="date" name="target_date" value="2026-07-15" data-saccade-probe="input_metrics_date">
+          </label>
+        </div>
+        <div class="control-row" data-saccade-probe="control_row_choices">
+          <label data-saccade-probe="label_metrics_select">Release lane
+            <select name="release_lane" data-saccade-probe="select_metrics_lane">
+              <option>dogfood</option>
+              <option>beta</option>
+              <option>public</option>
+            </select>
+          </label>
+          <label data-saccade-probe="label_metrics_notes">Reviewer note
+            <textarea name="reviewer_note" data-saccade-probe="textarea_metrics_note">Use explicit sizing for owned forms and route unknown high-risk sites.</textarea>
+          </label>
+        </div>
+      </div>
+      <div class="button-row" data-saccade-probe="button_metrics_row">
+        <button type="button" data-saccade-probe="button_metrics_secondary">Save Draft</button>
+        <button type="button" class="primary" data-saccade-probe="button_metrics_primary">Continue</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

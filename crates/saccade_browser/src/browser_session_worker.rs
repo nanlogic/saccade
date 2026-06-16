@@ -3839,12 +3839,48 @@ pub(crate) const PROBE_JS: &str = r##"
     return hasEntry ? "completed_without_value" : "requires_user_input";
   }
 
+  function textMetricsOf(el) {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    const isValueControl = tag === "textarea" || tag === "select" ||
+      (tag === "input" && !["button", "submit", "reset"].includes(type));
+    const text = isValueControl ? "" : String(el.innerText || el.textContent || el.value || "");
+    const collapsed = text.trim().replace(/\s+/g, " ");
+    let rangeRect = null;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const textNode = walker.nextNode();
+    if (textNode && textNode.nodeValue && textNode.nodeValue.trim()) {
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      const rect = range.getBoundingClientRect();
+      rangeRect = {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height
+      };
+      range.detach();
+    }
+    return {
+      textLength: collapsed.length,
+      textSample: collapsed.slice(0, 40),
+      rangeRect,
+      clientWidth: el.clientWidth || 0,
+      clientHeight: el.clientHeight || 0,
+      scrollWidth: el.scrollWidth || 0,
+      scrollHeight: el.scrollHeight || 0
+    };
+  }
+
   function layoutProbeOf(el) {
     const style = getComputedStyle(el);
     return {
       name: el.getAttribute("data-saccade-probe") || "",
       tag: el.tagName.toLowerCase(),
       rect: rectOf(el),
+      textMetrics: textMetricsOf(el),
       display: style.display || "",
       position: style.position || "",
       gridTemplateColumns: style.gridTemplateColumns || "",
@@ -3870,8 +3906,11 @@ pub(crate) const PROBE_JS: &str = r##"
       paddingRight: style.paddingRight || "",
       borderLeftWidth: style.borderLeftWidth || "",
       borderRightWidth: style.borderRightWidth || "",
+      fontFamily: style.fontFamily || "",
       fontSize: style.fontSize || "",
+      fontWeight: style.fontWeight || "",
       lineHeight: style.lineHeight || "",
+      letterSpacing: style.letterSpacing || "",
       gridColumnStart: style.gridColumnStart || "",
       gridColumnEnd: style.gridColumnEnd || "",
       maxWidth760: window.matchMedia ? window.matchMedia("(max-width: 760px)").matches : null

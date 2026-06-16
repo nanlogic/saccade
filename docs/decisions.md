@@ -98,6 +98,7 @@
 - Added `SACCADE_OWNED_DOMAINS` as a first-party dogfood allowlist for normal owned sites. The classifier reports these as `owned_domain` Green only after high-risk auth, government, financial, healthcare, cloud, shopping, and social classes have had priority, so it is not an anti-abuse bypass.
 - Added a paste-ready handoff prompt for other Codex sessions in `docs/SACCADE_DOGFOOD_HANDOFF.md`, so web/game/product sessions know when to use Saccade, when to compare with Chrome, and when to route through the redacted fallback packet.
 - Added `scripts/create_redacted_note_packet.js` so high-risk site fallback is easy to dogfood from the command line. It calls the existing MCP redacted-note tool, strips URL query/fragment data, and writes the same local AI review packet without live-site access.
+- Added the browser compatibility metrics gate for font/control and large viewport validation. `font_control_metrics` shows explicitly sized controls can match Chrome element rects at `1280x760`, while text range rects are not reliable in Servo yet. The same gate refuses invalid large-width comparisons, reproducing `1600x760` requested as actual Saccade `1440x760` on this macOS session.
 
 ## N1B - Login handoff
 
