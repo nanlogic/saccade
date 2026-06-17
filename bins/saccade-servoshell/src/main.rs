@@ -21,6 +21,10 @@ use url::Url;
 
 const DEFAULT_SERVOSHELL: &str = "/Applications/Servo.app/Contents/MacOS/servoshell";
 const TRUTH_BUNDLE_VERSION: &str = "saccade-servoshell-truth-v0";
+const PAGE_SETTLE_MIN: Duration = Duration::from_millis(2500);
+const PAGE_SETTLE_MAX: Duration = Duration::from_millis(7000);
+const PAGE_SETTLE_POLL: Duration = Duration::from_millis(250);
+const PAGE_SETTLE_SHORT_TEXT_FLOOR: u64 = 500;
 
 #[derive(Parser)]
 #[command(name = "saccade-servoshell")]
@@ -1644,6 +1648,9 @@ fn run_probe(cfg: ProbeConfig) -> Result<ProbeOutcome> {
         report["webdriver"]["new_session"] = session;
         report["webdriver"]["session_id"] = json!(sid);
 
+        let ready = wait_for_document_ready(&client, &sid, cfg.timeout)?;
+        report["webdriver"]["ready"] = ready;
+
         let pre_truth = client.execute_sync(&sid, TRUTH_JS)?;
         write_json(&cfg.output_dir.join("pre_truth.json"), &pre_truth)?;
         report["pre_truth"] = pre_truth.clone();
@@ -2178,11 +2185,82 @@ fn wait_for_document_ready(
         )?;
         let ready_state = last.get("readyState").and_then(Value::as_str).unwrap_or("");
         if matches!(ready_state, "interactive" | "complete") {
-            return Ok(last);
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            return wait_for_dynamic_page_settle(client, session_id, remaining, last);
         }
         std::thread::sleep(Duration::from_millis(150));
     }
     bail!("document did not become ready: {last}");
+}
+
+fn wait_for_dynamic_page_settle(
+    client: &WebDriverClient,
+    session_id: &str,
+    timeout: Duration,
+    ready_value: Value,
+) -> Result<Value> {
+    if timeout.is_zero() {
+        return Ok(ready_value);
+    }
+    let max_wait = timeout.min(PAGE_SETTLE_MAX);
+    let min_wait = max_wait.min(PAGE_SETTLE_MIN);
+    let started_at = Instant::now();
+    let min_until = started_at + min_wait;
+    let deadline = started_at + max_wait;
+    let mut last = ready_value;
+    let mut last_signature: Option<(String, String, u64, u64, u64)> = None;
+    let mut stable_polls = 0usize;
+
+    while Instant::now() < deadline {
+        last = client.execute_sync(
+            session_id,
+            "return { title: document.title, readyState: document.readyState, url: location.href, bodyTextLength: document.body ? document.body.innerText.length : 0, actionCount: document.querySelectorAll(\"button,a,input,select,textarea,[role='button'],[contenteditable='true']\").length, childCount: document.body ? document.body.children.length : 0 };",
+        )?;
+        let signature = page_settle_signature(&last);
+        if last_signature.as_ref() == Some(&signature) {
+            stable_polls = stable_polls.saturating_add(1);
+        } else {
+            last_signature = Some(signature);
+            stable_polls = 0;
+        }
+        let body_text_length = last
+            .get("bodyTextLength")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let enough_content = body_text_length >= PAGE_SETTLE_SHORT_TEXT_FLOOR;
+        if Instant::now() >= min_until && stable_polls >= 2 && enough_content {
+            return Ok(last);
+        }
+        std::thread::sleep(PAGE_SETTLE_POLL);
+    }
+    Ok(last)
+}
+
+fn page_settle_signature(value: &Value) -> (String, String, u64, u64, u64) {
+    (
+        value
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        value
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        value
+            .get("bodyTextLength")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
+        value
+            .get("actionCount")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
+        value
+            .get("childCount")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
+    )
 }
 
 fn login_handoff_probe(client: &WebDriverClient, session_id: &str) -> Result<Value> {
