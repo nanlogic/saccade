@@ -1994,9 +1994,26 @@ impl WebDriverClient {
         stream
             .read_to_end(&mut response)
             .context("read webdriver response")?;
-        parse_http_response(&response)
-            .with_context(|| format!("parse webdriver response for {method} {path}"))
+        parse_http_response(&response).map_err(|error| {
+            anyhow!(
+                "parse webdriver response for {method} {path}: {error:#}; raw_prefix={}",
+                preview_http_bytes(&response)
+            )
+        })
     }
+}
+
+fn preview_http_bytes(bytes: &[u8]) -> String {
+    const LIMIT: usize = 512;
+    if bytes.is_empty() {
+        return "<empty>".to_string();
+    }
+    let mut preview = String::from_utf8_lossy(&bytes[..bytes.len().min(LIMIT)]).into_owned();
+    preview = preview.replace('\r', "\\r").replace('\n', "\\n");
+    if bytes.len() > LIMIT {
+        preview.push_str("...");
+    }
+    preview
 }
 
 fn parse_http_response(bytes: &[u8]) -> Result<HttpResponse> {
@@ -2161,8 +2178,9 @@ fn wait_for_title(
     while Instant::now() < deadline {
         last = client.execute_sync(
             session_id,
-            "return { title: document.title, readyState: document.readyState, url: location.href };",
+            "return { title: document.title, readyState: document.readyState, url: document.URL };",
         )?;
+        fail_if_servoshell_error_page(&last)?;
         if last.get("title").and_then(Value::as_str) == Some(title) {
             return Ok(last);
         }
@@ -2181,8 +2199,9 @@ fn wait_for_document_ready(
     while Instant::now() < deadline {
         last = client.execute_sync(
             session_id,
-            "return { title: document.title, readyState: document.readyState, url: location.href };",
+            "return { title: document.title, readyState: document.readyState, url: document.URL };",
         )?;
+        fail_if_servoshell_error_page(&last)?;
         let ready_state = last.get("readyState").and_then(Value::as_str).unwrap_or("");
         if matches!(ready_state, "interactive" | "complete") {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -2214,8 +2233,9 @@ fn wait_for_dynamic_page_settle(
     while Instant::now() < deadline {
         last = client.execute_sync(
             session_id,
-            "return { title: document.title, readyState: document.readyState, url: location.href, bodyTextLength: document.body ? document.body.innerText.length : 0, actionCount: document.querySelectorAll(\"button,a,input,select,textarea,[role='button'],[contenteditable='true']\").length, childCount: document.body ? document.body.children.length : 0 };",
+            "return { title: document.title, readyState: document.readyState, url: document.URL, bodyTextLength: document.body ? document.body.innerText.length : 0, actionCount: document.querySelectorAll(\"button,a,input,select,textarea,[role='button'],[contenteditable='true']\").length, childCount: document.body ? document.body.children.length : 0 };",
         )?;
+        fail_if_servoshell_error_page(&last)?;
         let signature = page_settle_signature(&last);
         if last_signature.as_ref() == Some(&signature) {
             stable_polls = stable_polls.saturating_add(1);
@@ -2234,6 +2254,13 @@ fn wait_for_dynamic_page_settle(
         std::thread::sleep(PAGE_SETTLE_POLL);
     }
     Ok(last)
+}
+
+fn fail_if_servoshell_error_page(value: &Value) -> Result<()> {
+    if value.get("title").and_then(Value::as_str) == Some("Error loading page") {
+        bail!("ServoShell reached its internal error page: {value}");
+    }
+    Ok(())
 }
 
 fn page_settle_signature(value: &Value) -> (String, String, u64, u64, u64) {
@@ -2530,7 +2557,7 @@ fn bridge_status_response(
 ) -> Result<Value> {
     let page = state.client.execute_sync(
         &state.session_id,
-        "return { url: location.href, title: document.title, readyState: document.readyState };",
+        "return { url: document.URL, title: document.title, readyState: document.readyState };",
     )?;
     let page_url = page.get("url").and_then(Value::as_str).unwrap_or("");
     Ok(json!({
@@ -2599,7 +2626,7 @@ fn bridge_block_report_path(state: &BridgeControlState) -> PathBuf {
 fn bridge_current_url(state: &BridgeControlState) -> Result<String> {
     Ok(state
         .client
-        .execute_sync(&state.session_id, "return location.href;")?
+        .execute_sync(&state.session_id, "return document.URL;")?
         .as_str()
         .unwrap_or("")
         .to_string())
@@ -2704,7 +2731,7 @@ fn bridge_visible_block_page(state: &BridgeControlState) -> Result<Value> {
     state.client.execute_sync(
         &state.session_id,
         "return {
-          url: location.href,
+          url: document.URL,
           title: document.title,
           visible_text: document.body ? document.body.innerText : ''
         };",
@@ -3885,6 +3912,19 @@ mod tests {
         assert!(text.contains("https://example.com/path"));
         assert!(!text.contains("token=secret"));
     }
+
+    #[test]
+    fn servoshell_error_page_is_not_success_ready() {
+        let value = json!({
+            "title": "Error loading page",
+            "readyState": "interactive",
+            "url": "http://10.0.0.148:3000/demo/shimmer-ai-story?memory-pack=1"
+        });
+        let error = fail_if_servoshell_error_page(&value).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("ServoShell reached its internal error page"));
+    }
 }
 
 fn finish_child(mut child: Child) -> Value {
@@ -3942,7 +3982,7 @@ return (() => {
   }));
   return {
     title: document.title,
-    url: location.href,
+    url: document.URL,
     text: document.body ? document.body.innerText : "",
     cookie_present: document.cookie.includes("saccade_session=demo"),
     storage_shared: localStorage.getItem("saccade_storage") === "shared",
@@ -4129,8 +4169,8 @@ return (() => {
   return {
     bundle_version: VERSION,
     page: {
-      url: location.href,
-      origin: location.origin,
+      url: document.URL,
+      origin: (() => { try { return new URL(document.URL).origin; } catch (_) { return ""; } })(),
       title: document.title,
       revision: document.body ? (document.body.dataset.sessionRevision || null) : null,
       body_text_length: document.body ? document.body.innerText.length : 0
