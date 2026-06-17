@@ -133,6 +133,12 @@ pub fn classify_site_url_with_owned_domains(url: &str, owned_domains: &[String])
             "App management, review, agreements, and financial settings are high-impact",
         );
     }
+    if host_matches_any(host, &["admob.google.com", "adsense.google.com"]) {
+        return SitePolicy::yellow(
+            "monetization_admin",
+            "Monetization consoles allow copilot navigation and non-sensitive drafts; Save, Verify, billing, and account changes need Human confirmation",
+        );
+    }
     if host_matches(host, "irs.gov")
         || host_matches(host, "ssa.gov")
         || host_matches(host, "uscis.gov")
@@ -336,6 +342,9 @@ fn action_requires_user(
         &action_text,
         &[
             "submit",
+            "save",
+            "verify",
+            "check for updates",
             "publish",
             "post",
             "send",
@@ -408,6 +417,10 @@ mod tests {
             classify_site_url("https://gist.github.com/new").level,
             SiteRiskLevel::Yellow
         );
+        let admob = classify_site_url("https://admob.google.com/v2/apps/1195435270/overview");
+        assert_eq!(admob.level, SiteRiskLevel::Yellow);
+        assert_eq!(admob.category, "monetization_admin");
+        assert!(!admob.screenshots_default_allowed);
     }
 
     #[test]
@@ -427,6 +440,18 @@ mod tests {
         assert_eq!(
             site_action_requires_user("https://accounts.google.com", "next", Some("Next")),
             Some("red_site_human_only")
+        );
+        assert_eq!(
+            site_action_requires_user("https://admob.google.com", "act_save", Some("Save")),
+            Some("side_effect_confirmation_required")
+        );
+        assert_eq!(
+            site_action_requires_user(
+                "https://admob.google.com",
+                "act_check_for_updates",
+                Some("Check for updates")
+            ),
+            Some("side_effect_confirmation_required")
         );
         assert_eq!(
             site_action_requires_user("http://localhost:3000", "act_primary", Some("Preview")),

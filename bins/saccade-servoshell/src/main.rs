@@ -3921,9 +3921,11 @@ mod tests {
             "url": "http://10.0.0.148:3000/demo/shimmer-ai-story?memory-pack=1"
         });
         let error = fail_if_servoshell_error_page(&value).unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("ServoShell reached its internal error page"));
+        assert!(
+            error
+                .to_string()
+                .contains("ServoShell reached its internal error page")
+        );
     }
 }
 

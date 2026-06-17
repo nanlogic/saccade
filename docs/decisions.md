@@ -1010,3 +1010,30 @@
   Those options are spoofable or change the page the user is trying to inspect.
   External bridge state is available through `shell_status`; a trusted in-window
   badge belongs in a thin ServoShell UI fork or upstream chrome hook.
+
+## DECISION_SERVOSHELL_018 - Real AdMob dogfood proves Human-confirmed account workflow
+
+- Official ServoShell `0.3.0` plus the external Saccade bridge opened a logged-in
+  Google AdMob app page for AI Chaos Story Lab:
+  `https://admob.google.com/v2/apps/1195435270/overview`.
+- The bridge read compact truth/action data from the Human-owned visible tab,
+  navigated to App settings, found the App Store details Add flow, filled the
+  App Store URL, searched, selected `AI Chaos Story Lab / Free | iOS / NaN Logic
+  LLC / App Store`, and stopped before the side-effecting Save button.
+- The Human clicked Save after visual confirmation. This is the desired
+  copilot boundary for account/monetization surfaces: agent accelerates
+  navigation and non-sensitive data entry, Human owns final confirmation.
+- AdMob then reported that store details were updated, but app verification
+  could not complete because app-ads.txt details did not yet match the AdMob
+  account/crawler state.
+- Independent checks showed Apple public metadata has
+  `sellerUrl=https://www.nanlogic.com/ai-chaos-story-lab`, while
+  `https://www.nanlogic.com/app-ads.txt` returns `200 text/plain` with:
+  `google.com, pub-8420020231782289, DIRECT, f08c47fec0942fa0`.
+- Decision: classify this as a successful high-value real-site dogfood with a
+  pending provider verification/crawler wait, not a Saccade action failure. Keep
+  screenshots forbidden and continue requiring Human confirmation for AdMob
+  Save/Verify-style actions.
+- Evidence:
+  `runs/servoshell_adapter/admob_visible_1781731754/control/report.json` and
+  `runs/servoshell_adapter/admob_visible_1781731754/control/replay.jsonl`.
