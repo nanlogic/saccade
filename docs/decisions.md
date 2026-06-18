@@ -588,6 +588,23 @@
   deliberate gate via `--saccade-screenshot-mode manual` for hot-loop and
   readback-specific work.
 
+## DECISION_BROWSER_025 - Reflex readback sees Canvas2D foreground
+
+- Added lightweight sample metrics to the source ServoShell reflex bridge:
+  `sample_saturated`, `sample_max_channel_range`, and `sample_luma_range`.
+  These are observe-log summaries only; no screenshot or pixel dump is written.
+- Added `scripts/probe_reflex_readback_canvas.js`, a focused local fixture gate
+  that launches source ServoShell with `SACCADE_REFLEX_OBSERVE_PATH` and checks
+  the actual reflex `RenderingContext::read_to_image()` path.
+- Positive gate:
+  `REFLEX_READBACK_CANVAS route=readback_foreground_present ok=true frames=5 readback_ok=5 max_channel_range=235 max_luma_range=158 max_saturated_ratio=0.006338 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/reflex_readback_canvas_1781806982624/report.json`.
+- Negative gradient-only control:
+  `REFLEX_READBACK_CANVAS route=readback_blank_or_flat ok=false frames=5 readback_ok=5 max_channel_range=19 max_luma_range=9 max_saturated_ratio=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/reflex_readback_canvas_1781807000176/report.json`.
+- Therefore AI-008C is green for the focused local Canvas2D foreground gate:
+  the ms/reflex readback path sees foreground pixels when source ServoShell is
+  used. The older blank screenshot remains scoped to the legacy worker manual
+  diagnostic readback path.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over

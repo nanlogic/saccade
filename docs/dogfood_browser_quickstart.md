@@ -116,6 +116,16 @@ python3 scripts/probe_canvas_reductions.py --preset gradient --repeat 2 --wait-s
 python3 scripts/probe_canvas_reductions.py --variants bare-gradient2-size-1152x648 --saccade-screenshot-mode manual --wait-sec 2 --timeout-sec 75
 ```
 
+Run the source ServoShell reflex readback gate:
+
+```bash
+node scripts/probe_reflex_readback_canvas.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/debug/servoshell \
+  --variant bare-gradient2-size-1152x648 \
+  --duration-ms 2500 \
+  --window-size 1440x900
+```
+
 ## Current controls
 
 - Mouse move, click, and wheel scroll are forwarded into Servo.

@@ -164,12 +164,23 @@ function summarizeReflexEvents(events) {
   const readbackMs = frames
     .map((frame) => (typeof frame.readback_ns === "number" ? frame.readback_ns / 1_000_000 : null))
     .filter((value) => value !== null);
+  const saturatedRatios = frames
+    .filter((frame) => frame.readback_ok === true)
+    .map((frame) =>
+      Number.isFinite(frame.sample_saturated) && Number.isFinite(frame.sample_count)
+        ? frame.sample_saturated / Math.max(1, frame.sample_count)
+        : null,
+    )
+    .filter((value) => value !== null);
   return {
     event_count: events.length,
     count: frames.length,
     readback_ok: frames.filter((frame) => frame.readback_ok === true).length,
     bridge_input_events: bridgeInputs.length,
     readback_ms: summarizeNumbers(readbackMs),
+    max_channel_range: Math.max(0, ...frames.map((frame) => frame.sample_max_channel_range || 0)),
+    max_luma_range: Math.max(0, ...frames.map((frame) => frame.sample_luma_range || 0)),
+    saturated_ratio: summarizeNumbers(saturatedRatios),
     dropped_logs_max: Math.max(0, ...frames.map((frame) => frame.dropped_logs || 0)),
   };
 }

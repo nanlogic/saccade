@@ -628,6 +628,61 @@ Interpretation:
 - Non-local URLs do not use the local-only screenshot method by default; the
   runner falls back to the existing manual audit behavior.
 
+### Reflex Readback Gate
+
+The source ServoShell reflex bridge now records lightweight readback sample
+metrics:
+
+- `sample_saturated`
+- `sample_max_channel_range`
+- `sample_luma_range`
+
+These are per-frame summaries from the actual reflex
+`RenderingContext::read_to_image()` path. They do not write screenshots or raw
+pixels.
+
+Positive gate:
+
+```sh
+node scripts/probe_reflex_readback_canvas.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/debug/servoshell \
+  --variant bare-gradient2-size-1152x648 \
+  --duration-ms 2500 \
+  --window-size 1440x900
+```
+
+Result:
+
+```text
+REFLEX_READBACK_CANVAS route=readback_foreground_present ok=true frames=5 readback_ok=5 max_channel_range=235 max_luma_range=158 max_saturated_ratio=0.006338 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/reflex_readback_canvas_1781806982624/report.json
+```
+
+Negative control:
+
+```sh
+node scripts/probe_reflex_readback_canvas.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/debug/servoshell \
+  --variant bare-gradient2-only-size-1152x648 \
+  --duration-ms 1800 \
+  --window-size 1440x900
+```
+
+Result:
+
+```text
+REFLEX_READBACK_CANVAS route=readback_blank_or_flat ok=false frames=5 readback_ok=5 max_channel_range=19 max_luma_range=9 max_saturated_ratio=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/reflex_readback_canvas_1781807000176/report.json
+```
+
+Conclusion:
+
+- The source ServoShell reflex readback path can see the Canvas2D foreground in
+  the focused reduction.
+- The gate rejects a gradient-only control, so the pass is not just "any
+  non-white page."
+- The remaining Canvas/WebGL caution is now about broader live-game/site
+  coverage, not a blanket inability for reflex `read_to_image()` to observe
+  Canvas2D foreground.
+
 ## Minimal Fixture
 
 Added:
@@ -701,32 +756,21 @@ WEBGL_RUNTIME DIAG route=green canvas2d=ok webgl_context=ok texture=ok read_pixe
 
 ## Interpretation
 
-BP-011 is now a P1 dogfood blocker, not P2 polish.
+BP-011 is now in monitoring mode rather than a blanket "Canvas is broken" gate.
 
 Current evidence says:
 
-- 2D canvas is healthy on the small minimal fixture, but full-window Canvas2D is red in the new reductions.
-- Small 1x Canvas2D reductions are captured correctly, which narrows BP-011 away from "all Canvas2D is broken."
-- Large linear-gradient-backed Canvas2D with foreground drawing and DPR-backed Canvas2D are the current minimal red triggers; solid fill, transparent foreground drawing, and gradient-only drawing can capture at `1152x648`.
-- Foreground-first and delayed-foreground reductions are still red, so BP-011 is not explained by simple gradient-before-foreground ordering.
-- Page-side canvas `getImageData()` sees foreground-like pixels in red Saccade runs, while the audit screenshot misses them, so the current failure is after canvas backing update.
-- 1x opaque Canvas2D goes red between about `962x542` and `1154x650` backing pixels in the current screenshot path.
-- Bare repeatability checks show mid-size results can flip, so BP-011 must treat screenshot readback/presentation timing as part of the bug.
+- Non-hot diagnostics should prefer Servo `WebView::take_screenshot()` or Chrome/reference. The local Canvas2D red reduction is green through `take_screenshot()` and red only through the old manual diagnostic path.
+- The source ServoShell reflex bridge can see the focused Canvas2D foreground through the actual `RenderingContext::read_to_image()` path.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
-- The live-game pixel probe now reproduces the missing gameplay layer after CSS viewport normalization.
-- The Canvas2D reductions reproduce the same missing gameplay-layer symptom without requiring WebGL context creation or GL texture warnings.
-- The live-game page/canvas probe narrows the failure to `render_pipeline_after_dom_ready`: both engines have a visible `canvas#game`, but Saccade misses the rendered gameplay pixels.
-- The macOS GL path can still emit texture unloadable warnings under some Saccade/WebRender page paths.
-- The real local game loses important gameplay visual layers in Saccade while Chrome shows them.
+- Broad canvas/WebGL-heavy site judgement still needs per-site or per-game evidence. The macOS GL path can emit texture unloadable warnings, and some real pages can still stall or fail independently of Saccade-specific code.
 
 ## Next Step
 
-Debug the Saccade/Servo canvas/runtime path before broad game/canvas dogfood:
+Keep the evidence split explicit:
 
-1. Use `scripts/probe_webgl_game_runtime.py` as the live-game red/green gate.
-2. Use `scripts/probe_canvas_reductions.py` as the Canvas2D red gate.
-3. Use `--repeat` for BP-011 reduction gates and classify only stable red/green results.
-4. Park active BP-011 debugging unless a canvas-heavy dogfood task blocks launch work.
-5. When resumed, compare Servo `WebView::take_screenshot()` against the current manual `paint()+read_to_image()` audit path.
-6. Keep WebGL reductions too, but classify the current live game as canvas/compositor/paint presentation until a WebGL context is actually observed.
-7. Keep routing canvas/WebGL-heavy product judgement to Chrome/reference until the real game path is green too.
+1. Use `scripts/probe_webgl_game_runtime.py` for live-game red/green checks.
+2. Use `scripts/probe_canvas_reductions.py` for diagnostic screenshot checks, defaulting to `take-local`.
+3. Use `scripts/probe_reflex_readback_canvas.js` for the source ServoShell reflex readback gate.
+4. Optional AI-008D: expand the reflex readback gate to the live local game when the game server is running.
+5. Route broad canvas/WebGL-heavy product judgement to Chrome/reference until the specific target has a Saccade evidence artifact.
