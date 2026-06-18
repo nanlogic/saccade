@@ -48,6 +48,17 @@ fn env_flag(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn url_allows_diagnostic_screenshot(url: &Url) -> bool {
+    if url.scheme() == "file" {
+        return true;
+    }
+    matches!(
+        (url.scheme(), url.host_str()),
+        ("http", Some("127.0.0.1" | "localhost" | "::1"))
+            | ("https", Some("127.0.0.1" | "localhost" | "::1"))
+    )
+}
+
 #[derive(Clone)]
 pub struct BrowserSessionWorkerConfig {
     pub url: Url,
@@ -186,6 +197,9 @@ enum ActiveRequest {
         id: Value,
     },
     WebglPageProbe {
+        id: Value,
+    },
+    TakeScreenshotAudit {
         id: Value,
     },
     TypeFocusedPreflight {
@@ -1032,6 +1046,7 @@ fn start_next_request(state: &Rc<WorkerState>, webview: &WebView, event_loop: &A
         "inspect_editors" => start_inspect_editors_request(state, webview, id),
         "webgl_runtime_probe" => start_webgl_runtime_probe_request(state, webview, id),
         "webgl_page_probe" => start_webgl_page_probe_request(state, webview, id),
+        "take_screenshot_audit" => start_take_screenshot_audit_request(state, webview, id),
         "type_focused_text" => start_type_focused_text_request(state, webview, id, request.params),
         "formmax_live_fill" => start_formmax_live_fill_request(state, webview, id, request.params),
         "close" => {
@@ -1378,6 +1393,29 @@ fn process_current(state: &Rc<WorkerState>, webview: &WebView, _event_loop: &Act
             Some(Err(error)) => respond_error(state, id, error),
             None => {
                 *state.current.borrow_mut() = Some(ActiveRequest::WebglPageProbe { id });
+            }
+        },
+        ActiveRequest::TakeScreenshotAudit { id } => match finish_probe(&state.pending_probe) {
+            Some(Ok(probe)) => match serde_json::from_str::<Value>(&probe) {
+                Ok(value) => {
+                    if let Some(path) = value.get("screenshot").and_then(Value::as_str) {
+                        state.screenshots.borrow_mut().push(path.to_string());
+                    }
+                    respond_ok(
+                        state,
+                        id,
+                        take_screenshot_audit_response(state, webview, &value),
+                    );
+                }
+                Err(error) => respond_error(
+                    state,
+                    id,
+                    format!("failed to parse take_screenshot audit result: {error}"),
+                ),
+            },
+            Some(Err(error)) => respond_error(state, id, error),
+            None => {
+                *state.current.borrow_mut() = Some(ActiveRequest::TakeScreenshotAudit { id });
             }
         },
         ActiveRequest::TypeFocusedPreflight { id, text } => {
@@ -1740,6 +1778,51 @@ fn start_webgl_page_probe_request(state: &Rc<WorkerState>, webview: &WebView, id
         });
     });
     *state.current.borrow_mut() = Some(ActiveRequest::WebglPageProbe { id });
+}
+
+fn start_take_screenshot_audit_request(state: &Rc<WorkerState>, webview: &WebView, id: Value) {
+    if !url_allows_diagnostic_screenshot(&state.target_url) {
+        respond_error(
+            state,
+            id,
+            format!(
+                "take_screenshot_audit is local-fixture only; refused {}",
+                state.target_url.as_str()
+            ),
+        );
+        return;
+    }
+
+    *state.pending_probe.borrow_mut() = None;
+    let pending = state.pending_probe.clone();
+    let path = state.output_dir.join(format!(
+        "take_screenshot_rev{}.png",
+        state.page_revision.get()
+    ));
+    webview.take_screenshot(None, move |result| {
+        *pending.borrow_mut() = Some(match result {
+            Ok(image) => {
+                let width = image.width();
+                let height = image.height();
+                let path_text = path.display().to_string();
+                match image.save(&path) {
+                    Ok(()) => serde_json::to_string(&json!({
+                        "status": "ok",
+                        "mode": "servo_webview_take_screenshot",
+                        "screenshot": path_text,
+                        "image": {
+                            "width": width,
+                            "height": height,
+                        },
+                    }))
+                    .map_err(|error| error.to_string()),
+                    Err(error) => Err(format!("failed to save {}: {error}", path.display())),
+                }
+            }
+            Err(error) => Err(format!("take_screenshot failed: {error:?}")),
+        });
+    });
+    *state.current.borrow_mut() = Some(ActiveRequest::TakeScreenshotAudit { id });
 }
 
 fn request_probe(state: &Rc<WorkerState>, webview: &WebView) {
@@ -2175,6 +2258,43 @@ fn webgl_page_probe_response(state: &Rc<WorkerState>, page_probe: &Value) -> Val
         "visible_canvas_count": visible_canvas_count,
         "webgl_canvas_count": webgl_canvas_count,
         "page_probe": page_probe,
+        "artifacts": artifact_paths(state),
+    })
+}
+
+fn take_screenshot_audit_response(
+    state: &Rc<WorkerState>,
+    webview: &WebView,
+    screenshot_result: &Value,
+) -> Value {
+    log_replay(
+        state,
+        json!({
+            "kind": "take_screenshot_audit_completed",
+            "run_id": state.run_id.as_str(),
+            "page_revision": state.page_revision.get(),
+            "screenshot": screenshot_result.get("screenshot").cloned().unwrap_or(Value::Null),
+            "values_logged": false,
+            "scope": "local_fixture_only",
+        }),
+    );
+    json!({
+        "status": "ok",
+        "runtime": "browser_session_worker_v0",
+        "engine": "saccade-browser-session-take-screenshot-audit-v0",
+        "summary": "Servo WebView::take_screenshot captured for local fixture diagnostics",
+        "rendering_profile": state.rendering_settings.profile.name(),
+        "renderer_engine": state.rendering_settings.profile.engine(),
+        "page_revision": state.page_revision.get(),
+        "runtime_geometry": runtime_geometry(state, webview),
+        "source_url": state.target_url.as_str(),
+        "screenshot": screenshot_result.get("screenshot").cloned().unwrap_or(Value::Null),
+        "image": screenshot_result.get("image").cloned().unwrap_or(Value::Null),
+        "policy": {
+            "scope": "local_fixture_only",
+            "values_logged": false,
+            "sensitive_gate": "caller must use normal audit/truth for real pages; this method refuses non-local URLs",
+        },
         "artifacts": artifact_paths(state),
     })
 }

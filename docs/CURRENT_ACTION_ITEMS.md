@@ -10,7 +10,7 @@ This file is the short, current action list. Use it with
 ## Now
 
 Active next item: AI-005 when Wayne is ready to log in to GitHub/Gist inside
-Saccade. Otherwise AI-008 is parked Canvas/WebGL investigation. Use
+Saccade. Otherwise continue AI-008 Canvas/WebGL readback investigation. Use
 `docs/site_policy_matrix.md` before dogfooding third-party logged-in or
 high-risk sites.
 
@@ -22,7 +22,9 @@ high-risk sites.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-008 | P1 | parked | Canvas/WebGL | Keep Canvas/WebGL routed to Chrome/reference until the Servo `take_screenshot()` versus manual readback path is re-investigated. | New investigation compares official ServoShell/reference, Saccade readback, and `take_screenshot()` on the reductions. |
+| AI-008 | P1 | investigating | Canvas/WebGL | Keep Canvas/WebGL-heavy dogfood routed to Chrome/reference until diagnostic screenshot and reflex readback paths are separated. | AI-008A proves `take_screenshot()` recovers the red Canvas2D reduction while manual readback stays blank; AI-008B splits diagnostic evidence from hot-loop readback. |
+| AI-008A | P1 | done | Canvas/WebGL | Compare Saccade manual `paint()+read_to_image()` against Servo `WebView::take_screenshot()` on local Canvas2D reductions. | `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/report.json` shows `manual_blocked=1`, `take_blocked=0`, `route=manual_readback_only`. |
+| AI-008B | P1 | next | Canvas/WebGL | Route non-hot diagnostic fixture screenshots to `take_screenshot()` where safe, and keep a separate gate for reflex hot-loop `read_to_image()`. | Diagnostic reports no longer overcall Canvas2D as red when only manual readback is blank; hot-loop readback has its own pass/fail evidence. |
 
 ## Recently Closed
 

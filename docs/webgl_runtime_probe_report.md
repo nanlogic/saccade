@@ -531,6 +531,59 @@ Observation:
 - The attempted runtime change was reverted.
 - BP-011 remains actionable but should be parked while other browser productization work continues. The next BP-011 step, when resumed, is Servo `WebView::take_screenshot()` versus the manual `paint()+read_to_image()` audit path.
 
+### Screenshot Path Comparison
+
+AI-008 resumed with a focused path comparison runner:
+
+```sh
+python3 scripts/probe_canvas_screenshot_paths.py \
+  --variants bare-gradient2-size-1152x648 bare-solid-size-1152x648 \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Result:
+
+```text
+CANVAS_SCREENSHOT_PATHS variants=2 errors=0 manual_blocked=1 take_blocked=0 route=manual_readback_only report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_screenshot_paths_1781805458432/report.json
+```
+
+Evidence:
+
+- Aggregate report: `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/report.json`
+- Red manual readback screenshot: `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/bare-gradient2-size-1152x648/saccade_manual_readback.png`
+- Red-case Servo `take_screenshot()` image: `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/bare-gradient2-size-1152x648/saccade_take_screenshot.png`
+- Red-case Chrome reference: `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/bare-gradient2-size-1152x648/chrome_page.png`
+
+Observation:
+
+- In `bare-gradient2-size-1152x648`, the manual audit path
+  `paint()+read_to_image()` produced a blank/white image:
+  `edge_ratio=0.0`, `saturated_ratio=0.0`, `luma_range=0.0`.
+- The same page and same worker captured the foreground correctly through
+  Servo `WebView::take_screenshot()`:
+  `edge_ratio=0.028048`, `saturated_ratio=0.007514`,
+  `luma_range=165.666667`.
+- Page-side canvas backing also contained the foreground:
+  `edgeRatio=0.034318`, `saturatedRatio=0.011096`,
+  `lumaRange=165.666667`.
+- Control variant `bare-solid-size-1152x648` stayed green on both manual
+  readback and `take_screenshot()`.
+
+Conclusion:
+
+- BP-011 is not a generic Canvas2D draw failure and not a blanket Servo
+  `take_screenshot()` failure.
+- The red reduction is currently a manual diagnostic readback/presentation
+  failure. For non-hot, non-sensitive visual evidence, use
+  `WebView::take_screenshot()` or Chrome/reference instead of relying only on
+  manual `read_to_image()`.
+- The reflex hot loop still cannot use `take_screenshot()` because it is
+  asynchronous and waits for stable rendering. The remaining launch-risk split
+  is to test whether the reflex/agent readback needs a different frame-ready or
+  readback sequencing path, while diagnostic screenshots can route to the
+  green Servo screenshot API.
+
 ## Minimal Fixture
 
 Added:

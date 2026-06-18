@@ -544,6 +544,31 @@
   ownership, or millisecond reflex-loop gates.
 - Do not patch the downloaded `/Applications/Servo.app` binary directly.
 
+## DECISION_BROWSER_023 - Canvas red gate is manual readback, not Servo screenshot API
+
+- Resumed AI-008/BP-011 with a same-page path comparison runner:
+  `scripts/probe_canvas_screenshot_paths.py`.
+- Added a local-fixture-only worker method, `take_screenshot_audit`, that calls
+  Servo `WebView::take_screenshot()` and refuses non-local URLs. This is a
+  diagnostic path only; normal real-page screenshot policy and sensitive-field
+  guards still use the regular audit/truth flow.
+- Latest path comparison:
+  `CANVAS_SCREENSHOT_PATHS variants=2 errors=0 manual_blocked=1 take_blocked=0 route=manual_readback_only report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_screenshot_paths_1781805458432/report.json`.
+- In `bare-gradient2-size-1152x648`, Saccade manual
+  `paint()+read_to_image()` produced a white screenshot with
+  `edge_ratio=0.0`, `saturated_ratio=0.0`, `luma_range=0.0`.
+- The same Servo tab's `WebView::take_screenshot()` captured the foreground
+  canvas correctly: `edge_ratio=0.028048`, `saturated_ratio=0.007514`,
+  `luma_range=165.666667`. Page-side canvas backing also had foreground
+  signal: `edgeRatio=0.034318`, `saturatedRatio=0.011096`.
+- Control variant `bare-solid-size-1152x648` stayed green on both manual and
+  `take_screenshot()` paths.
+- BP-011 is now narrowed again: for non-hot diagnostic screenshots, prefer
+  `WebView::take_screenshot()` on local/non-sensitive fixtures; do not trust
+  manual readback as the only visual evidence for Canvas2D reductions. The
+  reflex hot-loop path still needs its own readback gate because
+  `take_screenshot()` is asynchronous and not allowed in the millisecond loop.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over
