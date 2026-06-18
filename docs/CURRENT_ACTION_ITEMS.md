@@ -9,12 +9,11 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-009 when no Human login is available, or AI-005 when
-Wayne is ready to log in to GitHub/Gist inside Saccade. AI-012 is closed as
-the default official ServoShell bridge path; AI-004 remains the trusted visible
-badge task. AI-001 is blocked by the pinned Servo public API. Use
-`docs/site_policy_matrix.md` before dogfooding third-party logged-in or
-high-risk sites.
+Active next item: AI-005 when Wayne is ready to log in to GitHub/Gist inside
+Saccade. Otherwise the remaining queue is choice-based: AI-004 needs a trusted
+UI fork/hook, AI-008 is parked Canvas/WebGL investigation, and AI-001 is blocked
+by the pinned Servo public API. Use `docs/site_policy_matrix.md` before
+dogfooding third-party logged-in or high-risk sites.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
@@ -27,7 +26,6 @@ high-risk sites.
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
 | AI-008 | P1 | parked | Canvas/WebGL | Keep Canvas/WebGL routed to Chrome/reference until the Servo `take_screenshot()` versus manual readback path is re-investigated. | New investigation compares official ServoShell/reference, Saccade readback, and `take_screenshot()` on the reductions. |
-| AI-009 | P1 | open | DEVMAX | Add screenshot/finding crops and multi-action click verification polish. | DEVMAX gauntlet reports include crops for findings and verified multi-action receipts. |
 
 ## Recently Closed
 
@@ -55,6 +53,7 @@ high-risk sites.
 | AI-013F | current checkpoint | Added paste-ready Saccade dogfood/policy handoff instructions for other Codex sessions, including risk classes, owned-domain launch command, high-risk fallback, and `saccade.report.redacted_note`. Evidence: `docs/SACCADE_DOGFOOD_HANDOFF.md`. |
 | AI-013G | current checkpoint | Added `scripts/create_redacted_note_packet.js`, a convenience CLI that turns user-supplied redacted text into the existing MCP redacted-note packet without live-site access. Evidence: App Store Connect blocker sample run under `runs/redacted_notes/`. |
 | AI-013H | current checkpoint | Made site policy evidence-first: unknown third-party sites are `unmeasured_unknown` Yellow, and site-specific policy changes require real dogfood artifacts, reference-browser comparison, provider block evidence, or primary-source high-impact proof. Evidence: `cargo test -p saccade_core site_policy`. |
+| AI-009 | current checkpoint | Closed DEVMAX gauntlet evidence polish for browser-backed reports: Servo probe audits now write full-page screenshots, per-finding crop PNG artifacts, attach `screenshot_crop` evidence to each finding, record multi-action click receipts in report/replay, and the Servo fixture gate fails if any browser-backed finding lacks a crop or no case verifies multiple actions. Evidence: `runs/devmax/servo_selftest_1781796265942/summary.json`, `cargo check -p devmax`, `cargo run -q -p devmax -- selftest-servo-fixtures`, and `cargo run -q -p devmax -- selftest-fixtures`. |
 | AI-006 | current checkpoint | Added `test_pages/visual_parity/font_control_metrics/`, extra Chrome/Saccade probe fields for text/font/client/scroll metrics, and `scripts/browser_compat_metrics.py` with `GREEN/YELLOW/RED/INVALID_VIEWPORT` classification. Evidence: `docs/browser_compat_metrics_report.md`. |
 | AI-007 | current checkpoint | `scripts/browser_compat_metrics.py` now validates requested CSS viewport against Chrome truth, Saccade truth, and Saccade runtime geometry before trusting large-width comparisons. Evidence: `runs/browser_compat_metrics/metrics_1781650486498/browser_compat_metrics.json` marks `1600x760` as `INVALID_VIEWPORT` because Saccade is capped at `1440x760`. |
 | AI-010 | current checkpoint | Added a local dogfood release plan and kit builder. `scripts/build_dogfood_release.sh` builds release binaries into `dist/saccade-dogfood-*/` with `open-saccade`, `servoshell-bridge`, profile dir, env file, and docs. Icon decision: distinct Saccade icon; do not reuse official Servo icon without permission. Evidence: `docs/dogfood_release_plan.md`. |

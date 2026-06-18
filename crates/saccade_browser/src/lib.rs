@@ -23,7 +23,7 @@ pub use browser_session_worker::{
     BrowserSessionWorkerConfig, run_browser_session_worker, run_browser_session_worker_with_config,
 };
 pub use calibration::{CalibrationAttempt, CalibrationClick, CalibrationReport, calibrate_input};
-pub use devmax_probe::devmax_probe;
+pub use devmax_probe::{devmax_probe, devmax_probe_with_artifacts};
 pub use dogfood::{DogfoodBrowserConfig, run_dogfood_browser};
 pub use formmax_run::{
     FormmaxRunConfig, FormmaxRunReport, run_formmax_fixture, run_formmax_fixture_with_config,

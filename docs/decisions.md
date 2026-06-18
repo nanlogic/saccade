@@ -1072,3 +1072,23 @@
   `runs/servoshell_adapter/ai012_close_bridge_smoke_1781794791/report.json`.
 - Verification commands:
   `cargo test -p saccade-servoshell` and `cargo check -p saccade-mcp`.
+
+## DECISION_DEVMAX_021 - Browser-backed DEVMAX findings carry visual crops and action receipts
+
+- AI-009 is closed for browser-backed DEVMAX reports. Servo probe audits now
+  write a full-page screenshot, per-finding crop PNGs, and multi-action click
+  receipts.
+- Each browser-backed finding gets `evidence.screenshot_crop`; report artifacts
+  include `browser_screenshot`, `finding_crops`, and `action_receipts`; replay
+  includes `devmax_action_receipt` events.
+- The Servo fixture selftest now enforces the product bar: every browser-backed
+  finding must have a crop, and at least one fixture must verify multiple action
+  receipts. `button_no_handler` carries two inert buttons to prove this path.
+- HTTP status awareness for resource loads remains a separate DEVMAX follow-up,
+  not part of AI-009.
+- Evidence:
+  `runs/devmax/servo_selftest_1781796265942/summary.json`.
+- Verification commands:
+  `cargo check -p devmax`,
+  `cargo run -q -p devmax -- selftest-servo-fixtures`, and
+  `cargo run -q -p devmax -- selftest-fixtures`.

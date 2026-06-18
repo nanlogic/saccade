@@ -169,8 +169,9 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
    intact, attach Saccade bridge, and pass local game/FORMMAX/current-tab safety
    gates. Stop and platform chrome come from ServoShell or a thin fork.
 2. Editor/contenteditable gate: Gist-like editor and forum composer.
-3. DEVMAX gauntlet polish: multi-action verification, screenshots/finding crops,
-   Chrome comparison.
+3. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
+   comparison polish. Browser-backed finding crops and multi-action receipts
+   are closed in AI-009.
 4. MOUSEMAX evidence freeze/video/public report.
 5. Mac packaging/signing.
 

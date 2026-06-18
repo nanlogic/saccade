@@ -1,4 +1,6 @@
 use std::cell::{Cell, RefCell};
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -22,13 +24,22 @@ use winit::window::Window;
 const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 800;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+const MAX_CLICK_VERIFICATIONS: usize = 3;
 
 pub fn devmax_probe(url: Url) -> Result<Value> {
+    run_devmax_probe(url, None)
+}
+
+pub fn devmax_probe_with_artifacts(url: Url, artifact_dir: impl AsRef<Path>) -> Result<Value> {
+    run_devmax_probe(url, Some(artifact_dir.as_ref().to_path_buf()))
+}
+
+fn run_devmax_probe(url: Url, artifact_dir: Option<PathBuf>) -> Result<Value> {
     let event_loop = EventLoop::with_user_event()
         .build()
         .context("failed to create winit event loop")?;
     let result = Rc::new(RefCell::new(None));
-    let mut app = ProbeApp::new(&event_loop, url, result.clone());
+    let mut app = ProbeApp::new(&event_loop, url, artifact_dir, result.clone());
 
     event_loop
         .run_app(&mut app)
@@ -56,12 +67,17 @@ struct ProbeState {
     rendering_context: Rc<WindowRenderingContext>,
     webviews: RefCell<Vec<WebView>>,
     target_url: Url,
+    artifact_dir: Option<PathBuf>,
     started_at: Instant,
     phase: Cell<Phase>,
     pending_probe: Rc<RefCell<Option<std::result::Result<String, String>>>>,
     baseline_probe: RefCell<Option<Value>>,
+    before_click_probe: RefCell<Option<Value>>,
+    click_plan: RefCell<Vec<Value>>,
+    click_cursor: Cell<usize>,
     clicked_action: RefCell<Option<Value>>,
     click_dispatched_at: RefCell<Option<Instant>>,
+    click_receipts: RefCell<Vec<Value>>,
     console_messages: RefCell<Vec<Value>>,
     network_requests: RefCell<Vec<Value>>,
     result: Rc<RefCell<Option<std::result::Result<Value, String>>>>,
@@ -95,6 +111,7 @@ enum ProbeApp {
     Initial {
         waker: Waker,
         target_url: Url,
+        artifact_dir: Option<PathBuf>,
         result: Rc<RefCell<Option<std::result::Result<Value, String>>>>,
     },
     Running {
@@ -107,11 +124,13 @@ impl ProbeApp {
     fn new(
         event_loop: &EventLoop<WakerEvent>,
         target_url: Url,
+        artifact_dir: Option<PathBuf>,
         result: Rc<RefCell<Option<std::result::Result<Value, String>>>>,
     ) -> Self {
         Self::Initial {
             waker: Waker::new(event_loop),
             target_url,
+            artifact_dir,
             result,
         }
     }
@@ -146,15 +165,19 @@ impl ProbeApp {
                     return;
                 };
                 match serde_json::from_str(&probe) {
-                    Ok(value) => {
-                        if let Some(action) = first_click_candidate(&value) {
-                            click_action(&state, &webview, &action);
-                            *state.baseline_probe.borrow_mut() = Some(value);
+                    Ok(mut value) => {
+                        let plan = click_candidates(&value);
+                        *state.click_plan.borrow_mut() = plan;
+                        state.click_cursor.set(0);
+                        if let Some(mut action) = next_click_candidate(&state) {
+                            let dispatch_point = click_action(&state, &webview, &action);
+                            action["dispatchPoint"] = dispatch_point;
+                            *state.baseline_probe.borrow_mut() = Some(value.clone());
+                            *state.before_click_probe.borrow_mut() = Some(value);
                             *state.clicked_action.borrow_mut() = Some(action);
                             *state.click_dispatched_at.borrow_mut() = Some(Instant::now());
                             state.phase.set(Phase::ClickDispatched);
                         } else {
-                            let mut value = value;
                             append_delegate_observations(&state, &mut value);
                             webview.paint();
                             if let Some(screenshot) = screenshot_summary(&state, &value) {
@@ -188,6 +211,28 @@ impl ProbeApp {
                 };
                 match serde_json::from_str(&probe) {
                     Ok(after_click) => {
+                        let before_click = state
+                            .before_click_probe
+                            .borrow_mut()
+                            .take()
+                            .unwrap_or(Value::Null);
+                        let receipt = click_verification_summary(
+                            state.clicked_action.borrow().as_ref(),
+                            &before_click,
+                            &after_click,
+                        );
+                        state.click_receipts.borrow_mut().push(receipt);
+
+                        if let Some(mut action) = next_click_candidate(&state) {
+                            let dispatch_point = click_action(&state, &webview, &action);
+                            action["dispatchPoint"] = dispatch_point;
+                            *state.before_click_probe.borrow_mut() = Some(after_click);
+                            *state.clicked_action.borrow_mut() = Some(action);
+                            *state.click_dispatched_at.borrow_mut() = Some(Instant::now());
+                            state.phase.set(Phase::ClickDispatched);
+                            return;
+                        }
+
                         let mut value = state
                             .baseline_probe
                             .borrow_mut()
@@ -198,11 +243,10 @@ impl ProbeApp {
                             value["screenshot"] = screenshot;
                         }
                         value["afterClick"] = after_click.clone();
-                        value["clickVerification"] = click_verification_summary(
-                            state.clicked_action.borrow().as_ref(),
-                            &value,
-                            &after_click,
-                        );
+                        let receipts = state.click_receipts.borrow().clone();
+                        value["clickVerification"] =
+                            receipts.first().cloned().unwrap_or(Value::Null);
+                        value["clickVerifications"] = Value::Array(receipts);
                         finish_ok(&state, event_loop, value);
                         state.phase.set(Phase::Done);
                         *self = Self::Finished;
@@ -229,6 +273,7 @@ impl ApplicationHandler<WakerEvent> for ProbeApp {
         let Self::Initial {
             waker,
             target_url,
+            artifact_dir,
             result,
         } = self
         else {
@@ -299,12 +344,17 @@ impl ApplicationHandler<WakerEvent> for ProbeApp {
             rendering_context,
             webviews: RefCell::new(Vec::new()),
             target_url: target_url.clone(),
+            artifact_dir: artifact_dir.clone(),
             started_at: Instant::now(),
             phase: Cell::new(Phase::Load),
             pending_probe: Rc::new(RefCell::new(None)),
             baseline_probe: RefCell::new(None),
+            before_click_probe: RefCell::new(None),
+            click_plan: RefCell::new(Vec::new()),
+            click_cursor: Cell::new(0),
             clicked_action: RefCell::new(None),
             click_dispatched_at: RefCell::new(None),
+            click_receipts: RefCell::new(Vec::new()),
             console_messages: RefCell::new(Vec::new()),
             network_requests: RefCell::new(Vec::new()),
             result: result.clone(),
@@ -410,12 +460,13 @@ fn append_delegate_observations(state: &Rc<ProbeState>, value: &mut Value) {
     });
 }
 
-fn first_click_candidate(probe: &Value) -> Option<Value> {
+fn click_candidates(probe: &Value) -> Vec<Value> {
     probe
         .get("actions")
-        .and_then(Value::as_array)?
-        .iter()
-        .find(|action| {
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|action| {
             !action
                 .get("disabled")
                 .and_then(Value::as_bool)
@@ -431,9 +482,20 @@ fn first_click_candidate(probe: &Value) -> Option<Value> {
                 && action.get("blockedBy").is_none_or(Value::is_null)
         })
         .cloned()
+        .take(MAX_CLICK_VERIFICATIONS)
+        .collect()
 }
 
-fn click_action(state: &Rc<ProbeState>, webview: &WebView, action: &Value) {
+fn next_click_candidate(state: &Rc<ProbeState>) -> Option<Value> {
+    let index = state.click_cursor.get();
+    let action = state.click_plan.borrow().get(index).cloned();
+    if action.is_some() {
+        state.click_cursor.set(index + 1);
+    }
+    action
+}
+
+fn click_action(state: &Rc<ProbeState>, webview: &WebView, action: &Value) -> Value {
     let rect = action.get("rect").unwrap_or(&Value::Null);
     let x = (value_f64(rect, "left") + value_f64(rect, "width") / 2.0) as f32;
     let y = (value_f64(rect, "top") + value_f64(rect, "height") / 2.0) as f32;
@@ -450,6 +512,7 @@ fn click_action(state: &Rc<ProbeState>, webview: &WebView, action: &Value) {
         page_point,
     )));
     state.window.request_redraw();
+    json!({ "x": x, "y": y })
 }
 
 fn click_verification_summary(
@@ -547,7 +610,7 @@ fn screenshot_summary(state: &Rc<ProbeState>, probe: &Value) -> Option<Value> {
         })
         .unwrap_or_default();
 
-    Some(json!({
+    let mut summary = json!({
         "width": width,
         "height": height,
         "sampled_pixels": sampled,
@@ -556,7 +619,177 @@ fn screenshot_summary(state: &Rc<ProbeState>, probe: &Value) -> Option<Value> {
         "dark_pixels": dark,
         "transparent_pixels": transparent,
         "canvas_checks": canvas_checks,
+    });
+
+    if let Some(artifact_dir) = &state.artifact_dir
+        && let Some(artifacts) = write_screenshot_artifacts(&image, probe, artifact_dir)
+    {
+        summary["page_png"] = artifacts.get("page_png").cloned().unwrap_or(Value::Null);
+        summary["crops"] = artifacts.get("crops").cloned().unwrap_or(Value::Null);
+    }
+
+    Some(summary)
+}
+
+fn write_screenshot_artifacts(
+    image: &image::RgbaImage,
+    probe: &Value,
+    artifact_dir: &Path,
+) -> Option<Value> {
+    fs::create_dir_all(artifact_dir).ok()?;
+    let crop_dir = artifact_dir.join("crops");
+    fs::create_dir_all(&crop_dir).ok()?;
+
+    let page_path = artifact_dir.join("page.png");
+    image.save(&page_path).ok()?;
+
+    let mut crops = Vec::new();
+    crops.push(json!({
+        "category": "page",
+        "path": page_path.display().to_string(),
+        "rect": {
+            "left": 0,
+            "top": 0,
+            "right": image.width(),
+            "bottom": image.height(),
+            "width": image.width(),
+            "height": image.height(),
+        },
+        "crop_rect": {
+            "left": 0,
+            "top": 0,
+            "right": image.width(),
+            "bottom": image.height(),
+            "width": image.width(),
+            "height": image.height(),
+        },
+    }));
+
+    for action in probe
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let index = action.get("index").and_then(Value::as_u64).unwrap_or(0);
+        let label = action
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or("action");
+        let path = crop_dir.join(format!("action_{index}_{}.png", slug(label)));
+        if let Some(mut crop) = save_crop(image, action.get("rect").unwrap_or(&Value::Null), &path)
+        {
+            crop["category"] = json!("action");
+            crop["index"] = json!(index);
+            crop["label"] = json!(label);
+            crops.push(crop);
+        }
+    }
+
+    for (index, issue) in probe
+        .get("invisibleText")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let selector = issue
+            .get("selector")
+            .and_then(Value::as_str)
+            .unwrap_or("text");
+        let path = crop_dir.join(format!("invisible_text_{index}_{}.png", slug(selector)));
+        if let Some(mut crop) = save_crop(image, issue.get("rect").unwrap_or(&Value::Null), &path) {
+            crop["category"] = json!("invisible_text");
+            crop["selector"] = json!(selector);
+            crops.push(crop);
+        }
+    }
+
+    for canvas in probe
+        .get("canvases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let index = canvas.get("index").and_then(Value::as_u64).unwrap_or(0);
+        let selector = canvas
+            .get("selector")
+            .and_then(Value::as_str)
+            .unwrap_or("canvas");
+        let path = crop_dir.join(format!("canvas_{index}_{}.png", slug(selector)));
+        if let Some(mut crop) = save_crop(image, canvas.get("rect").unwrap_or(&Value::Null), &path)
+        {
+            crop["category"] = json!("canvas");
+            crop["index"] = json!(index);
+            crop["selector"] = json!(selector);
+            crops.push(crop);
+        }
+    }
+
+    Some(json!({
+        "page_png": page_path.display().to_string(),
+        "crops": crops,
     }))
+}
+
+fn save_crop(image: &image::RgbaImage, rect: &Value, path: &Path) -> Option<Value> {
+    let padding = 12.0;
+    let left = (value_f64(rect, "left") - padding)
+        .floor()
+        .max(0.0)
+        .min(image.width() as f64) as u32;
+    let top = (value_f64(rect, "top") - padding)
+        .floor()
+        .max(0.0)
+        .min(image.height() as f64) as u32;
+    let right = (value_f64(rect, "right") + padding)
+        .ceil()
+        .max(0.0)
+        .min(image.width() as f64) as u32;
+    let bottom = (value_f64(rect, "bottom") + padding)
+        .ceil()
+        .max(0.0)
+        .min(image.height() as f64) as u32;
+    if right <= left || bottom <= top {
+        return None;
+    }
+
+    let width = right - left;
+    let height = bottom - top;
+    let crop = image::imageops::crop_imm(image, left, top, width, height).to_image();
+    crop.save(path).ok()?;
+    Some(json!({
+        "path": path.display().to_string(),
+        "rect": rect,
+        "crop_rect": {
+            "left": left,
+            "top": top,
+            "right": right,
+            "bottom": bottom,
+            "width": width,
+            "height": height,
+        },
+    }))
+}
+
+fn slug(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+        if out.len() >= 48 {
+            break;
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        "item".into()
+    } else {
+        trimmed.into()
+    }
 }
 
 fn canvas_pixel_check(image: &image::RgbaImage, canvas: &Value) -> Value {

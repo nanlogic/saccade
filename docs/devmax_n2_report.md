@@ -1,7 +1,7 @@
 # Saccade N2 DEVMAX Local Self-Test Report
 
 Date: 2026-06-11
-Updated: 2026-06-12
+Updated: 2026-06-18
 
 ## Result
 
@@ -40,7 +40,7 @@ cargo run -q -p devmax -- selftest-servo-fixtures
 Observed output:
 
 ```text
-DEVMAX SERVO FIXTURES PASS total=8 detected=8 false_positives=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781227051278
+DEVMAX SERVO FIXTURES PASS total=8 detected=8 false_positives=0 finding_crops=8 multi_action_receipt_cases=1 report=/Users/waynema/Documents/GitHub/SACCADE/runs/devmax/servo_selftest_1781796265942
 ```
 
 ## What Was Built
@@ -101,8 +101,18 @@ The first gate is `engine=static-fixture-v0`; the new browser-backed path is `en
 
 Together they prove the DEVMAX CLI/report contract, fixture corpus, replay artifact shape, browser-computed layout/style truth path, screenshot pixel checks for blank canvas regions, real click verification for enabled actions, and Servo delegate capture for console messages and resource-load requests.
 
+AI-009 evidence polish is now closed for browser-backed reports:
+
+- Servo audits write a full-page screenshot artifact plus per-finding crop PNGs.
+- Each browser-backed finding carries `evidence.screenshot_crop`.
+- Reports and replay include verified action receipts from the native click path.
+- The Servo fixture gate fails if any browser-backed finding lacks a crop or if
+  no case verifies multiple actions.
+- The `button_no_handler` fixture now has two inert actions, producing receipts
+  for both `Save` and `Preview`.
+
 Remaining DEVMAX gauntlet work:
 
 ```text
-Add per-finding screenshot crops, expand click verification from one action to multi-action smoke flows, and add HTTP status awareness for resource loads.
+Add HTTP status awareness for resource loads.
 ```

@@ -150,6 +150,12 @@ struct ReportArtifacts {
     report: Option<String>,
     replay: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    browser_screenshot: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    finding_crops: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    action_receipts: Vec<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     chrome_manifest: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     chrome_screenshot: Option<String>,
@@ -166,6 +172,9 @@ struct SelftestCaseResult {
     expected: String,
     detected: bool,
     false_positives: usize,
+    finding_crops: usize,
+    missing_finding_crops: usize,
+    action_receipts: usize,
     report: String,
     replay: String,
 }
@@ -176,6 +185,9 @@ struct SelftestSummary {
     total: usize,
     detected: usize,
     false_positives: usize,
+    finding_crops: usize,
+    missing_finding_crops: usize,
+    multi_action_receipt_cases: usize,
     output_dir: String,
     cases: Vec<SelftestCaseResult>,
 }
@@ -205,7 +217,9 @@ fn audit(url: Url, engine: String, replay: bool) -> Result<()> {
             analyze_html(run_id.clone(), url.clone(), &html, None)?
         }
         "servo" => {
-            let probe = saccade_browser::devmax_probe(url.clone())?;
+            let probe_artifacts = output_dir.join("browser_artifacts");
+            let probe =
+                saccade_browser::devmax_probe_with_artifacts(url.clone(), &probe_artifacts)?;
             analyze_servo_probe(run_id.clone(), url.clone(), probe)?
         }
         "chrome" => analyze_chrome_reference(run_id.clone(), url.clone(), &output_dir)?,
@@ -292,6 +306,9 @@ fn selftest_fixtures() -> Result<()> {
             expected,
             detected: expected_detected,
             false_positives: case_false_positives,
+            finding_crops: report.artifacts.finding_crops.len(),
+            missing_finding_crops: missing_finding_crops(&report),
+            action_receipts: report.artifacts.action_receipts.len(),
             report: report_path.display().to_string(),
             replay: replay_path.display().to_string(),
         });
@@ -302,6 +319,9 @@ fn selftest_fixtures() -> Result<()> {
         total: cases.len(),
         detected,
         false_positives,
+        finding_crops: cases.iter().map(|case| case.finding_crops).sum(),
+        missing_finding_crops: cases.iter().map(|case| case.missing_finding_crops).sum(),
+        multi_action_receipt_cases: cases.iter().filter(|case| case.action_receipts > 1).count(),
         output_dir: output_dir.display().to_string(),
         cases,
     };
@@ -342,6 +362,8 @@ fn selftest_servo_fixtures() -> Result<()> {
     let mut cases = Vec::new();
     let mut detected = 0;
     let mut false_positives = 0;
+    let mut missing_crop_total = 0;
+    let mut multi_action_receipt_cases = 0;
 
     for fixture in SERVO_FIXTURES {
         let url = base_url
@@ -367,14 +389,21 @@ fn selftest_servo_fixtures() -> Result<()> {
             .iter()
             .filter(|finding| finding.kind != expected)
             .count();
+        let case_missing_crops = missing_finding_crops(&report);
+        let case_action_receipts = report.artifacts.action_receipts.len();
         detected += usize::from(expected_detected);
         false_positives += case_false_positives;
+        missing_crop_total += case_missing_crops;
+        multi_action_receipt_cases += usize::from(case_action_receipts > 1);
         cases.push(SelftestCaseResult {
             fixture: fixture.to_string(),
             url: url.to_string(),
             expected,
             detected: expected_detected,
             false_positives: case_false_positives,
+            finding_crops: report.artifacts.finding_crops.len(),
+            missing_finding_crops: case_missing_crops,
+            action_receipts: case_action_receipts,
             report: report_path.display().to_string(),
             replay: replay_path.display().to_string(),
         });
@@ -385,6 +414,9 @@ fn selftest_servo_fixtures() -> Result<()> {
         total: cases.len(),
         detected,
         false_positives,
+        finding_crops: cases.iter().map(|case| case.finding_crops).sum(),
+        missing_finding_crops: missing_crop_total,
+        multi_action_receipt_cases,
         output_dir: output_dir.display().to_string(),
         cases,
     };
@@ -393,21 +425,27 @@ fn selftest_servo_fixtures() -> Result<()> {
     if summary.total != SERVO_FIXTURES.len()
         || summary.detected != SERVO_FIXTURES.len()
         || summary.false_positives > MAX_FALSE_POSITIVES
+        || summary.missing_finding_crops > 0
+        || summary.multi_action_receipt_cases == 0
     {
         bail!(
-            "DEVMAX SERVO FIXTURES FAIL total={} detected={} false_positives={} report={}",
+            "DEVMAX SERVO FIXTURES FAIL total={} detected={} false_positives={} missing_finding_crops={} multi_action_receipt_cases={} report={}",
             summary.total,
             summary.detected,
             summary.false_positives,
+            summary.missing_finding_crops,
+            summary.multi_action_receipt_cases,
             output_dir.display(),
         );
     }
 
     println!(
-        "DEVMAX SERVO FIXTURES PASS total={} detected={} false_positives={} report={}",
+        "DEVMAX SERVO FIXTURES PASS total={} detected={} false_positives={} finding_crops={} multi_action_receipt_cases={} report={}",
         summary.total,
         summary.detected,
         summary.false_positives,
+        summary.finding_crops,
+        summary.multi_action_receipt_cases,
         output_dir.display(),
     );
     Ok(())
@@ -931,20 +969,13 @@ fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxR
         }
     }
 
-    if probe
-        .pointer("/clickVerification/no_effect")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+    if let Some(no_effect_receipt) = first_no_effect_receipt(&probe) {
         findings.push(finding(
             "button_no_handler",
             "high",
             Some("button, a, input, select, textarea, [role=button]"),
             "Browser click verification found an enabled action with no visible effect.",
-            probe
-                .get("clickVerification")
-                .cloned()
-                .unwrap_or(Value::Null),
+            json!({ "receipt": no_effect_receipt }),
         ));
     }
 
@@ -965,6 +996,9 @@ fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxR
         })
         .collect();
 
+    let mut artifacts = ReportArtifacts::default();
+    attach_probe_artifacts(&mut findings, &mut artifacts, &probe);
+
     Ok(DevmaxReport {
         run_id,
         engine: SERVO_ENGINE.into(),
@@ -977,7 +1011,7 @@ fn analyze_servo_probe(run_id: String, url: Url, probe: Value) -> Result<DevmaxR
         actions,
         findings,
         recommendations,
-        artifacts: ReportArtifacts::default(),
+        artifacts,
     })
 }
 
@@ -1171,6 +1205,9 @@ fn analyze_chrome_reference(run_id: String, url: Url, output_dir: &Path) -> Resu
         artifacts: ReportArtifacts {
             report: None,
             replay: None,
+            browser_screenshot: None,
+            finding_crops: Vec::new(),
+            action_receipts: Vec::new(),
             chrome_manifest: Some(manifest_path.display().to_string()),
             chrome_screenshot: Some(screenshot_path.display().to_string()),
             chrome_truth: Some(truth_path.display().to_string()),
@@ -1285,6 +1322,158 @@ fn collect_actions(html: &str) -> Vec<ActionInfo> {
         });
     }
     actions
+}
+
+fn first_no_effect_receipt(probe: &Value) -> Option<Value> {
+    probe
+        .get("clickVerifications")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|receipt| {
+            receipt
+                .get("no_effect")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .or_else(|| {
+            probe
+                .get("clickVerification")
+                .filter(|receipt| {
+                    receipt
+                        .get("no_effect")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
+                .cloned()
+        })
+}
+
+fn attach_probe_artifacts(
+    findings: &mut [Finding],
+    artifacts: &mut ReportArtifacts,
+    probe: &Value,
+) {
+    artifacts.browser_screenshot = probe
+        .pointer("/screenshot/page_png")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    artifacts.action_receipts = probe
+        .get("clickVerifications")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let crops = probe
+        .pointer("/screenshot/crops")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    for finding in findings.iter_mut() {
+        let Some(crop) = crop_for_finding(finding, &crops) else {
+            continue;
+        };
+        let crop_ref = json!({
+            "finding_id": finding.finding_id,
+            "kind": finding.kind,
+            "path": crop.get("path").cloned().unwrap_or(Value::Null),
+            "category": crop.get("category").cloned().unwrap_or(Value::Null),
+            "crop_rect": crop.get("crop_rect").cloned().unwrap_or(Value::Null),
+        });
+        set_evidence_field(&mut finding.evidence, "screenshot_crop", crop.clone());
+        artifacts.finding_crops.push(crop_ref);
+    }
+}
+
+fn missing_finding_crops(report: &DevmaxReport) -> usize {
+    report
+        .findings
+        .iter()
+        .filter(|finding| finding.evidence.get("screenshot_crop").is_none())
+        .count()
+}
+
+fn crop_for_finding(finding: &Finding, crops: &[Value]) -> Option<Value> {
+    match finding.kind.as_str() {
+        "canvas_chart_blank" => {
+            crop_by_category_and_selector(crops, "canvas", finding.selector.as_deref())
+        }
+        "invisible_text" => {
+            crop_by_category_and_selector(crops, "invisible_text", finding.selector.as_deref())
+        }
+        "button_no_handler" | "modal_blocks_page" | "offscreen_button" => {
+            crop_by_action_index(crops, &finding.evidence)
+                .or_else(|| crop_by_category(crops, "page"))
+        }
+        _ => crop_by_category(crops, "page"),
+    }
+}
+
+fn crop_by_category(crops: &[Value], category: &str) -> Option<Value> {
+    crops
+        .iter()
+        .find(|crop| {
+            crop.get("category")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value == category)
+        })
+        .cloned()
+}
+
+fn crop_by_category_and_selector(
+    crops: &[Value],
+    category: &str,
+    selector: Option<&str>,
+) -> Option<Value> {
+    let selector = selector.unwrap_or("");
+    crops
+        .iter()
+        .find(|crop| {
+            crop.get("category")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value == category)
+                && (selector.is_empty()
+                    || crop
+                        .get("selector")
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| value == selector))
+        })
+        .cloned()
+        .or_else(|| crop_by_category(crops, category))
+}
+
+fn crop_by_action_index(crops: &[Value], evidence: &Value) -> Option<Value> {
+    let action_index = evidence
+        .pointer("/receipt/action/index")
+        .or_else(|| evidence.pointer("/action/probe/index"))
+        .or_else(|| evidence.pointer("/probe/index"))
+        .or_else(|| evidence.pointer("/action/index"))
+        .and_then(Value::as_u64)?;
+
+    crops
+        .iter()
+        .find(|crop| {
+            crop.get("category")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value == "action")
+                && crop
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|index| index == action_index)
+        })
+        .cloned()
+}
+
+fn set_evidence_field(evidence: &mut Value, key: &str, value: Value) {
+    if !evidence.is_object() {
+        let original = std::mem::replace(evidence, Value::Null);
+        *evidence = json!({ "value": original });
+    }
+    if let Some(object) = evidence.as_object_mut() {
+        object.insert(key.to_string(), value);
+    }
 }
 
 fn finding(
@@ -1502,6 +1691,17 @@ fn write_replay(
                 "kind": "devmax_finding",
                 "run_id": run_id,
                 "finding": finding,
+            })
+        )?;
+    }
+    for receipt in &report.artifacts.action_receipts {
+        writeln!(
+            file,
+            "{}",
+            json!({
+                "kind": "devmax_action_receipt",
+                "run_id": run_id,
+                "receipt": receipt,
             })
         )?;
     }
