@@ -626,6 +626,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             "control_protocol_compat": "saccade-dogfood-control-v0"
         },
         "output_dir": cfg.output_dir.clone(),
+        "copilot_status_path": saccade_copilot_status_path(webdriver_port),
     });
 
     let result = (|| -> Result<(BridgeControlServer, PathBuf)> {
@@ -1573,6 +1574,7 @@ fn launch_servoshell_for_url(
     cmd.arg(format!("--webdriver={port}"));
     cmd.arg("--temporary-storage");
     cmd.arg(url);
+    configure_saccade_copilot_status_env(&mut cmd, port)?;
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -1786,6 +1788,7 @@ fn launch_servoshell(cfg: &ProbeConfig, port: u16) -> Result<Child> {
     cmd.arg(format!("--webdriver={port}"));
     cmd.arg("--temporary-storage");
     cmd.arg(&cfg.url);
+    configure_saccade_copilot_status_env(&mut cmd, port)?;
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -2596,6 +2599,10 @@ fn bridge_status_response(
 }
 
 fn bridge_copilot_state() -> Value {
+    bridge_copilot_state_for_visible_ui("official_servoshell_external_ui")
+}
+
+fn bridge_copilot_state_for_visible_ui(visible_ui: &str) -> Value {
     json!({
         "status": "granted",
         "badge": "Copilot Granted",
@@ -2606,7 +2613,7 @@ fn bridge_copilot_state() -> Value {
         "sensitive_values_visible_to_user": true,
         "sensitive_values_exposed_to_agent": false,
         "page_dom_injected": false,
-        "visible_ui": "official_servoshell_external_ui",
+        "visible_ui": visible_ui,
     })
 }
 
@@ -2616,7 +2623,24 @@ fn bridge_artifacts(state: &BridgeControlState) -> Value {
         "report": state.report_path.display().to_string(),
         "replay": state.replay_path.display().to_string(),
         "block_report": bridge_block_report_path(state).display().to_string(),
+        "copilot_status": saccade_copilot_status_path(state.webdriver_port).display().to_string(),
     })
+}
+
+fn saccade_copilot_status_path(port: u16) -> PathBuf {
+    std::env::temp_dir().join(format!("saccade_copilot_status_{port}.json"))
+}
+
+fn configure_saccade_copilot_status_env(cmd: &mut ProcessCommand, port: u16) -> Result<()> {
+    let path = saccade_copilot_status_path(port);
+    write_json(
+        &path,
+        &json!({
+            "copilot": bridge_copilot_state_for_visible_ui("servoshell_thin_fork_chrome")
+        }),
+    )?;
+    cmd.env("SACCADE_COPILOT_STATUS_PATH", path);
+    Ok(())
 }
 
 fn bridge_block_report_path(state: &BridgeControlState) -> PathBuf {

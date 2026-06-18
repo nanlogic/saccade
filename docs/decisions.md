@@ -1092,3 +1092,33 @@
   `cargo check -p devmax`,
   `cargo run -q -p devmax -- selftest-servo-fixtures`, and
   `cargo run -q -p devmax -- selftest-fixtures`.
+
+## DECISION_SERVOSHELL_022 - Trusted Copilot badge belongs in source-fork browser chrome
+
+- AI-004 is closed for the first thin-fork product UI pass. The source
+  ServoShell fork at
+  `/Users/waynema/Documents/GitHub/servo-saccade-upstream` now draws a Saccade
+  Human/Copilot/blocked/error badge in the egui toolbar, next to the address
+  bar and outside webpage content.
+- The badge reads bridge-compatible Copilot JSON from
+  `SACCADE_COPILOT_STATUS_PATH` or direct env vars. It accepts the existing
+  `copilot.status`, `owner`, `read_grant`, `agent_input_grant`,
+  `user_confirmation_required_for_side_effects`,
+  `sensitive_values_exposed_to_agent`, and `page_dom_injected` fields.
+- Safety rule: if the status says sensitive values are exposed to the agent or
+  page DOM was injected, the badge forces an `AI Error` state. A webpage cannot
+  earn a trusted badge by changing DOM, CSS, or title text.
+- `saccade-servoshell` now writes a per-launch Copilot status file under the
+  system temp dir and passes `SACCADE_COPILOT_STATUS_PATH` to ServoShell. The
+  installed official ServoShell ignores the env var; the thin fork displays it.
+  Bridge reports and control artifacts record the status file path.
+- Codex's macOS `screencapture` path produced black screenshots in this session,
+  so visual proof should be confirmed by a human-visible run. Compile, parser,
+  and bridge evidence passed.
+- Evidence:
+  `runs/ai004_badge/bridge_smoke/report.json`.
+- Verification commands:
+  `cargo test -p servoshell saccade_copilot_badge`,
+  `cargo check -p servoshell`,
+  `cargo build -p servoshell --bin servoshell`, and
+  `cargo check -p saccade-servoshell`.
