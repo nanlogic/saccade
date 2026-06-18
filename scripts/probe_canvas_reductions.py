@@ -111,6 +111,7 @@ def main():
         "engine": "saccade-canvas-reductions-v0",
         "fixture": str(fixture),
         "repeat": args.repeat,
+        "saccade_screenshot_mode": args.saccade_screenshot_mode,
         "run_dir": str(run_dir),
         "variant_count": len(results),
         "variants": results,
@@ -140,6 +141,16 @@ def parse_args():
     parser.add_argument("--wait-sec", type=float, default=3.0)
     parser.add_argument("--timeout-sec", type=float, default=75.0)
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument(
+        "--saccade-screenshot-mode",
+        choices=["take-local", "take", "manual"],
+        default="take-local",
+        help=(
+            "Forwarded to probe_webgl_game_runtime.py. The default uses "
+            "Servo WebView::take_screenshot() for local fixture diagnostics "
+            "and manual audit readback for non-local URLs."
+        ),
+    )
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be >= 1")
@@ -162,6 +173,8 @@ def run_variant(args, fixture, run_dir, variant, iteration):
         str(args.width),
         "--height",
         str(args.height),
+        "--saccade-screenshot-mode",
+        args.saccade_screenshot_mode,
     ]
     output = subprocess.run(
         cmd,
@@ -186,6 +199,7 @@ def run_variant(args, fixture, run_dir, variant, iteration):
         summary["status"] = report.get("status", "unknown")
         summary["diagnosis"] = report.get("diagnosis", {}).get("route")
         summary["gl_warning"] = report.get("saccade", {}).get("gl_warning")
+        summary["saccade_screenshot_method"] = report.get("saccade", {}).get("screenshot_method")
         summary["metrics"] = {
             "chrome_edge": report.get("metrics", {}).get("chrome", {}).get("edge_ratio"),
             "saccade_edge": report.get("metrics", {}).get("saccade", {}).get("edge_ratio"),

@@ -584,6 +584,50 @@ Conclusion:
   readback sequencing path, while diagnostic screenshots can route to the
   green Servo screenshot API.
 
+### Diagnostic Screenshot Routing
+
+The Canvas runners now separate non-hot diagnostic screenshots from the
+manual/readback gate:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --variants bare-gradient2-size-1152x648 \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Default result:
+
+```text
+CANVAS_REDUCTIONS variants=1 blocked=0 green_or_review=1 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781806451861/report.json
+```
+
+This uses `saccade_screenshot_method=take_screenshot` for the local
+`file://` fixture. The same variant can still force the manual readback gate:
+
+```sh
+python3 scripts/probe_canvas_reductions.py \
+  --variants bare-gradient2-size-1152x648 \
+  --saccade-screenshot-mode manual \
+  --wait-sec 2 \
+  --timeout-sec 75
+```
+
+Manual result:
+
+```text
+CANVAS_REDUCTIONS variants=1 blocked=1 green_or_review=0 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781806531266/report.json
+```
+
+Interpretation:
+
+- `take-local` is now the default for local fixture diagnostics, so reports do
+  not mistake manual readback blankness for missing page canvas pixels.
+- `manual` remains the explicit red gate for the low-latency
+  `paint()+read_to_image()` path.
+- Non-local URLs do not use the local-only screenshot method by default; the
+  runner falls back to the existing manual audit behavior.
+
 ## Minimal Fixture
 
 Added:

@@ -104,12 +104,16 @@ python3 scripts/probe_webgl_game_runtime.py --url http://127.0.0.1:4173/ --wait-
 Run the Canvas2D reductions:
 
 ```bash
+# Default local fixture diagnostics use Servo WebView::take_screenshot().
 python3 scripts/probe_canvas_reductions.py --variants static dpr animated hud --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset sizing --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset threshold --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset threshold-bare --repeat 2 --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset fill --repeat 2 --wait-sec 2 --timeout-sec 75
 python3 scripts/probe_canvas_reductions.py --preset gradient --repeat 2 --wait-sec 2 --timeout-sec 75
+
+# Force the low-latency manual readback path when testing the reflex/readback gate.
+python3 scripts/probe_canvas_reductions.py --variants bare-gradient2-size-1152x648 --saccade-screenshot-mode manual --wait-sec 2 --timeout-sec 75
 ```
 
 ## Current controls

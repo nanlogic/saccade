@@ -569,6 +569,25 @@
   reflex hot-loop path still needs its own readback gate because
   `take_screenshot()` is asynchronous and not allowed in the millisecond loop.
 
+## DECISION_BROWSER_024 - Canvas diagnostics default to take-local screenshot mode
+
+- Updated `scripts/probe_webgl_game_runtime.py` with
+  `--saccade-screenshot-mode take-local|take|manual`, defaulting to
+  `take-local`.
+- `take-local` uses Servo `WebView::take_screenshot()` for `file://`,
+  `localhost`, `127.0.0.1`, and `::1` fixture diagnostics, then falls back to
+  the existing manual audit readback path for non-local URLs.
+- Updated `scripts/probe_canvas_reductions.py` to pass the screenshot mode
+  through and record `saccade_screenshot_method` per variant.
+- Focused default gate:
+  `CANVAS_REDUCTIONS variants=1 blocked=0 green_or_review=1 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781806451861/report.json`.
+- Same variant forced through manual readback:
+  `CANVAS_REDUCTIONS variants=1 blocked=1 green_or_review=0 errors=0 report=/Users/waynema/Documents/GitHub/SACCADE/runs/webgl_runtime/canvas_reductions_1781806531266/report.json`.
+- Therefore AI-008B is closed: local diagnostic reports no longer overcall
+  Canvas2D as red when only manual readback is blank. Manual/readback remains a
+  deliberate gate via `--saccade-screenshot-mode manual` for hot-loop and
+  readback-specific work.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over

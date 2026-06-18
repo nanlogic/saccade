@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 
 import visual_parity_compare as parity
 
@@ -24,6 +25,7 @@ def main():
         "url": args.url,
         "viewport": {"width": args.width, "height": args.height},
         "wait_sec": args.wait_sec,
+        "saccade_screenshot_mode": args.saccade_screenshot_mode,
         "run_dir": str(run_dir),
         "status": "running",
     }
@@ -57,6 +59,7 @@ def main():
             f"saccade_edge={metrics['saccade']['edge_ratio']:.6f} "
             f"chrome_sat={metrics['chrome']['saturated_ratio']:.6f} "
             f"saccade_sat={metrics['saccade']['saturated_ratio']:.6f} "
+            f"saccade_screenshot_method={saccade['screenshot_method']} "
             f"gl_warning={saccade['gl_warning']} "
             f"diagnosis={diagnosis['route']} "
             f"report={report_path}"
@@ -84,6 +87,16 @@ def parse_args():
     parser.add_argument("--min-saturated-ratio", type=float, default=0.0015)
     parser.add_argument("--min-smooth-channel-range", type=float, default=10.0)
     parser.add_argument("--min-smooth-luma-range", type=float, default=4.0)
+    parser.add_argument(
+        "--saccade-screenshot-mode",
+        choices=["take-local", "take", "manual"],
+        default="take-local",
+        help=(
+            "Saccade screenshot source for metric comparison. take-local uses "
+            "Servo WebView::take_screenshot() only for file/localhost URLs and "
+            "falls back to the existing manual audit path elsewhere."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -107,9 +120,11 @@ def capture_saccade(args, run_dir):
     ]
     env = os.environ.copy()
     env["RUST_LOG"] = "error"
+    screenshot_method = resolve_saccade_screenshot_method(args.saccade_screenshot_mode, args.url)
+    screenshot_request = "take_screenshot_audit" if screenshot_method == "take_screenshot" else "audit"
     input_text = (
         f'{{"id":1,"method":"ping"}}\n'
-        f'{{"id":2,"method":"audit"}}\n'
+        f'{{"id":2,"method":"{screenshot_request}"}}\n'
         f'{{"id":3,"method":"webgl_page_probe"}}\n'
         f'{{"id":4,"method":"close"}}\n'
     )
@@ -135,9 +150,11 @@ def capture_saccade(args, run_dir):
         raise RuntimeError(
             f"Saccade worker failed with {proc.returncode}\nstdout={stdout}\nstderr={stderr}"
         )
-    audit = json_response_by_id(stdout, 2)
-    if not audit or audit.get("ok") is not True:
-        raise RuntimeError(f"Saccade worker output did not include an ok audit response\n{stdout}")
+    screenshot_response = json_response_by_id(stdout, 2)
+    if not screenshot_response or screenshot_response.get("ok") is not True:
+        raise RuntimeError(
+            f"Saccade worker output did not include an ok {screenshot_request} response\n{stdout}"
+        )
 
     page_probe_response = json_response_by_id(stdout, 3)
     if not page_probe_response or page_probe_response.get("ok") is not True:
@@ -146,9 +163,9 @@ def capture_saccade(args, run_dir):
     saccade_page_probe_path = run_dir / "saccade_webgl_page_probe.json"
     saccade_page_probe_path.write_text(json.dumps(saccade_page_probe, indent=2, sort_keys=True) + "\n")
 
-    screenshot = audit.get("result", {}).get("visual_health", {}).get("screenshot")
+    screenshot = screenshot_path_from_response(screenshot_response, screenshot_method)
     if not screenshot:
-        raise RuntimeError(f"Saccade audit did not produce a screenshot\n{stdout}")
+        raise RuntimeError(f"Saccade {screenshot_request} did not produce a screenshot\n{stdout}")
     screenshot_path = pathlib.Path(screenshot)
     if not screenshot_path.is_absolute():
         screenshot_path = WORKSPACE / screenshot_path
@@ -158,13 +175,41 @@ def capture_saccade(args, run_dir):
     return {
         "screenshot": str(copied),
         "source_screenshot": str(screenshot_path),
-        "response": audit.get("result", {}),
+        "screenshot_method": screenshot_method,
+        "screenshot_request": screenshot_request,
+        "response": screenshot_response.get("result", {}),
         "webgl_page_probe": str(saccade_page_probe_path),
         "webgl_page_probe_summary": summarize_page_probe(saccade_page_probe),
         "gl_warning": "GLD_TEXTURE" in output or "texture unloadable" in output,
         "stdout": str(run_dir / "saccade_stdout.log"),
         "stderr": str(run_dir / "saccade_stderr.log"),
     }
+
+
+def resolve_saccade_screenshot_method(mode, url):
+    if mode == "manual":
+        return "manual_readback"
+    if mode == "take":
+        return "take_screenshot"
+    return "take_screenshot" if is_local_diagnostic_url(url) else "manual_readback"
+
+
+def is_local_diagnostic_url(url):
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme == "file":
+        return True
+    return parsed.scheme in ("http", "https") and parsed.hostname in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }
+
+
+def screenshot_path_from_response(response, method):
+    result = response.get("result", {})
+    if method == "take_screenshot":
+        return result.get("screenshot")
+    return result.get("visual_health", {}).get("screenshot")
 
 
 def capture_chrome(args, run_dir):
