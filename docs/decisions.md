@@ -626,6 +626,33 @@
 - This is an owned-site compatibility fix, not proof that Servo implements
   IntersectionObserver. Keep broad third-party pages routed until measured.
 
+## DECISION_BROWSER_027 - AI-008D live game reflex readback gate is green
+
+- Built the source-fork release ServoShell because the prior release binary had
+  been cleaned from `target/release/servoshell`.
+- Debug source ServoShell kept the Saccade reflex bridge but was not accepted as
+  product performance evidence for this gate: it produced readback, semantic
+  facts, and motor receipts, but game time advanced at only `time_scale=0.095`
+  in `runs/local_game_reflex/ai008d_live_game_1781809461/report.json`.
+- Downloaded official Servo.app ran the local game at normal speed
+  (`time_scale=0.983`) but did not have the Saccade `SACCADE_REFLEX_*`
+  command/readback bridge, so it produced zero readback frames and zero command
+  receipts in `runs/local_game_reflex/ai008d_official_probe_1781809552/report.json`.
+- Source-release ServoShell is therefore the accepted AI-008D target because it
+  has both normal timing and the in-process reflex bridge.
+- Gate command:
+  `node scripts/run_local_game_reflex_loop.js --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --url http://127.0.0.1:4173/ --headless --window-size 1280x900 --duration-ms 15000 --policy visual --output-dir runs/local_game_reflex/ai008d_live_game_release_1781810191`.
+- Result:
+  `live_game_reflex_readback_green`, `ok=true`, 1292/1292 readbacks,
+  foreground route `readback_foreground_present`, 176 semantic facts, 53
+  commands, 53 command receipts, `time_scale=0.989`, `fill_delta=12`,
+  `drop_delta=25`, and `hp_delta=0`.
+- Therefore AI-008D is closed for the local game: the hot-loop readback path,
+  Browser Fact Stream, semantic classification, visual motor policy, receipts,
+  replay, and review artifact all appear in one source-release artifact.
+- BP-011 remains monitoring for broad third-party Canvas/WebGL sites. Do not
+  generalize the local-game pass to unknown pages without evidence.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over

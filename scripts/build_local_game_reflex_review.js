@@ -205,6 +205,7 @@ function buildHtml({ runDir, report, replay, commands, semanticFacts }) {
   const frames = summary.frames || {};
   const browserFacts = summary.browser_facts || {};
   const semantic = summary.semantic_facts || {};
+  const readbackGate = summary.readback_gate || report.ai_008d?.gate || {};
   const dispatch = receipts.dispatch_ms || {};
   const readback = frames.readback_ms || {};
   const started = report.started_at_ms ? new Date(report.started_at_ms).toISOString() : "unknown";
@@ -371,6 +372,7 @@ function buildHtml({ runDir, report, replay, commands, semanticFacts }) {
         ${metricCard("Commands", fmt(summary.command_count), `${fmt(summary.command_receipts)} command receipts`)}
         ${metricCard("Dispatch p95", `${fmt(dispatch.p95)} ms`, `p50 ${fmt(dispatch.p50)} ms, max ${fmt(dispatch.max)} ms`)}
         ${metricCard("Readback p95", `${fmt(readback.p95)} ms`, `${fmt(frames.readback_ok)} / ${fmt(frames.count)} readback ok`)}
+        ${metricCard("AI-008D Gate", readbackGate.ok ? "PASS" : "FAIL", readbackGate.route || "n/a")}
         ${metricCard("Semantic Facts", fmt(semantic.count), `${fmt(browserFacts.visual_objects)} visual objects`)}
       </div>
     </section>

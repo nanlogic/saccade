@@ -683,6 +683,58 @@ Conclusion:
   coverage, not a blanket inability for reflex `read_to_image()` to observe
   Canvas2D foreground.
 
+### AI-008D Live Local Game Reflex Gate
+
+AI-008D expands the focused Canvas2D reflex readback gate to the real local
+game at `http://127.0.0.1:4173/`.
+
+Important split:
+
+- Downloaded official Servo.app runs the game at normal speed but does not have
+  Saccade's `SACCADE_REFLEX_*` command/readback bridge.
+- Source debug ServoShell has the bridge but is not accepted as product
+  performance evidence for this gate.
+- Source release ServoShell is the accepted target because it has both normal
+  game timing and the in-process reflex bridge.
+
+Command:
+
+```sh
+node scripts/run_local_game_reflex_loop.js \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --url http://127.0.0.1:4173/ \
+  --headless \
+  --window-size 1280x900 \
+  --duration-ms 15000 \
+  --policy visual \
+  --output-dir runs/local_game_reflex/ai008d_live_game_release_1781810191
+```
+
+Result:
+
+```text
+AI-008D route=live_game_reflex_readback_green ok=true readback=1292/1292 semantic_facts=176 visual_objects=176 commands=53 receipts=53 time_scale=0.989 fill_delta=12 hp_delta=0 report=runs/local_game_reflex/ai008d_live_game_release_1781810191/report.json
+```
+
+Artifacts:
+
+- Report: `runs/local_game_reflex/ai008d_live_game_release_1781810191/report.json`
+- Review: `runs/local_game_reflex/ai008d_live_game_release_1781810191/review.html`
+- Replay: `runs/local_game_reflex/ai008d_live_game_release_1781810191/replay.jsonl`
+- Browser facts: `runs/local_game_reflex/ai008d_live_game_release_1781810191/facts.jsonl`
+- Semantic facts: `runs/local_game_reflex/ai008d_live_game_release_1781810191/semantic_facts.jsonl`
+
+Conclusion:
+
+- The source-release reflex path sees live-game Canvas2D foreground through the
+  actual hot-loop readback channel.
+- The same artifact proves generic Browser Fact Stream visual objects,
+  local-game semantic facts, visual-policy motor commands, command receipts,
+  and stable game time.
+- AI-008D closes the local-game reflex readback concern. BP-011 remains in
+  monitoring mode for broad third-party Canvas/WebGL sites until each site has
+  its own evidence artifact.
+
 ## Minimal Fixture
 
 Added:
@@ -762,6 +814,9 @@ Current evidence says:
 
 - Non-hot diagnostics should prefer Servo `WebView::take_screenshot()` or Chrome/reference. The local Canvas2D red reduction is green through `take_screenshot()` and red only through the old manual diagnostic path.
 - The source ServoShell reflex bridge can see the focused Canvas2D foreground through the actual `RenderingContext::read_to_image()` path.
+- The source-release ServoShell reflex bridge also passes the live local game
+  gate with foreground readback, semantic facts, motor receipts, and normal
+  game timing in one artifact.
 - Simple WebGL can create a context, upload a texture, draw, read pixels, and sustain a healthy scripted baseline on the minimal fixture.
 - Broad canvas/WebGL-heavy site judgement still needs per-site or per-game evidence. The macOS GL path can emit texture unloadable warnings, and some real pages can still stall or fail independently of Saccade-specific code.
 
@@ -772,5 +827,5 @@ Keep the evidence split explicit:
 1. Use `scripts/probe_webgl_game_runtime.py` for live-game red/green checks.
 2. Use `scripts/probe_canvas_reductions.py` for diagnostic screenshot checks, defaulting to `take-local`.
 3. Use `scripts/probe_reflex_readback_canvas.js` for the source ServoShell reflex readback gate.
-4. Optional AI-008D: expand the reflex readback gate to the live local game when the game server is running.
+4. Use `scripts/run_local_game_reflex_loop.js --policy visual` as the live local-game AI-008D gate when the game server is running.
 5. Route broad canvas/WebGL-heavy product judgement to Chrome/reference until the specific target has a Saccade evidence artifact.

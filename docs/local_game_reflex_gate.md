@@ -174,7 +174,8 @@ Current evidence:
 
 ### R3: Reflex Latency Gate
 
-Status: partial pass for release bridge + v0 policy loop.
+Status: partial pass for release bridge, visual policy loop, and live-game
+readback gate.
 
 Current evidence:
 
@@ -234,6 +235,20 @@ Current evidence:
   `runs/local_game_reflex/release_visual_gate_1781530639/review.html`.
 - The reflex runner now writes `review.html` automatically after `report.json`,
   so each future gate run has a first-class human review artifact.
+- AI-008D live local-game readback gate:
+  `runs/local_game_reflex/ai008d_live_game_release_1781810191/report.json`.
+- Result: `ok=true`, `route=live_game_reflex_readback_green`, source-release
+  ServoShell, 1292/1292 readbacks, foreground route
+  `readback_foreground_present`, max channel range `235`, max luma range
+  `212`, max saturated ratio `0.008537`, 189 browser facts, 176 semantic
+  facts, 53 drag commands, 53 command receipts, game `time_scale=0.989`,
+  `fill_delta=12`, `drop_delta=25`, and `hp_delta=0`.
+- Review artifact:
+  `runs/local_game_reflex/ai008d_live_game_release_1781810191/review.html`.
+- Debug/official split: downloaded official Servo.app runs the game at normal
+  speed but lacks the Saccade reflex command/readback bridge; source debug
+  ServoShell has the bridge but is not accepted as product performance
+  evidence. Source release ServoShell is the accepted R3/AI-008D target.
 - Remaining limitation: the role classifier is still a heuristic local-game
   adapter. The next product step is to keep the Browser Fact Stream schema
   generic while allowing game-specific policy modules to consume the same

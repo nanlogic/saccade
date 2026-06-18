@@ -56,15 +56,38 @@ test("summaries count receipts and reflex frame events", () => {
   });
 
   const frames = summarizeReflexEvents([
-    { kind: "saccade_reflex_frame", readback_ok: true, readback_ns: 2_000_000, dropped_logs: 0 },
+    {
+      kind: "saccade_reflex_frame",
+      readback_ok: true,
+      readback_ns: 2_000_000,
+      sample_count: 1000,
+      sample_saturated: 4,
+      sample_max_channel_range: 120,
+      sample_luma_range: 70,
+      dropped_logs: 0,
+    },
     { kind: "saccade_reflex_test_drag", dispatch_ns: 20_000 },
-    { kind: "saccade_reflex_frame", readback_ok: true, readback_ns: 6_000_000, dropped_logs: 1 },
+    {
+      kind: "saccade_reflex_frame",
+      readback_ok: true,
+      readback_ns: 6_000_000,
+      sample_count: 1000,
+      sample_saturated: 1,
+      sample_max_channel_range: 90,
+      sample_luma_range: 60,
+      dropped_logs: 1,
+    },
   ]);
   assert.equal(frames.event_count, 3);
   assert.equal(frames.count, 2);
   assert.equal(frames.readback_ok, 2);
   assert.equal(frames.bridge_input_events, 1);
   assert.equal(frames.dropped_logs_max, 1);
+  assert.equal(frames.foreground_present, true);
+  assert.equal(frames.foreground_route, "readback_foreground_present");
+  assert.equal(frames.max_channel_range, 120);
+  assert.equal(frames.max_luma_range, 70);
+  assert.equal(frames.max_saturated_ratio, 0.004);
   assert.deepEqual(frames.readback_ms, {
     count: 2,
     min: 2,

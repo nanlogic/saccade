@@ -156,30 +156,46 @@ function summarizeReflexEvents(events) {
   const frames = events.filter(
     (event) => event.kind === "saccade_reflex_frame" || "readback_ok" in event,
   );
+  const okFrames = frames.filter((frame) => frame.readback_ok === true);
   const bridgeInputs = events.filter(
     (event) =>
       event.kind === "saccade_reflex_test_drag" ||
       event.kind === "saccade_reflex_test_click",
   );
-  const readbackMs = frames
+  const readbackMs = okFrames
     .map((frame) => (typeof frame.readback_ns === "number" ? frame.readback_ns / 1_000_000 : null))
     .filter((value) => value !== null);
-  const saturatedRatios = frames
-    .filter((frame) => frame.readback_ok === true)
+  const saturatedRatios = okFrames
     .map((frame) =>
       Number.isFinite(frame.sample_saturated) && Number.isFinite(frame.sample_count)
         ? frame.sample_saturated / Math.max(1, frame.sample_count)
         : null,
     )
     .filter((value) => value !== null);
+  const maxChannelRange = Math.max(
+    0,
+    ...okFrames.map((frame) => frame.sample_max_channel_range || 0),
+  );
+  const maxLumaRange = Math.max(0, ...okFrames.map((frame) => frame.sample_luma_range || 0));
+  const maxSaturatedRatio = Math.max(0, ...saturatedRatios);
+  const foregroundPresent =
+    maxChannelRange >= 80 && maxLumaRange >= 35 && maxSaturatedRatio >= 0.001;
   return {
     event_count: events.length,
     count: frames.length,
-    readback_ok: frames.filter((frame) => frame.readback_ok === true).length,
+    readback_ok: okFrames.length,
     bridge_input_events: bridgeInputs.length,
     readback_ms: summarizeNumbers(readbackMs),
-    max_channel_range: Math.max(0, ...frames.map((frame) => frame.sample_max_channel_range || 0)),
-    max_luma_range: Math.max(0, ...frames.map((frame) => frame.sample_luma_range || 0)),
+    max_channel_range: maxChannelRange,
+    max_luma_range: maxLumaRange,
+    max_saturated_ratio: Number(maxSaturatedRatio.toFixed(6)),
+    foreground_present: foregroundPresent,
+    foreground_route: foregroundPresent ? "readback_foreground_present" : "readback_blank_or_flat",
+    foreground_thresholds: {
+      max_channel_range_min: 80,
+      max_luma_range_min: 35,
+      max_saturated_ratio_min: 0.001,
+    },
     saturated_ratio: summarizeNumbers(saturatedRatios),
     dropped_logs_max: Math.max(0, ...frames.map((frame) => frame.dropped_logs || 0)),
   };

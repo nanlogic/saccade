@@ -542,6 +542,64 @@ async function drainAndRecordBrowserFacts({
   return facts;
 }
 
+function summarizeLiveGameReadbackGate({
+  frameSummary,
+  browserFactSummary,
+  semanticFactSummary,
+  sampleSummary,
+  commandCount,
+  commandReceipts,
+  healthOk,
+}) {
+  const timeScaleOk = sampleSummary.time_scale !== null && sampleSummary.time_scale > 0.75;
+  const commandsOk = commandCount >= 8 && commandReceipts >= 4;
+  const semanticOk = semanticFactSummary.count > 0;
+  const visualFactsOk = browserFactSummary.visual_objects > 0;
+  const readbackOk = frameSummary.readback_ok > 0 && frameSummary.foreground_present === true;
+  const ok = readbackOk && semanticOk && visualFactsOk && timeScaleOk && commandsOk && healthOk;
+  const blockers = [];
+  if (!readbackOk) blockers.push("reflex_readback_foreground_missing");
+  if (!semanticOk) blockers.push("semantic_facts_missing");
+  if (!visualFactsOk) blockers.push("visual_facts_missing");
+  if (!timeScaleOk) blockers.push("game_time_not_advancing");
+  if (!commandsOk) blockers.push("motor_receipts_insufficient");
+  if (!healthOk) blockers.push("game_health_failed");
+  return {
+    ok,
+    route: ok ? "live_game_reflex_readback_green" : "live_game_reflex_readback_blocked",
+    blockers,
+    readback: {
+      ok: readbackOk,
+      route: frameSummary.foreground_route || null,
+      readback_ok: frameSummary.readback_ok,
+      frame_count: frameSummary.count,
+      max_channel_range: frameSummary.max_channel_range,
+      max_luma_range: frameSummary.max_luma_range,
+      max_saturated_ratio: frameSummary.max_saturated_ratio,
+      thresholds: frameSummary.foreground_thresholds,
+    },
+    facts: {
+      ok: semanticOk && visualFactsOk,
+      browser_fact_count: browserFactSummary.count,
+      visual_objects: browserFactSummary.visual_objects,
+      semantic_fact_count: semanticFactSummary.count,
+      semantic_roles: semanticFactSummary.by_role,
+    },
+    motor: {
+      ok: commandsOk,
+      command_count: commandCount,
+      command_receipts: commandReceipts,
+    },
+    game: {
+      ok: timeScaleOk && healthOk,
+      time_scale: sampleSummary.time_scale,
+      health_ok: healthOk,
+      last_mode: sampleSummary.last_debug?.mode || null,
+      last_hp: sampleSummary.last_debug?.hp ?? null,
+    },
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   await fs.mkdir(args.outputDir, { recursive: true });
@@ -750,18 +808,24 @@ async function main() {
   const commandReceipts =
     (receiptSummary.by_type_status["drag:scheduled"] || 0) +
     (receiptSummary.by_type_status["click:dispatched"] || 0);
-  const pass =
-    ok &&
-    sampleSummary.time_scale !== null &&
-    sampleSummary.time_scale > 0.75 &&
-    commandCount >= 8 &&
-    commandReceipts >= 4 &&
-    frameSummary.readback_ok > 0 &&
-    healthOk;
+  const readbackGate = summarizeLiveGameReadbackGate({
+    frameSummary,
+    browserFactSummary,
+    semanticFactSummary,
+    sampleSummary,
+    commandCount,
+    commandReceipts,
+    healthOk,
+  });
+  const pass = ok && readbackGate.ok;
 
   const report = {
     ok: pass,
     final_reason: finalReason,
+    ai_008d: {
+      status: readbackGate.ok ? "done" : "blocked",
+      gate: readbackGate,
+    },
     args,
     command: args.servoshell,
     command_args: bridge.commandArgs,
@@ -782,6 +846,7 @@ async function main() {
       frames: frameSummary,
       browser_facts: browserFactSummary,
       semantic_facts: semanticFactSummary,
+      readback_gate: readbackGate,
       live_visual_state: summarizeLiveVisualState(liveVisualState, samples[samples.length - 1]),
       command_count: commandCount,
       command_receipts: commandReceipts,
@@ -830,6 +895,7 @@ async function main() {
         semantic_facts: semanticFactsPath,
         final_reason: finalReason,
         summary: report.summary,
+        ai_008d: report.ai_008d,
         stderr_tail: report.process.stderr_tail.split("\n").slice(-8).join("\n"),
       },
       null,
