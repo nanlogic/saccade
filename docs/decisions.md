@@ -1037,3 +1037,18 @@
 - Evidence:
   `runs/servoshell_adapter/admob_visible_1781731754/control/report.json` and
   `runs/servoshell_adapter/admob_visible_1781731754/control/replay.jsonl`.
+
+## DECISION_SITE_POLICY_019 - Site classification is evidence-first
+
+- Wayne flagged that Saccade must not guess which real websites are Green, Red,
+  or anything else. Site rules should be added only after real Saccade dogfood,
+  a reference-browser comparison, a provider block, or primary-source
+  high-impact evidence.
+- Unknown third-party sites now classify as `unmeasured_unknown` Yellow instead
+  of `public_or_unknown_low_risk` Green. Saccade may still assist after Human
+  grant, but screenshots are not default-allowed and final side-effect actions
+  remain Human-confirmed.
+- This keeps local/owned pages fast while forcing real-site product claims to
+  have receipts before they become docs or code.
+- Evidence:
+  `cargo test -p saccade_core site_policy`.

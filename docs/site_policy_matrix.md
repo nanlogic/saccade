@@ -20,12 +20,32 @@ Saccade may help when all of these are true:
 - Side-effect actions require user confirmation or manual user action.
 - The site policy and risk profile do not prohibit automation.
 
+## Evidence Gate
+
+Do not add or promote a site-specific Green/Yellow/Orange/Red rule by
+intuition. A concrete site classification belongs in docs or code only after at
+least one of these exists:
+
+- A real Saccade/ServoShell dogfood run on that site, with artifact paths,
+  observed URL, date, result, and what the agent did or refused to do.
+- A reference-browser comparison showing that the issue is site/upstream
+  compatibility rather than a Saccade-specific bug.
+- Primary-source product/terms evidence that the surface is inherently
+  high-impact, such as authentication, app release, payment, security,
+  government identity, healthcare, or account recovery.
+
+Unknown third-party sites are `unmeasured_unknown` Yellow by default. Saccade may
+assist after a Human grant, but screenshots are not default-allowed and final
+side-effect actions stay Human-confirmed. Promote a site to Green only after
+successful low-risk dogfood evidence. Move a site to Orange/Red only after
+observed risk, an explicit provider block, or primary-source high-impact proof.
+
 ## Risk Levels
 
 | Level | Default behavior | Good examples | Saccade may do | Saccade must not do |
 | --- | --- | --- | --- | --- |
-| Green | Run by default | Local dev apps, docs, blogs, public product pages, local fixtures, public search/research pages | Read truth, detect actions, click low-risk controls, fill non-sensitive test/forms, produce replay | None beyond normal rate/robots/terms respect |
-| Yellow | Human-in-loop | Logged-in low-risk dashboards, GitHub/Gist drafts, internal tools, forum/comment drafts, ordinary forms without legal/financial impact | Assist after explicit grant, draft text, fill non-sensitive fields, verify UI, stop before submit | Read secrets, publish/delete/submit without user confirmation |
+| Green | Run by default only after evidence or ownership | Local dev apps, known-safe docs, owned public pages, local fixtures | Read truth, detect actions, click low-risk controls, fill non-sensitive test/forms, produce replay | None beyond normal rate/robots/terms respect |
+| Yellow | Human-in-loop | Unmeasured third-party sites, logged-in low-risk dashboards, GitHub/Gist drafts, internal tools, forum/comment drafts, ordinary forms without legal/financial impact | Assist after explicit grant, draft text, fill non-sensitive fields, verify UI, stop before submit | Read secrets, publish/delete/submit without user confirmation |
 | Orange | Assisted fallback | App Store Connect, cloud consoles, app review portals, tax/benefit/government forms, healthcare/education portals, job/marketplace/social reputation flows | Summarize copied/redacted text, make checklists, draft responses, explain UI, prepare non-sensitive content | Login automation, high-impact submit/release/payment/security changes |
 | Red | No agent automation | Login, password, 2FA/passkey, CAPTCHA, account recovery, banking transfer, tax payment, trading, legal signature, credential/API-key/security settings | Tell the user why it is blocked and what safe fallback to use | Circumvent anti-bot/fraud controls, collect credentials, enter OTPs, click final confirmation |
 
@@ -34,7 +54,8 @@ Saccade may help when all of these are true:
 | Site class | Initial classification | Notes |
 | --- | --- | --- |
 | Local development apps | Green | Primary dogfood lane. Use Saccade first, then Chrome/reference for parity. |
-| Public documentation/news/blogs | Green | Good for research, summaries, action-map tests, and rendering checks. |
+| Unmeasured third-party sites | Yellow | Default until dogfood evidence or primary-source risk evidence says otherwise. Do not promote by guesswork. |
+| Public documentation/news/blogs | Green after evidence | Good for research, summaries, action-map tests, and rendering checks after a smoke run or known-safe classification. |
 | MouseAccuracy / public demos | Green/Yellow | Safe for performance demos unless ads/iframes or anti-bot overlays change the page. |
 | GitHub/Gist/forums | Yellow | Drafting and editor assistance are okay. Publishing, deleting, mass posting, or scraping is confirmation-gated. |
 | App Store Connect | Orange | Browser access is for app management, review, agreements, and financial/in-app purchase work. Use Saccade for redacted analysis only; submit/reply/release stays human. |
@@ -72,6 +93,7 @@ When Saccade is blocked or the site is high-risk:
 | SP-004 | P1 | DONE: Add a user-facing fallback copy path. | `saccade.report.redacted_note` creates a local `runs/redacted_notes/note_*/` AI review packet from user-supplied redacted text without live-site access. Evidence: `runs/mcp/selftest_1781645696687/report.json`. |
 | SP-005 | P1 | DONE: Add allowlist lanes for owned/local apps. | Localhost/file are Green by default; `SACCADE_OWNED_DOMAINS=nanmesh.ai,mythcastera.com` marks owned non-high-risk domains as `owned_domain` Green without overriding auth/financial/government/high-risk classes. Evidence: `cargo test -p saccade_core owned_domains`. |
 | SP-006 | P2 | DONE: Add policy docs to the handoff prompt for other sessions. | `docs/SACCADE_DOGFOOD_HANDOFF.md` includes a paste-ready prompt for other sessions covering Saccade use, risk levels, fallback, and `saccade.report.redacted_note`. |
+| SP-007 | P0 | DONE: Add evidence-first policy gate. | Unknown third-party sites classify as `unmeasured_unknown` Yellow; site-specific policy changes require dogfood artifacts, reference comparison, provider block evidence, or primary-source high-impact proof. Evidence: `cargo test -p saccade_core site_policy`. |
 
 ## Sources Checked
 

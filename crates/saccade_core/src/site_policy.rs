@@ -254,9 +254,9 @@ pub fn classify_site_url_with_owned_domains(url: &str, owned_domains: &[String])
         );
     }
 
-    SitePolicy::green(
-        "public_or_unknown_low_risk",
-        "No high-risk site pattern matched",
+    SitePolicy::yellow(
+        "unmeasured_unknown",
+        "No site-specific evidence yet; assist only with Human-in-loop defaults until dogfood evidence promotes it",
     )
 }
 
@@ -421,6 +421,11 @@ mod tests {
         assert_eq!(admob.level, SiteRiskLevel::Yellow);
         assert_eq!(admob.category, "monetization_admin");
         assert!(!admob.screenshots_default_allowed);
+
+        let unknown = classify_site_url("https://example.com/workflow");
+        assert_eq!(unknown.level, SiteRiskLevel::Yellow);
+        assert_eq!(unknown.category, "unmeasured_unknown");
+        assert!(!unknown.screenshots_default_allowed);
     }
 
     #[test]
