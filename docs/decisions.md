@@ -1113,10 +1113,17 @@
   installed official ServoShell ignores the env var; the thin fork displays it.
   Bridge reports and control artifacts record the status file path.
 - Codex's macOS `screencapture` path produced black screenshots in this session,
-  so visual proof should be confirmed by a human-visible run. Compile, parser,
-  and bridge evidence passed.
+  so the thin fork now supports explicit one-shot internal browser-chrome
+  screenshots through `SACCADE_BROWSER_SCREENSHOT_PATH`. This reads the final
+  window framebuffer after egui/browser chrome paint, captures the trusted badge,
+  and avoids macOS screen-recording permission as a verifier dependency.
+- Screenshot safety rule: this path is opt-in only. Saccade does not set it by
+  default for bridge/dogfood runs, because real logged-in or sensitive pages
+  remain screenshot-forbidden unless a human explicitly chooses diagnostic
+  capture.
 - Evidence:
-  `runs/ai004_badge/bridge_smoke/report.json`.
+  `runs/ai004_badge/bridge_smoke/report.json` and
+  `runs/ai004_badge/internal_browser_chrome.png`.
 - Verification commands:
   `cargo test -p servoshell saccade_copilot_badge`,
   `cargo check -p servoshell`,
