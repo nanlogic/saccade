@@ -605,6 +605,27 @@
   used. The older blank screenshot remains scoped to the legacy worker manual
   diagnostic readback path.
 
+## DECISION_BROWSER_026 - Mythcastera failure is missing IntersectionObserver
+
+- `https://mythcastera.com/` returns healthy HTML from Vercel and renders in
+  Chrome, but downloaded official ServoShell replaced the page with Next's
+  default global error UI: "This page couldn't load."
+- ServoShell stderr showed the concrete runtime error:
+  `IntersectionObserver is not defined`.
+- Servo's DOM truth confirmed the failed production page had only
+  `body_text_length=70` and actions `Reload` / `Back`; Chrome saw
+  `bodyTextLength=8694` and 26 actions.
+- The site source in `/Users/waynema/Documents/GitHub/nan-game/site` now
+  guards direct `IntersectionObserver` usage and Framer Motion `whileInView`
+  usage. Missing support degrades to static visible content instead of
+  throwing during hydration.
+- Local production verification passed: ServoShell on
+  `http://127.0.0.1:4277/` saw `body_text_length=8691`, no
+  `IntersectionObserver` error, and a dark hero screenshot instead of the
+  white Next error page.
+- This is an owned-site compatibility fix, not proof that Servo implements
+  IntersectionObserver. Keep broad third-party pages routed until measured.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over
