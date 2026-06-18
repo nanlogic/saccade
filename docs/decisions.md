@@ -1052,3 +1052,23 @@
   have receipts before they become docs or code.
 - Evidence:
   `cargo test -p saccade_core site_policy`.
+
+## DECISION_SERVOSHELL_020 - Official ServoShell bridge is the default dogfood browser path
+
+- AI-012 is closed: Saccade's default human-visible browser path is installed
+  official ServoShell plus the external Saccade bridge, not the legacy GL
+  toolbar.
+- This keeps the human browser close to upstream ServoShell while letting
+  Saccade attach the agent layer: redacted truth/actions, safe fill/inspect/act,
+  FORMMAX live fill, navigation, replay artifacts, current-tab grants, and
+  Copilot state.
+- Same-machine dogfood does not need a custom app bundle, icon, or renamed fork.
+  A future public `.app` should use distinct Saccade branding and can say
+  "Powered by Servo"; it should not reuse official Servo branding.
+- Trusted visible Human/Agent/Copilot browser chrome remains AI-004. The bridge
+  exposes the authoritative state through `shell_status`, but Saccade should not
+  fake a trusted badge with page DOM injection, user CSS, or title mutation.
+- Latest close evidence:
+  `runs/servoshell_adapter/ai012_close_bridge_smoke_1781794791/report.json`.
+- Verification commands:
+  `cargo test -p saccade-servoshell` and `cargo check -p saccade-mcp`.

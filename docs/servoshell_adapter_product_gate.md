@@ -1,6 +1,6 @@
 # ServoShell Adapter Product Gate
 
-Date: 2026-06-14
+Date: 2026-06-18
 
 ## What "Product Gate" Means
 
@@ -12,6 +12,13 @@ product from scratch; it must rerun the important existing gates on the new
 official ServoShell runtime.
 
 ## Current Status
+
+Verdict: **PASS for Option A**. Official ServoShell plus the external Saccade
+bridge is now the default dogfood human-browser path. The bridge preserves the
+official human UI and attaches Saccade's agent truth/action/fill/replay layer
+through a random loopback control endpoint. The trusted visible Human/Agent
+badge remains routed to AI-004 because a page overlay or DOM injection is not a
+trusted browser chrome surface.
 
 | Gate | Existing status on old Saccade path | Needed on official ServoShell adapter |
 | --- | --- | --- |
@@ -130,6 +137,12 @@ If any of the following fail, Option B becomes justified:
    chrome requires a thin UI fork or upstream chrome hook. The external bridge
    exposes the state through `shell_status`, but should not inject a webpage
    overlay or stylesheet that can be confused with site content.
+13. DONE: Close the official ServoShell bridge product gate as the default
+   dogfood path. Installed official ServoShell bridge smoke passed with
+   redacted truth/actions, safe fill/inspect/act capability, FORMMAX live fill,
+   navigation, control artifacts, Copilot state, random loopback WebDriver, and
+   screenshots defaulting to forbidden. Evidence:
+   `runs/servoshell_adapter/ai012_close_bridge_smoke_1781794791/report.json`.
 
 ## Latest Evidence
 
@@ -214,3 +227,12 @@ If any of the following fail, Option B becomes justified:
   title `Blend or Die - Prototype`, safe screenshot captured under
   `guarded_diagnostic`, no sensitive surface, and no false visible DOM actions
   from hidden overlays.
+- AI-012 close bridge smoke:
+  `runs/servoshell_adapter/ai012_close_bridge_smoke_1781794791/report.json`
+- Installed official ServoShell at
+  `/Applications/Servo.app/Contents/MacOS/servoshell` launched under the bridge,
+  wrote `runs/current_tab_grants/servoshell_latest.json`, advertised
+  `ping/shell_status/truth/actions/fill_agent_fields/inspect_fields/act/formmax_live_fill/navigate/reload/back/forward`,
+  reported `copilot.status=granted`, `owner=Human`,
+  `sensitive_values_exposed_to_agent=false`, and kept screenshots forbidden by
+  default.

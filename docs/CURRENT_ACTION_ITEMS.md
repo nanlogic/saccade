@@ -1,6 +1,6 @@
 # Saccade Current Action Items
 
-Date: 2026-06-16
+Date: 2026-06-18
 Status: canonical execution queue
 
 This file is the short, current action list. Use it with
@@ -9,8 +9,11 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-012. AI-001 is blocked by the pinned Servo public API.
-Use `docs/site_policy_matrix.md` before dogfooding third-party logged-in or
+Active next item: AI-009 when no Human login is available, or AI-005 when
+Wayne is ready to log in to GitHub/Gist inside Saccade. AI-012 is closed as
+the default official ServoShell bridge path; AI-004 remains the trusted visible
+badge task. AI-001 is blocked by the pinned Servo public API. Use
+`docs/site_policy_matrix.md` before dogfooding third-party logged-in or
 high-risk sites.
 
 | ID | Priority | Status | Owner | Action | Done When |
@@ -18,7 +21,6 @@ high-risk sites.
 | AI-001 | P1 | blocked-public-api | Browser shell | Product-grade Stop behavior. The pinned Servo/WebView public API proof is done and no safe stop-loading method is exposed. | `docs/servo_api_map.md` records the API result. Reopen implementation when moving to official ServoShell source, a newer Servo API, or a deliberate fork hook. |
 | AI-004 | P1 | blocked-external-bridge | Browser shell | Add a visible Human/Agent/Copilot state badge that normal users can understand at a glance. MCP `shell_status` now exposes the state, but drawing a trusted in-window badge in official ServoShell chrome requires a thin UI fork or upstream chrome hook. | Dogfood/ServoShell window visibly communicates Human-owned tab, agent grant state, and error state without page DOM injection or spoofable webpage overlay. |
 | AI-005 | P0 | blocked-on-user | Editor dogfood | Wayne logs in to GitHub/Gist inside Saccade with `runs/dogfood_profile/default`; then rerun `inspect-editors` on `https://gist.github.com/new`. | `inspect-editors` reaches an authenticated editor page and records whether writable body targets are usable or zero-rect. |
-| AI-012 | P0 | open | ServoShell adapter | Promote official ServoShell UI as the human browser path and attach Saccade's agent bridge to that runtime instead of further productizing the legacy GL toolbar. | Official ServoShell UI remains intact; Saccade can collect redacted truth/actions, dispatch safe actions, record replay, and pass local game/FORMMAX/current-tab safety gates through that path or trigger the thin-fork fallback. |
 
 ## Next
 
@@ -44,6 +46,7 @@ high-risk sites.
 | AI-012F | current checkpoint | Official ServoShell bridge now advertises and handles `formmax_live_fill`; MCP selftest navigates the same granted ServoShell bridge tab to the FORMMAX fixture and verifies rows=96, pages=2, filled=672, blocked_sensitive=3, receipt_verified=true, validation_errors=0. Evidence: `runs/mcp/selftest_1781632241481/report.json` with `servoshell_bridge_formmax_live=true` and `runs/mcp/servoshell_bridge_grant_1781632282911/report.json`. |
 | AI-012G | current checkpoint | Official ServoShell bridge control calls now write sanitized `control/report.json` and `control/replay.jsonl` artifacts, append FORMMAX no-value replay events, and expose Copilot grant state through `shell_status`. MCP selftest verifies `servoshell_bridge_artifacts=true` and replay summary readability. Evidence: `runs/mcp/selftest_1781636671768/report.json`, `runs/mcp/servoshell_bridge_grant_1781636716084/control/report.json`, and `runs/mcp/servoshell_bridge_grant_1781636716084/control/replay.jsonl`. |
 | AI-012H | current checkpoint | Official ServoShell bridge upgradeability gate passes against the local source-release ServoShell `0.3.0-805e6a423` by rerunning the same MCP bridge attach/fill/inspect/act/FORMMAX/artifact gate with `SACCADE_SERVOSHELL_BIN=/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell`. Evidence: `runs/mcp/selftest_1781636405474/report.json` and `runs/mcp/servoshell_bridge_grant_1781636453696/control/replay.jsonl`. |
+| AI-012 | current checkpoint | Closed the official ServoShell bridge product gate as the default Saccade dogfood human-browser path. Installed official ServoShell keeps the human UI intact while Saccade attaches a loopback bridge for redacted truth/actions, safe fill/inspect/act, FORMMAX live fill, navigation, replay artifacts, and Copilot state. Visible trusted badge is explicitly routed to AI-004. Evidence: `runs/servoshell_adapter/ai012_close_bridge_smoke_1781794791/report.json`, `cargo test -p saccade-servoshell`, and `cargo check -p saccade-mcp`. |
 | AI-013A | current docs update | Added `docs/site_policy_matrix.md`, the first practical Green/Yellow/Orange/Red site list for Saccade dogfood, high-risk site fallback, and no-bypass boundaries. |
 | AI-013B | current checkpoint | Implemented the shared site/action risk classifier in `saccade_core`, exposed `site_policy` through MCP and the official ServoShell bridge, and gate Red-site reads plus high-risk fill/action attempts. Evidence: `runs/mcp/selftest_1781641440418/report.json`. |
 | AI-013C | current checkpoint | Official ServoShell bridge control errors now write a redacted `control/block_report.json` with query-free URL, site policy, request id extraction, visible block excerpt, and fallback recommendation. Evidence: `cargo test -p saccade-servoshell block_report`. |
