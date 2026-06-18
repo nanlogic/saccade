@@ -1129,3 +1129,22 @@
   `cargo check -p servoshell`,
   `cargo build -p servoshell --bin servoshell`, and
   `cargo check -p saccade-servoshell`.
+
+## DECISION_SERVOSHELL_023 - Stop button unblocks in the source-fork browser path
+
+- AI-001 is closed for the source ServoShell thin fork. The toolbar Stop button
+  no longer logs "Do not support stop yet"; it queues a `Stop` UI command for
+  the active WebView.
+- The command evaluates `window.stop()` in the active page. In Servo this maps
+  to the HTML navigation stop path and sends `ScriptToConstellationMessage::
+  AbortLoadUrl` for in-progress navigations, so this is a real Servo abort path
+  rather than a reload/no-op fallback.
+- This does not change the earlier pinned `servo=0.2.0` public API finding:
+  the old crate still exposes no public `stop_loading` method. The unblock is
+  specifically because the product browser path now has a deliberate
+  source-fork chrome hook.
+- Evidence:
+  `/Users/waynema/Documents/GitHub/servo-saccade-upstream` commit pending at
+  implementation time.
+- Verification command:
+  `cargo check -p servoshell`.

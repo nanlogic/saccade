@@ -10,14 +10,12 @@ This file is the short, current action list. Use it with
 ## Now
 
 Active next item: AI-005 when Wayne is ready to log in to GitHub/Gist inside
-Saccade. Otherwise the remaining queue is choice-based: AI-008 is parked
-Canvas/WebGL investigation, and AI-001 is blocked by the pinned Servo public
-API. Use `docs/site_policy_matrix.md` before dogfooding third-party logged-in
-or high-risk sites.
+Saccade. Otherwise AI-008 is parked Canvas/WebGL investigation. Use
+`docs/site_policy_matrix.md` before dogfooding third-party logged-in or
+high-risk sites.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-001 | P1 | blocked-public-api | Browser shell | Product-grade Stop behavior. The pinned Servo/WebView public API proof is done and no safe stop-loading method is exposed. | `docs/servo_api_map.md` records the API result. Reopen implementation when moving to official ServoShell source, a newer Servo API, or a deliberate fork hook. |
 | AI-005 | P0 | blocked-on-user | Editor dogfood | Wayne logs in to GitHub/Gist inside Saccade with `runs/dogfood_profile/default`; then rerun `inspect-editors` on `https://gist.github.com/new`. | `inspect-editors` reaches an authenticated editor page and records whether writable body targets are usable or zero-rect. |
 
 ## Next
@@ -32,6 +30,7 @@ or high-risk sites.
 | --- | --- | --- |
 | AI-000 | `33a7481 add mcp browser navigate tool` | MCP now exposes `saccade.browser.navigate` for already-granted same-WebView dogfood tabs; selftest `runs/mcp/selftest_1781583895286/report.json` has `browser_navigate=true`. |
 | AI-001A | current docs update | Pinned Servo `0.2.0` stop-loading API proof completed: local rustdoc exposes `load`, `load_request`, `reload`, `can_go_back`, `go_back`, `can_go_forward`, and `go_forward`, but no public `stop_loading`/`stop` equivalent. |
+| AI-001 | current checkpoint | Source ServoShell thin fork now wires the Stop toolbar button to active-WebView `window.stop()`, which reaches Servo's own `AbortLoadUrl` path for in-progress navigations. This unblocks Stop for the source-fork browser path without pretending the pinned `servo=0.2.0` public API grew a stop method. Evidence: `cargo check -p servoshell`. |
 | AI-002 | `f84d157 make dogfood address bar editable` | Toolbar address strip now paints URL/placeholder text, secure/search icon, active focus/error state, selection, caret, and supports in-place URL editing using native GL overlay only; no page DOM injection. |
 | AI-003 | current docs update | Routed away from the legacy GL toolbar. Official ServoShell's egui toolbar already resizes the WebView below browser chrome, avoiding the top-overlay issue. |
 | AI-004 | current checkpoint | Source ServoShell thin fork now draws a trusted Saccade Human/Copilot badge in browser chrome, not page DOM. The badge reads existing bridge-style Copilot JSON from `SACCADE_COPILOT_STATUS_PATH` or env vars, shows granted/blocked/error states, and forces an error label if the status claims page DOM injection or sensitive-value exposure. `saccade-servoshell` now writes the status JSON and passes the env var when launching ServoShell; official ServoShell ignores it, while the thin fork displays it. The thin fork also supports explicit one-shot internal browser-chrome screenshots through `SACCADE_BROWSER_SCREENSHOT_PATH`, so badge evidence does not depend on macOS screen-recording permissions. Evidence: `cargo test -p servoshell saccade_copilot_badge`, `cargo check -p servoshell`, `cargo build -p servoshell --bin servoshell`, `cargo check -p saccade-servoshell`, `runs/ai004_badge/bridge_smoke/report.json`, and `runs/ai004_badge/internal_browser_chrome.png`. |
