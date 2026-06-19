@@ -84,6 +84,8 @@ enum Command {
         #[arg(long)]
         grant_path: Option<PathBuf>,
         #[arg(long)]
+        profile_dir: Option<PathBuf>,
+        #[arg(long)]
         no_headless: bool,
         #[arg(long, default_value_t = 35.0)]
         timeout_sec: f64,
@@ -407,6 +409,7 @@ fn main() -> Result<()> {
             url,
             output_dir,
             grant_path,
+            profile_dir,
             no_headless,
             timeout_sec,
             smoke,
@@ -422,6 +425,7 @@ fn main() -> Result<()> {
                 url: url.unwrap_or_else(default_smoke_url),
                 output_dir: output_dir.unwrap_or_else(|| default_run_dir("bridge")),
                 grant_path,
+                profile_dir,
                 headless: !no_headless,
                 timeout: Duration::from_secs_f64(timeout_sec),
                 smoke,
@@ -506,6 +510,7 @@ struct BridgeConfig {
     url: String,
     output_dir: PathBuf,
     grant_path: Option<PathBuf>,
+    profile_dir: Option<PathBuf>,
     headless: bool,
     timeout: Duration,
     smoke: bool,
@@ -639,6 +644,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         cfg.url.as_str(),
         cfg.headless,
         webdriver_port,
+        cfg.profile_dir.as_deref(),
     )?;
     let client = WebDriverClient::new(webdriver_port, cfg.timeout);
     let mut session_id: Option<String> = None;
@@ -650,6 +656,8 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         "servoshell": cfg.servoshell.clone(),
         "url": cfg.url.clone(),
         "headless": cfg.headless,
+        "profile_dir": cfg.profile_dir.clone(),
+        "storage": if cfg.profile_dir.is_some() { "profile_dir" } else { "temporary" },
         "webdriver": {
             "host": "127.0.0.1",
             "port": webdriver_port,
@@ -829,8 +837,13 @@ fn run_login_handoff_case(cfg: LoginHandoffConfig) -> Result<LoginHandoffOutcome
         .join("dashboard.html")
         .context("build login handoff dashboard URL")?;
     let port = choose_loopback_port()?;
-    let mut child =
-        launch_servoshell_for_url(&cfg.servoshell, login_url.as_str(), cfg.headless, port)?;
+    let mut child = launch_servoshell_for_url(
+        &cfg.servoshell,
+        login_url.as_str(),
+        cfg.headless,
+        port,
+        None,
+    )?;
     let client = WebDriverClient::new(port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let mut report = json!({
@@ -1011,7 +1024,7 @@ fn run_native_input_case(cfg: NativeInputConfig) -> Result<NativeInputOutcome> {
 
     let port = choose_loopback_port()?;
     let text_char_count = cfg.text.chars().count();
-    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port)?;
+    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None)?;
     let client = WebDriverClient::new(port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let mut report = json!({
@@ -1209,7 +1222,7 @@ fn run_focused_type_case(cfg: FocusedTypeConfig) -> Result<FocusedTypeOutcome> {
         .with_context(|| format!("create {}", cfg.output_dir.display()))?;
 
     let port = choose_loopback_port()?;
-    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port)?;
+    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None)?;
     let client = WebDriverClient::new(port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let mut report = json!({
@@ -1376,7 +1389,7 @@ fn run_formmax_selftest(cfg: FormmaxConfig) -> Result<FormmaxOutcome> {
         .with_context(|| format!("create {}", cfg.output_dir.display()))?;
 
     let port = choose_loopback_port()?;
-    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port)?;
+    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None)?;
     let client = WebDriverClient::new(port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let mut report = json!({
@@ -1625,6 +1638,7 @@ fn launch_servoshell_for_url(
     url: &str,
     headless: bool,
     port: u16,
+    profile_dir: Option<&Path>,
 ) -> Result<Child> {
     if !servoshell.exists() {
         bail!("servoshell not found at {}", servoshell.display());
@@ -1634,7 +1648,13 @@ fn launch_servoshell_for_url(
         cmd.arg("-z");
     }
     cmd.arg(format!("--webdriver={port}"));
-    cmd.arg("--temporary-storage");
+    if let Some(profile_dir) = profile_dir {
+        fs::create_dir_all(profile_dir)
+            .with_context(|| format!("create ServoShell profile dir {}", profile_dir.display()))?;
+        cmd.arg(format!("--config-dir={}", profile_dir.display()));
+    } else {
+        cmd.arg("--temporary-storage");
+    }
     cmd.arg(url);
     configure_saccade_copilot_status_env(&mut cmd, port)?;
     cmd.stdin(Stdio::null());
@@ -2571,6 +2591,7 @@ fn bridge_control_result(
         "actions" => bridge_probe_response(state, "saccade-servoshell-bridge-actions-v0"),
         "article_text" => bridge_article_text_response(state, params),
         "inspect_editors" => bridge_inspect_editors_response(state),
+        "draft_editor_fill" => bridge_draft_editor_fill_response(state, params),
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
         "act" => bridge_act_response(state, params),
@@ -2651,6 +2672,7 @@ fn bridge_status_response(
             "actions",
             "article_text",
             "inspect_editors",
+            "draft_editor_fill",
             "fill_agent_fields",
             "inspect_fields",
             "act",
@@ -2869,6 +2891,10 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "visible_writable_count",
         "visible_authoring_count",
         "sensitive_count",
+        "draft_fields_requested",
+        "draft_fields_filled",
+        "draft_fields_rejected",
+        "chars_written",
     ] {
         if let Some(value) = result.get(key).and_then(Value::as_u64) {
             counts.insert(key.to_string(), json!(value));
@@ -3262,6 +3288,86 @@ fn bridge_inspect_editors_response(state: &BridgeControlState) -> Result<Value> 
         "sensitive_count": sensitive_count,
         "route": route,
         "editors": editors,
+        "artifacts": bridge_artifacts(state),
+    }))
+}
+
+fn bridge_draft_editor_fill_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    if params.get("block_sensitive").and_then(Value::as_bool) != Some(true) {
+        bail!("draft_editor_fill requires block_sensitive=true");
+    }
+    if params.get("no_submit").and_then(Value::as_bool) != Some(true) {
+        bail!("draft_editor_fill requires no_submit=true");
+    }
+    let fields = params
+        .get("fields")
+        .and_then(Value::as_object)
+        .context("draft_editor_fill requires object params.fields")?;
+    if fields.is_empty() {
+        bail!("draft_editor_fill requires at least one draft field");
+    }
+    for key in fields.keys() {
+        if !matches!(key.as_str(), "description" | "filename" | "body") {
+            bail!("draft_editor_fill unsupported field key: {key}");
+        }
+    }
+
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_fill_allowed {
+        bail!(
+            "site policy {:?} blocks draft editor fill on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
+
+    let fill_result = state.client.execute_sync_args(
+        &state.session_id,
+        BRIDGE_DRAFT_EDITOR_FILL_JS,
+        &[params.clone()],
+    )?;
+    let filled = fill_result
+        .get("filled")
+        .and_then(Value::as_array)
+        .map(|items| items.len() as u64)
+        .unwrap_or(0);
+    if filled > 0 {
+        state.page_revision.fetch_add(1, Ordering::SeqCst);
+    }
+
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-bridge-draft-editor-fill-v0",
+        "summary": "visible draft editor fields filled through official ServoShell bridge without submit or value logging",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": site_policy,
+        "draft_fields_requested": fill_result
+            .get("requested")
+            .and_then(Value::as_u64)
+            .unwrap_or(fields.len() as u64),
+        "draft_fields_filled": filled,
+        "draft_fields_rejected": fill_result
+            .get("rejected")
+            .and_then(Value::as_array)
+            .map(|items| items.len() as u64)
+            .unwrap_or(0),
+        "chars_written": fill_result
+            .get("charsWritten")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        "filled": fill_result.get("filled").cloned().unwrap_or_else(|| json!([])),
+        "rejected": fill_result.get("rejected").cloned().unwrap_or_else(|| json!([])),
+        "verification": fill_result.get("verification").cloned().unwrap_or(Value::Null),
+        "policy": {
+            "block_sensitive": true,
+            "no_submit": true,
+            "visible_authoring_only": true,
+            "preserve_user_values": !params.get("overwrite").and_then(Value::as_bool).unwrap_or(false),
+            "values_logged": false,
+        },
         "artifacts": bridge_artifacts(state),
     }))
 }
@@ -4933,6 +5039,270 @@ return (() => {
     editorCount: editors.length,
     sensitiveFieldsSeen: editors.filter((editor) => editor.sensitivity !== "none").length,
     editors
+  };
+})();
+"###;
+
+const BRIDGE_DRAFT_EDITOR_FILL_JS: &str = r###"
+return (() => {
+  const params = arguments[0] || {};
+  const fields = params.fields || {};
+  const overwrite = Boolean(params.overwrite);
+  const filled = [];
+  const rejected = [];
+  let charsWritten = 0;
+
+  const stableHash = (s) => {
+    let h = 2166136261;
+    for (let i = 0; i < String(s).length; i++) {
+      h ^= String(s).charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return ("00000000" + (h >>> 0).toString(16)).slice(-8);
+  };
+
+  const textOf = (value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, 120);
+
+  function rectOf(el) {
+    const rect = el.getBoundingClientRect();
+    return {
+      left: Math.round(rect.left * 10) / 10,
+      top: Math.round(rect.top * 10) / 10,
+      width: Math.round(rect.width * 10) / 10,
+      height: Math.round(rect.height * 10) / 10
+    };
+  }
+
+  function selectorHint(el) {
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const parts = [
+      tag,
+      el.id ? "#" + el.id : "",
+      el.getAttribute("name") ? "[name]" : "",
+      el.getAttribute("aria-label") ? "[aria-label]" : "",
+      el.getAttribute("placeholder") ? "[placeholder]" : "",
+      String(el.className || "").split(/\s+/).filter(Boolean).slice(0, 3).map((part) => "." + part).join("")
+    ];
+    return parts.join("");
+  }
+
+  function sensitivityOf(el) {
+    const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || "",
+      labelText
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  function hiddenOrBlocked(el) {
+    if (!el) return "not_found";
+    const style = window.getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    if (el.hidden || style.display === "none" || style.visibility === "hidden") return "hidden";
+    if (rect.width <= 0 || rect.height <= 0) return "zero_rect";
+    if (el.disabled) return "disabled";
+    if (el.readOnly) return "readonly";
+    const sensitivity = sensitivityOf(el);
+    if (sensitivity !== "none") return "sensitive_" + sensitivity;
+    return "";
+  }
+
+  function haystack(el) {
+    const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+    return [
+      el.id || "",
+      el.getAttribute("name") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("role") || "",
+      String(el.className || ""),
+      labelText
+    ].join(" ").toLowerCase();
+  }
+
+  function visibleTextControls() {
+    return Array.from(document.querySelectorAll("input, textarea"))
+      .filter((el) => {
+        const tag = el.tagName ? el.tagName.toLowerCase() : "";
+        const type = (el.getAttribute("type") || "text").toLowerCase();
+        return tag === "textarea" || ["text", "search", "url", "email", "tel", "number"].includes(type);
+      })
+      .filter((el) => !hiddenOrBlocked(el));
+  }
+
+  function visibleAuthoringEditors() {
+    const selectors = [
+      "[contenteditable='true']",
+      "[role='textbox']",
+      ".cm-content",
+      ".CodeMirror-code",
+      ".ace_editor"
+    ];
+    const seen = new Set();
+    const out = [];
+    for (const selector of selectors) {
+      for (const el of Array.from(document.querySelectorAll(selector))) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        if (hiddenOrBlocked(el)) continue;
+        const tag = el.tagName ? el.tagName.toLowerCase() : "";
+        if (tag === "input" || tag === "textarea") continue;
+        if (el.isContentEditable || (el.getAttribute("role") || "").toLowerCase() === "textbox" || /\b(cm-content|CodeMirror-code|ace_editor)\b/.test(String(el.className || ""))) {
+          out.push(el);
+        }
+      }
+    }
+    return out;
+  }
+
+  function existingLength(el) {
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    if (tag === "input" || tag === "textarea") return String(el.value || "").trim().length;
+    return String(el.textContent || "").trim().length;
+  }
+
+  function writeTextControl(el, value) {
+    el.focus();
+    el.value = String(value);
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: String(value) }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return "value_property_input_change";
+  }
+
+  function writeContentEditable(el, value) {
+    el.focus();
+    let method = "text_content_input";
+    const selection = window.getSelection && window.getSelection();
+    if (selection && document.createRange) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    if (typeof document.execCommand === "function" && document.execCommand("insertText", false, String(value))) {
+      method = "exec_command_insert_text";
+    } else {
+      el.textContent = String(value);
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: String(value) }));
+    }
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return method;
+  }
+
+  function chooseTextControl(slot) {
+    const controls = visibleTextControls();
+    const patterns = {
+      description: [/gist.*description/, /\bdescription\b/, /\btitle\b/],
+      filename: [/gist.*contents.*name/, /\bfilename\b/, /\bfile.*name\b/]
+    }[slot] || [];
+    return controls.find((el) => patterns.some((pattern) => pattern.test(haystack(el))));
+  }
+
+  function chooseBodyEditor() {
+    const editors = visibleAuthoringEditors();
+    const strong = editors.find((el) => /\b(body|content|editor|code|gist|snippet|markdown|comment|post|reply)\b/.test(haystack(el)));
+    if (strong) return strong;
+    if (editors.length === 1) return editors[0];
+    return editors.find((el) => existingLength(el) <= 2) || null;
+  }
+
+  function writeSlot(slot, value) {
+    const text = String(value == null ? "" : value);
+    if (!text.length) {
+      rejected.push({ slot, reason: "empty_value" });
+      return;
+    }
+    let el = null;
+    if (slot === "description" || slot === "filename") {
+      el = chooseTextControl(slot);
+    } else if (slot === "body") {
+      el = chooseBodyEditor();
+    }
+    if (!el) {
+      rejected.push({ slot, reason: "no_visible_draft_target" });
+      return;
+    }
+    const blocked = hiddenOrBlocked(el);
+    if (blocked) {
+      rejected.push({ slot, reason: blocked });
+      return;
+    }
+    const beforeLength = existingLength(el);
+    if (!overwrite && beforeLength > 0) {
+      rejected.push({
+        slot,
+        reason: "already_has_user_value",
+        beforeLength,
+        target_hash: stableHash(selectorHint(el))
+      });
+      return;
+    }
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const method = tag === "input" || tag === "textarea"
+      ? writeTextControl(el, text)
+      : writeContentEditable(el, text);
+    const afterLength = existingLength(el);
+    if (afterLength <= 0) {
+      rejected.push({
+        slot,
+        reason: "write_not_observed",
+        beforeLength,
+        afterLength,
+        target_hash: stableHash(selectorHint(el))
+      });
+      return;
+    }
+    charsWritten += text.length;
+    filled.push({
+      slot,
+      status: "filled",
+      kind: tag === "input" || tag === "textarea" ? tag : "contenteditable",
+      method,
+      beforeLength,
+      afterLength,
+      target_hash: stableHash(selectorHint(el)),
+      target_hint: textOf(selectorHint(el)),
+      rect: rectOf(el)
+    });
+  }
+
+  for (const slot of ["description", "filename", "body"]) {
+    if (Object.prototype.hasOwnProperty.call(fields, slot)) {
+      writeSlot(slot, fields[slot]);
+    }
+  }
+
+  const body = document.body;
+  const previousRevision = Number(body && body.dataset ? (body.dataset.sessionRevision || "0") : "0") || 0;
+  if (filled.length && body && body.dataset) {
+    body.dataset.sessionRevision = String(previousRevision + 1);
+  }
+
+  return {
+    ok: true,
+    requested: Object.keys(fields).length,
+    filled,
+    rejected,
+    charsWritten,
+    verification: {
+      pageRevision: body && body.dataset ? Number(body.dataset.sessionRevision || "0") || 0 : 0,
+      values_logged: false,
+      submit_attempted: false,
+      visible_authoring_only: true
+    }
   };
 })();
 "###;

@@ -1359,3 +1359,35 @@
   `cargo fmt --check -p saccade-servoshell`,
   `cargo check -p saccade-servoshell --quiet`, and the fixture one-shot:
   `RUST_LOG=error cargo run -q -p saccade-servoshell -- bridge --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/editor_reduction/index.html --inspect-editors --exit --json --output-dir runs/servoshell_editor/fixture_inspect_verify_20260619`.
+
+## DECISION_SERVOSHELL_027 - Draft editor fill is narrow and value-redacted
+
+- AI-005B has a local bridge pass. The official ServoShell bridge now exposes
+  `draft_editor_fill` for visible draft authoring fields only: `description`,
+  `filename`, and `body`.
+- The method requires `block_sensitive=true` and `no_submit=true`; it never
+  clicks Create/Publish/Submit and defaults to preserving user-entered values.
+  A second fill attempt on the same fixture returns `already_has_user_value`
+  instead of overwriting.
+- Replay/report summaries record counts, slots, target hashes, lengths, and
+  policy, but not draft text values. Grepping the run artifacts for both the
+  inserted draft sentinels and hidden backing-field sentinel returned no
+  matches.
+- `saccade-servoshell bridge` now also accepts `--profile-dir`. Without it,
+  bridge launches still use `--temporary-storage`; with it, Saccade creates the
+  directory and passes it as ServoShell `--config-dir=...`. The dogfood
+  release `open-saccade` wrapper now uses its bundled `profile/default`.
+- Live GitHub/Gist draft fill remains pending human login in the profile-backed
+  window; the pre-login route correctly reports only the Search Gists field and
+  blocks authoring fill.
+- Evidence:
+  `runs/servoshell_editor/fixture_draft_fill_clean_20260619/control/replay.jsonl`,
+  `runs/servoshell_editor/profile_dir_smoke_20260619/report.json`, and
+  `runs/servoshell_editor/gist_draft_fill_profile_live_20260619/control/replay.jsonl`.
+- Verification commands:
+  `cargo fmt --check -p saccade-servoshell`,
+  `cargo check -p saccade-servoshell --quiet`,
+  `cargo test -p saccade-servoshell --quiet`,
+  `cargo run -q -p saccade-servoshell -- bridge --help`,
+  and the profile-dir fixture smoke:
+  `RUST_LOG=error cargo run -q -p saccade-servoshell -- bridge --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/editor_reduction/index.html --profile-dir runs/dogfood_profile/default --inspect-editors --exit --json --output-dir runs/servoshell_editor/profile_dir_smoke_20260619`.

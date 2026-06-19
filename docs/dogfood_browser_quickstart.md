@@ -175,7 +175,10 @@ node scripts/probe_reflex_readback_canvas.js \
 - Tabs are not implemented in the legacy dogfood shell. Product browser UI is
   still planned to move onto official ServoShell or a thin ServoShell fork.
 - File picker, native context menu, clipboard, downloads, and password-manager UX are not implemented.
-- Persistent `--profile-dir` is supported for Saccade-owned session reuse, but there is not yet a friendly profile picker or password-manager flow.
+- Persistent `--profile-dir` is supported for Saccade-owned session reuse. The
+  dogfood release `open-saccade` wrapper uses its bundled `profile/default/`
+  by default. There is not yet a friendly profile picker or password-manager
+  flow, and it does not import Chrome/Safari/Firefox cookies.
 - Canvas/WebGL-heavy pages can hit current Saccade/Servo canvas/runtime issues on this machine. Full-window Canvas2D can reproduce missing captured layers even without GL warnings. If logs show `GLD_TEXTURE_INDEX_2D is unloadable`, canvas/WebGL is extremely slow, or the page cannot be judged in Saccade, stop that run, record it as a Saccade runtime blocker, and validate with Chrome/reference instead.
 - Visual parity with Chrome/Safari is still tracked separately. Use this shell for dogfood, and use Chrome reference captures when exact mainstream rendering matters.
 - `servo-modern` improves action/layout correctness for current local gates, but it is not a claim that Servo renders like Chrome.

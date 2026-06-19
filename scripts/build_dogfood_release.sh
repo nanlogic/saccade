@@ -43,6 +43,7 @@ URL="${1:-https://example.com}"
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
+  --profile-dir "$DIR/profile/default" \
   --no-headless \
   --output-dir "$DIR/runs/servoshell_bridge" \
   --grant-path "$DIR/current_tab_grant.json"

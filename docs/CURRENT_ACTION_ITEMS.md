@@ -9,13 +9,13 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-005B third-party draft editor fill, using the same
-ServoShell bridge/replay path and the site policy matrix before touching any
-logged-in page.
+Active next item: AI-005B live authenticated Gist draft fill. Local bridge and
+fixture gates pass; the visible profile-backed Saccade window is currently at
+GitHub login and needs Wayne to complete human-only login.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-005B | P0 | ready | Editor dogfood | Add a narrow third-party draft editor fill route for visible authoring editors only. It must not publish, submit, or return/log text values. | Same visible GitHub Gist tab can receive description, filename, and body draft text through bridge/replay receipts; Create/Publish remains user-confirmed. |
+| AI-005B | P0 | blocked-on-user | Editor dogfood | Wayne logs into GitHub in the profile-backed ServoShell bridge window; then run `draft_editor_fill` on `https://gist.github.com/new`. Local fixture already fills description/filename/body, preserves user values on second write, and leaks no draft values into artifacts. | Same visible GitHub Gist tab receives description, filename, and body draft text through bridge/replay receipts; Create/Publish remains user-confirmed; replay/report contain no draft text values. |
 
 ## Next
 

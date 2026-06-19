@@ -111,7 +111,10 @@
       <h1>Gist-like Editor Reduction</h1>
 
       <label for="gist-title">Gist description</label>
-      <input id="gist-title" name="gist_title" value="Draft release note">
+      <input id="gist-title" name="gist_title" placeholder="Gist description">
+
+      <label for="gist-filename">Filename including extension</label>
+      <input id="gist-filename" name="gist_filename" placeholder="Filename including extension">
 
       <div class="toolbar" aria-label="Markdown toolbar">
         <button type="button">Bold</button>
@@ -124,7 +127,7 @@
         aria-label="Gist body editor"
         contenteditable="true"
         spellcheck="false"
-      >LEAK_SENTINEL_DO_NOT_RETURN</div>
+      ></div>
 
       <textarea
         id="gist-body-shadow"

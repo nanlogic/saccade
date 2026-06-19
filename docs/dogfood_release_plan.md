@@ -62,6 +62,10 @@ Open a site:
 dist/saccade-dogfood-<timestamp>/open-saccade https://example.com
 ```
 
+`open-saccade` uses the bundled persistent `profile/default/` directory so a
+human login can be reused by later bridge/co-pilot runs from the same kit. It
+does not import Chrome/Safari/Firefox cookies.
+
 Run the official ServoShell bridge:
 
 ```bash
