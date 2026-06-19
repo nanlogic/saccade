@@ -4792,10 +4792,10 @@ return (() => {
     ].join(" ").toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
-    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
-    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
-    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
-    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    if (/otp|one[-_ ]?time|totp|2fa|mfa|sms[_-]?otp|verification[-_ ]?code/.test(token)) return "otp";
+    if (/ssn|social security|tax[-_ ]?id|tin|ein/.test(token)) return "government_or_tax_id";
+    if (/credit|card|cc[-_]?number|cc[-_]?csc|cvv|cvc|payment/.test(token)) return "payment";
+    if (/signature|attestation|legal[-_ ]?attestation|esign|e-sign/.test(token)) return "legal_attestation";
     return "none";
   }
 
@@ -4854,10 +4854,10 @@ return (() => {
     ].join(" ").toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
-    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
-    if (/\b(ssn|social security|tax id|tax_id|tin|ein)\b/.test(token)) return "government_or_tax_id";
-    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment)\b/.test(token)) return "payment";
-    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    if (/otp|one[-_ ]?time|totp|2fa|mfa|sms[_-]?otp|verification[-_ ]?code/.test(token)) return "otp";
+    if (/ssn|social security|tax[-_ ]?id|tin|ein/.test(token)) return "government_or_tax_id";
+    if (/credit|card|cc[-_]?number|cc[-_]?csc|cvv|cvc|payment/.test(token)) return "payment";
+    if (/signature|attestation|legal[-_ ]?attestation|esign|e-sign/.test(token)) return "legal_attestation";
     return "none";
   }
 
@@ -4939,10 +4939,10 @@ return (() => {
     ].join(" ").toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
-    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
-    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
-    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
-    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    if (/otp|one[-_ ]?time|totp|2fa|mfa|sms[_-]?otp|verification[-_ ]?code/.test(token)) return "otp";
+    if (/ssn|social security|tax[-_ ]?id|tin|ein|passport|driver.?license/.test(token)) return "government_or_tax_id";
+    if (/credit|card|cc[-_]?number|cc[-_]?csc|cvv|cvc|payment|routing|bank/.test(token)) return "payment";
+    if (/signature|attestation|legal[-_ ]?attestation|esign|e-sign/.test(token)) return "legal_attestation";
     return "none";
   }
 
@@ -5100,10 +5100,10 @@ return (() => {
     ].join(" ").toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
-    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
-    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
-    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
-    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    if (/otp|one[-_ ]?time|totp|2fa|mfa|sms[_-]?otp|verification[-_ ]?code/.test(token)) return "otp";
+    if (/ssn|social security|tax[-_ ]?id|tin|ein|passport|driver.?license/.test(token)) return "government_or_tax_id";
+    if (/credit|card|cc[-_]?number|cc[-_]?csc|cvv|cvc|payment|routing|bank/.test(token)) return "payment";
+    if (/signature|attestation|legal[-_ ]?attestation|esign|e-sign/.test(token)) return "legal_attestation";
     return "none";
   }
 
@@ -5343,10 +5343,10 @@ return (() => {
     ].join(" ").toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
-    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
-    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
-    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
-    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    if (/otp|one[-_ ]?time|totp|2fa|mfa|sms[_-]?otp|verification[-_ ]?code/.test(token)) return "otp";
+    if (/ssn|social security|tax[-_ ]?id|tin|ein|passport|driver.?license/.test(token)) return "government_or_tax_id";
+    if (/credit|card|cc[-_]?number|cc[-_]?csc|cvv|cvc|payment|routing|bank/.test(token)) return "payment";
+    if (/signature|attestation|legal[-_ ]?attestation|esign|e-sign/.test(token)) return "legal_attestation";
     return "none";
   };
   const writableKind = (el) => {
