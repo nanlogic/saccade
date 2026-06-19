@@ -1431,3 +1431,34 @@
   `cargo check -p saccade-servoshell --quiet`,
   `cargo build -p saccade-servoshell --quiet`, and
   `rg -n "Saccade live dogfood|Saccade dogfood draft|saccade-dogfood-draft|SECOND DRAFT|SECOND BODY|Fixture dogfood|Fixture body|fixture-draft" runs/servoshell_editor/gist_draft_fill_profile_live2_20260619 runs/servoshell_editor/fixture_draft_fill_codemirror_fix_20260619 || true`.
+
+## DECISION_SERVOSHELL_029 - Headed window resize decoration axes fixed
+
+- AI-015 found a concrete source ServoShell headed-window bug while
+  investigating the GitHub profile dropdown clipping report. In
+  `ports/servoshell/desktop/headed_window.rs`, `request_resize` computed
+  decoration width/height as `(outer.height - inner.height,
+  outer.width - inner.width)`, swapping the axes before translating WebDriver
+  outer rect requests into inner window sizes.
+- The source fork fix changes this to `(outer.width - inner.width,
+  outer.height - inner.height)` and the release ServoShell binary was rebuilt.
+- Runtime headed WebDriver probe on the rebuilt source-release ServoShell
+  opened the local browser-session fixture, set window rects
+  `900x700 -> 1200x740 -> 900x700`, and observed matching WebDriver
+  `window/rect` results plus page truth `outerWidth` and `innerWidth` equal to
+  the requested widths. Heights also matched for sizes inside the current
+  screen bounds; an earlier `1280x900` request was capped to `793` high by the
+  macOS display, which is a display-boundary route rather than a resize math
+  failure.
+- This is a product-window geometry fix, not a complete GitHub dropdown claim.
+  The real profile/account menu still needs a post-fix retest after Wayne logs
+  in or a local dropdown fixture reproduces the same clipping pattern.
+- Verification commands:
+  in `/Users/waynema/Documents/GitHub/servo-saccade-upstream`,
+  `cargo fmt --check -p servoshell`,
+  `cargo check -p servoshell`,
+  `cargo build -p servoshell --bin servoshell --release`, and
+  `git diff --check`; runtime probe used
+  `/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell`
+  with WebDriver `GET/POST /window/rect` against
+  `test_pages/browser_session/index.html`.
