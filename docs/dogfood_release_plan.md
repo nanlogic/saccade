@@ -83,10 +83,10 @@ dist/saccade-dogfood-<timestamp>/run-local-game-reflex http://127.0.0.1:4173/
 Latest verification:
 
 ```text
-dist/saccade-dogfood-test-ai014/
-runs/dogfood_release/ai014_bridge_smoke/report.json
-runs/local_game_reflex/ai014_kit_reflex_smoke/report.json
-runs/dogfood_release/article_rookies_smoke_20260619/report.json
+dist/saccade-dogfood-ai014-close-20260619/
+runs/dogfood_release/ai014_close_bridge_smoke_20260619/report.json
+dist/saccade-dogfood-ai014-close-20260619/runs/article/ai014_close_rookies_article/control/report.json
+runs/local_game_reflex/ai014_close_reflex_smoke_20260619/report.json
 ```
 
 Result:
@@ -97,6 +97,10 @@ bridge smoke: PASS
 local-game reflex wrapper: live_game_reflex_readback_green
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content
 ```
+
+The article one-shot still reports known Servo page warnings such as the macOS
+GL texture warning and missing `IntersectionObserver`, but the article truth
+surface remains usable and exits cleanly.
 
 Servo 0.2 retirement details:
 

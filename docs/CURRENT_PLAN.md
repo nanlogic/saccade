@@ -165,15 +165,12 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 
-1. Official ServoShell human-browser path: keep official egui chrome/URL bar
-   intact, attach Saccade bridge, and pass local game/FORMMAX/current-tab safety
-   gates. Stop and platform chrome come from ServoShell or a thin fork.
-2. Editor/contenteditable gate: Gist-like editor and forum composer.
-3. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
+1. Editor/contenteditable gate: Gist-like editor and forum composer.
+2. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
    comparison polish. Browser-backed finding crops and multi-action receipts
    are closed in AI-009.
-4. MOUSEMAX evidence freeze/video/public report.
-5. Mac packaging/signing.
+3. MOUSEMAX evidence freeze/video/public report.
+4. Mac packaging/signing.
 
 ## Parking Lot
 

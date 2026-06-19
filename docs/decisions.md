@@ -1301,3 +1301,30 @@
   `cargo fmt --check -p saccade-servoshell`,
   `cargo check -p saccade-servoshell`, and
   `bash -n scripts/build_dogfood_release.sh`.
+
+## DECISION_DOGFOOD_025 - AI-014 dogfood kit closes on ServoShell bridge/fork runtime
+
+- AI-014 is closed for default dogfood runtime migration: the current kit at
+  `dist/saccade-dogfood-ai014-close-20260619/` builds only `saccade-mcp` and
+  `saccade-servoshell` by default, and omits legacy `bin/saccade-shell`.
+- The legacy embedded Servo 0.2 shell remains opt-in only through
+  `SACCADE_INCLUDE_LEGACY_SHELL=1 ./scripts/build_dogfood_release.sh`.
+- Product gates now have fresh evidence through the ServoShell bridge/fork
+  path: bridge smoke passed, one-shot `read-article` extracted 9,392 chars from
+  The Rookies page, and the local-game reflex wrapper passed
+  `live_game_reflex_readback_green`.
+- The article gate still records known Servo page warnings such as macOS GL
+  texture warnings and missing `IntersectionObserver`; these are tolerated for
+  article truth as long as the report exits cleanly with correct URL/title/text.
+- Evidence:
+  `runs/dogfood_release/ai014_close_bridge_smoke_20260619/report.json`,
+  `dist/saccade-dogfood-ai014-close-20260619/runs/article/ai014_close_rookies_article/control/report.json`,
+  and `runs/local_game_reflex/ai014_close_reflex_smoke_20260619/report.json`.
+- Verification commands:
+  `./scripts/build_dogfood_release.sh dist/saccade-dogfood-ai014-close-20260619`,
+  `cargo test -p saccade-servoshell --quiet`,
+  `cargo check -p saccade-mcp --quiet`,
+  `dist/saccade-dogfood-ai014-close-20260619/servoshell-bridge --smoke --output-dir runs/dogfood_release/ai014_close_bridge_smoke_20260619`,
+  `dist/saccade-dogfood-ai014-close-20260619/read-article https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art ai014_close_rookies_article`,
+  and
+  `SACCADE_REFLEX_DURATION_MS=5000 SACCADE_REFLEX_FACT_INTERVAL_MS=500 dist/saccade-dogfood-ai014-close-20260619/run-local-game-reflex http://127.0.0.1:4173/ ai014_close_reflex_smoke_20260619`.

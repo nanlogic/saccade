@@ -1,6 +1,6 @@
 # Saccade Current Action Items
 
-Date: 2026-06-18
+Date: 2026-06-19
 Status: canonical execution queue
 
 This file is the short, current action list. Use it with
@@ -10,8 +10,7 @@ This file is the short, current action list. Use it with
 ## Now
 
 Active next item: AI-005 when Wayne is ready to log in to GitHub/Gist inside
-Saccade. Otherwise continue AI-014 Servo 0.2 retirement/product-runtime
-migration. Use
+Saccade. Use
 `docs/site_policy_matrix.md` before dogfooding third-party logged-in or
 high-risk sites.
 
@@ -28,7 +27,6 @@ high-risk sites.
 | AI-008B | P1 | done | Canvas/WebGL | Route non-hot diagnostic fixture screenshots to `take_screenshot()` where safe, and keep a separate gate for reflex hot-loop `read_to_image()`. | Default `probe_canvas_reductions.py` uses `take-local` and marks `bare-gradient2-size-1152x648` green in `runs/webgl_runtime/canvas_reductions_1781806451861/report.json`; forced `--saccade-screenshot-mode manual` still marks it red in `runs/webgl_runtime/canvas_reductions_1781806531266/report.json`. |
 | AI-008C | P1 | done | Canvas/WebGL | Add a focused hot-loop/readback gate that tests the actual reflex `read_to_image()` path separately from diagnostic screenshots. | Source ServoShell reflex bridge sample metrics pass `bare-gradient2-size-1152x648` with `readback_foreground_present` in `runs/webgl_runtime/reflex_readback_canvas_1781806982624/report.json`; gradient-only negative control routes `readback_blank_or_flat` in `runs/webgl_runtime/reflex_readback_canvas_1781807000176/report.json`. |
 | AI-008D | P2 | done | Canvas/WebGL | Expand the reflex readback gate from local Canvas2D reduction to the live local game when the game server is running. | `runs/local_game_reflex/ai008d_live_game_release_1781810191/report.json` records `live_game_reflex_readback_green`: 1292/1292 readbacks, 176 semantic facts, 53 commands/receipts, `time_scale=0.989`, `fill_delta=12`, and `hp_delta=0`. |
-| AI-014 | P1 | in-progress | Browser runtime | Retire embedded Servo 0.2 from default dogfood and move remaining product gates to ServoShell bridge/fork. | `scripts/build_dogfood_release.sh` builds only `saccade-mcp` and `saccade-servoshell` by default; `SACCADE_INCLUDE_LEGACY_SHELL=1` is required for old `saccade-shell`; retirement plan is `docs/servo_0_2_retirement_plan.md`; evidence: `dist/saccade-dogfood-test-ai014/`, `runs/dogfood_release/ai014_bridge_smoke/report.json`, `runs/local_game_reflex/ai014_kit_reflex_smoke/report.json`, and `runs/dogfood_release/article_rookies_smoke_20260619/report.json` for one-shot article learning. |
 
 ## Recently Closed
 
@@ -62,3 +60,4 @@ high-risk sites.
 | AI-006 | current checkpoint | Added `test_pages/visual_parity/font_control_metrics/`, extra Chrome/Saccade probe fields for text/font/client/scroll metrics, and `scripts/browser_compat_metrics.py` with `GREEN/YELLOW/RED/INVALID_VIEWPORT` classification. Evidence: `docs/browser_compat_metrics_report.md`. |
 | AI-007 | current checkpoint | `scripts/browser_compat_metrics.py` now validates requested CSS viewport against Chrome truth, Saccade truth, and Saccade runtime geometry before trusting large-width comparisons. Evidence: `runs/browser_compat_metrics/metrics_1781650486498/browser_compat_metrics.json` marks `1600x760` as `INVALID_VIEWPORT` because Saccade is capped at `1440x760`. |
 | AI-010 | current checkpoint | Added a local dogfood release plan and kit builder. `scripts/build_dogfood_release.sh` builds release binaries into `dist/saccade-dogfood-*/` with `open-saccade`, `servoshell-bridge`, profile dir, env file, and docs. Icon decision: distinct Saccade icon; do not reuse official Servo icon without permission. Evidence: `docs/dogfood_release_plan.md`. |
+| AI-014 | current checkpoint | Closed Servo 0.2 default-retirement/product-runtime migration for dogfood. Current kit `dist/saccade-dogfood-ai014-close-20260619/` contains `bin/saccade-mcp` and `bin/saccade-servoshell`, omits `bin/saccade-shell` by default, passes bridge smoke, article one-shot, and local-game reflex wrapper. Evidence: `runs/dogfood_release/ai014_close_bridge_smoke_20260619/report.json`, `dist/saccade-dogfood-ai014-close-20260619/runs/article/ai014_close_rookies_article/control/report.json`, and `runs/local_game_reflex/ai014_close_reflex_smoke_20260619/report.json`. |
