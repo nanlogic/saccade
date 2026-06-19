@@ -36,7 +36,8 @@ External review decision:
 
 Summary: use the external ServoShell WebDriver adapter first, but treat it as a
 bounded product/safety gate. Prepare a thin official ServoShell fork as fallback.
-Avoid upgrading the old embedded `servo=0.2.0` path for now.
+Retire the old embedded `servo=0.2.0` path from default dogfood instead of
+upgrading it in place.
 
 ## Plan
 
@@ -49,6 +50,13 @@ Status: done enough for pivot.
 - Official Servo.app can run the local game at `http://127.0.0.1:4173/`.
 - `ign.com` also has issues in official Servo.app, so it is not a Saccade-only
   blocker.
+- 2026-06-19: dogfood release defaults to `saccade-servoshell` +
+  `saccade-mcp`. The old `saccade-shell` build is opt-in through
+  `SACCADE_INCLUDE_LEGACY_SHELL=1` for historical regression checks.
+
+Retirement detail:
+
+- `docs/servo_0_2_retirement_plan.md`
 
 ### S1: Probe Official ServoShell External Control
 

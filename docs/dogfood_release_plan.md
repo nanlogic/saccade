@@ -7,6 +7,10 @@ Date: 2026-06-16
 Make a **local dogfood release kit** now. Do not call it a public release and do
 not block on a notarized `.app` bundle yet.
 
+Default the dogfood kit to **ServoShell 0.3 bridge**, not the legacy embedded
+`servo=0.2.0` shell. The legacy shell is opt-in for historical regression
+checks only.
+
 Use a **distinct Saccade icon** for Saccade builds. Do not reuse the official
 Servo app icon unless the Servo project explicitly grants that use. Product copy
 can say "Powered by Servo" or "Uses the Servo engine" where appropriate.
@@ -33,14 +37,22 @@ The script writes:
 
 ```text
 dist/saccade-dogfood-<timestamp>/
-  bin/saccade-shell
   bin/saccade-mcp
   bin/saccade-servoshell
   open-saccade
   servoshell-bridge
+  run-local-game-reflex
+  current_tab_grant.json
   saccade-dogfood.env
   profile/default/
   docs/
+```
+
+By default it does **not** build or copy `bin/saccade-shell`, because that pulls
+in the old embedded Servo 0.2 stack. To include it explicitly:
+
+```bash
+SACCADE_INCLUDE_LEGACY_SHELL=1 ./scripts/build_dogfood_release.sh
 ```
 
 Open a site:
@@ -53,6 +65,34 @@ Run the official ServoShell bridge:
 
 ```bash
 dist/saccade-dogfood-<timestamp>/servoshell-bridge --smoke
+```
+
+Run the local-game reflex gate:
+
+```bash
+dist/saccade-dogfood-<timestamp>/run-local-game-reflex http://127.0.0.1:4173/
+```
+
+Latest verification:
+
+```text
+dist/saccade-dogfood-test-ai014/
+runs/dogfood_release/ai014_bridge_smoke/report.json
+runs/local_game_reflex/ai014_kit_reflex_smoke/report.json
+```
+
+Result:
+
+```text
+default kit: no bin/saccade-shell
+bridge smoke: PASS
+local-game reflex wrapper: live_game_reflex_readback_green
+```
+
+Servo 0.2 retirement details:
+
+```text
+docs/servo_0_2_retirement_plan.md
 ```
 
 ## Icon Policy

@@ -653,6 +653,27 @@
 - BP-011 remains monitoring for broad third-party Canvas/WebGL sites. Do not
   generalize the local-game pass to unknown pages without evidence.
 
+## DECISION_BROWSER_028 - Servo 0.2 is retired from default dogfood
+
+- The dogfood release builder exposed an avoidable cost: defaulting to
+  `saccade-shell` pulls the legacy embedded `servo=0.2.0` stack into release
+  builds even though the product browser path has moved to ServoShell 0.3.
+- We are not doing an in-place `servo=0.2.0 -> 0.3.x` upgrade inside
+  `crates/saccade_browser`. That keeps the wrong browser shell and creates a
+  heavy Servo API migration.
+- Instead, default dogfood now builds only `saccade-mcp` and
+  `saccade-servoshell`. The legacy shell is opt-in:
+  `SACCADE_INCLUDE_LEGACY_SHELL=1 ./scripts/build_dogfood_release.sh`.
+- New default launcher:
+  `dist/saccade-dogfood-*/open-saccade <URL>` -> `saccade-servoshell bridge --no-headless --url <URL>`.
+- New local game wrapper:
+  `dist/saccade-dogfood-*/run-local-game-reflex http://127.0.0.1:4173/`.
+- Evidence: `./scripts/build_dogfood_release.sh dist/saccade-dogfood-test-ai014`
+  finished in 18 seconds and produced no `bin/saccade-shell`; bridge smoke
+  passed at `runs/dogfood_release/ai014_bridge_smoke/report.json`; reflex
+  wrapper passed at `runs/local_game_reflex/ai014_kit_reflex_smoke/report.json`.
+- Full retirement plan: `docs/servo_0_2_retirement_plan.md`.
+
 ## DECISION_SERVOSHELL_006 - First official ServoShell adapter gate is Rust-owned
 
 - Added `bins/saccade-servoshell` as the first product-gate adapter over

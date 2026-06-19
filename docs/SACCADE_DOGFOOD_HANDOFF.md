@@ -146,9 +146,13 @@ Preferred same-machine dogfood release:
 ./scripts/build_dogfood_release.sh
 dist/saccade-dogfood-<timestamp>/open-saccade <URL>
 
-Fallback browser command for owned/local dogfood:
-RUST_LOG=error SACCADE_OWNED_DOMAINS=nanmesh.ai,mythcastera.com,mysterypartynow.com \
-  cargo run -q -p saccade-shell -- browse --url <URL> --width 1440 --height 1000
+The dogfood release defaults to ServoShell 0.3 bridge. Do not use the legacy
+embedded `saccade-shell browse` path unless the Saccade session explicitly asks
+for an old Servo 0.2 regression check.
+
+Optional legacy fallback for old regression checks only:
+SACCADE_INCLUDE_LEGACY_SHELL=1 ./scripts/build_dogfood_release.sh
+dist/saccade-dogfood-<timestamp>/open-legacy-saccade <URL>
 
 For exact mainstream rendering, use Chrome/reference as the comparison browser.
 For local game reflex evidence, ask the Saccade session to run

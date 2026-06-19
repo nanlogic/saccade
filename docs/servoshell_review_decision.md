@@ -19,7 +19,9 @@ In practical terms:
   boundary.
 - Keep a thin official ServoShell fork design ready, but do not start it until a
   concrete Saccade gate fails.
-- Do not invest in upgrading the old embedded `servo=0.2.0` path right now.
+- Do not invest in an in-place upgrade of the old embedded `servo=0.2.0` path.
+  Retire it from default dogfood and move remaining gates to the ServoShell
+  bridge/fork path.
 
 ## Why
 
@@ -135,6 +137,18 @@ If Option B is triggered:
 - upstream general ServoShell fixes,
 - keep bridge API narrow: truth, safe action, screenshot policy, session policy,
   replay hooks.
+
+## 2026-06-19 Update
+
+AI-012 and AI-008D proved enough of the ServoShell path to make retirement the
+right default:
+
+- `saccade-servoshell` and `saccade-mcp` do not depend on embedded Servo 0.2.
+- Source-release ServoShell passes the local-game reflex gate.
+- `scripts/build_dogfood_release.sh` no longer builds `saccade-shell` by
+  default; set `SACCADE_INCLUDE_LEGACY_SHELL=1` only for old regression checks.
+
+Details: `docs/servo_0_2_retirement_plan.md`.
 
 ## Immediate Queue
 

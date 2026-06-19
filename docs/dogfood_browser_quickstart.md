@@ -4,13 +4,18 @@ Date: 2026-06-16
 
 ## What exists now
 
-Saccade now has a macOS-friendly dogfood browser shell:
+Saccade's preferred dogfood browser path is now the ServoShell 0.3 bridge:
 
 ```bash
-RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://example.com
+./scripts/build_dogfood_release.sh
+dist/saccade-dogfood-<timestamp>/open-saccade https://example.com
 ```
 
-It opens one Servo-backed Saccade window at `1440x1000` by default. Dogfood uses the `servo-modern` rendering profile, which currently enables Servo's measured CSS Grid pref. You can click, scroll, type into ordinary fields, use basic `<select>` controls, and use the visible address bar. Close the window to exit.
+It opens ServoShell with the Saccade bridge attached, writes a current-tab grant,
+and keeps the official/source ServoShell browser UI as the human-visible layer.
+The legacy embedded `saccade-shell browse` path still exists for regression
+checks, but it is not the default dogfood path because it pulls in the old
+embedded `servo=0.2.0` stack.
 
 ## Easy mac launcher
 
@@ -20,7 +25,8 @@ From Finder, double-click:
 scripts/saccade-open.command
 ```
 
-It asks for a URL and then launches the same browser shell.
+It asks for a URL and launches the legacy shell. Prefer the release-kit
+`open-saccade` command above for current dogfood.
 
 From Terminal:
 
@@ -33,29 +39,32 @@ From Terminal:
 Open a site:
 
 ```bash
-RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://mouseaccuracy.com/classic/
+dist/saccade-dogfood-<timestamp>/open-saccade https://mouseaccuracy.com/classic/
 ```
 
-Open a larger window:
+Run a bridge smoke:
 
 ```bash
-RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://example.com --width 1920 --height 1080
+dist/saccade-dogfood-<timestamp>/servoshell-bridge --smoke
 ```
 
-Open with a persistent Saccade profile:
+Run the local game reflex gate:
 
 ```bash
-mkdir -p runs/dogfood_profile/default
-RUST_LOG=error cargo run -q -p saccade-shell -- browse --url https://gist.github.com --profile-dir runs/dogfood_profile/default
+dist/saccade-dogfood-<timestamp>/run-local-game-reflex http://127.0.0.1:4173/
 ```
 
-Use the same profile for an agent worker:
+Legacy embedded shell, only when you need an old regression check:
 
 ```bash
-RUST_LOG=error cargo run -q -p saccade-shell -- browser-session-worker --url https://gist.github.com/new --profile-dir runs/dogfood_profile/default
+SACCADE_INCLUDE_LEGACY_SHELL=1 ./scripts/build_dogfood_release.sh
+dist/saccade-dogfood-<timestamp>/open-legacy-saccade https://example.com
 ```
 
-This shares Saccade-owned cookies/storage across Saccade processes. It does not import Chrome/Safari/Firefox cookies. For Google/GitHub login, log in inside Saccade with the persistent profile, then reuse that same profile path for later worker sessions.
+The legacy profile path shares Saccade-owned cookies/storage across Saccade
+processes. It does not import Chrome/Safari/Firefox cookies. For Google/GitHub
+login, prefer the ServoShell bridge handoff flow unless a legacy regression
+explicitly needs `browser-session-worker`.
 
 Probe editor routability without typing or publishing:
 
