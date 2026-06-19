@@ -58,6 +58,25 @@ set +a
 exec "$DIR/bin/saccade-servoshell" bridge --servoshell "$SACCADE_SERVOSHELL_BIN" "$@"
 SH
 
+cat > "$OUT/read-article" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
+source "$DIR/saccade-dogfood.env"
+set +a
+URL="${1:?usage: read-article <url> [output_name]}"
+NAME="${2:-article_$(date +%Y%m%d-%H%M%S)}"
+exec "$DIR/bin/saccade-servoshell" bridge \
+  --servoshell "$SACCADE_SERVOSHELL_BIN" \
+  --url "$URL" \
+  --read-article \
+  --article-max-chars "${SACCADE_ARTICLE_MAX_CHARS:-30000}" \
+  --exit \
+  --json \
+  --output-dir "$DIR/runs/article/$NAME"
+SH
+
 cat > "$OUT/run-local-game-reflex" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -96,7 +115,7 @@ SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
 
-chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/run-local-game-reflex"
+chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/read-article" "$OUT/run-local-game-reflex"
 
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/SACCADE_DOGFOOD_HANDOFF.md" "$OUT/docs/"
@@ -124,6 +143,12 @@ Run a bridge smoke:
 
 \`\`\`bash
 $OUT/servoshell-bridge --smoke
+\`\`\`
+
+Read a public article/tutorial page and exit with JSON:
+
+\`\`\`bash
+$OUT/read-article https://example.com/tutorial
 \`\`\`
 
 Run the local game reflex gate when the game server is up:

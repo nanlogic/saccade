@@ -48,6 +48,18 @@ Run a bridge smoke:
 dist/saccade-dogfood-<timestamp>/servoshell-bridge --smoke
 ```
 
+Read a public article/tutorial page, wait for content, emit JSON, and exit:
+
+```bash
+dist/saccade-dogfood-<timestamp>/read-article \
+  https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art
+```
+
+This is the preferred A/B path for long learning pages. It uses the same
+ServoShell bridge, extracts `article_text`, records the report under
+`dist/saccade-dogfood-<timestamp>/runs/article/<name>/report.json`, and exits
+instead of leaving a live browser session running.
+
 Run the local game reflex gate:
 
 ```bash

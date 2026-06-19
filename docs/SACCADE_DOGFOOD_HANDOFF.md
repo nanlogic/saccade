@@ -146,6 +146,14 @@ Preferred same-machine dogfood release:
 ./scripts/build_dogfood_release.sh
 dist/saccade-dogfood-<timestamp>/open-saccade <URL>
 
+For public article/tutorial learning pages, prefer the one-shot reader:
+dist/saccade-dogfood-<timestamp>/read-article <URL>
+
+This waits for the ServoShell bridge page, extracts article/main text through
+`article_text`, writes a JSON report under the kit's `runs/article/`, and exits.
+Use it for Chrome-vs-Saccade speed/accuracy/token comparisons on long learning
+pages.
+
 The dogfood release defaults to ServoShell 0.3 bridge. Do not use the legacy
 embedded `saccade-shell browse` path unless the Saccade session explicitly asks
 for an old Servo 0.2 regression check.

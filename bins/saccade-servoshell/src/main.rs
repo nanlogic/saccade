@@ -89,6 +89,16 @@ enum Command {
         timeout_sec: f64,
         #[arg(long)]
         smoke: bool,
+        #[arg(long)]
+        until_ready: bool,
+        #[arg(long)]
+        read_article: bool,
+        #[arg(long, default_value_t = 20000)]
+        article_max_chars: usize,
+        #[arg(long)]
+        exit: bool,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -398,6 +408,11 @@ fn main() -> Result<()> {
             no_headless,
             timeout_sec,
             smoke,
+            until_ready,
+            read_article,
+            article_max_chars,
+            exit,
+            json,
         } => {
             let outcome = run_bridge(BridgeConfig {
                 servoshell,
@@ -407,14 +422,25 @@ fn main() -> Result<()> {
                 headless: !no_headless,
                 timeout: Duration::from_secs_f64(timeout_sec),
                 smoke,
+                until_ready,
+                read_article,
+                article_max_chars,
+                exit_after_ready: exit,
+                print_json: json,
             })?;
-            println!(
-                "SACCADE_SERVOSHELL_BRIDGE {} endpoint={} grant={} report={}",
-                if outcome.ok { "PASS" } else { "READY" },
-                outcome.endpoint,
-                outcome.grant_path.display(),
-                outcome.report_path.display(),
-            );
+            if json {
+                let text = fs::read_to_string(&outcome.report_path)
+                    .with_context(|| format!("read {}", outcome.report_path.display()))?;
+                println!("{text}");
+            } else {
+                println!(
+                    "SACCADE_SERVOSHELL_BRIDGE {} endpoint={} grant={} report={}",
+                    if outcome.ok { "PASS" } else { "READY" },
+                    outcome.endpoint,
+                    outcome.grant_path.display(),
+                    outcome.report_path.display(),
+                );
+            }
             Ok(())
         }
     }
@@ -479,6 +505,11 @@ struct BridgeConfig {
     headless: bool,
     timeout: Duration,
     smoke: bool,
+    until_ready: bool,
+    read_article: bool,
+    article_max_chars: usize,
+    exit_after_ready: bool,
+    print_json: bool,
 }
 
 #[derive(Debug)]
@@ -625,6 +656,13 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             "screenshots_default": "forbidden",
             "control_protocol_compat": "saccade-dogfood-control-v0"
         },
+        "mode": {
+            "smoke": cfg.smoke,
+            "until_ready": cfg.until_ready,
+            "read_article": cfg.read_article,
+            "exit_after_ready": cfg.exit_after_ready,
+            "json_stdout": cfg.print_json,
+        },
         "output_dir": cfg.output_dir.clone(),
         "copilot_status_path": saccade_copilot_status_path(webdriver_port),
     });
@@ -638,6 +676,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         session_id = Some(sid.clone());
         report["webdriver"]["new_session"] = session;
         report["webdriver"]["session_id"] = json!(sid);
+        report["webdriver"]["initial_navigate"] = client.navigate(&sid, &cfg.url)?;
 
         let ready = wait_for_document_ready(&client, &sid, cfg.timeout)?;
         report["page"]["ready"] = ready.clone();
@@ -681,6 +720,17 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
                 "actions_count": actions.get("actions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
                 "same_webview_control": truth.get("same_webview_control").cloned().unwrap_or(Value::Null),
             });
+        }
+        if cfg.read_article {
+            let article = bridge_control_call(
+                &server.endpoint,
+                "article_text",
+                json!({"max_chars": cfg.article_max_chars}),
+                cfg.timeout,
+            )?;
+            report["article_text"] = article;
+        }
+        if cfg.smoke || cfg.exit_after_ready {
             bridge_control_call(&server.endpoint, "shutdown", json!({}), cfg.timeout)?;
         }
 
@@ -689,10 +739,11 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
 
     match result {
         Ok((server, grant_path)) => {
-            report["ok"] = json!(cfg.smoke);
-            report["live"] = json!(!cfg.smoke);
+            let one_shot = cfg.smoke || cfg.exit_after_ready;
+            report["ok"] = json!(one_shot);
+            report["live"] = json!(!one_shot);
             write_json(&report_path, &report)?;
-            if cfg.smoke {
+            if one_shot {
                 stop_bridge_control_server(server);
                 if let Some(sid) = session_id.as_deref() {
                     if let Err(error) = client.delete_session(sid) {
@@ -2507,6 +2558,7 @@ fn bridge_control_result(
         }
         "truth" => bridge_probe_response(state, "saccade-servoshell-bridge-truth-v0"),
         "actions" => bridge_probe_response(state, "saccade-servoshell-bridge-actions-v0"),
+        "article_text" => bridge_article_text_response(state, params),
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
         "act" => bridge_act_response(state, params),
@@ -2585,6 +2637,7 @@ fn bridge_status_response(
             "shell_status",
             "truth",
             "actions",
+            "article_text",
             "fill_agent_fields",
             "inspect_fields",
             "act",
@@ -2795,6 +2848,9 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "validation_errors",
         "replay_events",
         "requested",
+        "article_text_length",
+        "text_chars_returned",
+        "body_text_length",
     ] {
         if let Some(value) = result.get(key).and_then(Value::as_u64) {
             counts.insert(key.to_string(), json!(value));
@@ -2823,6 +2879,7 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "changed": result.get("changed").cloned().unwrap_or(Value::Null),
         "receipt_verified": result.get("receipt_verified").cloned().unwrap_or(Value::Null),
         "verification": result.get("verification").cloned().unwrap_or(Value::Null),
+        "extraction": result.get("extraction").cloned().unwrap_or(Value::Null),
         "site_policy": result.get("site_policy").cloned().unwrap_or(Value::Null),
         "policy": result.get("policy").cloned().unwrap_or(Value::Null),
         "counts": Value::Object(counts),
@@ -3053,6 +3110,60 @@ fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Val
             "redaction_count": truth.get("redactions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
             "action_count": truth.get("actions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
         },
+        "artifacts": bridge_artifacts(state),
+    }))
+}
+
+fn bridge_article_text_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks article_text on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
+    let max_chars = params
+        .get("max_chars")
+        .and_then(Value::as_u64)
+        .unwrap_or(20_000)
+        .clamp(1_000, 100_000) as usize;
+    let article =
+        state
+            .client
+            .execute_sync_args(&state.session_id, ARTICLE_TEXT_JS, &[json!(max_chars)])?;
+    let article_text_length = article
+        .get("articleTextLength")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let text_chars_returned = article
+        .get("text")
+        .and_then(Value::as_str)
+        .map(|text| text.chars().count() as u64)
+        .unwrap_or_default();
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-bridge-article-text-v0",
+        "summary": "article/main text extracted from official ServoShell through the live bridge",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": site_policy,
+        "url": article.get("url").cloned().unwrap_or(Value::Null),
+        "title": article.get("title").cloned().unwrap_or(Value::Null),
+        "body_text_length": article.get("bodyTextLength").and_then(Value::as_u64).unwrap_or_default(),
+        "article_text_length": article_text_length,
+        "text_chars_returned": text_chars_returned,
+        "text_truncated": article.get("textTruncated").and_then(Value::as_bool).unwrap_or(false),
+        "extraction": {
+            "mode": article.get("mode").cloned().unwrap_or(Value::Null),
+            "selector": article.get("selector").cloned().unwrap_or(Value::Null),
+            "candidate_count": article.get("candidateCount").cloned().unwrap_or(Value::Null),
+            "max_chars": max_chars,
+        },
+        "headings": article.get("headings").cloned().unwrap_or_else(|| json!([])),
+        "text": article.get("text").cloned().unwrap_or(Value::Null),
         "artifacts": bridge_artifacts(state),
     }))
 }
@@ -3499,7 +3610,7 @@ fn write_bridge_grant(
         "mcp_tool": "saccade.tabs.grant_current",
         "control_endpoint": bridge_endpoint_json(endpoint),
         "transport_status": "official_servoshell_bridge_control_v0",
-        "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, safe non-sensitive fill/inspect/act, local FORMMAX fill, navigate, reload, back, and forward through official ServoShell WebDriver.",
+        "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, article_text, safe non-sensitive fill/inspect/act, local FORMMAX fill, navigate, reload, back, and forward through official ServoShell WebDriver.",
         "written_unix_ms": unix_ms(),
     });
     write_json(path, &payload)
@@ -4043,6 +4154,108 @@ return (() => {
     ok: Boolean(form),
     submitted: Boolean(form),
     credentials_echoed: false
+  };
+})();
+"###;
+
+const ARTICLE_TEXT_JS: &str = r###"
+return (() => {
+  const maxChars = Math.max(1000, Math.min(100000, Number(arguments[0] || 20000)));
+  const normalize = (text) => String(text || "")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const textOf = (el) => normalize(el ? (el.innerText || el.textContent || "") : "");
+  const visible = (el) => {
+    if (!el || !el.getBoundingClientRect) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
+      const cs = getComputedStyle(cur);
+      if (cur.hidden || cur.getAttribute("aria-hidden") === "true") return false;
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse") return false;
+    }
+    return true;
+  };
+  const selectorFor = (el) => {
+    if (!el || !el.tagName) return "unknown";
+    if (el.id) return `${el.tagName.toLowerCase()}#${el.id}`;
+    const cls = el.classList && el.classList.length ? "." + Array.from(el.classList).slice(0, 3).join(".") : "";
+    return `${el.tagName.toLowerCase()}${cls}`;
+  };
+  const penaltyFor = (el) => {
+    const token = [
+      el.id || "",
+      el.className || "",
+      el.getAttribute("role") || "",
+      el.tagName || ""
+    ].join(" ").toLowerCase();
+    let penalty = 0;
+    if (/(nav|menu|sidebar|footer|header|cookie|banner|ad-|advert|promo|related|comment|share|social)/.test(token)) penalty += 1200;
+    if (["NAV", "FOOTER", "HEADER", "ASIDE"].includes(el.tagName)) penalty += 1500;
+    return penalty;
+  };
+  const scoreCandidate = (el, preferred) => {
+    if (!visible(el)) return null;
+    const text = textOf(el);
+    const len = text.length;
+    if (len < 120) return null;
+    const paragraphCount = el.querySelectorAll ? el.querySelectorAll("p, li").length : 0;
+    const headingCount = el.querySelectorAll ? el.querySelectorAll("h1,h2,h3").length : 0;
+    const linkText = Array.from(el.querySelectorAll ? el.querySelectorAll("a") : [])
+      .map((a) => a.innerText || a.textContent || "")
+      .join(" ")
+      .length;
+    const linkPenalty = len ? Math.floor((linkText / len) * 1200) : 0;
+    const score = len + paragraphCount * 120 + headingCount * 180 + (preferred ? 3000 : 0) - penaltyFor(el) - linkPenalty;
+    return { el, text, score, selector: selectorFor(el), preferred };
+  };
+  const candidates = [];
+  const add = (el, preferred = false) => {
+    const item = scoreCandidate(el, preferred);
+    if (item && !candidates.some((existing) => existing.el === item.el)) candidates.push(item);
+  };
+  for (const selector of [
+    "article",
+    "main",
+    "[role='main']",
+    ".post-content",
+    ".entry-content",
+    ".article-content",
+    ".blog-post",
+    ".breakdown-content",
+    ".content"
+  ]) {
+    document.querySelectorAll(selector).forEach((el) => add(el, true));
+  }
+  document.querySelectorAll("section, div").forEach((el) => {
+    const text = textOf(el);
+    if (text.length >= 800 && el.querySelectorAll("p, li").length >= 3) add(el, false);
+  });
+  add(document.body, false);
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0] || { el: document.body, text: textOf(document.body), score: 0, selector: "body", preferred: false };
+  const headings = Array.from((best.el || document).querySelectorAll("h1,h2,h3"))
+    .map((el) => normalize(el.innerText || el.textContent || ""))
+    .filter(Boolean)
+    .slice(0, 20);
+  const fullText = best.text;
+  const returned = fullText.slice(0, maxChars);
+  return {
+    url: document.URL,
+    title: document.title,
+    readyState: document.readyState,
+    bodyTextLength: document.body ? textOf(document.body).length : 0,
+    articleTextLength: fullText.length,
+    text: returned,
+    textTruncated: fullText.length > returned.length,
+    mode: best.preferred ? "semantic_container" : "scored_container",
+    selector: best.selector,
+    score: best.score,
+    candidateCount: candidates.length,
+    headings
   };
 })();
 "###;

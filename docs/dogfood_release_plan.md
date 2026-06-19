@@ -41,6 +41,7 @@ dist/saccade-dogfood-<timestamp>/
   bin/saccade-servoshell
   open-saccade
   servoshell-bridge
+  read-article
   run-local-game-reflex
   current_tab_grant.json
   saccade-dogfood.env
@@ -67,6 +68,12 @@ Run the official ServoShell bridge:
 dist/saccade-dogfood-<timestamp>/servoshell-bridge --smoke
 ```
 
+Read a public tutorial/article page and exit with JSON:
+
+```bash
+dist/saccade-dogfood-<timestamp>/read-article https://example.com/tutorial
+```
+
 Run the local-game reflex gate:
 
 ```bash
@@ -79,6 +86,7 @@ Latest verification:
 dist/saccade-dogfood-test-ai014/
 runs/dogfood_release/ai014_bridge_smoke/report.json
 runs/local_game_reflex/ai014_kit_reflex_smoke/report.json
+runs/dogfood_release/article_rookies_smoke_20260619/report.json
 ```
 
 Result:
@@ -87,6 +95,7 @@ Result:
 default kit: no bin/saccade-shell
 bridge smoke: PASS
 local-game reflex wrapper: live_game_reflex_readback_green
+article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content
 ```
 
 Servo 0.2 retirement details:

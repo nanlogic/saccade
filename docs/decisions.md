@@ -1278,3 +1278,26 @@
   implementation time.
 - Verification command:
   `cargo check -p servoshell`.
+
+## DECISION_SERVOSHELL_024 - Public tutorial pages use one-shot article_text
+
+- A Chrome-vs-Saccade dogfood run on The Rookies' modular environment art
+  tutorial showed that the bridge could read the page, but long learning tasks
+  needed a direct article/main text surface and a command that exits cleanly.
+- `saccade-servoshell bridge` now supports `article_text` over the same
+  control endpoint and exposes `--read-article --exit --json` for one-shot
+  learning-page runs. The bridge explicitly navigates the WebDriver session to
+  the requested URL after session creation, reducing the observed `about:blank`
+  race.
+- The dogfood kit now includes `read-article <URL>`, which writes a JSON report
+  under the kit's `runs/article/` and exits instead of leaving a live bridge.
+- Safety rule: `article_text` respects the existing site policy. Red sites do
+  not return article text; public/low-risk learning pages can return text for
+  DB ingestion and Chrome-vs-Saccade comparison.
+- Evidence:
+  `runs/dogfood_release/article_rookies_smoke_20260619/report.json` extracted
+  9,392 chars from `main.layout-content` with the expected title and URL.
+- Verification commands:
+  `cargo fmt --check -p saccade-servoshell`,
+  `cargo check -p saccade-servoshell`, and
+  `bash -n scripts/build_dogfood_release.sh`.
