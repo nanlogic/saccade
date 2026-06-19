@@ -690,9 +690,13 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         session_id = Some(sid.clone());
         report["webdriver"]["new_session"] = session;
         report["webdriver"]["session_id"] = json!(sid);
-        report["webdriver"]["initial_navigate"] = client.navigate(&sid, &cfg.url)?;
+        let initial_navigate = navigate_and_wait(&client, &sid, &cfg.url, cfg.timeout)?;
+        let ready = initial_navigate
+            .get("ready")
+            .cloned()
+            .unwrap_or(Value::Null);
+        report["webdriver"]["initial_navigate"] = initial_navigate;
 
-        let ready = wait_for_document_ready(&client, &sid, cfg.timeout)?;
         report["page"]["ready"] = ready.clone();
 
         let control_dir = cfg.output_dir.join("control");
@@ -2297,6 +2301,94 @@ fn wait_for_document_ready(
     bail!("document did not become ready: {last}");
 }
 
+fn navigate_and_wait(
+    client: &WebDriverClient,
+    session_id: &str,
+    url: &str,
+    timeout: Duration,
+) -> Result<Value> {
+    let before = client.execute_sync(
+        session_id,
+        "return { title: document.title, readyState: document.readyState, url: document.URL };",
+    )?;
+    let before_url = before
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let webdriver_response = client.navigate(session_id, url)?;
+    let mut ready = wait_for_document_ready(client, session_id, timeout)?;
+    let after_url = ready
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let mut fallback = Value::Null;
+
+    if should_force_navigation_fallback(&before_url, &after_url, url) {
+        fallback = client.execute_sync_args(
+            session_id,
+            "window.location.assign(arguments[0]); return { method: 'window.location.assign', previousUrl: document.URL };",
+            &[json!(url)],
+        )?;
+        ready = wait_for_url_change_after_fallback(client, session_id, &before_url, timeout)?;
+    }
+
+    Ok(json!({
+        "requested_url": url,
+        "before_url": before_url,
+        "webdriver_response": webdriver_response,
+        "fallback": fallback,
+        "ready": ready,
+    }))
+}
+
+fn wait_for_url_change_after_fallback(
+    client: &WebDriverClient,
+    session_id: &str,
+    before_url: &str,
+    timeout: Duration,
+) -> Result<Value> {
+    let deadline = Instant::now() + timeout;
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = client.execute_sync(
+            session_id,
+            "return { title: document.title, readyState: document.readyState, url: document.URL };",
+        )?;
+        fail_if_servoshell_error_page(&last)?;
+        let current_url = last.get("url").and_then(Value::as_str).unwrap_or("");
+        if current_url != before_url {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            return wait_for_document_ready(client, session_id, remaining);
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    Ok(last)
+}
+
+fn should_force_navigation_fallback(
+    before_url: &str,
+    after_url: &str,
+    requested_url: &str,
+) -> bool {
+    if before_url.is_empty() || after_url != before_url {
+        return false;
+    }
+    !urls_equivalent(after_url, requested_url)
+}
+
+fn urls_equivalent(left: &str, right: &str) -> bool {
+    let (Ok(left), Ok(right)) = (Url::parse(left), Url::parse(right)) else {
+        return left == right;
+    };
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+        && left.path() == right.path()
+        && left.query() == right.query()
+}
+
 fn wait_for_dynamic_page_settle(
     client: &WebDriverClient,
     session_id: &str,
@@ -2602,10 +2694,15 @@ fn bridge_control_result(
                 .and_then(Value::as_str)
                 .context("navigate requires params.url")?;
             Url::parse(url).with_context(|| format!("invalid navigate URL: {url}"))?;
-            state.client.navigate(&state.session_id, url)?;
-            wait_for_document_ready(&state.client, &state.session_id, state.client.timeout)?;
+            let navigation =
+                navigate_and_wait(&state.client, &state.session_id, url, state.client.timeout)?;
             state.page_revision.fetch_add(1, Ordering::SeqCst);
-            bridge_status_response(state, "saccade-servoshell-bridge-navigate-v0", true)
+            let mut status =
+                bridge_status_response(state, "saccade-servoshell-bridge-navigate-v0", true)?;
+            if let Some(object) = status.as_object_mut() {
+                object.insert("navigation".to_string(), navigation);
+            }
+            Ok(status)
         }
         "reload" => {
             state.client.refresh(&state.session_id)?;
@@ -5168,10 +5265,42 @@ return (() => {
     return out;
   }
 
+  function codeMirrorHandle(el) {
+    if (!el) return null;
+    if (el.CodeMirror && typeof el.CodeMirror.getValue === "function") return el.CodeMirror;
+    const root = el.closest && el.closest(".CodeMirror");
+    if (root && root.CodeMirror && typeof root.CodeMirror.getValue === "function") {
+      return root.CodeMirror;
+    }
+    return null;
+  }
+
+  function isEditorShell(el) {
+    if (!el) return false;
+    const className = String(el.className || "");
+    if (/\b(cm-content|CodeMirror|CodeMirror-code|ace_editor)\b/.test(className)) return true;
+    return Boolean(el.closest && el.closest(".CodeMirror,.cm-editor,.ace_editor"));
+  }
+
+  function stripEditorChromeText(text) {
+    const compact = String(text || "").replace(/\u200b/g, "").trim();
+    if (!compact) return "";
+    const parts = compact.split(/\s+/).filter(Boolean);
+    if (parts.length && parts.every((part, index) => /^\d+$/.test(part) && Number(part) === index + 1)) {
+      return "";
+    }
+    return compact;
+  }
+
   function existingLength(el) {
     const tag = el.tagName ? el.tagName.toLowerCase() : "";
     if (tag === "input" || tag === "textarea") return String(el.value || "").trim().length;
-    return String(el.textContent || "").trim().length;
+    const cm = codeMirrorHandle(el);
+    if (cm) return String(cm.getValue() || "").trim().length;
+    const text = isEditorShell(el)
+      ? stripEditorChromeText(el.textContent || "")
+      : String(el.textContent || "").trim();
+    return text.length;
   }
 
   function writeTextControl(el, value) {
@@ -5183,6 +5312,18 @@ return (() => {
   }
 
   function writeContentEditable(el, value) {
+    const cm = codeMirrorHandle(el);
+    if (cm && typeof cm.setValue === "function") {
+      if (typeof cm.focus === "function") cm.focus();
+      cm.setValue(String(value));
+      if (typeof cm.save === "function") cm.save();
+      const input = typeof cm.getInputField === "function" ? cm.getInputField() : null;
+      if (input) {
+        input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: String(value) }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return "codemirror_set_value";
+    }
     el.focus();
     let method = "text_content_input";
     const selection = window.getSelection && window.getSelection();

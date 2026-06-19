@@ -1391,3 +1391,43 @@
   `cargo run -q -p saccade-servoshell -- bridge --help`,
   and the profile-dir fixture smoke:
   `RUST_LOG=error cargo run -q -p saccade-servoshell -- bridge --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/editor_reduction/index.html --profile-dir runs/dogfood_profile/default --inspect-editors --exit --json --output-dir runs/servoshell_editor/profile_dir_smoke_20260619`.
+
+## DECISION_SERVOSHELL_028 - Gist draft fill needs editor-chrome and auth-state gates
+
+- Live Gist draft fill exposed two separate issues that should not be merged.
+  First, the real GitHub editor can expose empty CodeMirror/editor chrome as a
+  small nonzero text length. The first live draft fill wrote description and
+  filename, but rejected body with `already_has_user_value` and
+  `beforeLength=2`. The bridge now reads/writes CodeMirror through
+  `getValue`/`setValue` when available and treats pure editor line-number
+  chrome as empty fallback text.
+- Local regression evidence now fills all three draft slots on the editor
+  reduction fixture: `draft_fields_filled=3`, `draft_fields_rejected=0`,
+  `chars_written=113`, then a second fill preserves existing values with
+  `draft_fields_filled=0` and `draft_fields_rejected=3`. Grepping the fixture
+  and live artifacts for the inserted draft strings returned no matches.
+- Second, authenticated real-site fill is still not closed. After bridge
+  restart, the `runs/dogfood_profile/default` cookie jar contains GitHub cookie
+  names `_gh_sess`, `_octo`, and `logged_in`, but no authenticated session
+  cookie evidence. The restarted profile-backed bridge reaches logged-out
+  `https://gist.github.com/starred` with `Sign in`/`Sign up` actions, not the
+  new-Gist authoring editor. AI-005B remains blocked on a fresh same-process
+  human login, and AI-005C tracks whether cross-restart profile persistence is
+  a product requirement or a documented same-process-only limitation.
+- Bridge navigation now records a verified navigation outcome. If WebDriver
+  `POST /url` returns success but the URL stays unchanged, Saccade attempts a
+  same-page `window.location.assign` fallback and records that evidence. This
+  is a local control-truth guard, not a bypass: site redirects, login pages, and
+  provider blocks are still treated as the resulting page state.
+- The profile/account dropdown clipping Wayne saw remains AI-015. It is a
+  browser layout/resize product bug, not an editor-fill or safety-policy bug.
+- Evidence:
+  `runs/servoshell_editor/gist_draft_fill_profile_live2_20260619/control/replay.jsonl`,
+  `runs/servoshell_editor/gist_draft_fill_profile_live4_20260619/report.json`,
+  `runs/servoshell_editor/fixture_draft_fill_codemirror_fix_20260619/control/replay.jsonl`,
+  and `runs/servoshell_editor/fixture_draft_fill_codemirror_fix_20260619/control/report.json`.
+- Verification commands:
+  `cargo fmt --check -p saccade-servoshell`,
+  `cargo check -p saccade-servoshell --quiet`,
+  `cargo build -p saccade-servoshell --quiet`, and
+  `rg -n "Saccade live dogfood|Saccade dogfood draft|saccade-dogfood-draft|SECOND DRAFT|SECOND BODY|Fixture dogfood|Fixture body|fixture-draft" runs/servoshell_editor/gist_draft_fill_profile_live2_20260619 runs/servoshell_editor/fixture_draft_fill_codemirror_fix_20260619 || true`.

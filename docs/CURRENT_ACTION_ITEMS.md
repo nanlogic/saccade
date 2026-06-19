@@ -10,17 +10,20 @@ This file is the short, current action list. Use it with
 ## Now
 
 Active next item: AI-005B live authenticated Gist draft fill. Local bridge and
-fixture gates pass; the visible profile-backed Saccade window is currently at
-GitHub login and needs Wayne to complete human-only login.
+fixture gates pass, including body fill and preserve-existing-value checks.
+The remaining gap is a fresh authenticated Gist session: after restart, the
+profile-backed bridge currently reaches logged-out `/starred`/Search Gists,
+not the new-Gist authoring editor.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-005B | P0 | blocked-on-user | Editor dogfood | Wayne logs into GitHub in the profile-backed ServoShell bridge window; then run `draft_editor_fill` on `https://gist.github.com/new`. Local fixture already fills description/filename/body, preserves user values on second write, and leaks no draft values into artifacts. | Same visible GitHub Gist tab receives description, filename, and body draft text through bridge/replay receipts; Create/Publish remains user-confirmed; replay/report contain no draft text values. |
+| AI-005B | P0 | blocked-on-user-auth | Editor dogfood | Wayne logs into GitHub in the currently launched Saccade/ServoShell profile, then run `draft_editor_fill` only after `inspect_editors` reports `usable_ignore_hidden_backing_fields` on the real new-Gist editor. Local fixture fills description/filename/body, preserves user values on second write, and leaks no draft values into artifacts. | Same visible GitHub Gist tab receives description, filename, and body draft text through bridge/replay receipts; Create/Publish remains user-confirmed; replay/report contain no draft text values. |
 
 ## Next
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
+| AI-005C | P0 | ready | Auth/profile | Decide whether authenticated real-site dogfood should require a same-process human login each run or persist across restarts. Current `runs/dogfood_profile/default` has GitHub cookie names `_gh_sess`, `_octo`, and `logged_in`, but no authenticated session cookie evidence; restarted bridge shows `Sign in`/`Sign up`. | Either the profile reliably persists a GitHub/Gist login across bridge restart, or docs/release wrapper explicitly state that real logged-in site dogfood is same-process only until profile persistence is fixed. |
 | AI-015 | P1 | ready | Browser layout | Investigate source ServoShell shrink-after-grow layout/dropdown clipping. User saw GitHub Gist account dropdown clipped after resizing down; bridge truth before navigation showed `viewport=1065x684@2x`, menu item rects partly outside/negative, and left navigation rects with negative x. | A minimized resize/dropdown fixture or real-site comparison identifies whether this is ServoShell viewport sync, page horizontal scroll/min-width, or window positioning; fix or document a route. |
 | AI-008 | P1 | monitoring | Canvas/WebGL | Keep broad Canvas/WebGL-heavy dogfood routed to Chrome/reference when site-specific evidence is missing, but use source ServoShell reflex readback for local ms-control gates. | AI-008A/B split diagnostic screenshot evidence from manual readback; AI-008C proves source ServoShell reflex readback sees the focused Canvas2D foreground gate; AI-008D proves the same readback/fact/motor stack on the live local game with source-release ServoShell. |
 | AI-008A | P1 | done | Canvas/WebGL | Compare Saccade manual `paint()+read_to_image()` against Servo `WebView::take_screenshot()` on local Canvas2D reductions. | `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/report.json` shows `manual_blocked=1`, `take_blocked=0`, `route=manual_readback_only`. |
