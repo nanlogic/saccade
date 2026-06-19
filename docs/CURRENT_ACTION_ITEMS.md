@@ -9,19 +9,19 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-005 when Wayne is ready to log in to GitHub/Gist inside
-Saccade. Use
-`docs/site_policy_matrix.md` before dogfooding third-party logged-in or
-high-risk sites.
+Active next item: AI-005B third-party draft editor fill, using the same
+ServoShell bridge/replay path and the site policy matrix before touching any
+logged-in page.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-005 | P0 | blocked-on-user | Editor dogfood | Wayne logs in to GitHub/Gist inside Saccade with `runs/dogfood_profile/default`; then rerun `inspect-editors` on `https://gist.github.com/new`. | `inspect-editors` reaches an authenticated editor page and records whether writable body targets are usable or zero-rect. |
+| AI-005B | P0 | ready | Editor dogfood | Add a narrow third-party draft editor fill route for visible authoring editors only. It must not publish, submit, or return/log text values. | Same visible GitHub Gist tab can receive description, filename, and body draft text through bridge/replay receipts; Create/Publish remains user-confirmed. |
 
 ## Next
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
+| AI-015 | P1 | ready | Browser layout | Investigate source ServoShell shrink-after-grow layout/dropdown clipping. User saw GitHub Gist account dropdown clipped after resizing down; bridge truth before navigation showed `viewport=1065x684@2x`, menu item rects partly outside/negative, and left navigation rects with negative x. | A minimized resize/dropdown fixture or real-site comparison identifies whether this is ServoShell viewport sync, page horizontal scroll/min-width, or window positioning; fix or document a route. |
 | AI-008 | P1 | monitoring | Canvas/WebGL | Keep broad Canvas/WebGL-heavy dogfood routed to Chrome/reference when site-specific evidence is missing, but use source ServoShell reflex readback for local ms-control gates. | AI-008A/B split diagnostic screenshot evidence from manual readback; AI-008C proves source ServoShell reflex readback sees the focused Canvas2D foreground gate; AI-008D proves the same readback/fact/motor stack on the live local game with source-release ServoShell. |
 | AI-008A | P1 | done | Canvas/WebGL | Compare Saccade manual `paint()+read_to_image()` against Servo `WebView::take_screenshot()` on local Canvas2D reductions. | `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/report.json` shows `manual_blocked=1`, `take_blocked=0`, `route=manual_readback_only`. |
 | AI-008B | P1 | done | Canvas/WebGL | Route non-hot diagnostic fixture screenshots to `take_screenshot()` where safe, and keep a separate gate for reflex hot-loop `read_to_image()`. | Default `probe_canvas_reductions.py` uses `take-local` and marks `bare-gradient2-size-1152x648` green in `runs/webgl_runtime/canvas_reductions_1781806451861/report.json`; forced `--saccade-screenshot-mode manual` still marks it red in `runs/webgl_runtime/canvas_reductions_1781806531266/report.json`. |
@@ -37,6 +37,7 @@ high-risk sites.
 | AI-001 | current checkpoint | Source ServoShell thin fork now wires the Stop toolbar button to active-WebView `window.stop()`, which reaches Servo's own `AbortLoadUrl` path for in-progress navigations. This unblocks Stop for the source-fork browser path without pretending the pinned `servo=0.2.0` public API grew a stop method. Evidence: `cargo check -p servoshell`. |
 | AI-002 | `f84d157 make dogfood address bar editable` | Toolbar address strip now paints URL/placeholder text, secure/search icon, active focus/error state, selection, caret, and supports in-place URL editing using native GL overlay only; no page DOM injection. |
 | AI-003 | current docs update | Routed away from the legacy GL toolbar. Official ServoShell's egui toolbar already resizes the WebView below browser chrome, avoiding the top-overlay issue. |
+| AI-005 | current checkpoint | Official ServoShell bridge now exposes `inspect_editors` and the one-shot `--inspect-editors` flag. In Wayne's logged-in visible GitHub Gist tab, Saccade navigated the same session to `https://gist.github.com/new` and detected the real editor route as `usable_ignore_hidden_backing_fields`: `editor_count=7`, `zero_rect_count=2`, `visible_writable_count=5`, `visible_authoring_count=4`, `sensitive_count=0`. No editor text values were returned or logged. Evidence: `runs/servoshell_editor/gist_live_20260619/control/replay.jsonl`; local fixture evidence: `runs/servoshell_editor/fixture_inspect_verify_20260619/report.json`. |
 | AI-004 | current checkpoint | Source ServoShell thin fork now draws a trusted Saccade Human/Copilot badge in browser chrome, not page DOM. The badge reads existing bridge-style Copilot JSON from `SACCADE_COPILOT_STATUS_PATH` or env vars, shows granted/blocked/error states, and forces an error label if the status claims page DOM injection or sensitive-value exposure. `saccade-servoshell` now writes the status JSON and passes the env var when launching ServoShell; official ServoShell ignores it, while the thin fork displays it. The thin fork also supports explicit one-shot internal browser-chrome screenshots through `SACCADE_BROWSER_SCREENSHOT_PATH`, so badge evidence does not depend on macOS screen-recording permissions. Evidence: `cargo test -p servoshell saccade_copilot_badge`, `cargo check -p servoshell`, `cargo build -p servoshell --bin servoshell`, `cargo check -p saccade-servoshell`, `runs/ai004_badge/bridge_smoke/report.json`, and `runs/ai004_badge/internal_browser_chrome.png`. |
 | AI-011 | current docs update | Routed away from hand-polishing GL bitmap UI. Product-quality address bar polish should come from official ServoShell UI or a thin fork that keeps that UI intact. |
 | AI-012A | current checkpoint | Official ServoShell adapter selftest now includes native input/dropdown. Text input passes through WebDriver `element/value`; select reaches `gamma` via recorded `js_select_fallback` with `input/change` verification. Evidence: `runs/servoshell_adapter/adapter_1781624931973/summary.json`. |

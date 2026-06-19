@@ -1328,3 +1328,34 @@
   `dist/saccade-dogfood-ai014-close-20260619/read-article https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art ai014_close_rookies_article`,
   and
   `SACCADE_REFLEX_DURATION_MS=5000 SACCADE_REFLEX_FACT_INTERVAL_MS=500 dist/saccade-dogfood-ai014-close-20260619/run-local-game-reflex http://127.0.0.1:4173/ ai014_close_reflex_smoke_20260619`.
+
+## DECISION_SERVOSHELL_026 - Logged-in Gist editor detection runs through the official bridge
+
+- AI-005 is closed for real logged-in editor detection on the ServoShell bridge
+  path. The bridge now exposes `inspect_editors` as a loopback control method
+  and `saccade-servoshell bridge --inspect-editors --exit --json` as a
+  one-shot probe.
+- The probe reports editor metadata, geometry, route counts, and sensitivity
+  class only. It does not return editor text values.
+- Live dogfood evidence: Wayne logged into GitHub/Gist in the visible Saccade
+  window. Saccade navigated the same session from
+  `https://gist.github.com/starred` to `https://gist.github.com/new` and
+  inspected the authenticated editor page.
+- Result:
+  `route.decision=usable_ignore_hidden_backing_fields`, `editor_count=7`,
+  `zero_rect_count=2`, `visible_writable_count=5`,
+  `visible_authoring_count=4`, and `sensitive_count=0`. The hidden GitHub
+  backing textarea is present, but the visible CodeMirror/contenteditable
+  surface is also present and routable.
+- During the same session Wayne observed a separate browser product issue:
+  after growing and shrinking the window, GitHub's account dropdown could be
+  clipped and bridge truth showed some menu/nav rects outside the viewport
+  (`1065x684@2x`). This is tracked separately as AI-015; it should not be
+  mixed with the editor-detection result.
+- Evidence:
+  `runs/servoshell_editor/gist_live_20260619/control/replay.jsonl` and
+  `runs/servoshell_editor/fixture_inspect_verify_20260619/report.json`.
+- Verification commands:
+  `cargo fmt --check -p saccade-servoshell`,
+  `cargo check -p saccade-servoshell --quiet`, and the fixture one-shot:
+  `RUST_LOG=error cargo run -q -p saccade-servoshell -- bridge --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/editor_reduction/index.html --inspect-editors --exit --json --output-dir runs/servoshell_editor/fixture_inspect_verify_20260619`.

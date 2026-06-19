@@ -93,6 +93,8 @@ enum Command {
         until_ready: bool,
         #[arg(long)]
         read_article: bool,
+        #[arg(long)]
+        inspect_editors: bool,
         #[arg(long, default_value_t = 20000)]
         article_max_chars: usize,
         #[arg(long)]
@@ -410,6 +412,7 @@ fn main() -> Result<()> {
             smoke,
             until_ready,
             read_article,
+            inspect_editors,
             article_max_chars,
             exit,
             json,
@@ -424,6 +427,7 @@ fn main() -> Result<()> {
                 smoke,
                 until_ready,
                 read_article,
+                inspect_editors,
                 article_max_chars,
                 exit_after_ready: exit,
                 print_json: json,
@@ -507,6 +511,7 @@ struct BridgeConfig {
     smoke: bool,
     until_ready: bool,
     read_article: bool,
+    inspect_editors: bool,
     article_max_chars: usize,
     exit_after_ready: bool,
     print_json: bool,
@@ -660,6 +665,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             "smoke": cfg.smoke,
             "until_ready": cfg.until_ready,
             "read_article": cfg.read_article,
+            "inspect_editors": cfg.inspect_editors,
             "exit_after_ready": cfg.exit_after_ready,
             "json_stdout": cfg.print_json,
         },
@@ -729,6 +735,11 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
                 cfg.timeout,
             )?;
             report["article_text"] = article;
+        }
+        if cfg.inspect_editors {
+            let editors =
+                bridge_control_call(&server.endpoint, "inspect_editors", json!({}), cfg.timeout)?;
+            report["inspect_editors"] = editors;
         }
         if cfg.smoke || cfg.exit_after_ready {
             bridge_control_call(&server.endpoint, "shutdown", json!({}), cfg.timeout)?;
@@ -2559,6 +2570,7 @@ fn bridge_control_result(
         "truth" => bridge_probe_response(state, "saccade-servoshell-bridge-truth-v0"),
         "actions" => bridge_probe_response(state, "saccade-servoshell-bridge-actions-v0"),
         "article_text" => bridge_article_text_response(state, params),
+        "inspect_editors" => bridge_inspect_editors_response(state),
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
         "act" => bridge_act_response(state, params),
@@ -2638,6 +2650,7 @@ fn bridge_status_response(
             "truth",
             "actions",
             "article_text",
+            "inspect_editors",
             "fill_agent_fields",
             "inspect_fields",
             "act",
@@ -2851,6 +2864,11 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "article_text_length",
         "text_chars_returned",
         "body_text_length",
+        "editor_count",
+        "zero_rect_count",
+        "visible_writable_count",
+        "visible_authoring_count",
+        "sensitive_count",
     ] {
         if let Some(value) = result.get(key).and_then(Value::as_u64) {
             counts.insert(key.to_string(), json!(value));
@@ -2880,6 +2898,7 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "receipt_verified": result.get("receipt_verified").cloned().unwrap_or(Value::Null),
         "verification": result.get("verification").cloned().unwrap_or(Value::Null),
         "extraction": result.get("extraction").cloned().unwrap_or(Value::Null),
+        "route": result.get("route").cloned().unwrap_or(Value::Null),
         "site_policy": result.get("site_policy").cloned().unwrap_or(Value::Null),
         "policy": result.get("policy").cloned().unwrap_or(Value::Null),
         "counts": Value::Object(counts),
@@ -3166,6 +3185,230 @@ fn bridge_article_text_response(state: &BridgeControlState, params: Value) -> Re
         "text": article.get("text").cloned().unwrap_or(Value::Null),
         "artifacts": bridge_artifacts(state),
     }))
+}
+
+fn bridge_inspect_editors_response(state: &BridgeControlState) -> Result<Value> {
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks editor inspection on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
+    let inspect_result = state
+        .client
+        .execute_sync(&state.session_id, BRIDGE_INSPECT_EDITORS_JS)?;
+    let editors = inspect_result
+        .get("editors")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let zero_rect_count = editors
+        .iter()
+        .filter(|editor| {
+            editor
+                .pointer("/rect/width")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                <= 0.0
+                || editor
+                    .pointer("/rect/height")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+                    <= 0.0
+        })
+        .count();
+    let sensitive_count = editors
+        .iter()
+        .filter(|editor| {
+            editor
+                .get("sensitivity")
+                .and_then(Value::as_str)
+                .is_some_and(|sensitivity| sensitivity != "none")
+        })
+        .count();
+    let visible_writable_count = editors
+        .iter()
+        .filter(|editor| editor_is_visible_writable(editor))
+        .count();
+    let visible_authoring_count = editors
+        .iter()
+        .filter(|editor| editor_is_visible_authoring(editor))
+        .count();
+    let route = editor_route(
+        editors.len(),
+        zero_rect_count,
+        visible_writable_count,
+        visible_authoring_count,
+    );
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-bridge-inspect-editors-v0",
+        "summary": "editor candidates inspected through official ServoShell bridge without returning text values",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": site_policy,
+        "source_url": inspect_result.get("url").cloned().unwrap_or(Value::Null),
+        "source_title": inspect_result.get("title").cloned().unwrap_or(Value::Null),
+        "active_tag": inspect_result.get("activeTag").cloned().unwrap_or(Value::Null),
+        "active_id": inspect_result.get("activeId").cloned().unwrap_or(Value::Null),
+        "editor_count": editors.len(),
+        "zero_rect_count": zero_rect_count,
+        "visible_writable_count": visible_writable_count,
+        "visible_authoring_count": visible_authoring_count,
+        "sensitive_count": sensitive_count,
+        "route": route,
+        "editors": editors,
+        "artifacts": bridge_artifacts(state),
+    }))
+}
+
+fn editor_is_visible_writable(editor: &Value) -> bool {
+    let width = editor
+        .pointer("/rect/width")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let height = editor
+        .pointer("/rect/height")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let hidden = editor
+        .get("hidden")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let disabled = editor
+        .get("disabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let read_only = editor
+        .get("readOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let sensitivity = editor
+        .get("sensitivity")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+
+    width > 0.0 && height > 0.0 && !hidden && !disabled && !read_only && sensitivity == "none"
+}
+
+fn editor_is_visible_authoring(editor: &Value) -> bool {
+    if !editor_is_visible_writable(editor) || editor_is_search_field(editor) {
+        return false;
+    }
+
+    let kind = editor.get("kind").and_then(Value::as_str).unwrap_or("");
+    if matches!(
+        kind,
+        "textarea" | "contenteditable" | "role_textbox" | "js_editor_shell"
+    ) {
+        return true;
+    }
+
+    let haystack = [
+        editor.get("id").and_then(Value::as_str).unwrap_or(""),
+        editor.get("name").and_then(Value::as_str).unwrap_or(""),
+        editor.get("label").and_then(Value::as_str).unwrap_or(""),
+        editor
+            .get("placeholder")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        editor
+            .get("ariaLabel")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    ]
+    .join(" ")
+    .to_ascii_lowercase();
+
+    [
+        "title",
+        "description",
+        "filename",
+        "gist",
+        "body",
+        "content",
+        "comment",
+        "message",
+        "post",
+        "reply",
+        "note",
+        "snippet",
+    ]
+    .iter()
+    .any(|token| haystack.contains(token))
+}
+
+fn editor_is_search_field(editor: &Value) -> bool {
+    let field_type = editor.get("type").and_then(Value::as_str).unwrap_or("");
+    if field_type == "search" {
+        return true;
+    }
+
+    let haystack = [
+        editor.get("id").and_then(Value::as_str).unwrap_or(""),
+        editor.get("name").and_then(Value::as_str).unwrap_or(""),
+        editor.get("label").and_then(Value::as_str).unwrap_or(""),
+        editor
+            .get("placeholder")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        editor
+            .get("ariaLabel")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    ]
+    .join(" ")
+    .to_ascii_lowercase();
+
+    haystack.contains("search")
+}
+
+fn editor_route(
+    editor_count: usize,
+    zero_rect_count: usize,
+    visible_writable_count: usize,
+    visible_authoring_count: usize,
+) -> Value {
+    let (decision, summary) = if editor_count == 0 {
+        ("no_editors", "No editor-like fields were found.")
+    } else if visible_authoring_count == 0 && visible_writable_count > 0 {
+        (
+            "route_login_or_non_authoring_page",
+            "Writable controls exist, but none look like a content-authoring editor; this is likely a login, search, or navigation page.",
+        )
+    } else if visible_authoring_count == 0 && zero_rect_count > 0 {
+        (
+            "route_user_focus_or_chrome_live",
+            "Only zero-rect or hidden editor candidates are available; do not target them automatically.",
+        )
+    } else if visible_authoring_count > 0 && zero_rect_count > 0 {
+        (
+            "usable_ignore_hidden_backing_fields",
+            "Visible writable editor candidates exist; hidden zero-rect backing fields should be ignored.",
+        )
+    } else if visible_authoring_count > 0 {
+        (
+            "usable_visible_editors",
+            "Visible writable editor candidates are available.",
+        )
+    } else {
+        (
+            "route_user_focus_or_chrome_live",
+            "Editor candidates exist but are not safe automatic targets yet.",
+        )
+    };
+    json!({
+        "decision": decision,
+        "summary": summary,
+        "editor_count": editor_count,
+        "zero_rect_count": zero_rect_count,
+        "visible_writable_count": visible_writable_count,
+        "visible_authoring_count": visible_authoring_count,
+    })
 }
 
 fn bridge_fill_agent_fields_response(state: &BridgeControlState, params: Value) -> Result<Value> {
@@ -4555,6 +4798,142 @@ return (() => {
     .filter((el) => sensitivityOf(el) !== "none" || (el.getAttribute("data-sensitive") || "none") !== "none")
     .length;
   return { fields, sensitiveFieldsSeen };
+})();
+"###;
+
+const BRIDGE_INSPECT_EDITORS_JS: &str = r###"
+return (() => {
+  function textOf(value) {
+    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+
+  function rectOf(el) {
+    const rect = el.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+
+  function sensitivityOf(el) {
+    const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+    const token = [
+      el.getAttribute("data-sensitive") || "",
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("placeholder") || "",
+      el.getAttribute("name") || "",
+      el.id || "",
+      el.getAttribute("type") || "",
+      labelText
+    ].join(" ").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type === "password" || /\b(password|passcode)\b/.test(token)) return "password";
+    if (/\b(otp|one-time|totp|2fa|mfa)\b/.test(token)) return "otp";
+    if (/\b(ssn|social security|tax id|tax_id|tin|ein|passport|driver.?license)\b/.test(token)) return "government_or_tax_id";
+    if (/\b(credit|card|cc-number|cc-csc|cvv|cvc|payment|routing|bank)\b/.test(token)) return "payment";
+    if (/\b(signature|attestation|legal_attestation|esign|e-sign)\b/.test(token)) return "legal_attestation";
+    return "none";
+  }
+
+  function editorKind(el) {
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "textarea") return "textarea";
+    if (tag === "input" && (!type || ["text", "search", "url", "email", "tel", "number"].includes(type))) {
+      return "input";
+    }
+    if (el.isContentEditable) return "contenteditable";
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    if (role === "textbox") return "role_textbox";
+    const className = String(el.className || "");
+    if (/\b(cm-content|CodeMirror|CodeMirror-code|ace_editor|ace_text-input)\b/.test(className)) {
+      return "js_editor_shell";
+    }
+    return "";
+  }
+
+  function valueLength(el, kind) {
+    if (kind === "input" || kind === "textarea") return String(el.value || "").length;
+    return String(el.textContent || "").length;
+  }
+
+  const selectors = [
+    "textarea",
+    "input",
+    "[contenteditable='true']",
+    "[role='textbox']",
+    ".cm-content",
+    ".CodeMirror",
+    ".CodeMirror-code",
+    ".ace_editor",
+    ".ace_text-input"
+  ];
+  const seen = new Set();
+  const elements = [];
+  for (const selector of selectors) {
+    for (const el of Array.from(document.querySelectorAll(selector))) {
+      if (!seen.has(el)) {
+        seen.add(el);
+        elements.push(el);
+      }
+    }
+  }
+
+  const active = document.activeElement;
+  const editors = elements
+    .map((el, index) => {
+      const kind = editorKind(el);
+      if (!kind) return null;
+      const style = window.getComputedStyle(el);
+      const rect = rectOf(el);
+      const labelText = Array.from(el.labels || [])
+        .map((label) => label.textContent || "")
+        .join(" ");
+      const hidden =
+        el.hidden ||
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        (rect.width <= 0 || rect.height <= 0);
+      return {
+        index,
+        kind,
+        tag: el.tagName ? el.tagName.toLowerCase() : "",
+        type: (el.getAttribute("type") || "").toLowerCase(),
+        id: el.id || "",
+        name: el.getAttribute("name") || "",
+        role: el.getAttribute("role") || "",
+        className: textOf(el.className || ""),
+        ariaLabel: textOf(el.getAttribute("aria-label") || ""),
+        placeholder: textOf(el.getAttribute("placeholder") || ""),
+        label: textOf(labelText),
+        autocomplete: textOf(el.getAttribute("autocomplete") || ""),
+        disabled: Boolean(el.disabled),
+        readOnly: Boolean(el.readOnly),
+        contentEditable: Boolean(el.isContentEditable),
+        active: el === active,
+        hidden,
+        rect,
+        valueLength: valueLength(el, kind),
+        sensitivity: sensitivityOf(el)
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    ok: true,
+    url: location.href,
+    title: document.title,
+    activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
+    activeId: active && active.id ? active.id : "",
+    editorCount: editors.length,
+    sensitiveFieldsSeen: editors.filter((editor) => editor.sensitivity !== "none").length,
+    editors
+  };
 })();
 "###;
 

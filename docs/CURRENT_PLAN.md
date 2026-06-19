@@ -165,12 +165,16 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 
-1. Editor/contenteditable gate: Gist-like editor and forum composer.
+1. Editor/contenteditable gate: Gist-like editor detection is closed; next is
+   visible draft fill with no publish/submit and no text-value logging.
 2. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
    comparison polish. Browser-backed finding crops and multi-action receipts
    are closed in AI-009.
-3. MOUSEMAX evidence freeze/video/public report.
-4. Mac packaging/signing.
+3. Browser layout follow-up: source ServoShell shrink-after-grow and top-right
+   dropdown clipping, using a minimized fixture or real-site comparison before
+   patching.
+4. MOUSEMAX evidence freeze/video/public report.
+5. Mac packaging/signing.
 
 ## Parking Lot
 
