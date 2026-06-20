@@ -166,13 +166,15 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 
 1. Editor/contenteditable gate: Gist-like editor detection is closed; next is
-   visible draft fill with no publish/submit and no text-value logging.
+   live authenticated Gist draft fill after a fresh same-process human login;
+   local draft fill, body editor handling, preserve-existing-value behavior,
+   and no text-value logging already pass.
 2. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
    comparison polish. Browser-backed finding crops and multi-action receipts
    are closed in AI-009.
-3. Browser layout follow-up: source ServoShell shrink-after-grow and top-right
-   dropdown clipping, using a minimized fixture or real-site comparison before
-   patching.
+3. Browser layout follow-up: source ServoShell window resize math has a
+   partial fix; next is a post-fix real GitHub profile dropdown retest or a
+   minimized dropdown fixture to route any remaining clipping.
 4. MOUSEMAX evidence freeze/video/public report.
 5. Mac packaging/signing.
 
