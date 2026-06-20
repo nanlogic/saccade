@@ -186,11 +186,13 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
    `docs/ai017_real_dogfood_flow_matrix.md`: package self-check, FORMMAX,
    public article extraction, high-risk redacted fallback, local game reflex,
    and logged-in low-risk Gist draft fill all passed with measured artifacts.
-6. Next: AI-018 dogfood launch visibility. `open-saccade` must foreground the
-   ServoShell window and expose a clear launching/ready state so real-site
-   startup does not look like "no window opened" while GitHub/WebDriver
-   readiness settles.
-7. MOUSEMAX evidence freeze/video/public report.
+6. AI-018 dogfood launch visibility is closed. `open-saccade` now prints
+   immediate status, opens a local visible launch page first, best-effort
+   foregrounds/positions the ServoShell window on macOS, then navigates the same
+   bridge session to the requested URL. Evidence:
+   `docs/ai018_dogfood_launch_visibility.md`.
+7. Next: AI-019 MOUSEMAX/Saccade evidence freeze, video checklist, and public
+   report pack.
 
 ## Parking Lot
 

@@ -639,9 +639,10 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         .with_context(|| format!("create {}", cfg.output_dir.display()))?;
 
     let webdriver_port = choose_loopback_port()?;
+    let browser_launch_url = bridge_browser_launch_url(&cfg);
     let mut child = launch_servoshell_for_url(
         &cfg.servoshell,
-        cfg.url.as_str(),
+        browser_launch_url.as_str(),
         cfg.headless,
         webdriver_port,
         cfg.profile_dir.as_deref(),
@@ -655,6 +656,12 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         "runtime": "official_servoshell_webdriver",
         "servoshell": cfg.servoshell.clone(),
         "url": cfg.url.clone(),
+        "launch": {
+            "browser_launch_url": browser_launch_url.clone(),
+            "target_url": cfg.url.clone(),
+            "visible_bootstrap": !cfg.headless,
+            "foreground_attempted": !cfg.headless && cfg!(target_os = "macos"),
+        },
         "headless": cfg.headless,
         "profile_dir": cfg.profile_dir.clone(),
         "storage": if cfg.profile_dir.is_some() { "profile_dir" } else { "temporary" },
@@ -1649,8 +1656,54 @@ fn launch_servoshell_for_url(
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-    cmd.spawn()
-        .with_context(|| format!("launch {}", servoshell.display()))
+    let child = cmd
+        .spawn()
+        .with_context(|| format!("launch {}", servoshell.display()))?;
+    maybe_foreground_visible_servoshell(child.id(), headless);
+    Ok(child)
+}
+
+fn bridge_browser_launch_url(cfg: &BridgeConfig) -> String {
+    if cfg.headless {
+        cfg.url.clone()
+    } else {
+        default_servoshell_launch_url()
+    }
+}
+
+fn maybe_foreground_visible_servoshell(pid: u32, headless: bool) {
+    if headless || !cfg!(target_os = "macos") {
+        return;
+    }
+    thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(350));
+        let script = format!(
+            r#"tell application "System Events"
+  repeat 24 times
+    set matches to every process whose unix id is {pid}
+    if (count of matches) > 0 then
+      tell item 1 of matches
+        set frontmost to true
+        try
+          if (count of windows) > 0 then
+            set position of front window to {{80, 80}}
+            set size of front window to {{1360, 820}}
+          end if
+        end try
+      end tell
+      exit repeat
+    end if
+    delay 0.1
+  end repeat
+end tell"#
+        );
+        let _ = ProcessCommand::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    });
 }
 
 fn wait_for_formmax_ready(
@@ -4409,6 +4462,10 @@ fn workspace_path(path: &str) -> PathBuf {
 
 fn default_smoke_url() -> String {
     file_url("test_pages/browser_session/index.html")
+}
+
+fn default_servoshell_launch_url() -> String {
+    file_url("test_pages/servoshell_launch/index.html")
 }
 
 fn default_safety_matrix_url() -> String {

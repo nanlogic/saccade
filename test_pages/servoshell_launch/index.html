@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saccade Launching</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      color: #17202a;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+    main {
+      width: min(560px, calc(100vw - 48px));
+      border: 1px solid #d9dee8;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 28px;
+      box-shadow: 0 18px 48px rgba(18, 32, 59, 0.12);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 28px;
+      line-height: 1.15;
+    }
+    p {
+      margin: 0;
+      color: #526173;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .bar {
+      height: 6px;
+      margin-top: 24px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #e5eaf2;
+    }
+    .bar::before {
+      content: "";
+      display: block;
+      width: 38%;
+      height: 100%;
+      border-radius: inherit;
+      background: #2f6feb;
+      animation: slide 1.1s ease-in-out infinite alternate;
+    }
+    @keyframes slide {
+      from { transform: translateX(0); }
+      to { transform: translateX(164%); }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        background: #0f141b;
+        color: #f2f5f9;
+      }
+      main {
+        background: #151b24;
+        border-color: #273244;
+        box-shadow: none;
+      }
+      p {
+        color: #a9b4c4;
+      }
+      .bar {
+        background: #273244;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Saccade is opening this page</h1>
+    <p>The browser window is ready. The requested site will load when the agent bridge finishes attaching.</p>
+    <div class="bar" aria-hidden="true"></div>
+  </main>
+</body>
+</html>

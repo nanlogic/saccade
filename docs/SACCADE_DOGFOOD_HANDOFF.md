@@ -147,6 +147,11 @@ Preferred same-machine dogfood release:
 dist/saccade-dogfood-current/check-saccade
 dist/saccade-dogfood-current/open-saccade <URL>
 
+`open-saccade` should visibly open a local Saccade launch page first, then
+navigate the same bridge session to the target URL. If a provider page is slow,
+watch the terminal for `SACCADE_SERVOSHELL_BRIDGE READY` and inspect
+`dist/saccade-dogfood-current/current_tab_grant.json`.
+
 For public article/tutorial learning pages, prefer the one-shot reader:
 dist/saccade-dogfood-current/read-article <URL>
 

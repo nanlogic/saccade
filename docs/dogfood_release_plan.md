@@ -65,6 +65,11 @@ Open a site:
 dist/saccade-dogfood-<timestamp>/open-saccade https://example.com
 ```
 
+`open-saccade` first shows a local Saccade launch page, prints immediate
+terminal status, then navigates that same ServoShell bridge session to the
+target URL. On macOS headed launches it also makes a best-effort foreground /
+position / resize call for the ServoShell process.
+
 `open-saccade` uses the bundled persistent `profile/default/` directory so a
 human login can be reused by later bridge/co-pilot runs from the same kit. It
 does not import Chrome/Safari/Firefox cookies.
@@ -115,6 +120,7 @@ dist/saccade-dogfood-ai016-20260619-204157/runs/check/bridge_smoke/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
+docs/ai018_dogfood_launch_visibility.md
 ```
 
 Result:
@@ -125,6 +131,7 @@ check-saccade: PASS, JSON stdout, package-local profile/grant/output paths
 manual bridge smoke: PASS, package-local profile/grant/output paths
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content
 run-formmax: PASS, rows=96, pages=2, filled=672, blocked_sensitive=3
+open-saccade launch visibility: PASS, visible_bootstrap=true, foreground_attempted=true
 process shutdown: graceful_servo_shutdown
 ```
 

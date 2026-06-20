@@ -9,14 +9,14 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-018 dogfood launch visibility. AI-017 is complete:
-package self-check, FORMMAX, public article extraction, high-risk redacted
-fallback, local game reflex, and logged-in low-risk Gist draft flow all have
-measured evidence.
+Active next item: AI-019 public evidence pack. AI-018 is complete:
+`open-saccade` now shows immediate launch status, opens a visible local
+bootstrap page first, foregrounds the ServoShell window best-effort on macOS,
+then navigates the same bridge session to the requested target.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-018 | P1 | ready | Dogfood UX | Make `open-saccade` feel obviously alive on real-site startup: foreground/activate the ServoShell window, expose launching/ready status, and avoid the "no window opened" failure mode while WebDriver/GitHub readiness settles. | A visible GitHub/Gist launch run reliably brings the window forward or reports a clear launch/ready state, and the grant is written without user confusion. |
+| AI-019 | P1 | ready | Demo/report | Freeze the publishable MOUSEMAX/Saccade evidence pack: current dogfood kit version, launch flow, article reader, FORMMAX, local game reflex, safe Gist draft, site-policy limits, and a short public narrative/video checklist. | A concise report points to the exact artifacts/commands, separates proven claims from limits, and is ready for Wayne or another model to turn into public copy/video. |
 
 ## Next
 
@@ -32,6 +32,7 @@ measured evidence.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-018 | 2026-06-19 | Fixed dogfood launch visibility. Visible bridge launches now open ServoShell on `test_pages/servoshell_launch/index.html`, print immediate `open-saccade` stderr status, foreground/position/resize the macOS window best-effort, then navigate the same session to the target. Verified with `dist/saccade-dogfood-current/open-saccade https://gist.github.com/new`: report has `launch.visible_bootstrap=true`, `launch.foreground_attempted=true`, grant title `Create a new Gist`, grant URL `https://gist.github.com/new`, and macOS window state `frontmost=true`, `position=80,80`, `size=1360x772`. Evidence: `docs/ai018_dogfood_launch_visibility.md`. |
 | AI-017 | 2026-06-19 | Completed the real dogfood flow matrix. Package self-check, FORMMAX, public article extraction, high-risk redacted App Store Connect fallback, local game reflex, and a live logged-in GitHub/Gist draft flow all have measured evidence in `docs/ai017_real_dogfood_flow_matrix.md`. The Gist flow used the same Saccade session after Wayne login, navigated to `https://gist.github.com/new`, detected 7 editor candidates, filled 3 harmless draft fields, verified editor state, did not submit/publish, and replay/artifact grep found no draft text leaks. Follow-up routed to AI-018 because real-site launch/ready state felt like "no window opened" before the bridge became ready. |
 | AI-016 | 2026-06-19 | Closed the local dogfood packaging gate. `scripts/build_dogfood_release.sh` now writes a self-contained ServoShell-bridge kit with `check-saccade`, `open-saccade`, `servoshell-bridge`, `read-article`, `run-local-game-reflex`, metadata, copied current docs, package-local profile/output/grant defaults, and `dist/saccade-dogfood-current`. The final verified kit is `dist/saccade-dogfood-ai016-20260619-204157/`; it omits `bin/saccade-shell`, `check-saccade` returns JSON on stdout, bridge smoke uses `profile_dir` and `graceful_servo_shutdown`, and the Rookies article reader returns 9392 chars with clean shutdown. BP-013 macOS signing/notarization remains a later public-distribution item. |
 | AI-015 | 2026-06-19 | Routed. Local right-edge dropdown resize fixtures pass on source-release and official ServoShell, and the source fork resize math bug is fixed. Real logged-in GitHub/Gist still overflows because GitHub/Primer JS fails under Servo with missing `IntersectionObserver` and missing `Document/ShadowRoot.adoptedStyleSheets`; source-release and official Servo.app show the same API gaps and stderr errors. Product fallback: do not claim GitHub account-menu visual parity; use same-process editor/form dogfood where it works, and use normal browsers for GitHub account/logout UI until Servo implements the missing APIs or a measured safe polyfill/fork exists. Evidence: `runs/servoshell_ui/github_dropdown_live_wait3_20260619/report.json`, `runs/servoshell_ui/github_dropdown_source_api_features_20260619/report.json`, `runs/servoshell_ui/github_dropdown_official_api_features_20260619/report.json`, and `runs/servoshell_ui/dropdown_resize_shutdown_clean_20260619/report.json`. |

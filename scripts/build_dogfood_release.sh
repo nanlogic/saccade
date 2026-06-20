@@ -50,6 +50,9 @@ source "$DIR/saccade-dogfood.env"
 set +a
 URL="${1:-https://example.com}"
 cd "$SACCADE_ROOT"
+echo "Opening Saccade dogfood browser..." >&2
+echo "Target: $URL" >&2
+echo "A local launch page appears first; the bridge will navigate to the target after it attaches." >&2
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
@@ -203,6 +206,7 @@ chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai017_real_dogfood_flow_matrix.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai018_dogfood_launch_visibility.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -232,6 +236,9 @@ $OUT/open-saccade https://example.com
   0.2 shell.
 - The bridge uses clean Servo shutdown so local profile/cookie flush works for
   measured local profile flows.
+- Visible \`open-saccade\` launches show a local launch page first, print
+  immediate terminal status, and then navigate that same bridge session to the
+  target URL.
 - Same-tab agent help is limited by the site policy docs copied into
   \`docs/\`.
 - Public article/tutorial extraction is available through \`read-article\`.
@@ -270,6 +277,11 @@ Open a page:
 \`\`\`bash
 $OUT/open-saccade https://example.com
 \`\`\`
+
+The visible browser opens a local Saccade launch page first, then the bridge
+navigates that same session to the requested URL. The wrapper prints launch
+status to stderr immediately, so a slow provider page should not look like "no
+window opened."
 
 This uses the ServoShell 0.3 bridge by default and writes a current-tab grant:
 
