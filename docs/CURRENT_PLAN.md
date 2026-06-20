@@ -165,10 +165,10 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 
-1. Editor/contenteditable gate: Gist-like editor detection is closed; next is
-   live authenticated Gist draft fill after a fresh same-process human login;
-   local draft fill, body editor handling, preserve-existing-value behavior,
-   and no text-value logging already pass.
+1. Editor/contenteditable gate: Gist-like editor detection and same-process
+   live authenticated Gist draft fill are closed. The remaining auth/product
+   question is AI-005C: whether real logged-in dogfood should persist across
+   bridge restarts or be documented as same-process human-login handoff for now.
 2. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
    comparison polish. Browser-backed finding crops and multi-action receipts
    are closed in AI-009.

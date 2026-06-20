@@ -1462,3 +1462,34 @@
   `/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell`
   with WebDriver `GET/POST /window/rect` against
   `test_pages/browser_session/index.html`.
+
+## DECISION_SERVOSHELL_030 - Live authenticated Gist draft fill passed
+
+- AI-005B is closed. Wayne completed GitHub login/2FA in the visible
+  Saccade/ServoShell window, and Saccade did not inspect password/OTP fields or
+  capture screenshots on the logged-in page.
+- The same bridge session moved from `https://gist.github.com/starred` to the
+  real new-Gist editor at `https://gist.github.com/new`. `inspect_editors`
+  reported `usable_ignore_hidden_backing_fields` with `editor_count=7`,
+  `zero_rect_count=2`, `visible_writable_count=5`,
+  `visible_authoring_count=4`, and `sensitive_count=0`.
+- `draft_editor_fill` filled exactly the three draft authoring fields:
+  description, filename, and body. The body path used `codemirror_set_value`.
+  Hidden backing fields were ignored, and no Create/Publish/Submit action was
+  attempted.
+- A second fill attempt with different text rejected all three fields as
+  `already_has_user_value`, proving the bridge preserves user/agent-visible
+  existing draft text instead of overwriting it by default.
+- Artifact leak check found no inserted draft text in report/replay files.
+  Replay/report artifacts record methods, lengths, receipts, and policy
+  results, not draft values.
+- AI-005C remains open as a separate product decision: whether authenticated
+  real-site dogfood must persist across bridge restarts or be documented as a
+  same-process human-login handoff until profile persistence is fixed.
+- Evidence:
+  `runs/servoshell_editor/gist_ai005b_live_20260619_192956/control/replay.jsonl`,
+  `runs/servoshell_editor/gist_ai005b_live_20260619_192956/control/report.json`,
+  and `runs/servoshell_editor/gist_ai005b_live_20260619_192956/report.json`.
+- Verification commands:
+  `rg -n "Saccade AI-005B|live dogfood draft|saccade-ai005b|SECOND SHOULD|SECOND BODY|Hidden backing fields|No Create|Publish" runs/servoshell_editor/gist_ai005b_live_20260619_192956 || true`
+  returned no matches before this decision text was written.
