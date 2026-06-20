@@ -9,14 +9,14 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-017 real dogfood flow matrix. AI-005C local profile
-persistence is fixed, AI-015 GitHub/Gist dropdown clipping is routed as a
-Servo Web API compatibility gap, and AI-016 gives other sessions a current
-ServoShell-bridge dogfood kit without the legacy Servo 0.2 shell.
+Active next item: AI-017 real dogfood flow matrix. Automated flows are green
+for package self-check, FORMMAX, public article extraction, high-risk redacted
+fallback, and local game reflex; the remaining AI-017 item needs Wayne present
+for one logged-in low-risk draft flow.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-017 | P1 | ready | Dogfood QA | Use the current dogfood kit across a small evidence-first matrix: local form/fill, public article learning, local game reflex, one logged-in low-risk draft flow when Wayne is present, and one high-risk redacted-note fallback. | A short report records pass/fail, artifacts, token/time notes where useful, and clear site-policy classifications without promoting unmeasured sites by guesswork. |
+| AI-017 | P1 | in_progress | Dogfood QA | Use the current dogfood kit across a small evidence-first matrix: local form/fill, public article learning, local game reflex, one logged-in low-risk draft flow when Wayne is present, and one high-risk redacted-note fallback. | `docs/ai017_real_dogfood_flow_matrix.md` records the automated matrix; close this after a logged-in low-risk draft flow is rerun with Wayne present and no submit/publish. |
 
 ## Next
 

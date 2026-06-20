@@ -43,6 +43,7 @@ dist/saccade-dogfood-<timestamp>/
   open-saccade
   servoshell-bridge
   read-article
+  run-formmax
   run-local-game-reflex
   DOGFOOD_STATUS.md
   current_tab_grant.json
@@ -99,6 +100,12 @@ Run the local-game reflex gate:
 dist/saccade-dogfood-<timestamp>/run-local-game-reflex http://127.0.0.1:4173/
 ```
 
+Run the local FORMMAX long-form gate:
+
+```bash
+dist/saccade-dogfood-<timestamp>/run-formmax
+```
+
 Latest verification:
 
 ```text
@@ -107,6 +114,7 @@ dist/saccade-dogfood-current -> saccade-dogfood-ai016-20260619-204157
 dist/saccade-dogfood-ai016-20260619-204157/runs/check/bridge_smoke/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
+dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
 ```
 
 Result:
@@ -116,6 +124,7 @@ default kit: no bin/saccade-shell
 check-saccade: PASS, JSON stdout, package-local profile/grant/output paths
 manual bridge smoke: PASS, package-local profile/grant/output paths
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content
+run-formmax: PASS, rows=96, pages=2, filled=672, blocked_sensitive=3
 process shutdown: graceful_servo_shutdown
 ```
 

@@ -631,6 +631,7 @@ async function main() {
   let ok = false;
   let finalReason = "not_finished";
   let nextVisualFactAtMs = 0;
+  let runError = null;
 
   await writeReplay(replayPath, {
     kind: "run_started",
@@ -775,6 +776,21 @@ async function main() {
     }
     finalReason = finalReason === "not_finished" ? "duration_complete" : finalReason;
     ok = true;
+  } catch (error) {
+    runError = {
+      name: error?.name || "Error",
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+    };
+    finalReason = finalReason === "not_finished" ? "runtime_error" : finalReason;
+    await writeReplay(replayPath, {
+      kind: "run_error",
+      t_ms: nowMs(startedAtMs),
+      error: {
+        name: runError.name,
+        message: runError.message,
+      },
+    });
   } finally {
     await bridge.stop();
   }
@@ -822,6 +838,7 @@ async function main() {
   const report = {
     ok: pass,
     final_reason: finalReason,
+    error: runError,
     ai_008d: {
       status: readbackGate.ok ? "done" : "blocked",
       gate: readbackGate,

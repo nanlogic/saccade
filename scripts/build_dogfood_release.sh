@@ -143,6 +143,21 @@ exec "$DIR/bin/saccade-servoshell" bridge \
   --output-dir "$DIR/runs/article/$NAME"
 SH
 
+cat > "$OUT/run-formmax" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
+source "$DIR/saccade-dogfood.env"
+set +a
+NAME="${1:-formmax_$(date +%Y%m%d-%H%M%S)}"
+cd "$SACCADE_ROOT"
+exec "$DIR/bin/saccade-servoshell" formmax-selftest \
+  --servoshell "$SACCADE_SERVOSHELL_BIN" \
+  --output-dir "$DIR/runs/formmax/$NAME" \
+  --timeout-sec "${SACCADE_FORMMAX_TIMEOUT_SEC:-35}"
+SH
+
 cat > "$OUT/run-local-game-reflex" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -183,10 +198,11 @@ SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
 
-chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-local-game-reflex"
+chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-local-game-reflex"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai017_real_dogfood_flow_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -219,6 +235,7 @@ $OUT/open-saccade https://example.com
 - Same-tab agent help is limited by the site policy docs copied into
   \`docs/\`.
 - Public article/tutorial extraction is available through \`read-article\`.
+- Local long-form/table fill dogfood is available through \`run-formmax\`.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
 
 ## Known Limits
@@ -276,6 +293,12 @@ Run the local game reflex gate when the game server is up:
 
 \`\`\`bash
 $OUT/run-local-game-reflex http://127.0.0.1:4173/
+\`\`\`
+
+Run the local FORMMAX long-form gate:
+
+\`\`\`bash
+$OUT/run-formmax
 \`\`\`
 
 Legacy embedded Servo 0.2 shell is not built by default. To include it for old

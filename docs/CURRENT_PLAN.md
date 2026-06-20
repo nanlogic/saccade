@@ -185,6 +185,9 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 5. Next: AI-017 real dogfood flow matrix. Use the current kit on a small set of
    local, public, logged-in low-risk, local-game, and high-risk redacted-note
    flows, then record measured pass/fail instead of promoting sites by guess.
+   Automated flow evidence is tracked in
+   `docs/ai017_real_dogfood_flow_matrix.md`; the remaining item needs Wayne
+   present for a logged-in low-risk draft flow.
 6. MOUSEMAX evidence freeze/video/public report.
 
 ## Parking Lot

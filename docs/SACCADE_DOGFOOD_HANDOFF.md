@@ -150,6 +150,9 @@ dist/saccade-dogfood-current/open-saccade <URL>
 For public article/tutorial learning pages, prefer the one-shot reader:
 dist/saccade-dogfood-current/read-article <URL>
 
+For long-form/table fill dogfood, use:
+dist/saccade-dogfood-current/run-formmax
+
 This waits for the ServoShell bridge page, extracts article/main text through
 `article_text`, writes a JSON report under the kit's `runs/article/`, and exits.
 Use it for Chrome-vs-Saccade speed/accuracy/token comparisons on long learning
