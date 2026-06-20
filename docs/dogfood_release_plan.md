@@ -122,6 +122,7 @@ dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_fi
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
 docs/ai018_dogfood_launch_visibility.md
 docs/ai019_public_evidence_pack.md
+docs/ai020_human_in_loop_site_matrix.md
 ```
 
 Result:

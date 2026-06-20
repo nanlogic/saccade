@@ -208,6 +208,7 @@ cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai017_real_dogfood_flow_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai018_dogfood_launch_visibility.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai019_public_evidence_pack.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai020_human_in_loop_site_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -247,6 +248,8 @@ $OUT/open-saccade https://example.com
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
 - Public/demo claims, rerun commands, non-claims, and video/article shot list
   are frozen in \`docs/ai019_public_evidence_pack.md\`.
+- The next real-site human-in-loop draft matrix is in
+  \`docs/ai020_human_in_loop_site_matrix.md\`.
 
 ## Known Limits
 

@@ -99,12 +99,15 @@ side effects.
 
 ## Next Real-Site Matrix
 
-Use only low-risk draft surfaces first:
+Use `docs/ai020_human_in_loop_site_matrix.md` as the canonical next matrix.
+Start with low-risk draft surfaces and record measured evidence before making
+site-specific claims:
 
 | Target | Purpose | Expected behavior |
 | --- | --- | --- |
 | Owned GitHub issue/discussion draft | Developer workflow proof | User logs in; Saccade drafts title/body; user submits if desired. |
-| dev.to / Hacker News / forum draft | Public posting workflow proof | Saccade drafts/edits; user posts. |
+| Hacker News / Discourse / dev.to draft | Public posting workflow proof | Saccade drafts/edits; user posts. |
+| Reddit / LinkedIn / Facebook draft | Common social/forum proof | Draft only first; user posts; record provider friction and reputation risk. |
 | AdMob/App Store Connect redacted packet | Safety-boundary proof | No live fill/submit; user supplies redacted text for analysis. |
 
 These are not required for the current evidence pack. They are the next

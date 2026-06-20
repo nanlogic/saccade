@@ -195,7 +195,8 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
    freezes current claims, rerun commands, artifact paths, non-claims, the
    video/article shot list, and the "agent drafts, human posts" policy.
 8. Next: AI-020 human-in-loop draft matrix on one or two additional low-risk
-   real draft surfaces.
+   real draft surfaces, using `docs/ai020_human_in_loop_site_matrix.md` as the
+   canonical test list.
 
 ## Parking Lot
 
