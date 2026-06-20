@@ -212,6 +212,7 @@ cp "$ROOT/docs/ai020_human_in_loop_site_matrix.md" "$OUT/docs/" 2>/dev/null || t
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/github_dropdown_compat_shim_probe.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/SACCADE_DOGFOOD_HANDOFF.md" "$OUT/docs/"
 cp "$ROOT/docs/profile_persistence_report.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/site_policy_matrix.md" "$OUT/docs/"

@@ -223,6 +223,127 @@ GEOMETRY_JS = r"""
 """
 
 
+COMPAT_SHIM_JS = r"""
+(() => {
+  const installed = {};
+
+  if (typeof window.IntersectionObserver === "undefined") {
+    class SaccadeIntersectionObserver {
+      constructor(callback, options) {
+        this.callback = callback;
+        this.options = options || {};
+        this.targets = new Set();
+      }
+      observe(target) {
+        if (!target) return;
+        this.targets.add(target);
+        const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+        const entry = {
+          time: Date.now(),
+          target,
+          rootBounds: null,
+          boundingClientRect: rect,
+          intersectionRect: rect,
+          isIntersecting: true,
+          intersectionRatio: 1
+        };
+        setTimeout(() => {
+          try { this.callback([entry], this); } catch (_) {}
+        }, 0);
+      }
+      unobserve(target) {
+        this.targets.delete(target);
+      }
+      disconnect() {
+        this.targets.clear();
+      }
+      takeRecords() {
+        return [];
+      }
+    }
+    window.IntersectionObserver = SaccadeIntersectionObserver;
+    installed.intersectionObserver = true;
+  } else {
+    installed.intersectionObserver = false;
+  }
+
+  if (typeof window.CSSStyleSheet === "undefined") {
+    window.CSSStyleSheet = class SaccadeCSSStyleSheet {
+      constructor() {
+        this.cssText = "";
+      }
+      replaceSync(text) {
+        this.cssText = String(text || "");
+      }
+      replace(text) {
+        this.replaceSync(text);
+        return Promise.resolve(this);
+      }
+    };
+    installed.cssStyleSheet = true;
+    installed.cssStyleSheetReplaceSync = true;
+  } else {
+    installed.cssStyleSheet = false;
+    if (typeof window.CSSStyleSheet.prototype.replaceSync === "undefined") {
+      window.CSSStyleSheet.prototype.replaceSync = function replaceSync(text) {
+        this.__saccadeCssText = String(text || "");
+      };
+      installed.cssStyleSheetReplaceSync = true;
+    } else {
+      installed.cssStyleSheetReplaceSync = false;
+    }
+    if (typeof window.CSSStyleSheet.prototype.replace === "undefined") {
+      window.CSSStyleSheet.prototype.replace = function replace(text) {
+        this.replaceSync(text);
+        return Promise.resolve(this);
+      };
+      installed.cssStyleSheetReplace = true;
+    } else {
+      installed.cssStyleSheetReplace = false;
+    }
+  }
+
+  function installAdoptedStyleSheets(proto, label) {
+    if (!proto) return false;
+    if (Object.prototype.hasOwnProperty.call(proto, "adoptedStyleSheets")) return false;
+    const existing = Object.getOwnPropertyDescriptor(proto, "adoptedStyleSheets");
+    if (existing) return false;
+    const store = new WeakMap();
+    Object.defineProperty(proto, "adoptedStyleSheets", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return store.get(this) || [];
+      },
+      set(value) {
+        store.set(this, Array.from(value || []));
+      }
+    });
+    installed[label] = true;
+    return true;
+  }
+
+  installed.documentAdoptedStyleSheets =
+    typeof Document !== "undefined" && installAdoptedStyleSheets(Document.prototype, "documentAdoptedStyleSheets");
+  installed.shadowRootAdoptedStyleSheets =
+    typeof ShadowRoot !== "undefined" && installAdoptedStyleSheets(ShadowRoot.prototype, "shadowRootAdoptedStyleSheets");
+
+  return {
+    installed,
+    features: {
+      intersectionObserver: typeof window.IntersectionObserver,
+      cssStyleSheet: typeof window.CSSStyleSheet,
+      cssStyleSheetReplaceSync: typeof (window.CSSStyleSheet && window.CSSStyleSheet.prototype && window.CSSStyleSheet.prototype.replaceSync),
+      documentAdoptedStyleSheets: typeof document.adoptedStyleSheets,
+      documentPrototypeAdoptedStyleSheets: typeof Document !== "undefined" && "adoptedStyleSheets" in Document.prototype,
+      shadowRootPrototypeAdoptedStyleSheets: typeof ShadowRoot !== "undefined" && "adoptedStyleSheets" in ShadowRoot.prototype
+    },
+    timing: "after_ready_webdriver_execute"
+  };
+})()
+"""
+
+
 CLICK_PROFILE_JS = r"""
 (() => {
   function visible(el) {
@@ -490,6 +611,15 @@ def main() -> int:
         default="900x700,1200x740,900x700",
         help="Comma-separated outer window sizes to probe.",
     )
+    parser.add_argument(
+        "--compat-shim",
+        action="store_true",
+        help=(
+            "Experimental: inject minimal IntersectionObserver/adoptedStyleSheets "
+            "polyfills after page readiness before probing. This is diagnostic only; "
+            "it is too late for scripts that failed during initial module evaluation."
+        ),
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir or ROOT / "runs/servoshell_ui" / f"github_dropdown_{unix_ms()}"
@@ -526,6 +656,7 @@ def main() -> int:
             "screenshots": "disabled",
             "text_values_logged": False,
             "sensitive_inputs_read": False,
+            "compat_shim": "after_ready_webdriver_execute" if args.compat_shim else "none",
         },
         "sizes": [{"width": width, "height": height} for width, height in sizes],
         "phases": [],
@@ -545,6 +676,8 @@ def main() -> int:
         session_id = value_session_id(body)
         report["session_id"] = session_id
         report["ready"] = wait_for_ready(args.port, session_id, args.page_ready_sec)
+        if args.compat_shim:
+            report["compat_shim"] = execute(args.port, session_id, COMPAT_SHIM_JS)
         skip_phases = False
         if args.wait_for_auth_sec > 0:
             report["auth_wait"] = wait_for_auth(args.port, session_id, args.wait_for_auth_sec)
