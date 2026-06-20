@@ -1623,3 +1623,32 @@
   `python3 scripts/probe_github_dropdown_geometry.py --servoshell /Applications/Servo.app/Contents/MacOS/servoshell --profile-dir runs/dogfood_profile/default --wait-for-auth-sec 12 --output-dir runs/servoshell_ui/github_dropdown_official_api_features_20260619 --port 7155`,
   `python3 -m py_compile scripts/probe_github_dropdown_geometry.py scripts/probe_servoshell_dropdown_resize.py`, and
   `git diff --check`.
+
+## DECISION_DOGFOOD_035 - Local dogfood handoff uses the packaged ServoShell bridge kit
+
+- AI-016 closes the same-machine dogfood packaging gate, not the public macOS
+  distribution gate. Developer ID signing, notarization, staple verification,
+  and app-bundle polish remain BP-013/later release work.
+- `scripts/build_dogfood_release.sh` now builds a self-contained local kit with
+  `check-saccade`, `open-saccade`, `servoshell-bridge`, `read-article`, and
+  `run-local-game-reflex`. The kit records build metadata, copies the current
+  tracker/safety docs, writes `DOGFOOD_STATUS.md`, and updates
+  `dist/saccade-dogfood-current` when the output lives under `dist/`.
+- The generated wrappers default to package-local `profile/default/`,
+  `current_tab_grant.json`, and `runs/` paths unless the caller explicitly
+  overrides them. This prevents other sessions from accidentally writing bridge
+  grants and reports into stale repository defaults.
+- `check-saccade` keeps stdout machine-readable JSON and sends human status
+  lines to stderr. This lets another Codex session run
+  `dist/saccade-dogfood-current/check-saccade | jq ...` directly.
+- The final verified AI-016 kit is
+  `dist/saccade-dogfood-ai016-20260619-204157/`; it omits
+  `bin/saccade-shell`, proving the legacy embedded Servo 0.2 shell is not part
+  of the default dogfood runtime.
+- Verification commands:
+  `bash -n scripts/build_dogfood_release.sh`,
+  `./scripts/build_dogfood_release.sh dist/saccade-dogfood-ai016-20260619-204157`,
+  `dist/saccade-dogfood-ai016-20260619-204157/check-saccade`,
+  `dist/saccade-dogfood-ai016-20260619-204157/servoshell-bridge --smoke --json`,
+  `dist/saccade-dogfood-ai016-20260619-204157/read-article https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art ai016_rookies_article_final`, and
+  `test ! -e dist/saccade-dogfood-ai016-20260619-204157/bin/saccade-shell`.

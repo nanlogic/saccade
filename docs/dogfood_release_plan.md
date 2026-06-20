@@ -39,10 +39,12 @@ The script writes:
 dist/saccade-dogfood-<timestamp>/
   bin/saccade-mcp
   bin/saccade-servoshell
+  check-saccade
   open-saccade
   servoshell-bridge
   read-article
   run-local-game-reflex
+  DOGFOOD_STATUS.md
   current_tab_grant.json
   saccade-dogfood.env
   profile/default/
@@ -66,11 +68,24 @@ dist/saccade-dogfood-<timestamp>/open-saccade https://example.com
 human login can be reused by later bridge/co-pilot runs from the same kit. It
 does not import Chrome/Safari/Firefox cookies.
 
-Run the official ServoShell bridge:
+Check the kit:
+
+```bash
+dist/saccade-dogfood-<timestamp>/check-saccade
+```
+
+`check-saccade` prints human-readable status to stderr and JSON to stdout, so
+other sessions can pipe it to `jq`.
+
+Run the official ServoShell bridge manually:
 
 ```bash
 dist/saccade-dogfood-<timestamp>/servoshell-bridge --smoke
 ```
+
+The generated wrappers default to the package-local `profile/default/`,
+`current_tab_grant.json`, and `runs/` paths unless the caller explicitly passes
+an override.
 
 Read a public tutorial/article page and exit with JSON:
 
@@ -87,19 +102,21 @@ dist/saccade-dogfood-<timestamp>/run-local-game-reflex http://127.0.0.1:4173/
 Latest verification:
 
 ```text
-dist/saccade-dogfood-ai014-close-20260619/
-runs/dogfood_release/ai014_close_bridge_smoke_20260619/report.json
-dist/saccade-dogfood-ai014-close-20260619/runs/article/ai014_close_rookies_article/control/report.json
-runs/local_game_reflex/ai014_close_reflex_smoke_20260619/report.json
+dist/saccade-dogfood-ai016-20260619-204157/
+dist/saccade-dogfood-current -> saccade-dogfood-ai016-20260619-204157
+dist/saccade-dogfood-ai016-20260619-204157/runs/check/bridge_smoke/report.json
+dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
+dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 ```
 
 Result:
 
 ```text
 default kit: no bin/saccade-shell
-bridge smoke: PASS
-local-game reflex wrapper: live_game_reflex_readback_green
+check-saccade: PASS, JSON stdout, package-local profile/grant/output paths
+manual bridge smoke: PASS, package-local profile/grant/output paths
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content
+process shutdown: graceful_servo_shutdown
 ```
 
 The article one-shot still reports known Servo page warnings such as the macOS

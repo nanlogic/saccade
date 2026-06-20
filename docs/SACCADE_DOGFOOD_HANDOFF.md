@@ -144,10 +144,11 @@ Before using Saccade, read:
 
 Preferred same-machine dogfood release:
 ./scripts/build_dogfood_release.sh
-dist/saccade-dogfood-<timestamp>/open-saccade <URL>
+dist/saccade-dogfood-current/check-saccade
+dist/saccade-dogfood-current/open-saccade <URL>
 
 For public article/tutorial learning pages, prefer the one-shot reader:
-dist/saccade-dogfood-<timestamp>/read-article <URL>
+dist/saccade-dogfood-current/read-article <URL>
 
 This waits for the ServoShell bridge page, extracts article/main text through
 `article_text`, writes a JSON report under the kit's `runs/article/`, and exits.
@@ -164,7 +165,7 @@ dist/saccade-dogfood-<timestamp>/open-legacy-saccade <URL>
 
 For exact mainstream rendering, use Chrome/reference as the comparison browser.
 For local game reflex evidence, ask the Saccade session to run
-scripts/run_local_game_reflex_loop.js with --policy visual.
+dist/saccade-dogfood-current/run-local-game-reflex http://127.0.0.1:4173/.
 
 Safety policy:
 - Green: local dev, file fixtures, public docs/pages, owned domains. Saccade can read/click/fill non-sensitive fields.

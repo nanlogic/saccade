@@ -9,13 +9,14 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-016 dogfood packaging/signing. AI-005C local profile
-persistence is fixed, and AI-015 GitHub/Gist dropdown clipping is routed as a
-Servo Web API compatibility gap rather than a Saccade resize bug.
+Active next item: AI-017 real dogfood flow matrix. AI-005C local profile
+persistence is fixed, AI-015 GitHub/Gist dropdown clipping is routed as a
+Servo Web API compatibility gap, and AI-016 gives other sessions a current
+ServoShell-bridge dogfood kit without the legacy Servo 0.2 shell.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-016 | P1 | ready | Packaging/dogfood | Make the current ServoShell-bridge dogfood build easy for other sessions to run without relying on stale paths, unsigned app confusion, or legacy Servo 0.2 binaries. BP-013 tracks macOS signing/notarization as open. | A fresh dogfood kit can be built and handed to another session with a single command, includes the fixed bridge/profile shutdown path, and clearly states unsigned/local launch expectations. |
+| AI-017 | P1 | ready | Dogfood QA | Use the current dogfood kit across a small evidence-first matrix: local form/fill, public article learning, local game reflex, one logged-in low-risk draft flow when Wayne is present, and one high-risk redacted-note fallback. | A short report records pass/fail, artifacts, token/time notes where useful, and clear site-policy classifications without promoting unmeasured sites by guesswork. |
 
 ## Next
 
@@ -31,6 +32,7 @@ Servo Web API compatibility gap rather than a Saccade resize bug.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-016 | 2026-06-19 | Closed the local dogfood packaging gate. `scripts/build_dogfood_release.sh` now writes a self-contained ServoShell-bridge kit with `check-saccade`, `open-saccade`, `servoshell-bridge`, `read-article`, `run-local-game-reflex`, metadata, copied current docs, package-local profile/output/grant defaults, and `dist/saccade-dogfood-current`. The final verified kit is `dist/saccade-dogfood-ai016-20260619-204157/`; it omits `bin/saccade-shell`, `check-saccade` returns JSON on stdout, bridge smoke uses `profile_dir` and `graceful_servo_shutdown`, and the Rookies article reader returns 9392 chars with clean shutdown. BP-013 macOS signing/notarization remains a later public-distribution item. |
 | AI-015 | 2026-06-19 | Routed. Local right-edge dropdown resize fixtures pass on source-release and official ServoShell, and the source fork resize math bug is fixed. Real logged-in GitHub/Gist still overflows because GitHub/Primer JS fails under Servo with missing `IntersectionObserver` and missing `Document/ShadowRoot.adoptedStyleSheets`; source-release and official Servo.app show the same API gaps and stderr errors. Product fallback: do not claim GitHub account-menu visual parity; use same-process editor/form dogfood where it works, and use normal browsers for GitHub account/logout UI until Servo implements the missing APIs or a measured safe polyfill/fork exists. Evidence: `runs/servoshell_ui/github_dropdown_live_wait3_20260619/report.json`, `runs/servoshell_ui/github_dropdown_source_api_features_20260619/report.json`, `runs/servoshell_ui/github_dropdown_official_api_features_20260619/report.json`, and `runs/servoshell_ui/dropdown_resize_shutdown_clean_20260619/report.json`. |
 | AI-005C | 2026-06-19 | Fixed local auth/profile persistence for the ServoShell bridge. Official Servo's extension route is `DELETE /session/{id}/servo/shutdown`; Saccade had been using the wrong verb or falling back to SIGTERM, which could skip clean profile flush. `scripts/probe_servoshell_profile_persistence.py` now proves source-release direct, official app direct, and Saccade bridge local cookie reuse; bridge evidence is `runs/profile_persistence/ai005c_delete_shutdown_fix_20260619/report.json` with `termination=graceful_servo_shutdown`. Real GitHub persistence can still depend on GitHub's own session-cookie/device policy. |
 | AI-000 | `33a7481 add mcp browser navigate tool` | MCP now exposes `saccade.browser.navigate` for already-granted same-WebView dogfood tabs; selftest `runs/mcp/selftest_1781583895286/report.json` has `browser_navigate=true`. |

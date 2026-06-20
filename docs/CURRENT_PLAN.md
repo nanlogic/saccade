@@ -177,9 +177,15 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
    overflow is routed as Servo Web API compatibility (`IntersectionObserver`
    and adopted stylesheet APIs missing in source-release and official
    Servo.app).
-4. Dogfood release packaging/signing so other sessions can use the current
-   ServoShell bridge reliably.
-5. MOUSEMAX evidence freeze/video/public report.
+4. Dogfood release packaging is closed for local use. The current package is
+   `dist/saccade-dogfood-ai016-20260619-204157/`, with the stable pointer
+   `dist/saccade-dogfood-current`; it defaults to the ServoShell 0.3 bridge,
+   package-local profile/output/grant paths, and omits the legacy Servo 0.2
+   shell by default.
+5. Next: AI-017 real dogfood flow matrix. Use the current kit on a small set of
+   local, public, logged-in low-risk, local-game, and high-risk redacted-note
+   flows, then record measured pass/fail instead of promoting sites by guess.
+6. MOUSEMAX evidence freeze/video/public report.
 
 ## Parking Lot
 
