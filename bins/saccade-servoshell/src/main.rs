@@ -768,12 +768,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             write_json(&report_path, &report)?;
             if one_shot {
                 stop_bridge_control_server(server);
-                if let Some(sid) = session_id.as_deref() {
-                    if let Err(error) = client.delete_session(sid) {
-                        report["webdriver"]["delete_session_error"] = json!(error.to_string());
-                    }
-                }
-                report["process"] = finish_child(child);
+                report["process"] = finish_webdriver_child(&client, session_id.as_deref(), child);
                 write_json(&report_path, &report)?;
                 Ok(BridgeOutcome {
                     ok: true,
@@ -799,13 +794,8 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
                     report_path.display(),
                 );
                 let _ = server.handle.join();
-                if let Some(sid) = session_id.as_deref() {
-                    if let Err(error) = client.delete_session(sid) {
-                        report["webdriver"]["delete_session_error"] = json!(error.to_string());
-                    }
-                }
                 report["live_stopped"] = json!(true);
-                report["process"] = finish_child(child);
+                report["process"] = finish_webdriver_child(&client, session_id.as_deref(), child);
                 write_json(&report_path, &report)?;
                 Ok(BridgeOutcome {
                     ok: false,
@@ -817,12 +807,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         }
         Err(error) => {
             report["error"] = json!(error.to_string());
-            if let Some(sid) = session_id.as_deref() {
-                if let Err(error) = client.delete_session(sid) {
-                    report["webdriver"]["delete_session_error"] = json!(error.to_string());
-                }
-            }
-            report["process"] = finish_child(child);
+            report["process"] = finish_webdriver_child(&client, session_id.as_deref(), child);
             write_json(&report_path, &report)?;
             Err(error)
         }
@@ -2042,6 +2027,15 @@ impl WebDriverClient {
     fn delete_session(&self, session_id: &str) -> Result<()> {
         let _ = self.request("DELETE", &format!("/session/{session_id}"), None)?;
         Ok(())
+    }
+
+    fn servo_shutdown(&self, session_id: &str) -> Result<Value> {
+        self.request(
+            "DELETE",
+            &format!("/session/{session_id}/servo/shutdown"),
+            None,
+        )
+        .map(|response| response.body)
     }
 
     fn request(&self, method: &str, path: &str, payload: Option<Value>) -> Result<HttpResponse> {
@@ -4510,8 +4504,81 @@ mod tests {
     }
 }
 
-fn finish_child(mut child: Child) -> Value {
-    let mut termination = "already_exited_or_sigterm".to_string();
+fn finish_webdriver_child(
+    client: &WebDriverClient,
+    session_id: Option<&str>,
+    mut child: Child,
+) -> Value {
+    const GRACEFUL_TIMEOUT: Duration = Duration::from_secs(12);
+    let mut shutdown = json!({
+        "attempted": false,
+        "route": "webdriver_servo_shutdown",
+    });
+
+    if let Some(sid) = session_id {
+        shutdown["attempted"] = json!(true);
+        match client.servo_shutdown(sid) {
+            Ok(response) => {
+                shutdown["ok"] = json!(true);
+                shutdown["response"] = response;
+            }
+            Err(error) => {
+                shutdown["ok"] = json!(false);
+                shutdown["error"] = json!(error.to_string());
+            }
+        }
+    } else {
+        shutdown["skipped"] = json!("missing_webdriver_session_id");
+    }
+
+    match wait_for_child_exit(&mut child, GRACEFUL_TIMEOUT) {
+        Ok(true) => {
+            let mut report = collect_child_output(child, "graceful_servo_shutdown");
+            report["graceful_shutdown"] = shutdown;
+            return report;
+        }
+        Ok(false) => {
+            shutdown["timed_out"] = json!(true);
+            shutdown["timeout_ms"] = json!(GRACEFUL_TIMEOUT.as_millis());
+            if let Some(sid) = session_id {
+                if let Err(error) = client.delete_session(sid) {
+                    shutdown["delete_session_error"] = json!(error.to_string());
+                }
+            }
+        }
+        Err(error) => {
+            shutdown["wait_error"] = json!(error.to_string());
+        }
+    }
+
+    let mut report = terminate_and_collect_child(child);
+    report["graceful_shutdown"] = shutdown;
+    report
+}
+
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child
+            .try_wait()
+            .context("check ServoShell child status")?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn finish_child(child: Child) -> Value {
+    terminate_and_collect_child(child)
+}
+
+fn terminate_and_collect_child(mut child: Child) -> Value {
+    let mut termination = "sigterm".to_string();
     terminate_child(&mut child);
     std::thread::sleep(Duration::from_millis(500));
     match child.try_wait() {
@@ -4522,6 +4589,10 @@ fn finish_child(mut child: Child) -> Value {
         }
         Err(error) => termination = format!("try_wait_error:{error}"),
     }
+    collect_child_output(child, &termination)
+}
+
+fn collect_child_output(child: Child, termination: &str) -> Value {
     match child.wait_with_output() {
         Ok(output) => json!({
             "returncode": output.status.code(),

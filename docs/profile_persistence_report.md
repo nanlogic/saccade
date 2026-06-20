@@ -2,6 +2,8 @@
 
 Date: 2026-06-14
 
+Updated: 2026-06-19 for the ServoShell 0.3 bridge path.
+
 ## Goal
 
 Make real-site dogfood possible without asking the user to log in for every worker process. The target behavior is:
@@ -16,6 +18,11 @@ Make real-site dogfood possible without asking the user to log in for every work
 - `saccade-shell browser-session-worker` now accepts `--profile-dir`.
 - Both paths pass Servo `Opts.config_dir` to the pinned Servo 0.2.0 API.
 - Worker and dogfood shutdown now explicitly drop their WebView before exiting. This breaks the `WorkerState/DogfoodBrowserState -> WebView -> delegate Rc<State>` cycle so Servo can shut down and write persistent site data such as `cookie_jar.json`.
+- `saccade-servoshell bridge` now also flushes profiles on the ServoShell 0.3
+  path. The important detail is that Servo's WebDriver extension shutdown route
+  is `DELETE /session/{id}/servo/shutdown`, not `POST`. Saccade now calls that
+  route, waits for `graceful_servo_shutdown`, and only then falls back to
+  `DELETE /session` + SIGTERM if ServoShell does not exit in time.
 
 ## Verification
 
@@ -39,9 +46,37 @@ cargo run -q -p saccade-shell -- selftest-editor-reduction
 cargo test -p saccade_browser shell_title
 ```
 
+ServoShell 0.3 bridge verification:
+
+```sh
+cargo check -p saccade-servoshell --quiet
+cargo build -p saccade-servoshell --quiet
+python3 scripts/probe_servoshell_profile_persistence.py \
+  --output-dir runs/profile_persistence/ai005c_delete_shutdown_fix_20260619 \
+  --timeout-sec 20 \
+  --fixture-port 7805
+```
+
+Latest pass:
+
+```text
+SERVOSHELL_PROFILE_PERSISTENCE ok=true report=runs/profile_persistence/ai005c_delete_shutdown_fix_20260619/report.json
+```
+
+The local fixture confirms that source-release ServoShell, official Servo.app,
+and the Saccade ServoShell bridge can write and reuse profile cookies when the
+correct shutdown route is used. The bridge run records
+`termination=graceful_servo_shutdown`.
+
 ## Limits
 
 - This shares Saccade-owned profiles. It does not import Chrome/Safari/Firefox cookies.
 - Google/GitHub login still requires the human to log in inside Saccade first.
+- Real providers may still invalidate or refuse cross-restart authenticated
+  sessions because of their own session-cookie, device trust, 2FA, or security
+  policy. The local fixture proves Saccade profile flushing; it does not promise
+  every provider will preserve login across restarts.
 - Friendly profile picker, profile locking UX, and password-manager integration are not implemented.
-- Authenticated Gist editor retest is still pending; unauthenticated Gist probes only reached the search UI.
+- AI-005B closed same-process authenticated Gist draft fill. Cross-restart
+  authenticated Gist reuse remains a real-site dogfood check, not a local
+  storage primitive blocker.

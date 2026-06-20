@@ -9,21 +9,19 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-005C auth/profile persistence policy. AI-005B same-process
-live authenticated Gist draft fill is closed: after Wayne completed GitHub
-login/2FA in the visible Saccade/ServoShell window, Saccade navigated that same
-session to the real new-Gist editor, filled only the draft fields, preserved
-existing values on a second write, and did not click Create/Publish/Submit.
+Active next item: AI-015 browser layout/dropdown clipping. AI-005B
+same-process live authenticated Gist draft fill is closed, and AI-005C local
+profile persistence is fixed for the ServoShell bridge after switching shutdown
+to Servo's official `DELETE /session/{id}/servo/shutdown` route.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-005C | P0 | ready | Auth/profile | Decide whether authenticated real-site dogfood should require a same-process human login each run or persist across restarts. Current `runs/dogfood_profile/default` has GitHub cookie names `_gh_sess`, `_octo`, and `logged_in`, but no authenticated session cookie evidence; restarted bridge shows `Sign in`/`Sign up`. | Either the profile reliably persists a GitHub/Gist login across bridge restart, or docs/release wrapper explicitly state that real logged-in site dogfood is same-process only until profile persistence is fixed. |
+| AI-015 | P1 | active | Browser layout | Source ServoShell had a concrete headed-window resize bug: `request_resize` swapped decoration width/height when translating WebDriver outer rects to inner sizes. Fixed in `servo-saccade-upstream` and rebuilt release ServoShell; local headed WebDriver resize and local right-edge dropdown fixtures pass. Real logged-in GitHub/Gist geometry now reproduces the remaining bug without screenshots/value capture: the profile menu opens to the right of the avatar and overflows horizontally by `152-176px`, while Sign out is present and hit-testable. Official Servo.app could not be compared with the same profile before AI-005C because it reached logged-out `/starred`. | Either source ServoShell fixes GitHub/Primer overlay positioning so the account menu stays within viewport after grow/shrink, or AI-015 is routed as a GitHub-specific Servo web-compat bug with a product fallback. |
 
 ## Next
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-015 | P1 | active | Browser layout | Source ServoShell had a concrete headed-window resize bug: `request_resize` swapped decoration width/height when translating WebDriver outer rects to inner sizes. Fixed in `servo-saccade-upstream` and rebuilt release ServoShell; local headed WebDriver resize and local right-edge dropdown fixtures pass. Real logged-in GitHub/Gist geometry now reproduces the remaining bug without screenshots/value capture: the profile menu opens to the right of the avatar and overflows horizontally by `152-176px`, while Sign out is present and hit-testable. Official Servo.app could not be compared with the same profile because it reached logged-out `/starred`. | Either source ServoShell fixes GitHub/Primer overlay positioning so the account menu stays within viewport after grow/shrink, or AI-015 is routed as a GitHub-specific Servo web-compat bug with a product fallback. |
 | AI-008 | P1 | monitoring | Canvas/WebGL | Keep broad Canvas/WebGL-heavy dogfood routed to Chrome/reference when site-specific evidence is missing, but use source ServoShell reflex readback for local ms-control gates. | AI-008A/B split diagnostic screenshot evidence from manual readback; AI-008C proves source ServoShell reflex readback sees the focused Canvas2D foreground gate; AI-008D proves the same readback/fact/motor stack on the live local game with source-release ServoShell. |
 | AI-008A | P1 | done | Canvas/WebGL | Compare Saccade manual `paint()+read_to_image()` against Servo `WebView::take_screenshot()` on local Canvas2D reductions. | `runs/webgl_runtime/canvas_screenshot_paths_1781805458432/report.json` shows `manual_blocked=1`, `take_blocked=0`, `route=manual_readback_only`. |
 | AI-008B | P1 | done | Canvas/WebGL | Route non-hot diagnostic fixture screenshots to `take_screenshot()` where safe, and keep a separate gate for reflex hot-loop `read_to_image()`. | Default `probe_canvas_reductions.py` uses `take-local` and marks `bare-gradient2-size-1152x648` green in `runs/webgl_runtime/canvas_reductions_1781806451861/report.json`; forced `--saccade-screenshot-mode manual` still marks it red in `runs/webgl_runtime/canvas_reductions_1781806531266/report.json`. |
@@ -34,6 +32,7 @@ existing values on a second write, and did not click Create/Publish/Submit.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-005C | 2026-06-19 | Fixed local auth/profile persistence for the ServoShell bridge. Official Servo's extension route is `DELETE /session/{id}/servo/shutdown`; Saccade had been using the wrong verb or falling back to SIGTERM, which could skip clean profile flush. `scripts/probe_servoshell_profile_persistence.py` now proves source-release direct, official app direct, and Saccade bridge local cookie reuse; bridge evidence is `runs/profile_persistence/ai005c_delete_shutdown_fix_20260619/report.json` with `termination=graceful_servo_shutdown`. Real GitHub persistence can still depend on GitHub's own session-cookie/device policy. |
 | AI-000 | `33a7481 add mcp browser navigate tool` | MCP now exposes `saccade.browser.navigate` for already-granted same-WebView dogfood tabs; selftest `runs/mcp/selftest_1781583895286/report.json` has `browser_navigate=true`. |
 | AI-001A | current docs update | Pinned Servo `0.2.0` stop-loading API proof completed: local rustdoc exposes `load`, `load_request`, `reload`, `can_go_back`, `go_back`, `can_go_forward`, and `go_forward`, but no public `stop_loading`/`stop` equivalent. |
 | AI-001 | current checkpoint | Source ServoShell thin fork now wires the Stop toolbar button to active-WebView `window.stop()`, which reaches Servo's own `AbortLoadUrl` path for in-progress navigations. This unblocks Stop for the source-fork browser path without pretending the pinned `servo=0.2.0` public API grew a stop method. Evidence: `cargo check -p servoshell`. |

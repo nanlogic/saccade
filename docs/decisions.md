@@ -1560,3 +1560,32 @@
   `python3 scripts/probe_github_dropdown_geometry.py --servoshell /Applications/Servo.app/Contents/MacOS/servoshell --profile-dir runs/dogfood_profile/default --wait-for-auth-sec 60 --output-dir runs/servoshell_ui/github_dropdown_official_profile_20260619`,
   `python3 -m py_compile scripts/probe_github_dropdown_geometry.py`, and
   `git diff --check`.
+
+## DECISION_SERVOSHELL_033 - ServoShell bridge profile persistence flush uses official shutdown route
+
+- AI-005C is closed for the local profile persistence primitive. The issue was
+  not a generic cookie parser failure: source-release ServoShell and official
+  Servo.app both write and reuse local profile cookies when the correct clean
+  shutdown route is used.
+- The official Servo WebDriver extension route is
+  `DELETE /session/{id}/servo/shutdown`. Saccade had been using `POST` in the
+  probe and was also deleting the WebDriver session / SIGTERMing the child in
+  bridge shutdown paths, which can skip Servo's clean resource-thread exit and
+  `cookie_jar.json` flush.
+- `saccade-servoshell bridge` now calls the official `DELETE` shutdown route,
+  waits up to 12 seconds for `graceful_servo_shutdown`, records the shutdown
+  response in the report, and only then falls back to `DELETE /session` +
+  SIGTERM/SIGKILL.
+- The comparison probe now covers three paths against one local HTTP fixture:
+  source-release ServoShell direct, official Servo.app direct, and Saccade
+  bridge. The passing report is
+  `runs/profile_persistence/ai005c_delete_shutdown_fix_20260619/report.json`;
+  bridge evidence has `termination=graceful_servo_shutdown` and persistent
+  local cookies visible in the second run.
+- This proves Saccade profile flushing, not provider-specific login retention.
+  GitHub/Google/Apple/AdMob may still require same-process handoff or fresh
+  login depending on their own session-cookie, device-trust, and 2FA policy.
+- Verification commands:
+  `cargo check -p saccade-servoshell --quiet`,
+  `cargo build -p saccade-servoshell --quiet`, and
+  `python3 scripts/probe_servoshell_profile_persistence.py --output-dir runs/profile_persistence/ai005c_delete_shutdown_fix_20260619 --timeout-sec 20 --fixture-port 7805`.
