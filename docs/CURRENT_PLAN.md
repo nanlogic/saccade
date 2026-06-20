@@ -165,21 +165,21 @@ CURRENT_TAB_COPILOT PASS selected_tab_seen=true grant_required=true redacted_tru
 
 Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 
-1. Editor/contenteditable gate: Gist-like editor detection and same-process
-   live authenticated Gist draft fill are closed. The remaining auth/product
-   question is AI-005C: whether real logged-in dogfood should persist across
-   bridge restarts or be documented as same-process human-login handoff for now.
+1. Editor/contenteditable/auth gate: Gist-like editor detection, same-process
+   live authenticated Gist draft fill, and local ServoShell bridge profile
+   persistence are closed. Real providers may still require same-process login
+   because of their own session/device policies.
 2. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
    comparison polish. Browser-backed finding crops and multi-action receipts
    are closed in AI-009.
-3. Browser layout follow-up: source ServoShell window resize math is fixed and
-   local right-edge dropdown resize fixtures pass. The logged-in real GitHub
-   profile dropdown geometry probe now reproduces the remaining issue: GitHub's
-   account menu opens to the right of the avatar and overflows horizontally by
-   `152-176px`; next is root-cause/fix or route as GitHub-specific Servo
-   web-compat with a product fallback.
-4. MOUSEMAX evidence freeze/video/public report.
-5. Mac packaging/signing.
+3. Browser layout/API follow-up: source ServoShell window resize math is fixed,
+   local right-edge dropdown resize fixtures pass, and GitHub account-menu
+   overflow is routed as Servo Web API compatibility (`IntersectionObserver`
+   and adopted stylesheet APIs missing in source-release and official
+   Servo.app).
+4. Dogfood release packaging/signing so other sessions can use the current
+   ServoShell bridge reliably.
+5. MOUSEMAX evidence freeze/video/public report.
 
 ## Parking Lot
 

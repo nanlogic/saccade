@@ -9,14 +9,13 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-015 browser layout/dropdown clipping. AI-005B
-same-process live authenticated Gist draft fill is closed, and AI-005C local
-profile persistence is fixed for the ServoShell bridge after switching shutdown
-to Servo's official `DELETE /session/{id}/servo/shutdown` route.
+Active next item: AI-016 dogfood packaging/signing. AI-005C local profile
+persistence is fixed, and AI-015 GitHub/Gist dropdown clipping is routed as a
+Servo Web API compatibility gap rather than a Saccade resize bug.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-015 | P1 | active | Browser layout | Source ServoShell had a concrete headed-window resize bug: `request_resize` swapped decoration width/height when translating WebDriver outer rects to inner sizes. Fixed in `servo-saccade-upstream` and rebuilt release ServoShell; local headed WebDriver resize and local right-edge dropdown fixtures pass. Real logged-in GitHub/Gist geometry now reproduces the remaining bug without screenshots/value capture: the profile menu opens to the right of the avatar and overflows horizontally by `152-176px`, while Sign out is present and hit-testable. Official Servo.app could not be compared with the same profile before AI-005C because it reached logged-out `/starred`. | Either source ServoShell fixes GitHub/Primer overlay positioning so the account menu stays within viewport after grow/shrink, or AI-015 is routed as a GitHub-specific Servo web-compat bug with a product fallback. |
+| AI-016 | P1 | ready | Packaging/dogfood | Make the current ServoShell-bridge dogfood build easy for other sessions to run without relying on stale paths, unsigned app confusion, or legacy Servo 0.2 binaries. BP-013 tracks macOS signing/notarization as open. | A fresh dogfood kit can be built and handed to another session with a single command, includes the fixed bridge/profile shutdown path, and clearly states unsigned/local launch expectations. |
 
 ## Next
 
@@ -32,6 +31,7 @@ to Servo's official `DELETE /session/{id}/servo/shutdown` route.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-015 | 2026-06-19 | Routed. Local right-edge dropdown resize fixtures pass on source-release and official ServoShell, and the source fork resize math bug is fixed. Real logged-in GitHub/Gist still overflows because GitHub/Primer JS fails under Servo with missing `IntersectionObserver` and missing `Document/ShadowRoot.adoptedStyleSheets`; source-release and official Servo.app show the same API gaps and stderr errors. Product fallback: do not claim GitHub account-menu visual parity; use same-process editor/form dogfood where it works, and use normal browsers for GitHub account/logout UI until Servo implements the missing APIs or a measured safe polyfill/fork exists. Evidence: `runs/servoshell_ui/github_dropdown_live_wait3_20260619/report.json`, `runs/servoshell_ui/github_dropdown_source_api_features_20260619/report.json`, `runs/servoshell_ui/github_dropdown_official_api_features_20260619/report.json`, and `runs/servoshell_ui/dropdown_resize_shutdown_clean_20260619/report.json`. |
 | AI-005C | 2026-06-19 | Fixed local auth/profile persistence for the ServoShell bridge. Official Servo's extension route is `DELETE /session/{id}/servo/shutdown`; Saccade had been using the wrong verb or falling back to SIGTERM, which could skip clean profile flush. `scripts/probe_servoshell_profile_persistence.py` now proves source-release direct, official app direct, and Saccade bridge local cookie reuse; bridge evidence is `runs/profile_persistence/ai005c_delete_shutdown_fix_20260619/report.json` with `termination=graceful_servo_shutdown`. Real GitHub persistence can still depend on GitHub's own session-cookie/device policy. |
 | AI-000 | `33a7481 add mcp browser navigate tool` | MCP now exposes `saccade.browser.navigate` for already-granted same-WebView dogfood tabs; selftest `runs/mcp/selftest_1781583895286/report.json` has `browser_navigate=true`. |
 | AI-001A | current docs update | Pinned Servo `0.2.0` stop-loading API proof completed: local rustdoc exposes `load`, `load_request`, `reload`, `can_go_back`, `go_back`, `can_go_forward`, and `go_forward`, but no public `stop_loading`/`stop` equivalent. |

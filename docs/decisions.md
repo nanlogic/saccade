@@ -1589,3 +1589,37 @@
   `cargo check -p saccade-servoshell --quiet`,
   `cargo build -p saccade-servoshell --quiet`, and
   `python3 scripts/probe_servoshell_profile_persistence.py --output-dir runs/profile_persistence/ai005c_delete_shutdown_fix_20260619 --timeout-sec 20 --fixture-port 7805`.
+
+## DECISION_SERVOSHELL_034 - GitHub dropdown is routed to Servo Web API compatibility
+
+- AI-015 is routed, not fixed in Saccade shell geometry. The source fork's
+  window-resize axis bug is already fixed, and the local right-edge dropdown
+  fixture stays inside the viewport after `900x700 -> 1200x740 -> 900x700`.
+- The remaining real GitHub/Gist failure requires GitHub's logged-in Primer
+  menu stack. The same-process logged-in geometry probe showed the profile menu
+  opening to the right of the avatar and overflowing horizontally by
+  `152-176px`, while Sign out remained hit-testable:
+  `runs/servoshell_ui/github_dropdown_live_wait3_20260619/report.json`.
+- After AI-005C fixed clean profile shutdown, both source-release ServoShell and
+  official Servo.app still reached logged-out/profile-not-found states with the
+  persisted profile, so cross-restart GitHub login retention remains provider
+  policy rather than a local storage primitive blocker.
+- The new structured API feature fields show the same missing APIs in both
+  source-release and official Servo.app on GitHub:
+  `intersectionObserver="undefined"`,
+  `documentAdoptedStyleSheets="undefined"`, and
+  `shadowRootPrototypeAdoptedStyleSheets=false`. Stderr also shows GitHub module
+  errors for `adoptedStyleSheets` and `IntersectionObserver`.
+- `scripts/probe_github_dropdown_geometry.py` and
+  `scripts/probe_servoshell_dropdown_resize.py` now use Servo's clean
+  `DELETE /session/{id}/servo/shutdown` route during teardown.
+- Product fallback: do not claim GitHub account-menu visual parity. Use the
+  same-process GitHub editor/form flows that have measured passes, and route
+  GitHub account/logout UI to a normal browser until Servo implements the
+  missing APIs or a measured safe polyfill/fork exists.
+- Verification commands:
+  `python3 scripts/probe_servoshell_dropdown_resize.py --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --output-dir runs/servoshell_ui/dropdown_resize_shutdown_clean_20260619 --port 7135`,
+  `python3 scripts/probe_github_dropdown_geometry.py --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --profile-dir runs/dogfood_profile/default --wait-for-auth-sec 12 --output-dir runs/servoshell_ui/github_dropdown_source_api_features_20260619 --port 7145`,
+  `python3 scripts/probe_github_dropdown_geometry.py --servoshell /Applications/Servo.app/Contents/MacOS/servoshell --profile-dir runs/dogfood_profile/default --wait-for-auth-sec 12 --output-dir runs/servoshell_ui/github_dropdown_official_api_features_20260619 --port 7155`,
+  `python3 -m py_compile scripts/probe_github_dropdown_geometry.py scripts/probe_servoshell_dropdown_resize.py`, and
+  `git diff --check`.

@@ -175,6 +175,16 @@ GEOMETRY_JS = r"""
     url: location.origin + location.pathname,
     titleLength: document.title.length,
     readyState: document.readyState,
+    browserApiFeatures: {
+      intersectionObserver: typeof window.IntersectionObserver,
+      resizeObserver: typeof window.ResizeObserver,
+      cssStyleSheet: typeof window.CSSStyleSheet,
+      cssStyleSheetReplaceSync: typeof (window.CSSStyleSheet && window.CSSStyleSheet.prototype && window.CSSStyleSheet.prototype.replaceSync),
+      documentAdoptedStyleSheets: typeof document.adoptedStyleSheets,
+      documentPrototypeAdoptedStyleSheets: typeof Document !== "undefined" && "adoptedStyleSheets" in Document.prototype,
+      shadowRootPrototypeAdoptedStyleSheets: typeof ShadowRoot !== "undefined" && "adoptedStyleSheets" in ShadowRoot.prototype,
+      customElements: typeof window.customElements
+    },
     authRouteHint,
     loggedOutHint: /sign\s*in|sign\s*up/i.test(bodyText),
     route: authRouteHint
@@ -387,6 +397,46 @@ def phase_probe(port: int, session_id: str, width: int, height: int, label: str)
     }
 
 
+def finish_servoshell(port: int, session_id: str | None, proc: subprocess.Popen) -> dict:
+    report = {"attempted": False, "route": "webdriver_servo_shutdown"}
+    if session_id:
+        report["attempted"] = True
+        try:
+            status, body = webdriver_request(port, "DELETE", f"/session/{session_id}/servo/shutdown", timeout=3)
+            report["ok"] = True
+            report["status"] = status
+            report["body"] = body
+        except Exception as error:  # noqa: BLE001
+            report["ok"] = False
+            report["error"] = repr(error)
+    else:
+        report["skipped"] = "missing_session_id"
+
+    try:
+        stdout, stderr = proc.communicate(timeout=10)
+        report["termination"] = "graceful_servo_shutdown"
+    except subprocess.TimeoutExpired:
+        report["timed_out"] = True
+        if session_id:
+            try:
+                webdriver_request(port, "DELETE", f"/session/{session_id}", timeout=3)
+            except Exception as error:  # noqa: BLE001
+                report["delete_session_error"] = repr(error)
+        if proc.poll() is None:
+            proc.terminate()
+        try:
+            stdout, stderr = proc.communicate(timeout=3)
+            report["termination"] = "sigterm_after_shutdown_timeout"
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            report["termination"] = "sigkill_after_shutdown_timeout"
+    report["returncode"] = proc.returncode
+    report["stdout_head"] = stdout.splitlines()[:80]
+    report["stderr_head"] = stderr.splitlines()[:120]
+    return report
+
+
 def classify(phases: list[dict]) -> tuple[str, list[str]]:
     failures = []
     routes = [phase.get("after", {}).get("route") for phase in phases]
@@ -518,20 +568,10 @@ def main() -> int:
         report["classification"] = classification
         report["failures"] = failures
     finally:
-        if session_id:
-            try:
-                webdriver_request(args.port, "DELETE", f"/session/{session_id}", timeout=3)
-            except Exception:
-                pass
-        proc.terminate()
-        try:
-            stdout, stderr = proc.communicate(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout, stderr = proc.communicate()
-        report["returncode"] = proc.returncode
-        report["stdout_head"] = stdout.splitlines()[:80]
-        report["stderr_head"] = stderr.splitlines()[:120]
+        report["process"] = finish_servoshell(args.port, session_id, proc)
+        report["returncode"] = report["process"].get("returncode")
+        report["stdout_head"] = report["process"].get("stdout_head")
+        report["stderr_head"] = report["process"].get("stderr_head")
         report["ok"] = classification == "pass"
         report_path = output_dir / "report.json"
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
