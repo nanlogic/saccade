@@ -191,8 +191,11 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
    foregrounds/positions the ServoShell window on macOS, then navigates the same
    bridge session to the requested URL. Evidence:
    `docs/ai018_dogfood_launch_visibility.md`.
-7. Next: AI-019 MOUSEMAX/Saccade evidence freeze, video checklist, and public
-   report pack.
+7. AI-019 public evidence pack is closed. `docs/ai019_public_evidence_pack.md`
+   freezes current claims, rerun commands, artifact paths, non-claims, the
+   video/article shot list, and the "agent drafts, human posts" policy.
+8. Next: AI-020 human-in-loop draft matrix on one or two additional low-risk
+   real draft surfaces.
 
 ## Parking Lot
 

@@ -9,14 +9,13 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-019 public evidence pack. AI-018 is complete:
-`open-saccade` now shows immediate launch status, opens a visible local
-bootstrap page first, foregrounds the ServoShell window best-effort on macOS,
-then navigates the same bridge session to the requested target.
+Active next item: AI-020 human-in-loop draft matrix. AI-019 is complete:
+the publishable evidence pack now freezes current claims, artifacts, commands,
+limits, video/article shot list, and the "agent drafts, human posts" policy.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-019 | P1 | ready | Demo/report | Freeze the publishable MOUSEMAX/Saccade evidence pack: current dogfood kit version, launch flow, article reader, FORMMAX, local game reflex, safe Gist draft, site-policy limits, and a short public narrative/video checklist. | A concise report points to the exact artifacts/commands, separates proven claims from limits, and is ready for Wayne or another model to turn into public copy/video. |
+| AI-020 | P1 | ready | Real-site dogfood | Test one or two additional low-risk human-in-loop draft surfaces without adding blanket publish blocks: owned GitHub issue/discussion draft first, then an optional dev.to/Hacker News/forum draft if the site behaves. | The matrix records login handoff, editor detection, draft fill/edit, no hidden value logging, and final publish/submit left to a current user gesture or explicit current-session confirmation. |
 
 ## Next
 
@@ -32,6 +31,7 @@ then navigates the same bridge session to the requested target.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-019 | 2026-06-20 | Closed the public evidence pack. `docs/ai019_public_evidence_pack.md` records the current dogfood kit (`1028bd6`), proven claims, rerun commands, artifact paths, non-claims, video/article shot list, and next real-site draft matrix. It also records the product policy requested by Wayne: do not add a blanket posting block; use "agent drafts, human posts" with current user gesture/confirmation for side effects. |
 | AI-018 | 2026-06-19 | Fixed dogfood launch visibility. Visible bridge launches now open ServoShell on `test_pages/servoshell_launch/index.html`, print immediate `open-saccade` stderr status, foreground/position/resize the macOS window best-effort, then navigate the same session to the target. Verified with `dist/saccade-dogfood-current/open-saccade https://gist.github.com/new`: report has `launch.visible_bootstrap=true`, `launch.foreground_attempted=true`, grant title `Create a new Gist`, grant URL `https://gist.github.com/new`, and macOS window state `frontmost=true`, `position=80,80`, `size=1360x772`. Evidence: `docs/ai018_dogfood_launch_visibility.md`. |
 | AI-017 | 2026-06-19 | Completed the real dogfood flow matrix. Package self-check, FORMMAX, public article extraction, high-risk redacted App Store Connect fallback, local game reflex, and a live logged-in GitHub/Gist draft flow all have measured evidence in `docs/ai017_real_dogfood_flow_matrix.md`. The Gist flow used the same Saccade session after Wayne login, navigated to `https://gist.github.com/new`, detected 7 editor candidates, filled 3 harmless draft fields, verified editor state, did not submit/publish, and replay/artifact grep found no draft text leaks. Follow-up routed to AI-018 because real-site launch/ready state felt like "no window opened" before the bridge became ready. |
 | AI-016 | 2026-06-19 | Closed the local dogfood packaging gate. `scripts/build_dogfood_release.sh` now writes a self-contained ServoShell-bridge kit with `check-saccade`, `open-saccade`, `servoshell-bridge`, `read-article`, `run-local-game-reflex`, metadata, copied current docs, package-local profile/output/grant defaults, and `dist/saccade-dogfood-current`. The final verified kit is `dist/saccade-dogfood-ai016-20260619-204157/`; it omits `bin/saccade-shell`, `check-saccade` returns JSON on stdout, bridge smoke uses `profile_dir` and `graceful_servo_shutdown`, and the Rookies article reader returns 9392 chars with clean shutdown. BP-013 macOS signing/notarization remains a later public-distribution item. |
