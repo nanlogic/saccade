@@ -182,13 +182,15 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
    `dist/saccade-dogfood-current`; it defaults to the ServoShell 0.3 bridge,
    package-local profile/output/grant paths, and omits the legacy Servo 0.2
    shell by default.
-5. Next: AI-017 real dogfood flow matrix. Use the current kit on a small set of
-   local, public, logged-in low-risk, local-game, and high-risk redacted-note
-   flows, then record measured pass/fail instead of promoting sites by guess.
-   Automated flow evidence is tracked in
-   `docs/ai017_real_dogfood_flow_matrix.md`; the remaining item needs Wayne
-   present for a logged-in low-risk draft flow.
-6. MOUSEMAX evidence freeze/video/public report.
+5. AI-017 real dogfood flow matrix is complete. Evidence is tracked in
+   `docs/ai017_real_dogfood_flow_matrix.md`: package self-check, FORMMAX,
+   public article extraction, high-risk redacted fallback, local game reflex,
+   and logged-in low-risk Gist draft fill all passed with measured artifacts.
+6. Next: AI-018 dogfood launch visibility. `open-saccade` must foreground the
+   ServoShell window and expose a clear launching/ready state so real-site
+   startup does not look like "no window opened" while GitHub/WebDriver
+   readiness settles.
+7. MOUSEMAX evidence freeze/video/public report.
 
 ## Parking Lot
 
