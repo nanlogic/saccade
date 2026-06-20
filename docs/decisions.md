@@ -1522,3 +1522,41 @@
   `python3 scripts/probe_servoshell_dropdown_resize.py --servoshell /Applications/Servo.app/Contents/MacOS/servoshell --output-dir runs/servoshell_ui/dropdown_resize_official_20260619`,
   `python3 -m py_compile scripts/probe_servoshell_dropdown_resize.py`, and
   `git diff --check`.
+
+## DECISION_SERVOSHELL_032 - Real GitHub dropdown overflow reproduced safely
+
+- Added `scripts/probe_github_dropdown_geometry.py`, a screenshot-free and
+  value-free real-site geometry probe for logged-in GitHub/Gist account menus.
+  The probe records only URL origin/path, viewport sizes, sanitized element
+  paths, rects, overflow distances, click dispatch status, and hit-test
+  booleans. It explicitly avoids screenshots, password/OTP reads, username or
+  email capture, and menu text logging.
+- The first iterations caught false positives: GitHub's cookie consent UI and
+  2FA alternative-method controls looked like right-edge buttons. The probe now
+  disqualifies cookie/consent/auth/two-factor/session controls and waits for an
+  actual profile/avatar candidate before measuring.
+- Source-release ServoShell with Wayne's same-process login reproduced the
+  remaining AI-015 bug on `https://gist.github.com/starred`:
+  `runs/servoshell_ui/github_dropdown_live_wait3_20260619/report.json`.
+  The account/profile button was present, Sign out existed and was hit-testable,
+  but the menu opened to the right of the avatar and overflowed the viewport
+  horizontally by `152px` at `900x700`, `176px` at `1200x740`, and `152px` again
+  after shrinking back to `900x700`.
+- This differs from the local fixture. `test_pages/dropdown_resize/` keeps its
+  right-edge dropdown inside the viewport on both source-release ServoShell and
+  official `/Applications/Servo.app`. The remaining issue is therefore not a
+  broad window-geometry failure; it is GitHub/Primer overlay positioning or
+  Servo web-compat.
+- Official `/Applications/Servo.app` could not be compared with the same
+  authenticated profile in this run. It reached logged-out `/starred` and
+  returned `auth_required`:
+  `runs/servoshell_ui/github_dropdown_official_profile_20260619/report.json`.
+- Servo stderr during the source-release GitHub run included web-compat signals
+  around `adoptedStyleSheets`, `IntersectionObserver`, and a GitHub chunk error
+  involving `getItemById`. These are evidence to investigate, not yet a proven
+  root cause.
+- Verification commands:
+  `python3 scripts/probe_github_dropdown_geometry.py --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --profile-dir runs/dogfood_profile/default --wait-for-auth-sec 240 --output-dir runs/servoshell_ui/github_dropdown_live_wait3_20260619`,
+  `python3 scripts/probe_github_dropdown_geometry.py --servoshell /Applications/Servo.app/Contents/MacOS/servoshell --profile-dir runs/dogfood_profile/default --wait-for-auth-sec 60 --output-dir runs/servoshell_ui/github_dropdown_official_profile_20260619`,
+  `python3 -m py_compile scripts/probe_github_dropdown_geometry.py`, and
+  `git diff --check`.

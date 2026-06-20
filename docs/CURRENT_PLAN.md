@@ -172,10 +172,12 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
 2. DEVMAX follow-up: HTTP status awareness for resource loads and Chrome
    comparison polish. Browser-backed finding crops and multi-action receipts
    are closed in AI-009.
-3. Browser layout follow-up: source ServoShell window resize math has a
-   partial fix, and the local right-edge dropdown resize fixture now passes on
-   both source-release and official ServoShell. Next is a logged-in real GitHub
-   profile dropdown geometry retest without screenshots/value capture.
+3. Browser layout follow-up: source ServoShell window resize math is fixed and
+   local right-edge dropdown resize fixtures pass. The logged-in real GitHub
+   profile dropdown geometry probe now reproduces the remaining issue: GitHub's
+   account menu opens to the right of the avatar and overflows horizontally by
+   `152-176px`; next is root-cause/fix or route as GitHub-specific Servo
+   web-compat with a product fallback.
 4. MOUSEMAX evidence freeze/video/public report.
 5. Mac packaging/signing.
 
