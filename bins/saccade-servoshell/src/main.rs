@@ -86,6 +86,8 @@ enum Command {
         #[arg(long)]
         profile_dir: Option<PathBuf>,
         #[arg(long)]
+        userscripts_dir: Option<PathBuf>,
+        #[arg(long)]
         no_headless: bool,
         #[arg(long, default_value_t = 35.0)]
         timeout_sec: f64,
@@ -410,6 +412,7 @@ fn main() -> Result<()> {
             output_dir,
             grant_path,
             profile_dir,
+            userscripts_dir,
             no_headless,
             timeout_sec,
             smoke,
@@ -426,6 +429,7 @@ fn main() -> Result<()> {
                 output_dir: output_dir.unwrap_or_else(|| default_run_dir("bridge")),
                 grant_path,
                 profile_dir,
+                userscripts_dir,
                 headless: !no_headless,
                 timeout: Duration::from_secs_f64(timeout_sec),
                 smoke,
@@ -511,6 +515,7 @@ struct BridgeConfig {
     output_dir: PathBuf,
     grant_path: Option<PathBuf>,
     profile_dir: Option<PathBuf>,
+    userscripts_dir: Option<PathBuf>,
     headless: bool,
     timeout: Duration,
     smoke: bool,
@@ -640,12 +645,21 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
 
     let webdriver_port = choose_loopback_port()?;
     let browser_launch_url = bridge_browser_launch_url(&cfg);
+    let userscripts_dir = cfg
+        .userscripts_dir
+        .as_ref()
+        .map(|path| {
+            path.canonicalize()
+                .with_context(|| format!("resolve ServoShell userscripts dir {}", path.display()))
+        })
+        .transpose()?;
     let mut child = launch_servoshell_for_url(
         &cfg.servoshell,
         browser_launch_url.as_str(),
         cfg.headless,
         webdriver_port,
         cfg.profile_dir.as_deref(),
+        userscripts_dir.as_deref(),
     )?;
     let client = WebDriverClient::new(webdriver_port, cfg.timeout);
     let mut session_id: Option<String> = None;
@@ -661,6 +675,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             "target_url": cfg.url.clone(),
             "visible_bootstrap": !cfg.headless,
             "foreground_attempted": !cfg.headless && cfg!(target_os = "macos"),
+            "userscripts_dir": userscripts_dir.clone(),
         },
         "headless": cfg.headless,
         "profile_dir": cfg.profile_dir.clone(),
@@ -838,6 +853,7 @@ fn run_login_handoff_case(cfg: LoginHandoffConfig) -> Result<LoginHandoffOutcome
         login_url.as_str(),
         cfg.headless,
         port,
+        None,
         None,
     )?;
     let client = WebDriverClient::new(port, cfg.timeout);
@@ -1020,7 +1036,8 @@ fn run_native_input_case(cfg: NativeInputConfig) -> Result<NativeInputOutcome> {
 
     let port = choose_loopback_port()?;
     let text_char_count = cfg.text.chars().count();
-    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None)?;
+    let mut child =
+        launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None, None)?;
     let client = WebDriverClient::new(port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let mut report = json!({
@@ -1218,7 +1235,8 @@ fn run_focused_type_case(cfg: FocusedTypeConfig) -> Result<FocusedTypeOutcome> {
         .with_context(|| format!("create {}", cfg.output_dir.display()))?;
 
     let port = choose_loopback_port()?;
-    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None)?;
+    let mut child =
+        launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None, None)?;
     let client = WebDriverClient::new(port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let mut report = json!({
@@ -1385,7 +1403,8 @@ fn run_formmax_selftest(cfg: FormmaxConfig) -> Result<FormmaxOutcome> {
         .with_context(|| format!("create {}", cfg.output_dir.display()))?;
 
     let port = choose_loopback_port()?;
-    let mut child = launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None)?;
+    let mut child =
+        launch_servoshell_for_url(&cfg.servoshell, &cfg.url, cfg.headless, port, None, None)?;
     let client = WebDriverClient::new(port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let mut report = json!({
@@ -1635,6 +1654,7 @@ fn launch_servoshell_for_url(
     headless: bool,
     port: u16,
     profile_dir: Option<&Path>,
+    userscripts_dir: Option<&Path>,
 ) -> Result<Child> {
     if !servoshell.exists() {
         bail!("servoshell not found at {}", servoshell.display());
@@ -1650,6 +1670,15 @@ fn launch_servoshell_for_url(
         cmd.arg(format!("--config-dir={}", profile_dir.display()));
     } else {
         cmd.arg("--temporary-storage");
+    }
+    if let Some(userscripts_dir) = userscripts_dir {
+        if !userscripts_dir.is_dir() {
+            bail!(
+                "ServoShell userscripts dir not found at {}",
+                userscripts_dir.display()
+            );
+        }
+        cmd.arg(format!("--userscripts={}", userscripts_dir.display()));
     }
     cmd.arg(url);
     configure_saccade_copilot_status_env(&mut cmd, port)?;

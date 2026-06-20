@@ -176,6 +176,7 @@ GEOMETRY_JS = r"""
     titleLength: document.title.length,
     readyState: document.readyState,
     browserApiFeatures: {
+      saccadeCompatShim: typeof window.__saccadeCompatShim === "object" ? window.__saccadeCompatShim : null,
       intersectionObserver: typeof window.IntersectionObserver,
       resizeObserver: typeof window.ResizeObserver,
       cssStyleSheet: typeof window.CSSStyleSheet,
@@ -620,11 +621,22 @@ def main() -> int:
             "it is too late for scripts that failed during initial module evaluation."
         ),
     )
+    parser.add_argument(
+        "--userscripts-dir",
+        type=Path,
+        help=(
+            "Experimental: pass ServoShell --userscripts=<dir>. This is closer to a "
+            "preload path than --compat-shim and should apply to new documents."
+        ),
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir or ROOT / "runs/servoshell_ui" / f"github_dropdown_{unix_ms()}"
     output_dir.mkdir(parents=True, exist_ok=True)
     args.profile_dir.mkdir(parents=True, exist_ok=True)
+    userscripts_dir = args.userscripts_dir.expanduser().resolve() if args.userscripts_dir else None
+    if userscripts_dir and not userscripts_dir.is_dir():
+        parser.error(f"--userscripts-dir must be an existing directory: {userscripts_dir}")
 
     sizes = []
     for token in args.sizes.split(","):
@@ -635,8 +647,10 @@ def main() -> int:
         str(args.servoshell),
         f"--webdriver={args.port}",
         f"--config-dir={args.profile_dir}",
-        args.url,
     ]
+    if userscripts_dir:
+        cmd.append(f"--userscripts={userscripts_dir}")
+    cmd.append(args.url)
     proc = subprocess.Popen(
         cmd,
         cwd=str(ROOT),
@@ -657,6 +671,7 @@ def main() -> int:
             "text_values_logged": False,
             "sensitive_inputs_read": False,
             "compat_shim": "after_ready_webdriver_execute" if args.compat_shim else "none",
+            "userscripts_dir": str(userscripts_dir) if userscripts_dir else None,
         },
         "sizes": [{"width": width, "height": height} for width, height in sizes],
         "phases": [],

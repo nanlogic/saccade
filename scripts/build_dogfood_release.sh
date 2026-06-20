@@ -6,6 +6,7 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="${1:-$ROOT/dist/saccade-dogfood-$STAMP}"
 SERVOSHELL_BIN="${SACCADE_SERVOSHELL_BIN:-/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell}"
 OWNED_DOMAINS="${SACCADE_OWNED_DOMAINS:-nanmesh.ai,mythcastera.com,mysterypartynow.com}"
+SERVOSHELL_USERSCRIPTS_DIR="${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}"
 INCLUDE_LEGACY_SHELL="${SACCADE_INCLUDE_LEGACY_SHELL:-0}"
 BUILD_TIME_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RELEASE_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -13,7 +14,7 @@ RELEASE_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/profile/default"
+mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/profile/default" "$OUT/userscripts"
 
 packages=(-p saccade-mcp -p saccade-servoshell)
 if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
@@ -36,6 +37,7 @@ SACCADE_RELEASE_COMMIT=$RELEASE_COMMIT
 SACCADE_RELEASE_BRANCH=$RELEASE_BRANCH
 SACCADE_RELEASE_BUILD_TIME_UTC=$BUILD_TIME_UTC
 SACCADE_SERVOSHELL_BIN=$SERVOSHELL_BIN
+SACCADE_SERVOSHELL_USERSCRIPTS_DIR=\${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-$SERVOSHELL_USERSCRIPTS_DIR}
 SACCADE_OWNED_DOMAINS=$OWNED_DOMAINS
 SACCADE_INCLUDE_LEGACY_SHELL=$INCLUDE_LEGACY_SHELL
 RUST_LOG=error
@@ -53,10 +55,15 @@ cd "$SACCADE_ROOT"
 echo "Opening Saccade dogfood browser..." >&2
 echo "Target: $URL" >&2
 echo "A local launch page appears first; the bridge will navigate to the target after it attaches." >&2
+userscripts_extra=()
+if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
+  userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
+fi
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
   --profile-dir "$DIR/profile/default" \
+  ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --no-headless \
   --output-dir "$DIR/runs/servoshell_bridge" \
   --grant-path "$DIR/current_tab_grant.json"
@@ -85,6 +92,9 @@ has_arg() {
 has_arg --profile-dir "$@" || extra+=(--profile-dir "$DIR/profile/default")
 has_arg --grant-path "$@" || extra+=(--grant-path "$DIR/current_tab_grant.json")
 has_arg --output-dir "$@" || extra+=(--output-dir "$DIR/runs/servoshell_bridge")
+if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]] && ! has_arg --userscripts-dir "$@"; then
+  extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
+fi
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   "${extra[@]}" \
@@ -114,10 +124,15 @@ SMOKE_URL="file://$SACCADE_ROOT/test_pages/browser_session/index.html"
 echo "Saccade dogfood kit: $DIR" >&2
 echo "Saccade commit: ${SACCADE_RELEASE_COMMIT:-unknown}" >&2
 echo "ServoShell: $SACCADE_SERVOSHELL_BIN" >&2
+userscripts_extra=()
+if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
+  userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
+fi
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$SMOKE_URL" \
   --profile-dir "$DIR/profile/default" \
+  ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --grant-path "$DIR/current_tab_grant.json" \
   --output-dir "$DIR/runs/check/bridge_smoke" \
   --smoke \
@@ -135,9 +150,14 @@ set +a
 URL="${1:?usage: read-article <url> [output_name]}"
 NAME="${2:-article_$(date +%Y%m%d-%H%M%S)}"
 cd "$SACCADE_ROOT"
+userscripts_extra=()
+if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
+  userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
+fi
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
+  ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --read-article \
   --article-max-chars "${SACCADE_ARTICLE_MAX_CHARS:-30000}" \
   --exit \
@@ -217,6 +237,7 @@ cp "$ROOT/docs/SACCADE_DOGFOOD_HANDOFF.md" "$OUT/docs/"
 cp "$ROOT/docs/profile_persistence_report.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/site_policy_matrix.md" "$OUT/docs/"
 cp "$ROOT/docs/servo_0_2_retirement_plan.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT"/scripts/userscripts/*.js "$OUT/userscripts/" 2>/dev/null || true
 
 cat > "$OUT/DOGFOOD_STATUS.md" <<STATUS
 # Saccade Dogfood Status
@@ -247,6 +268,11 @@ $OUT/open-saccade https://example.com
 - Public article/tutorial extraction is available through \`read-article\`.
 - Local long-form/table fill dogfood is available through \`run-formmax\`.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
+- Optional ServoShell userscripts can be enabled by setting
+  \`SACCADE_SERVOSHELL_USERSCRIPTS_DIR=$OUT/userscripts\` before running
+  \`open-saccade\`, \`servoshell-bridge\`, \`check-saccade\`, or
+  \`read-article\`. This is currently an experimental browser-compat layer,
+  not a default claim.
 - Public/demo claims, rerun commands, non-claims, and video/article shot list
   are frozen in \`docs/ai019_public_evidence_pack.md\`.
 - The next real-site human-in-loop draft matrix is in
@@ -338,6 +364,17 @@ Known browser compatibility limit: GitHub account/logout dropdown parity is
 routed to Servo Web API compatibility. Source-release and official ServoShell
 currently miss APIs GitHub/Primer uses, including IntersectionObserver and
 Document/ShadowRoot adopted stylesheets.
+
+Optional userscript compatibility layer:
+
+\`\`\`bash
+SACCADE_SERVOSHELL_USERSCRIPTS_DIR=$OUT/userscripts \\
+  $OUT/open-saccade https://gist.github.com/starred
+\`\`\`
+
+This is experimental. It is useful for measuring whether ServoShell userscripts
+can provide missing non-sensitive browser APIs on a target page. It is not a
+claim that GitHub account-menu geometry is fixed.
 README
 
 CURRENT_LINK="$ROOT/dist/saccade-dogfood-current"
