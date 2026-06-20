@@ -173,8 +173,9 @@ Canonical queue: `docs/CURRENT_ACTION_ITEMS.md`.
    comparison polish. Browser-backed finding crops and multi-action receipts
    are closed in AI-009.
 3. Browser layout follow-up: source ServoShell window resize math has a
-   partial fix; next is a post-fix real GitHub profile dropdown retest or a
-   minimized dropdown fixture to route any remaining clipping.
+   partial fix, and the local right-edge dropdown resize fixture now passes on
+   both source-release and official ServoShell. Next is a logged-in real GitHub
+   profile dropdown geometry retest without screenshots/value capture.
 4. MOUSEMAX evidence freeze/video/public report.
 5. Mac packaging/signing.
 

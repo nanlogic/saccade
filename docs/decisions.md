@@ -1493,3 +1493,32 @@
 - Verification commands:
   `rg -n "Saccade AI-005B|live dogfood draft|saccade-ai005b|SECOND SHOULD|SECOND BODY|Hidden backing fields|No Create|Publish" runs/servoshell_editor/gist_ai005b_live_20260619_192956 || true`
   returned no matches before this decision text was written.
+
+## DECISION_SERVOSHELL_031 - Dropdown resize fixture narrows AI-015
+
+- The remaining browser UI/layout complaint is still real, but the first
+  minimized route is green. Added `test_pages/dropdown_resize/index.html`, a
+  local page with a right-aligned account button and a profile/logout dropdown,
+  plus `scripts/probe_servoshell_dropdown_resize.py`.
+- The probe launches headed ServoShell with WebDriver, sets outer window rects
+  `900x700 -> 1200x740 -> 900x700`, opens the dropdown at each size, records JS
+  viewport and menu geometry, captures non-sensitive fixture screenshots, and
+  fails if the menu/logout escapes either the JS viewport or screenshot-derived
+  CSS width.
+- Source-release ServoShell passed the gate:
+  `runs/servoshell_ui/dropdown_resize_ai015_20260619/report.json`. The final
+  shrink phase reported `innerWidth=900`, `documentClientWidth=900`, menu
+  `right=882`, `menuWithinViewport=true`,
+  `menuWithinScreenshotCssWidth=true`, and `logoutVisible=true`.
+- Official `/Applications/Servo.app` also passed:
+  `runs/servoshell_ui/dropdown_resize_official_20260619/report.json`. Its
+  WebView width is smaller because of official browser chrome, but the menu
+  still remained visible after grow/shrink.
+- This does not close AI-015. It rules out a broad "all right-edge dropdowns
+  fail after resize" shell geometry bug. The next evidence target is a logged-in
+  GitHub/Gist account-menu geometry probe without screenshots or value capture.
+- Verification commands:
+  `python3 scripts/probe_servoshell_dropdown_resize.py --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell --output-dir runs/servoshell_ui/dropdown_resize_ai015_20260619`,
+  `python3 scripts/probe_servoshell_dropdown_resize.py --servoshell /Applications/Servo.app/Contents/MacOS/servoshell --output-dir runs/servoshell_ui/dropdown_resize_official_20260619`,
+  `python3 -m py_compile scripts/probe_servoshell_dropdown_resize.py`, and
+  `git diff --check`.

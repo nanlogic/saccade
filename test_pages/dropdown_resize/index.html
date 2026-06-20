@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dropdown Resize Probe</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1f2937;
+      --muted: #5f6b7a;
+      --line: #d9dee8;
+      --panel: #ffffff;
+      --bg: #f5f7fb;
+      --accent: #2563eb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 0;
+      overflow-x: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 72px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .brand {
+      flex: 0 0 auto;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .search {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 42px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      line-height: 40px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .account {
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .avatar {
+      width: 42px;
+      height: 42px;
+      border: 1px solid #b6c2d1;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #9ae6b4, #60a5fa);
+      color: #0f172a;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .menu {
+      position: absolute;
+      top: 50px;
+      right: 0;
+      width: min(292px, calc(100vw - 24px));
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+      overflow: hidden;
+    }
+
+    .menu[hidden] {
+      display: none;
+    }
+
+    .menu a,
+    .menu button {
+      display: block;
+      width: 100%;
+      min-height: 46px;
+      padding: 12px 16px;
+      border: 0;
+      border-bottom: 1px solid #edf0f5;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      text-align: left;
+      text-decoration: none;
+    }
+
+    .menu button {
+      color: #991b1b;
+    }
+
+    main {
+      max-width: 960px;
+      margin: 44px auto;
+      padding: 0 24px 96px;
+    }
+
+    .card {
+      min-height: 420px;
+      padding: 32px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    h1 {
+      margin: 0 0 14px;
+      font-size: 32px;
+      line-height: 1.1;
+    }
+
+    p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Saccade UI Probe</div>
+    <div class="search">Search or enter website name</div>
+    <div class="account">
+      <button id="profile-button" class="avatar" type="button" aria-haspopup="menu" aria-expanded="false">W</button>
+      <nav id="profile-menu" class="menu" hidden aria-label="Profile menu">
+        <a href="#profile">Your profile</a>
+        <a href="#settings">Settings</a>
+        <a href="#billing">Billing</a>
+        <a href="#help">Help</a>
+        <button id="logout" type="button">Sign out</button>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section class="card">
+      <h1>Resize and Menu Visibility</h1>
+      <p>
+        This fixture catches a common browser-shell bug: after grow/shrink,
+        right-aligned dropdowns must still fit inside the actual visible
+        WebView viewport.
+      </p>
+      <p>
+        The probe opens the menu at multiple window sizes and compares DOM
+        geometry against the WebDriver screenshot dimensions.
+      </p>
+    </section>
+  </main>
+  <script>
+    const button = document.querySelector("#profile-button");
+    const menu = document.querySelector("#profile-menu");
+
+    function setMenuOpen(open) {
+      menu.hidden = !open;
+      button.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+
+    button.addEventListener("click", () => setMenuOpen(menu.hidden));
+
+    function rectOf(element) {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height
+      };
+    }
+
+    window.__saccadeDropdownProbe = {
+      openMenu() {
+        setMenuOpen(true);
+      },
+      snapshot(label) {
+        setMenuOpen(true);
+        const menuRect = rectOf(menu);
+        const buttonRect = rectOf(button);
+        return {
+          label,
+          viewport: {
+            innerWidth,
+            innerHeight,
+            devicePixelRatio,
+            documentClientWidth: document.documentElement.clientWidth,
+            documentClientHeight: document.documentElement.clientHeight,
+            bodyScrollWidth: document.body.scrollWidth,
+            bodyClientWidth: document.body.clientWidth
+          },
+          buttonRect,
+          menuRect,
+          menuWithinViewport:
+            menuRect.left >= 0 &&
+            menuRect.top >= 0 &&
+            menuRect.right <= innerWidth &&
+            menuRect.bottom <= innerHeight,
+          horizontalOverflow: Math.max(0, menuRect.right - innerWidth),
+          verticalOverflow: Math.max(0, menuRect.bottom - innerHeight),
+          logoutVisible:
+            rectOf(document.querySelector("#logout")).bottom <= innerHeight
+        };
+      }
+    };
+  </script>
+</body>
+</html>
