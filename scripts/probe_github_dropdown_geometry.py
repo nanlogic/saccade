@@ -329,7 +329,7 @@ COMPAT_SHIM_JS = r"""
   installed.shadowRootAdoptedStyleSheets =
     typeof ShadowRoot !== "undefined" && installAdoptedStyleSheets(ShadowRoot.prototype, "shadowRootAdoptedStyleSheets");
 
-  return {
+  const report = {
     installed,
     features: {
       intersectionObserver: typeof window.IntersectionObserver,
@@ -341,6 +341,8 @@ COMPAT_SHIM_JS = r"""
     },
     timing: "after_ready_webdriver_execute"
   };
+  window.__saccadeCompatShim = report;
+  return report;
 })()
 """
 
@@ -475,6 +477,16 @@ def set_window_rect(port: int, session_id: str, width: int, height: int):
     return body
 
 
+def navigate_to(port: int, session_id: str, url: str):
+    _, body = webdriver_request(
+        port,
+        "POST",
+        f"/session/{session_id}/url",
+        {"url": url},
+    )
+    return body
+
+
 def wait_for_ready(port: int, session_id: str, timeout_sec: float):
     deadline = time.monotonic() + timeout_sec
     last = None
@@ -592,6 +604,30 @@ def classify(phases: list[dict]) -> tuple[str, list[str]]:
     return ("pass" if not failures else "fail"), failures
 
 
+def classify_api_probe(probe: dict, expect_shim: bool) -> tuple[str, list[str]]:
+    failures = []
+    features = probe.get("browserApiFeatures") or {}
+    shim = features.get("saccadeCompatShim")
+    if expect_shim:
+        if not isinstance(shim, dict):
+            failures.append("saccade compat shim marker missing")
+        elif shim.get("kind") != "saccade_github_compat_shim_v0":
+            failures.append(f"unexpected shim marker kind: {shim.get('kind')!r}")
+    if features.get("intersectionObserver") != "function":
+        failures.append(f"intersectionObserver={features.get('intersectionObserver')!r}")
+    if features.get("cssStyleSheetReplaceSync") != "function":
+        failures.append(f"cssStyleSheetReplaceSync={features.get('cssStyleSheetReplaceSync')!r}")
+    if features.get("documentPrototypeAdoptedStyleSheets") is not True:
+        failures.append(
+            f"documentPrototypeAdoptedStyleSheets={features.get('documentPrototypeAdoptedStyleSheets')!r}"
+        )
+    if features.get("shadowRootPrototypeAdoptedStyleSheets") is not True:
+        failures.append(
+            f"shadowRootPrototypeAdoptedStyleSheets={features.get('shadowRootPrototypeAdoptedStyleSheets')!r}"
+        )
+    return ("pass" if not failures else "fail"), failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--servoshell", type=Path, default=DEFAULT_SERVOSHELL)
@@ -628,6 +664,11 @@ def main() -> int:
             "Experimental: pass ServoShell --userscripts=<dir>. This is closer to a "
             "preload path than --compat-shim and should apply to new documents."
         ),
+    )
+    parser.add_argument(
+        "--api-only",
+        action="store_true",
+        help="Skip dropdown geometry and only verify the compatibility API surface.",
     )
     args = parser.parse_args()
 
@@ -672,6 +713,7 @@ def main() -> int:
             "sensitive_inputs_read": False,
             "compat_shim": "after_ready_webdriver_execute" if args.compat_shim else "none",
             "userscripts_dir": str(userscripts_dir) if userscripts_dir else None,
+            "api_only": args.api_only,
         },
         "sizes": [{"width": width, "height": height} for width, height in sizes],
         "phases": [],
@@ -690,11 +732,19 @@ def main() -> int:
         )
         session_id = value_session_id(body)
         report["session_id"] = session_id
+        report["navigate"] = navigate_to(args.port, session_id, args.url)
         report["ready"] = wait_for_ready(args.port, session_id, args.page_ready_sec)
         if args.compat_shim:
             report["compat_shim"] = execute(args.port, session_id, COMPAT_SHIM_JS)
         skip_phases = False
-        if args.wait_for_auth_sec > 0:
+        if args.api_only:
+            report["api_probe"] = execute(args.port, session_id, GEOMETRY_JS)
+            classification, failures = classify_api_probe(
+                report["api_probe"],
+                expect_shim=bool(userscripts_dir or args.compat_shim),
+            )
+            skip_phases = True
+        elif args.wait_for_auth_sec > 0:
             report["auth_wait"] = wait_for_auth(args.port, session_id, args.wait_for_auth_sec)
             if report["auth_wait"].get("status") != "profile_seen":
                 classification = "auth_required"

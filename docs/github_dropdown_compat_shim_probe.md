@@ -96,6 +96,18 @@ python3 scripts/probe_github_dropdown_geometry.py \
   --userscripts-dir scripts/userscripts
 ```
 
+Local API-only userscript gate:
+
+```bash
+python3 scripts/probe_github_dropdown_geometry.py \
+  --servoshell /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell \
+  --url file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/browser_session/index.html \
+  --userscripts-dir scripts/userscripts \
+  --api-only \
+  --output-dir runs/servoshell_ui/userscript_api_only_local_nav_20260621 \
+  --port 7170
+```
+
 ## Result
 
 Artifacts:
@@ -105,6 +117,7 @@ runs/servoshell_ui/github_dropdown_source_compat_shim_20260620/report.json
 runs/servoshell_ui/github_dropdown_official_compat_shim_20260620/report.json
 runs/servoshell_ui/github_dropdown_official_userscript_abs_20260620/report.json
 runs/servoshell_bridge/userscript_local_smoke_abs_20260620/report.json
+runs/servoshell_ui/userscript_api_only_local_nav_20260621/report.json
 ```
 
 Source-release result:
@@ -153,10 +166,25 @@ launch.userscripts_dir=/Users/waynema/Documents/GitHub/SACCADE/scripts/userscrip
 termination=graceful_servo_shutdown
 ```
 
+Local API-only userscript gate result:
+
+```text
+classification=pass
+ok=true
+api_probe.browserApiFeatures.saccadeCompatShim.kind=saccade_github_compat_shim_v0
+api_probe.browserApiFeatures.saccadeCompatShim.href=file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/browser_session/index.html
+api_probe.browserApiFeatures.intersectionObserver=function
+api_probe.browserApiFeatures.documentPrototypeAdoptedStyleSheets=true
+api_probe.browserApiFeatures.shadowRootPrototypeAdoptedStyleSheets=true
+termination=graceful_servo_shutdown
+```
+
 One early userscript run used a relative `--userscripts=scripts/userscripts`
 path. ServoShell loaded the userscript in `about:blank`, but the target URL did
-not navigate. The probe now resolves `--userscripts-dir` to an absolute path and
-rejects missing directories because ServoShell's help text asks for a full path.
+not navigate. The probe now resolves `--userscripts-dir` to an absolute path,
+rejects missing directories because ServoShell's help text asks for a full path,
+and explicitly navigates the WebDriver session to the requested URL before
+probing.
 
 The shim can work in the current document. In the source-release run, GitHub
 redirected to a new login document and the shim disappeared; process stderr
@@ -167,6 +195,11 @@ visible because the profile was not logged in for that run. The userscript run
 is stronger than the post-ready shim: the marker is present in the target Gist
 document and the missing-API stderr pattern is absent, but it still needs a
 logged-in geometry run before product promotion.
+
+The API-only gate is the no-human regression test for this layer. It does not
+prove GitHub menu geometry; it proves the launch path can install the expected
+compat marker and browser APIs in a target document without screenshots or value
+reads.
 
 ## Conclusion
 
