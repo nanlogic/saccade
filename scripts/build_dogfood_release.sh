@@ -30,6 +30,7 @@ cp "$ROOT/target/release/saccade-servoshell" "$OUT/bin/"
 if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
   cp "$ROOT/target/release/saccade-shell" "$OUT/bin/"
 fi
+cp "$ROOT/scripts/read_article_fallback.py" "$OUT/lib/"
 
 cat > "$OUT/saccade-dogfood.env" <<ENV
 SACCADE_RELEASE_KIND=dogfood
@@ -230,15 +231,18 @@ userscripts_extra=()
 if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
   userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
 fi
-saccade_run_with_profile_cleanup "$DIR/bin/saccade-servoshell" bridge \
+saccade_run_with_profile_cleanup python3 "$DIR/lib/read_article_fallback.py" \
+  --bin "$DIR/bin/saccade-servoshell" \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
   --profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR" \
   ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
-  --read-article \
   --article-max-chars "${SACCADE_ARTICLE_MAX_CHARS:-30000}" \
-  --exit \
-  --json \
+  --timeout-sec "${SACCADE_READ_ARTICLE_TIMEOUT_SEC:-35}" \
+  --hard-timeout-sec "${SACCADE_READ_ARTICLE_HARD_TIMEOUT_SEC:-50}" \
+  --http-timeout-sec "${SACCADE_READ_ARTICLE_HTTP_TIMEOUT_SEC:-20}" \
+  --fallback "${SACCADE_READ_ARTICLE_FALLBACK:-auto}" \
+  --cwd "$SACCADE_ROOT" \
   --grant-path "$DIR/runs/article/$NAME/current_tab_grant.json" \
   --output-dir "$DIR/runs/article/$NAME"
 SH
@@ -301,6 +305,7 @@ SH
 fi
 
 chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-local-game-reflex"
+chmod +x "$OUT/lib/read_article_fallback.py"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
@@ -350,6 +355,9 @@ $OUT/open-saccade https://example.com
 - Same-tab agent help is limited by the site policy docs copied into
   \`docs/\`.
 - Public article/tutorial extraction is available through \`read-article\`.
+  If the Saccade browser article path hangs or exits nonzero,
+  \`read-article\` returns a bounded public HTTP fallback packet instead of
+  hanging silently. Disable fallback with \`SACCADE_READ_ARTICLE_FALLBACK=off\`.
 - Local long-form/table fill dogfood is available through \`run-formmax\`.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
 - Optional ServoShell userscripts can be enabled by setting
@@ -449,6 +457,12 @@ Read a public article/tutorial page and exit with JSON:
 \`\`\`bash
 $OUT/read-article https://example.com/tutorial
 \`\`\`
+
+\`read-article\` first tries the live Saccade/ServoShell article path. If that
+path exceeds \`SACCADE_READ_ARTICLE_HARD_TIMEOUT_SEC\` or exits nonzero, it kills
+the browser process group and emits a public HTTP fallback packet with
+\`route=http_article_fallback\`. The fallback sends no browser cookies or profile
+data, and is only for public reference pages.
 
 Run the local game reflex gate when the game server is up:
 

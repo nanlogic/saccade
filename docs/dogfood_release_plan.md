@@ -138,12 +138,13 @@ dist/saccade-dogfood-<timestamp>/run-formmax
 Latest verification:
 
 ```text
-dist/saccade-dogfood-20260622-151603/
-dist/saccade-dogfood-current -> saccade-dogfood-20260622-151603
+dist/saccade-dogfood-20260622-171928/
+dist/saccade-dogfood-current -> saccade-dogfood-20260622-171928
 dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
+dist/saccade-dogfood-current/runs/article/uscis_i797_forced_fallback3/report.json
 docs/ai018_dogfood_launch_visibility.md
 docs/ai019_public_evidence_pack.md
 docs/ai020_human_in_loop_site_matrix.md
@@ -158,6 +159,7 @@ normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit
 manual bridge smoke: PASS, package-local profile/grant/output paths
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content
+article fallback: forced USCIS timeout -> route=http_article_fallback, cookies_sent=false, profile_used=false, text_chars=5620, has_i797c=true, has_biometric=true
 run-formmax: PASS, rows=96, pages=2, filled=672, blocked_sensitive=3
 open-saccade launch visibility: PASS, visible_bootstrap=true, foreground_attempted=true
 process shutdown: graceful_servo_shutdown
@@ -166,6 +168,13 @@ process shutdown: graceful_servo_shutdown
 The article one-shot still reports known Servo page warnings such as the macOS
 GL texture warning and missing `IntersectionObserver`, but the article truth
 surface remains usable and exits cleanly.
+
+`read-article` now has a bounded public-page fallback. The normal browser path
+is still preferred and remains green on the Rookies tutorial page. If the
+browser path times out or exits nonzero, the wrapper kills the browser process
+group and returns `route=http_article_fallback`. That fallback sends no browser
+cookies and does not use the persisted Saccade profile; it is for public
+reference pages only.
 
 Servo 0.2 retirement details:
 

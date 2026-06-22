@@ -155,6 +155,12 @@ watch the terminal for `SACCADE_SERVOSHELL_BRIDGE READY` and inspect
 For public article/tutorial learning pages, prefer the one-shot reader:
 dist/saccade-dogfood-current/read-article <URL>
 
+If the browser article path times out or exits nonzero, `read-article` returns a
+bounded public HTTP fallback packet with `route=http_article_fallback`. This
+fallback does not send browser cookies and does not use the persisted Saccade
+profile. Use it for public reference pages only; do not use it for logged-in
+account data, forms, filings, payments, uploads, or legally meaningful actions.
+
 For long-form/table fill dogfood, use:
 dist/saccade-dogfood-current/run-formmax
 

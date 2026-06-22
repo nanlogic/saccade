@@ -81,6 +81,12 @@ ServoShell bridge, extracts `article_text`, records the report under
 `dist/saccade-dogfood-<timestamp>/runs/article/<name>/report.json`, and exits
 instead of leaving a live browser session running.
 
+If the Saccade browser article path hangs or exits nonzero, `read-article`
+kills the browser process group and emits a bounded public HTTP fallback packet
+with `route=http_article_fallback`. The fallback sends no browser cookies and
+does not use the persisted Saccade profile. Disable it with
+`SACCADE_READ_ARTICLE_FALLBACK=off` when you need a strict browser-only test.
+
 Run the local game reflex gate:
 
 ```bash

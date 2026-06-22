@@ -1726,3 +1726,25 @@
 - Follow-up: add a bounded `read-article` timeout/ready failure reason and a
   first-class official-page fallback packet so dogfood reports do not silently
   hang on public reference pages.
+
+## DECISION_BROWSER_039 - `read-article` uses browser-first, no-cookie HTTP fallback
+
+- Implemented `scripts/read_article_fallback.py` and wired it into
+  `scripts/build_dogfood_release.sh`. The dogfood `read-article` command now
+  starts with the Saccade/ServoShell browser article path, but wraps it in a
+  hard timeout. If that path exceeds
+  `SACCADE_READ_ARTICLE_HARD_TIMEOUT_SEC`, exits nonzero, or returns invalid
+  JSON, the wrapper kills the browser process group and emits
+  `route=http_article_fallback`.
+- Safety boundary: the fallback is for public reference pages only. It does not
+  send browser cookies and does not use the persisted Saccade profile. It must
+  not be used for logged-in account data, filings, uploads, signatures,
+  payments, government forms, or other legally meaningful actions.
+- Evidence: current kit `dist/saccade-dogfood-20260622-171928`. Forced USCIS
+  timeout returned `ok=true`, `route=http_article_fallback`,
+  `fallback_reason=saccade_browser_article_hard_timeout`,
+  `cookies_sent=false`, `profile_used=false`, `text_chars=5620`,
+  `has_i797c=true`, and `has_biometric=true`; report:
+  `dist/saccade-dogfood-current/runs/article/uscis_i797_forced_fallback3/report.json`.
+  Rookies regression still used the browser path with
+  `runtime=saccade-servoshell-bridge-v0`, `chars=9392`, and no fallback.
