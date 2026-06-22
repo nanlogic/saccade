@@ -1654,3 +1654,24 @@
   `dist/saccade-dogfood-ai016-20260619-204157/servoshell-bridge --smoke --json`,
   `dist/saccade-dogfood-ai016-20260619-204157/read-article https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art ai016_rookies_article_final`, and
   `test ! -e dist/saccade-dogfood-ai016-20260619-204157/bin/saccade-shell`.
+
+## DECISION_BROWSER_036 - Browser profile belongs to the human, agent grants are scoped
+
+- Saccade's product model separates browser ownership from agent capability.
+  The normal browser profile is human-owned local browser state: cookies,
+  site storage, device/session trust, and future history-like state persist for
+  the human when the site permits it.
+- The agent does not own or receive the profile. It attaches to a current tab or
+  live session only after an explicit grant, and receives policy-redacted
+  truth/actions/control receipts rather than raw cookies, password data,
+  storage dumps, or sensitive field values.
+- The local dogfood implementation now has the first normal-profile primitive:
+  wrappers default to stable `runs/dogfood_profile/default` via
+  `SACCADE_PROFILE_DIR`, so rebuilding the local kit does not create a fresh
+  login profile each time.
+- AI-021 tracks the remaining product UX: visible normal/incognito/named
+  profile modes, a chrome-level profile/grant badge, first-class ephemeral
+  profile support, and a user-confirmed clear-profile command.
+- Until first-class incognito exists, throwaway browsing should use a temporary
+  `SACCADE_PROFILE_DIR`; the temporary directory must be treated as browser
+  profile data and deleted intentionally after use.

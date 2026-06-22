@@ -42,6 +42,21 @@ Open a site:
 dist/saccade-dogfood-<timestamp>/open-saccade https://mouseaccuracy.com/classic/
 ```
 
+By default this uses the stable normal dogfood profile:
+
+```text
+runs/dogfood_profile/default
+```
+
+That profile is the human browser profile. Login cookies and site storage can
+survive new dogfood builds when the site permits it, while the agent only sees
+explicitly granted redacted truth/actions. For a throwaway/incognito-style run
+before a first-class flag exists, launch with a temporary profile directory:
+
+```bash
+SACCADE_PROFILE_DIR=/tmp/saccade-incognito dist/saccade-dogfood-current/open-saccade https://example.com
+```
+
 Run a bridge smoke:
 
 ```bash

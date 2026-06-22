@@ -81,6 +81,13 @@ cookies. Override it with:
 SACCADE_PROFILE_DIR=/path/to/profile dist/saccade-dogfood-current/open-saccade https://example.com
 ```
 
+Profile ownership rule: this profile is human browser state. The agent may
+attach to the current tab after an explicit grant and receive redacted
+truth/actions, but it must not receive the raw cookie jar, password data,
+storage dumps, or sensitive field values. Incognito/ephemeral mode is not yet a
+first-class wrapper flag; until it is, use a temporary `SACCADE_PROFILE_DIR` for
+throwaway browsing and delete it manually after the run.
+
 Check the kit:
 
 ```bash

@@ -42,6 +42,40 @@ Sources:
 4. Use `chrome-reference` for UI-design review, public screenshots, and pixel-sensitive judgement.
 5. Use `servo-modern` for agent action, safety, replay, and local dogfood unless a red compatibility gate routes elsewhere.
 
+## Profile And Session Product Model
+
+Saccade has two audiences in the same browser: the human owner and the agent
+assistant. Browser profile data belongs to the human owner. The agent never gets
+raw cookies, password-manager data, local/session storage dumps, or sensitive
+field values; it only receives current-session, explicitly granted,
+policy-redacted truth/action/control surfaces.
+
+Modes:
+
+- Normal profile: default daily browser mode. Login cookies, site storage, and
+  history-like browser state persist in a Saccade profile, currently
+  `runs/dogfood_profile/default` for local dogfood builds. This should feel like
+  Chrome/Safari profile reuse: close and reopen the Saccade browser, and normal
+  sites can remain logged in when the provider allows it.
+- Incognito / Ephemeral profile: future explicit mode for untrusted checks,
+  logged-out comparison, and throwaway browsing. It should use a temporary
+  profile directory and delete it on close. Agent grants can still exist inside
+  the incognito session, but nothing should persist after shutdown.
+- Named profiles: future UX for `default`, `work`, `test`, or project-specific
+  profiles. A visible chrome badge/picker should show the active profile and
+  whether the current tab is Human-only or Copilot-granted.
+
+Safety rules:
+
+- Login, 2FA, CAPTCHA, password, payment, signing, account security, and
+  destructive actions remain human-owned.
+- Agent attach is a tab/session grant, not ownership of the browser profile.
+- Redacted reports and replay artifacts must not include raw cookies or
+  sensitive values. The profile directory itself is local browser data and must
+  stay out of git/backups unless intentionally managed.
+- Clearing or switching profiles should be an explicit user action with visible
+  state, not a hidden wrapper side effect.
+
 ## Workstreams
 
 ### P0 - Measurement Harness
@@ -172,6 +206,11 @@ Current auth/session state:
 - `--profile-dir` lets dogfood browser and browser-session-worker share Saccade-owned cookies/storage across processes.
 - `selftest-profile-persistence` proves one worker can write a persistent cookie and a second worker can read it from the same profile.
 - This does not import external browser cookies. Real Google/GitHub login should be done inside Saccade, then reused through the same profile dir.
+- Current local dogfood wrappers default to stable normal-profile storage at
+  `runs/dogfood_profile/default`, so rebuilt kits do not force a new login by
+  changing to a fresh per-kit `dist/.../profile/default` directory.
+- Product backlog: add visible profile mode UI, `--incognito` / ephemeral
+  wrapper support, named profiles, and a user-confirmed clear-profile command.
 
 Browser chrome architecture note:
 

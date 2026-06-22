@@ -83,11 +83,16 @@ correct shutdown route is used. The bridge run records
   disk, like Chrome. Saccade artifacts still redact sensitive field values and do
   not print cookies, but the profile directory itself should be treated as local
   browser profile data and kept out of git/backups unless intentionally managed.
+- Profile data is human-owned browser state. Agent access is a current-tab or
+  current-session grant over redacted truth/actions; it is not permission to
+  read raw cookies, password-manager state, storage dumps, or sensitive field
+  values.
 - Real providers may still invalidate or refuse cross-restart authenticated
   sessions because of their own session-cookie, device trust, 2FA, or security
   policy. The local fixture proves Saccade profile flushing; it does not promise
   every provider will preserve login across restarts.
-- Friendly profile picker, profile locking UX, and password-manager integration are not implemented.
+- Friendly normal/incognito/named profile UI, profile locking UX,
+  clear-profile, and password-manager integration are not implemented.
 - AI-005B closed same-process authenticated Gist draft fill. Cross-restart
   authenticated Gist reuse remains a real-site dogfood check, not a local
   storage primitive blocker.
