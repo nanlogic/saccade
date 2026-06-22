@@ -664,6 +664,20 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
     let client = WebDriverClient::new(webdriver_port, cfg.timeout);
     let mut session_id: Option<String> = None;
     let report_path = cfg.output_dir.join("report.json");
+    let profile_mode = std::env::var("SACCADE_EFFECTIVE_PROFILE_MODE")
+        .ok()
+        .or_else(|| std::env::var("SACCADE_PROFILE_MODE").ok())
+        .unwrap_or_else(|| {
+            if cfg.profile_dir.is_some() {
+                "normal".to_string()
+            } else {
+                "temporary".to_string()
+            }
+        });
+    let profile_persistent = std::env::var("SACCADE_EFFECTIVE_PROFILE_PERSISTENT")
+        .ok()
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or_else(|| cfg.profile_dir.is_some());
     let mut report = json!({
         "ok": false,
         "engine": "saccade-servoshell-bridge-v0",
@@ -678,6 +692,8 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             "userscripts_dir": userscripts_dir.clone(),
         },
         "headless": cfg.headless,
+        "profile_mode": profile_mode,
+        "profile_persistent": profile_persistent,
         "profile_dir": cfg.profile_dir.clone(),
         "storage": if cfg.profile_dir.is_some() { "profile_dir" } else { "temporary" },
         "webdriver": {

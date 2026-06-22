@@ -50,12 +50,18 @@ runs/dogfood_profile/default
 
 That profile is the human browser profile. Login cookies and site storage can
 survive new dogfood builds when the site permits it, while the agent only sees
-explicitly granted redacted truth/actions. For a throwaway/incognito-style run
-before a first-class flag exists, launch with a temporary profile directory:
+explicitly granted redacted truth/actions.
+
+For a throwaway/incognito-style run:
 
 ```bash
-SACCADE_PROFILE_DIR=/tmp/saccade-incognito dist/saccade-dogfood-current/open-saccade https://example.com
+SACCADE_INCOGNITO=1 dist/saccade-dogfood-current/open-saccade https://example.com
+SACCADE_PROFILE_MODE=incognito dist/saccade-dogfood-current/check-saccade
 ```
+
+Incognito wrappers create a marked temporary profile under the kit's
+`runs/incognito/` directory and delete it when the command exits. This is useful
+for logged-out comparison and untrusted browsing checks.
 
 Run a bridge smoke:
 
@@ -193,9 +199,10 @@ node scripts/probe_reflex_readback_canvas.js \
 - Persistent `--profile-dir` is supported for Saccade-owned session reuse. The
   dogfood release `open-saccade` wrapper now defaults to the stable
   `runs/dogfood_profile/default` profile so login can survive dogfood kit
-  rebuilds. Override with `SACCADE_PROFILE_DIR=/path/to/profile`. There is not
-  yet a friendly profile picker or password-manager flow, and it does not import
-  Chrome/Safari/Firefox cookies.
+  rebuilds. Override with `SACCADE_PROFILE_DIR=/path/to/profile`. Use
+  `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito` for temporary
+  no-persistence dogfood. There is not yet a friendly profile picker or
+  password-manager flow, and it does not import Chrome/Safari/Firefox cookies.
 - Canvas/WebGL-heavy pages can hit current Saccade/Servo canvas/runtime issues on this machine. Full-window Canvas2D can reproduce missing captured layers even without GL warnings. If logs show `GLD_TEXTURE_INDEX_2D is unloadable`, canvas/WebGL is extremely slow, or the page cannot be judged in Saccade, stop that run, record it as a Saccade runtime blocker, and validate with Chrome/reference instead.
 - Visual parity with Chrome/Safari is still tracked separately. Use this shell for dogfood, and use Chrome reference captures when exact mainstream rendering matters.
 - `servo-modern` improves action/layout correctness for current local gates, but it is not a claim that Servo renders like Chrome.

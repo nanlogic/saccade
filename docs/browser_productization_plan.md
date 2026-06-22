@@ -209,8 +209,12 @@ Current auth/session state:
 - Current local dogfood wrappers default to stable normal-profile storage at
   `runs/dogfood_profile/default`, so rebuilt kits do not force a new login by
   changing to a fresh per-kit `dist/.../profile/default` directory.
-- Product backlog: add visible profile mode UI, `--incognito` / ephemeral
-  wrapper support, named profiles, and a user-confirmed clear-profile command.
+- Current local dogfood wrappers also support incognito/ephemeral storage with
+  `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito`; they create a
+  marked temporary profile under the kit's `runs/incognito/` directory and
+  delete it when the command exits.
+- Product backlog: add visible profile mode UI, named profiles, and a
+  user-confirmed clear-profile command.
 
 Browser chrome architecture note:
 

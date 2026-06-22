@@ -15,7 +15,7 @@ RELEASE_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/profile/default" "$OUT/userscripts"
+mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/lib" "$OUT/profile/default" "$OUT/userscripts"
 mkdir -p "$DEFAULT_PROFILE_DIR"
 
 packages=(-p saccade-mcp -p saccade-servoshell)
@@ -41,10 +41,66 @@ SACCADE_RELEASE_BUILD_TIME_UTC=$BUILD_TIME_UTC
 SACCADE_SERVOSHELL_BIN=$SERVOSHELL_BIN
 SACCADE_SERVOSHELL_USERSCRIPTS_DIR=\${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-$SERVOSHELL_USERSCRIPTS_DIR}
 SACCADE_PROFILE_DIR=\${SACCADE_PROFILE_DIR:-$DEFAULT_PROFILE_DIR}
+SACCADE_PROFILE_MODE=\${SACCADE_PROFILE_MODE:-normal}
+SACCADE_INCOGNITO=\${SACCADE_INCOGNITO:-0}
+SACCADE_INCOGNITO_BASE_DIR=\${SACCADE_INCOGNITO_BASE_DIR:-$OUT/runs/incognito}
 SACCADE_OWNED_DOMAINS=$OWNED_DOMAINS
 SACCADE_INCLUDE_LEGACY_SHELL=$INCLUDE_LEGACY_SHELL
 RUST_LOG=error
 ENV
+
+cat > "$OUT/lib/profile.sh" <<'SH'
+# Shared dogfood profile resolver. Source after saccade-dogfood.env.
+saccade_resolve_profile() {
+  local requested="${SACCADE_PROFILE_MODE:-normal}"
+  case "${SACCADE_INCOGNITO:-0}" in
+    1|true|TRUE|yes|YES|on|ON) requested="incognito" ;;
+  esac
+
+  case "$requested" in
+    ""|normal|default)
+      SACCADE_EFFECTIVE_PROFILE_MODE="normal"
+      SACCADE_EFFECTIVE_PROFILE_DIR="$SACCADE_PROFILE_DIR"
+      SACCADE_EFFECTIVE_PROFILE_PERSISTENT=1
+      SACCADE_PROFILE_CLEANUP_DIR=""
+      mkdir -p "$SACCADE_EFFECTIVE_PROFILE_DIR"
+      ;;
+    incognito|private|ephemeral)
+      SACCADE_EFFECTIVE_PROFILE_MODE="incognito"
+      SACCADE_EFFECTIVE_PROFILE_PERSISTENT=0
+      mkdir -p "$SACCADE_INCOGNITO_BASE_DIR"
+      SACCADE_EFFECTIVE_PROFILE_DIR="$(mktemp -d "$SACCADE_INCOGNITO_BASE_DIR/profile_XXXXXXXX")"
+      SACCADE_PROFILE_CLEANUP_DIR="$SACCADE_EFFECTIVE_PROFILE_DIR"
+      : > "$SACCADE_PROFILE_CLEANUP_DIR/.saccade-incognito-profile"
+      ;;
+    *)
+      echo "unknown SACCADE_PROFILE_MODE=$requested; expected normal or incognito" >&2
+      exit 2
+      ;;
+  esac
+
+  export SACCADE_EFFECTIVE_PROFILE_MODE
+  export SACCADE_EFFECTIVE_PROFILE_DIR
+  export SACCADE_EFFECTIVE_PROFILE_PERSISTENT
+  export SACCADE_PROFILE_CLEANUP_DIR
+}
+
+saccade_cleanup_profile() {
+  local dir="${SACCADE_PROFILE_CLEANUP_DIR:-}"
+  if [[ -n "$dir" && -f "$dir/.saccade-incognito-profile" ]]; then
+    rm -rf -- "$dir"
+  fi
+}
+
+saccade_run_with_profile_cleanup() {
+  if [[ -n "${SACCADE_PROFILE_CLEANUP_DIR:-}" ]]; then
+    trap saccade_cleanup_profile EXIT
+    "$@"
+  else
+    exec "$@"
+  fi
+}
+SH
 
 cat > "$OUT/open-saccade" <<'SH'
 #!/usr/bin/env bash
@@ -53,19 +109,22 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set -a
 source "$DIR/saccade-dogfood.env"
 set +a
+source "$DIR/lib/profile.sh"
 URL="${1:-https://example.com}"
 cd "$SACCADE_ROOT"
+saccade_resolve_profile
 echo "Opening Saccade dogfood browser..." >&2
 echo "Target: $URL" >&2
+echo "Profile: $SACCADE_EFFECTIVE_PROFILE_MODE ($SACCADE_EFFECTIVE_PROFILE_DIR)" >&2
 echo "A local launch page appears first; the bridge will navigate to the target after it attaches." >&2
 userscripts_extra=()
 if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
   userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
 fi
-exec "$DIR/bin/saccade-servoshell" bridge \
+saccade_run_with_profile_cleanup "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
-  --profile-dir "$SACCADE_PROFILE_DIR" \
+  --profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR" \
   ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --no-headless \
   --output-dir "$DIR/runs/servoshell_bridge" \
@@ -79,6 +138,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set -a
 source "$DIR/saccade-dogfood.env"
 set +a
+source "$DIR/lib/profile.sh"
 cd "$SACCADE_ROOT"
 extra=()
 has_arg() {
@@ -92,13 +152,21 @@ has_arg() {
   done
   return 1
 }
-has_arg --profile-dir "$@" || extra+=(--profile-dir "$SACCADE_PROFILE_DIR")
+if has_arg --profile-dir "$@"; then
+  SACCADE_EFFECTIVE_PROFILE_MODE="custom"
+  SACCADE_EFFECTIVE_PROFILE_PERSISTENT=1
+  SACCADE_PROFILE_CLEANUP_DIR=""
+  export SACCADE_EFFECTIVE_PROFILE_MODE SACCADE_EFFECTIVE_PROFILE_PERSISTENT SACCADE_PROFILE_CLEANUP_DIR
+else
+  saccade_resolve_profile
+  extra+=(--profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR")
+fi
 has_arg --grant-path "$@" || extra+=(--grant-path "$DIR/current_tab_grant.json")
 has_arg --output-dir "$@" || extra+=(--output-dir "$DIR/runs/servoshell_bridge")
 if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]] && ! has_arg --userscripts-dir "$@"; then
   extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
 fi
-exec "$DIR/bin/saccade-servoshell" bridge \
+saccade_run_with_profile_cleanup "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   "${extra[@]}" \
   "$@"
@@ -111,6 +179,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set -a
 source "$DIR/saccade-dogfood.env"
 set +a
+source "$DIR/lib/profile.sh"
 
 if [[ ! -x "$DIR/bin/saccade-servoshell" ]]; then
   echo "missing bundled saccade-servoshell: $DIR/bin/saccade-servoshell" >&2
@@ -124,17 +193,19 @@ fi
 
 cd "$SACCADE_ROOT"
 SMOKE_URL="file://$SACCADE_ROOT/test_pages/browser_session/index.html"
+saccade_resolve_profile
 echo "Saccade dogfood kit: $DIR" >&2
 echo "Saccade commit: ${SACCADE_RELEASE_COMMIT:-unknown}" >&2
 echo "ServoShell: $SACCADE_SERVOSHELL_BIN" >&2
+echo "Profile: $SACCADE_EFFECTIVE_PROFILE_MODE ($SACCADE_EFFECTIVE_PROFILE_DIR)" >&2
 userscripts_extra=()
 if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
   userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
 fi
-exec "$DIR/bin/saccade-servoshell" bridge \
+saccade_run_with_profile_cleanup "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$SMOKE_URL" \
-  --profile-dir "$SACCADE_PROFILE_DIR" \
+  --profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR" \
   ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --grant-path "$DIR/current_tab_grant.json" \
   --output-dir "$DIR/runs/check/bridge_smoke" \
@@ -150,17 +221,19 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set -a
 source "$DIR/saccade-dogfood.env"
 set +a
+source "$DIR/lib/profile.sh"
 URL="${1:?usage: read-article <url> [output_name]}"
 NAME="${2:-article_$(date +%Y%m%d-%H%M%S)}"
 cd "$SACCADE_ROOT"
+saccade_resolve_profile
 userscripts_extra=()
 if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
   userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
 fi
-exec "$DIR/bin/saccade-servoshell" bridge \
+saccade_run_with_profile_cleanup "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
-  --profile-dir "$SACCADE_PROFILE_DIR" \
+  --profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR" \
   ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --read-article \
   --article-max-chars "${SACCADE_ARTICLE_MAX_CHARS:-30000}" \
@@ -214,13 +287,15 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set -a
 source "$DIR/saccade-dogfood.env"
 set +a
+source "$DIR/lib/profile.sh"
 URL="${1:-https://example.com}"
 cd "$SACCADE_ROOT"
-exec "$DIR/bin/saccade-shell" browse \
+saccade_resolve_profile
+saccade_run_with_profile_cleanup "$DIR/bin/saccade-shell" browse \
   --url "$URL" \
   --width "${SACCADE_WIDTH:-1440}" \
   --height "${SACCADE_HEIGHT:-1000}" \
-  --profile-dir "$SACCADE_PROFILE_DIR"
+  --profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR"
 SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
@@ -266,6 +341,9 @@ $OUT/open-saccade https://example.com
   measured local profile flows.
 - Wrappers default to the stable Saccade profile at \`$DEFAULT_PROFILE_DIR\`,
   not a per-build kit profile. Override with \`SACCADE_PROFILE_DIR=/path/to/profile\`.
+- Incognito/ephemeral dogfood is available with \`SACCADE_INCOGNITO=1\` or
+  \`SACCADE_PROFILE_MODE=incognito\`; wrappers create a temporary marked profile
+  under \`$OUT/runs/incognito\` and delete it when the command exits.
 - Visible \`open-saccade\` launches show a local launch page first, print
   immediate terminal status, and then navigate that same bridge session to the
   target URL.
@@ -342,6 +420,23 @@ separate profile:
 \`\`\`bash
 SACCADE_PROFILE_DIR=/path/to/another/profile $OUT/open-saccade https://example.com
 \`\`\`
+
+For incognito/ephemeral browsing:
+
+\`\`\`bash
+SACCADE_INCOGNITO=1 $OUT/open-saccade https://example.com
+SACCADE_PROFILE_MODE=incognito $OUT/check-saccade
+\`\`\`
+
+Incognito mode uses a temporary marked profile under:
+
+\`\`\`text
+$OUT/runs/incognito
+\`\`\`
+
+The wrapper removes that temporary profile after the command exits. Agent grants
+inside the incognito session still use redacted truth/actions and do not expose
+raw cookies, storage dumps, password data, or sensitive field values.
 
 Run a bridge smoke manually:
 

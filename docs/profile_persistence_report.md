@@ -91,8 +91,9 @@ correct shutdown route is used. The bridge run records
   sessions because of their own session-cookie, device trust, 2FA, or security
   policy. The local fixture proves Saccade profile flushing; it does not promise
   every provider will preserve login across restarts.
-- Friendly normal/incognito/named profile UI, profile locking UX,
-  clear-profile, and password-manager integration are not implemented.
+- Incognito wrapper mode now exists for dogfood commands. Friendly visible
+  normal/incognito/named profile UI, profile locking UX, clear-profile, and
+  password-manager integration are not implemented.
 - AI-005B closed same-process authenticated Gist draft fill. Cross-restart
   authenticated Gist reuse remains a real-site dogfood check, not a local
   storage primitive blocker.

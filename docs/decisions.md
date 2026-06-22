@@ -1670,8 +1670,39 @@
   `SACCADE_PROFILE_DIR`, so rebuilding the local kit does not create a fresh
   login profile each time.
 - AI-021 tracks the remaining product UX: visible normal/incognito/named
-  profile modes, a chrome-level profile/grant badge, first-class ephemeral
-  profile support, and a user-confirmed clear-profile command.
-- Until first-class incognito exists, throwaway browsing should use a temporary
-  `SACCADE_PROFILE_DIR`; the temporary directory must be treated as browser
-  profile data and deleted intentionally after use.
+  profile modes, a chrome-level profile/grant badge, and a user-confirmed
+  clear-profile command.
+- Dogfood wrapper incognito now exists for throwaway browsing through
+  `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito`. It uses a marked
+  temporary profile under the kit's `runs/incognito/` directory and deletes it
+  when the command exits.
+
+## DECISION_BROWSER_037 - Dogfood wrappers expose normal and incognito profile modes
+
+- `scripts/build_dogfood_release.sh` now writes a shared `lib/profile.sh` into
+  each dogfood kit. `open-saccade`, `servoshell-bridge`, `check-saccade`,
+  `read-article`, and optional `open-legacy-saccade` all resolve the effective
+  profile through that helper.
+- Normal mode is still the default and uses stable
+  `runs/dogfood_profile/default`. Incognito mode is enabled with
+  `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito`, creates a marked
+  temporary profile, exports `SACCADE_EFFECTIVE_PROFILE_MODE=incognito` and
+  `SACCADE_EFFECTIVE_PROFILE_PERSISTENT=0`, and deletes the temporary profile on
+  wrapper exit.
+- `saccade-servoshell bridge` now records `profile_mode` and
+  `profile_persistent` in its JSON report, so `check-saccade` and other sessions
+  can verify whether they are using normal or incognito storage.
+- Verification:
+  `bash -n scripts/build_dogfood_release.sh`,
+  `cargo check -p saccade-servoshell --quiet`,
+  `git diff --check`,
+  `./scripts/build_dogfood_release.sh`,
+  `dist/saccade-dogfood-current/check-saccade`, and
+  `SACCADE_INCOGNITO=1 dist/saccade-dogfood-current/check-saccade`.
+- Evidence: current kit `dist/saccade-dogfood-20260622-151603`; normal check
+  reported `profile_mode=normal`, `profile_persistent=true`,
+  `profile_dir=/Users/waynema/Documents/GitHub/SACCADE/runs/dogfood_profile/default`,
+  and `termination=graceful_servo_shutdown`. Incognito check reported
+  `profile_mode=incognito`, `profile_persistent=false`,
+  `termination=graceful_servo_shutdown`, and the temporary profile directory did
+  not exist after command exit.

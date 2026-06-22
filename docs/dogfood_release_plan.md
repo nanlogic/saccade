@@ -84,9 +84,19 @@ SACCADE_PROFILE_DIR=/path/to/profile dist/saccade-dogfood-current/open-saccade h
 Profile ownership rule: this profile is human browser state. The agent may
 attach to the current tab after an explicit grant and receive redacted
 truth/actions, but it must not receive the raw cookie jar, password data,
-storage dumps, or sensitive field values. Incognito/ephemeral mode is not yet a
-first-class wrapper flag; until it is, use a temporary `SACCADE_PROFILE_DIR` for
-throwaway browsing and delete it manually after the run.
+storage dumps, or sensitive field values.
+
+Incognito/ephemeral browsing is available through the wrapper layer:
+
+```bash
+SACCADE_INCOGNITO=1 dist/saccade-dogfood-current/open-saccade https://example.com
+SACCADE_PROFILE_MODE=incognito dist/saccade-dogfood-current/check-saccade
+```
+
+The wrapper creates a marked temporary profile under the kit's `runs/incognito/`
+directory and deletes it when the command exits. Use this for untrusted checks,
+logged-out comparison, or no-persistence dogfood. Agent grants inside incognito
+still use the same redacted truth/action boundary.
 
 Check the kit:
 
@@ -128,9 +138,9 @@ dist/saccade-dogfood-<timestamp>/run-formmax
 Latest verification:
 
 ```text
-dist/saccade-dogfood-ai016-20260619-204157/
-dist/saccade-dogfood-current -> saccade-dogfood-ai016-20260619-204157
-dist/saccade-dogfood-ai016-20260619-204157/runs/check/bridge_smoke/report.json
+dist/saccade-dogfood-20260622-151603/
+dist/saccade-dogfood-current -> saccade-dogfood-20260622-151603
+dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
@@ -144,6 +154,8 @@ Result:
 ```text
 default kit: no bin/saccade-shell
 check-saccade: PASS, JSON stdout, package-local profile/grant/output paths
+normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=runs/dogfood_profile/default
+incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit
 manual bridge smoke: PASS, package-local profile/grant/output paths
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content
 run-formmax: PASS, rows=96, pages=2, filled=672, blocked_sensitive=3
