@@ -1706,3 +1706,23 @@
   `profile_mode=incognito`, `profile_persistent=false`,
   `termination=graceful_servo_shutdown`, and the temporary profile directory did
   not exist after command exit.
+
+## DECISION_BROWSER_038 - Public government article lookup needs bounded fallback
+
+- A USCIS public guidance dogfood run exposed a gap in Saccade's article
+  extraction path. `dist/saccade-dogfood-current/read-article
+  https://www.uscis.gov/forms/filing-guidance/form-i-797-types-and-functions
+  uscis_i797_types` did not return useful JSON within about 75 seconds and was
+  interrupted.
+- Direct official-page HTTP fetches with a normal user agent succeeded quickly
+  for the I-797, biometrics appointment, adjustment of status, and immediate
+  relative USCIS pages. The issue is therefore not "official USCIS content
+  inaccessible"; it is Saccade browser/article ready handling for this
+  government Drupal/JS page class.
+- Product route: public government reference lookup may use an official HTTP
+  article fallback when Saccade browser extraction hangs. Government account
+  actions, immigration filings, uploads, signatures, payments, case changes,
+  and legally meaningful submissions remain human-only/red.
+- Follow-up: add a bounded `read-article` timeout/ready failure reason and a
+  first-class official-page fallback packet so dogfood reports do not silently
+  hang on public reference pages.

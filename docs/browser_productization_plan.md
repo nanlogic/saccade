@@ -57,10 +57,11 @@ Modes:
   `runs/dogfood_profile/default` for local dogfood builds. This should feel like
   Chrome/Safari profile reuse: close and reopen the Saccade browser, and normal
   sites can remain logged in when the provider allows it.
-- Incognito / Ephemeral profile: future explicit mode for untrusted checks,
-  logged-out comparison, and throwaway browsing. It should use a temporary
-  profile directory and delete it on close. Agent grants can still exist inside
-  the incognito session, but nothing should persist after shutdown.
+- Incognito / Ephemeral profile: explicit mode for untrusted checks, logged-out
+  comparison, and throwaway browsing. Dogfood wrappers already support this
+  with `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito`; they create a
+  temporary marked profile and delete it on close. Agent grants can still exist
+  inside the incognito session, but nothing should persist after shutdown.
 - Named profiles: future UX for `default`, `work`, `test`, or project-specific
   profiles. A visible chrome badge/picker should show the active profile and
   whether the current tab is Human-only or Copilot-granted.
@@ -75,6 +76,31 @@ Safety rules:
   stay out of git/backups unless intentionally managed.
 - Clearing or switching profiles should be an explicit user action with visible
   state, not a hidden wrapper side effect.
+
+Profile chrome UI design:
+
+- Keep two separate status controls in browser chrome, near the address bar:
+  profile state and agent state. Do not merge them into one vague "secure" or
+  "copilot" pill.
+- Profile labels:
+  - `Normal`: saved browser profile; tooltip text: "Sites may stay signed in."
+  - `Incognito`: temporary profile; tooltip text: "Deleted when this run exits."
+  - `Profile: <name>` later for named profiles; never show the raw filesystem
+    path by default.
+- Agent labels:
+  - `Human only`: agent cannot see or act on this tab.
+  - `Agent ready`: agent has a current-tab grant and can use redacted page
+    facts/actions.
+  - `Blocked`: site policy blocks agent access or action; reserve red/error
+    color for this state only.
+- If both are active, show both: `Incognito` and `Agent ready`. Incognito means
+  no profile persistence; it does not mean the agent can read secrets.
+- Use text plus icon/state shape, not color alone. Avoid scary warning colors
+  for normal browsing. Use a small popover for details: storage persistence,
+  current-tab grant, sensitive-value redaction, and a future "Clear profile"
+  action.
+- Do not show repeated modal warnings on every launch. Use one-time onboarding
+  copy and stable chrome labels.
 
 ## Workstreams
 
