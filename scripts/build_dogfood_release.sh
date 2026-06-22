@@ -7,6 +7,7 @@ OUT="${1:-$ROOT/dist/saccade-dogfood-$STAMP}"
 SERVOSHELL_BIN="${SACCADE_SERVOSHELL_BIN:-/Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell}"
 OWNED_DOMAINS="${SACCADE_OWNED_DOMAINS:-nanmesh.ai,mythcastera.com,mysterypartynow.com}"
 SERVOSHELL_USERSCRIPTS_DIR="${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}"
+DEFAULT_PROFILE_DIR="${SACCADE_PROFILE_DIR:-$ROOT/runs/dogfood_profile/default}"
 INCLUDE_LEGACY_SHELL="${SACCADE_INCLUDE_LEGACY_SHELL:-0}"
 BUILD_TIME_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RELEASE_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -15,6 +16,7 @@ RELEASE_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/profile/default" "$OUT/userscripts"
+mkdir -p "$DEFAULT_PROFILE_DIR"
 
 packages=(-p saccade-mcp -p saccade-servoshell)
 if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
@@ -38,6 +40,7 @@ SACCADE_RELEASE_BRANCH=$RELEASE_BRANCH
 SACCADE_RELEASE_BUILD_TIME_UTC=$BUILD_TIME_UTC
 SACCADE_SERVOSHELL_BIN=$SERVOSHELL_BIN
 SACCADE_SERVOSHELL_USERSCRIPTS_DIR=\${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-$SERVOSHELL_USERSCRIPTS_DIR}
+SACCADE_PROFILE_DIR=\${SACCADE_PROFILE_DIR:-$DEFAULT_PROFILE_DIR}
 SACCADE_OWNED_DOMAINS=$OWNED_DOMAINS
 SACCADE_INCLUDE_LEGACY_SHELL=$INCLUDE_LEGACY_SHELL
 RUST_LOG=error
@@ -62,7 +65,7 @@ fi
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
-  --profile-dir "$DIR/profile/default" \
+  --profile-dir "$SACCADE_PROFILE_DIR" \
   ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --no-headless \
   --output-dir "$DIR/runs/servoshell_bridge" \
@@ -89,7 +92,7 @@ has_arg() {
   done
   return 1
 }
-has_arg --profile-dir "$@" || extra+=(--profile-dir "$DIR/profile/default")
+has_arg --profile-dir "$@" || extra+=(--profile-dir "$SACCADE_PROFILE_DIR")
 has_arg --grant-path "$@" || extra+=(--grant-path "$DIR/current_tab_grant.json")
 has_arg --output-dir "$@" || extra+=(--output-dir "$DIR/runs/servoshell_bridge")
 if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]] && ! has_arg --userscripts-dir "$@"; then
@@ -131,7 +134,7 @@ fi
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$SMOKE_URL" \
-  --profile-dir "$DIR/profile/default" \
+  --profile-dir "$SACCADE_PROFILE_DIR" \
   ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --grant-path "$DIR/current_tab_grant.json" \
   --output-dir "$DIR/runs/check/bridge_smoke" \
@@ -157,6 +160,7 @@ fi
 exec "$DIR/bin/saccade-servoshell" bridge \
   --servoshell "$SACCADE_SERVOSHELL_BIN" \
   --url "$URL" \
+  --profile-dir "$SACCADE_PROFILE_DIR" \
   ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
   --read-article \
   --article-max-chars "${SACCADE_ARTICLE_MAX_CHARS:-30000}" \
@@ -216,7 +220,7 @@ exec "$DIR/bin/saccade-shell" browse \
   --url "$URL" \
   --width "${SACCADE_WIDTH:-1440}" \
   --height "${SACCADE_HEIGHT:-1000}" \
-  --profile-dir "$DIR/profile/default"
+  --profile-dir "$SACCADE_PROFILE_DIR"
 SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
@@ -260,6 +264,8 @@ $OUT/open-saccade https://example.com
   0.2 shell.
 - The bridge uses clean Servo shutdown so local profile/cookie flush works for
   measured local profile flows.
+- Wrappers default to the stable Saccade profile at \`$DEFAULT_PROFILE_DIR\`,
+  not a per-build kit profile. Override with \`SACCADE_PROFILE_DIR=/path/to/profile\`.
 - Visible \`open-saccade\` launches show a local launch page first, print
   immediate terminal status, and then navigate that same bridge session to the
   target URL.
@@ -320,6 +326,21 @@ This uses the ServoShell 0.3 bridge by default and writes a current-tab grant:
 
 \`\`\`text
 $OUT/current_tab_grant.json
+\`\`\`
+
+Login/session persistence uses one stable local Saccade profile by default:
+
+\`\`\`text
+$DEFAULT_PROFILE_DIR
+\`\`\`
+
+That directory is under \`runs/\`, which is gitignored. It stores browser cookies
+and local storage locally, similar to a Chrome profile, but Saccade control
+artifacts still redact sensitive field values and do not print cookies. To use a
+separate profile:
+
+\`\`\`bash
+SACCADE_PROFILE_DIR=/path/to/another/profile $OUT/open-saccade https://example.com
 \`\`\`
 
 Run a bridge smoke manually:

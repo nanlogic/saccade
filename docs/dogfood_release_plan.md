@@ -48,7 +48,8 @@ dist/saccade-dogfood-<timestamp>/
   DOGFOOD_STATUS.md
   current_tab_grant.json
   saccade-dogfood.env
-  profile/default/
+  profile/default/        # legacy/empty per-kit fallback, not the default login profile
+  userscripts/
   docs/
 ```
 
@@ -70,9 +71,15 @@ terminal status, then navigates that same ServoShell bridge session to the
 target URL. On macOS headed launches it also makes a best-effort foreground /
 position / resize call for the ServoShell process.
 
-`open-saccade` uses the bundled persistent `profile/default/` directory so a
-human login can be reused by later bridge/co-pilot runs from the same kit. It
-does not import Chrome/Safari/Firefox cookies.
+`open-saccade` uses a stable Saccade profile at
+`runs/dogfood_profile/default` by default, so a human login can be reused across
+new dogfood kit builds and later bridge/co-pilot runs. This is closer to Chrome's
+"same profile stays logged in" behavior. It does not import Chrome/Safari/Firefox
+cookies. Override it with:
+
+```bash
+SACCADE_PROFILE_DIR=/path/to/profile dist/saccade-dogfood-current/open-saccade https://example.com
+```
 
 Check the kit:
 
@@ -89,9 +96,9 @@ Run the official ServoShell bridge manually:
 dist/saccade-dogfood-<timestamp>/servoshell-bridge --smoke
 ```
 
-The generated wrappers default to the package-local `profile/default/`,
-`current_tab_grant.json`, and `runs/` paths unless the caller explicitly passes
-an override.
+The generated wrappers default to the stable `SACCADE_PROFILE_DIR`,
+package-local `current_tab_grant.json`, and package-local `runs/` paths unless
+the caller explicitly passes an override.
 
 Read a public tutorial/article page and exit with JSON:
 

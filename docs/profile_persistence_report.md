@@ -4,6 +4,8 @@ Date: 2026-06-14
 
 Updated: 2026-06-19 for the ServoShell 0.3 bridge path.
 
+Updated: 2026-06-22 for dogfood release profile selection.
+
 ## Goal
 
 Make real-site dogfood possible without asking the user to log in for every worker process. The target behavior is:
@@ -23,6 +25,11 @@ Make real-site dogfood possible without asking the user to log in for every work
   is `DELETE /session/{id}/servo/shutdown`, not `POST`. Saccade now calls that
   route, waits for `graceful_servo_shutdown`, and only then falls back to
   `DELETE /session` + SIGTERM if ServoShell does not exit in time.
+- Dogfood release wrappers now default to the stable profile
+  `runs/dogfood_profile/default` through `SACCADE_PROFILE_DIR`, instead of each
+  rebuilt kit using its own `dist/saccade-dogfood-*/profile/default`. This keeps
+  login state across dogfood rebuilds while still allowing explicit profile
+  separation with `SACCADE_PROFILE_DIR=/path/to/profile`.
 
 ## Verification
 
@@ -72,6 +79,10 @@ correct shutdown route is used. The bridge run records
 
 - This shares Saccade-owned profiles. It does not import Chrome/Safari/Firefox cookies.
 - Google/GitHub login still requires the human to log in inside Saccade first.
+- Keeping a stable Saccade profile means local cookies/session storage persist on
+  disk, like Chrome. Saccade artifacts still redact sensitive field values and do
+  not print cookies, but the profile directory itself should be treated as local
+  browser profile data and kept out of git/backups unless intentionally managed.
 - Real providers may still invalidate or refuse cross-restart authenticated
   sessions because of their own session-cookie, device trust, 2FA, or security
   policy. The local fixture proves Saccade profile flushing; it does not promise

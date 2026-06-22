@@ -1375,8 +1375,9 @@
   matches.
 - `saccade-servoshell bridge` now also accepts `--profile-dir`. Without it,
   bridge launches still use `--temporary-storage`; with it, Saccade creates the
-  directory and passes it as ServoShell `--config-dir=...`. The dogfood
-  release `open-saccade` wrapper now uses its bundled `profile/default`.
+  directory and passes it as ServoShell `--config-dir=...`. The dogfood release
+  wrappers now default to the stable `runs/dogfood_profile/default` via
+  `SACCADE_PROFILE_DIR`, so login can survive rebuilding the local kit.
 - Live GitHub/Gist draft fill remains pending human login in the profile-backed
   window; the pre-login route correctly reports only the Search Gists field and
   blocks authoring fill.
@@ -1634,10 +1635,11 @@
   `run-local-game-reflex`. The kit records build metadata, copies the current
   tracker/safety docs, writes `DOGFOOD_STATUS.md`, and updates
   `dist/saccade-dogfood-current` when the output lives under `dist/`.
-- The generated wrappers default to package-local `profile/default/`,
-  `current_tab_grant.json`, and `runs/` paths unless the caller explicitly
-  overrides them. This prevents other sessions from accidentally writing bridge
-  grants and reports into stale repository defaults.
+- The generated wrappers default to stable `SACCADE_PROFILE_DIR` for the browser
+  profile, and package-local `current_tab_grant.json` / `runs/` paths unless the
+  caller explicitly overrides them. This keeps login state across rebuilt kits
+  while preventing other sessions from accidentally writing bridge grants and
+  reports into stale repository defaults.
 - `check-saccade` keeps stdout machine-readable JSON and sends human status
   lines to stderr. This lets another Codex session run
   `dist/saccade-dogfood-current/check-saccade | jq ...` directly.
