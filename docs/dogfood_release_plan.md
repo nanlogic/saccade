@@ -156,6 +156,7 @@ Result:
 default kit: no bin/saccade-shell
 check-saccade: PASS, JSON stdout, package-local profile/grant/output paths
 normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=runs/dogfood_profile/default
+real GitHub profile reuse: after one human login, reopened bridge reached https://gist.github.com/new with title "Create a new Gist" and route=usable_ignore_hidden_backing_fields
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit
 manual bridge smoke: PASS, package-local profile/grant/output paths
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content

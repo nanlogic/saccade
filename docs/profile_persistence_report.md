@@ -6,6 +6,8 @@ Updated: 2026-06-19 for the ServoShell 0.3 bridge path.
 
 Updated: 2026-06-22 for dogfood release profile selection.
 
+Updated: 2026-06-22 for real GitHub cross-restart login reuse.
+
 ## Goal
 
 Make real-site dogfood possible without asking the user to log in for every worker process. The target behavior is:
@@ -75,6 +77,45 @@ and the Saccade ServoShell bridge can write and reuse profile cookies when the
 correct shutdown route is used. The bridge run records
 `termination=graceful_servo_shutdown`.
 
+Real GitHub/Gist reuse check:
+
+```sh
+dist/saccade-dogfood-current/open-saccade https://gist.github.com/new
+# Wayne completes login/2FA in the visible browser.
+# Same bridge tab:
+#   shell_status -> https://gist.github.com/, title "Create a new Gist"
+#   inspect_editors -> route usable_ignore_hidden_backing_fields,
+#     editor_count=7, visible_authoring_count=4, sensitive_count=0
+# Clean shutdown through bridge control.
+dist/saccade-dogfood-current/servoshell-bridge \
+  --url https://gist.github.com/new \
+  --inspect-editors \
+  --exit \
+  --json
+```
+
+Latest pass:
+
+```text
+profile_mode=normal
+profile_persistent=true
+profile_dir=/Users/waynema/Documents/GitHub/SACCADE/runs/dogfood_profile/default
+page_url=https://gist.github.com/new
+page_title=Create a new Gist
+route=usable_ignore_hidden_backing_fields
+editor_count=5
+visible_authoring_count=3
+sensitive_count=0
+values_logged=false
+report=dist/saccade-dogfood-current/runs/servoshell_bridge/report.json
+replay=dist/saccade-dogfood-current/runs/servoshell_bridge/control/replay.jsonl
+```
+
+This confirms the intended product behavior on a real account site: after the
+human logs in once inside the normal Saccade profile, later bridge sessions can
+reuse that profile and continue on the authenticated page until the user logs
+out or the provider expires/revokes the session.
+
 ## Limits
 
 - This shares Saccade-owned profiles. It does not import Chrome/Safari/Firefox cookies.
@@ -89,11 +130,11 @@ correct shutdown route is used. The bridge run records
   values.
 - Real providers may still invalidate or refuse cross-restart authenticated
   sessions because of their own session-cookie, device trust, 2FA, or security
-  policy. The local fixture proves Saccade profile flushing; it does not promise
-  every provider will preserve login across restarts.
+  policy. The GitHub/Gist reuse check proves this works for one measured real
+  site; it does not promise every provider will preserve login across restarts.
 - Incognito wrapper mode now exists for dogfood commands. Friendly visible
   normal/incognito/named profile UI, profile locking UX, clear-profile, and
   password-manager integration are not implemented.
-- AI-005B closed same-process authenticated Gist draft fill. Cross-restart
-  authenticated Gist reuse remains a real-site dogfood check, not a local
-  storage primitive blocker.
+- AI-005B closed same-process authenticated Gist draft fill. The 2026-06-22
+  GitHub/Gist run also closes the first cross-restart real-site reuse check for
+  the normal dogfood profile.
