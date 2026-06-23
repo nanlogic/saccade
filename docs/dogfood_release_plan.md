@@ -138,8 +138,8 @@ dist/saccade-dogfood-<timestamp>/run-formmax
 Latest verification:
 
 ```text
-dist/saccade-dogfood-20260622-171928/
-dist/saccade-dogfood-current -> saccade-dogfood-20260622-171928
+dist/saccade-dogfood-20260622-212931/
+dist/saccade-dogfood-current -> saccade-dogfood-20260622-212931
 dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
@@ -157,6 +157,7 @@ default kit: no bin/saccade-shell
 check-saccade: PASS, JSON stdout, package-local profile/grant/output paths
 normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=runs/dogfood_profile/default
 real GitHub profile reuse: after one human login, reopened bridge reached https://gist.github.com/new with title "Create a new Gist" and route=usable_ignore_hidden_backing_fields
+GitHub/Gist CodeMirror userscript: PASS, shim=saccade_github_codemirror_input_shim_v1, visible Saccade caret/focus ring, textValuesLogged=false
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit
 manual bridge smoke: PASS, package-local profile/grant/output paths
 article one-shot: Rookies tutorial page -> title ok, url ok, 9392 chars, selector main.layout-content

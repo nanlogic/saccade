@@ -205,6 +205,50 @@ reads.
 
 There is a plausible fix path, but it is not proven as a product fix yet.
 
+## Editor Input Follow-Up
+
+Date: 2026-06-22
+
+Wayne verified a separate GitHub/Gist editor UX issue: agent `draft_editor_fill`
+could write the Gist body through CodeMirror, but the human could type only
+after guessing the field was focused because Servo/GitHub did not show a caret.
+The page had a focused `.CodeMirror`, but no `.CodeMirror-cursor` element was
+present.
+
+`scripts/userscripts/github_compat_shim.js` now also installs
+`saccade_github_codemirror_input_shim_v1` on `github.com` and
+`gist.github.com`. The shim:
+
+- focuses CodeMirror when the human clicks inside the visible editor shell,
+- handles basic printable keys, Enter, Backspace, Delete, and Tab through the
+  CodeMirror API when Servo does not deliver enough native editor behavior,
+- draws a Saccade-owned visible focus ring and a small blinking caret while the
+  editor is focused,
+- synchronizes the hidden CodeMirror textarea, and
+- records only counters/geometry, not text values.
+
+Evidence:
+
+```text
+runs/servoshell_ui/github_codemirror_input_shim_20260622/report.json
+```
+
+Latest probe:
+
+```text
+ok=true
+url=https://gist.github.com/new
+title=Create a new Gist
+shim.kind=saccade_github_codemirror_input_shim_v1
+shim.enabled=true
+caretRect=2x18 at left=80 top=314
+rootFocusedClass=true
+textValuesLogged=false
+```
+
+This does not close the GitHub account-menu/dropdown parity issue below. It does
+make the measured Gist draft editor usable enough for human-in-loop dogfood.
+
 Viable routes:
 
 1. **ServoShell userscript preload hook**: inject a controlled compatibility
