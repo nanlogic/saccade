@@ -3667,6 +3667,7 @@ fn draw_toolbar_pixmap_overlay(
     ];
 
     unsafe {
+        let _state_guard = GlStateGuard::capture(gl);
         let program = compile_toolbar_texture_program(gl)?;
         let texture = gl.create_texture()?;
         let vertex_array = gl.create_vertex_array()?;
@@ -3763,6 +3764,147 @@ fn draw_toolbar_pixmap_overlay(
     }
 
     Ok(())
+}
+
+struct GlStateGuard<'a> {
+    gl: &'a glow::Context,
+    active_texture: i32,
+    texture0_binding_2d: Option<<glow::Context as glow::HasContext>::Texture>,
+    sampler0_binding: Option<<glow::Context as glow::HasContext>::Sampler>,
+    current_program: Option<<glow::Context as glow::HasContext>::Program>,
+    vertex_array: Option<<glow::Context as glow::HasContext>::VertexArray>,
+    array_buffer: Option<<glow::Context as glow::HasContext>::Buffer>,
+    draw_framebuffer: Option<<glow::Context as glow::HasContext>::Framebuffer>,
+    read_framebuffer: Option<<glow::Context as glow::HasContext>::Framebuffer>,
+    renderbuffer: Option<<glow::Context as glow::HasContext>::Renderbuffer>,
+    viewport: [i32; 4],
+    scissor_box: [i32; 4],
+    blend_enabled: bool,
+    depth_test_enabled: bool,
+    stencil_test_enabled: bool,
+    cull_face_enabled: bool,
+    scissor_test_enabled: bool,
+    blend_src_rgb: i32,
+    blend_dst_rgb: i32,
+    blend_src_alpha: i32,
+    blend_dst_alpha: i32,
+    blend_equation_rgb: i32,
+    blend_equation_alpha: i32,
+    depth_writemask: bool,
+    color_writemask: [bool; 4],
+}
+
+impl<'a> GlStateGuard<'a> {
+    fn capture(gl: &'a glow::Context) -> Self {
+        unsafe {
+            let active_texture = gl.get_parameter_i32(glow::ACTIVE_TEXTURE);
+            gl.active_texture(glow::TEXTURE0);
+            let texture0_binding_2d = gl.get_parameter_texture(glow::TEXTURE_BINDING_2D);
+            let sampler0_binding = gl.get_parameter_sampler(glow::SAMPLER_BINDING);
+            gl.active_texture(active_texture as u32);
+
+            let mut viewport = [0; 4];
+            gl.get_parameter_i32_slice(glow::VIEWPORT, &mut viewport);
+            let mut scissor_box = [0; 4];
+            gl.get_parameter_i32_slice(glow::SCISSOR_BOX, &mut scissor_box);
+
+            Self {
+                gl,
+                active_texture,
+                texture0_binding_2d,
+                sampler0_binding,
+                current_program: gl.get_parameter_program(glow::CURRENT_PROGRAM),
+                vertex_array: gl.get_parameter_vertex_array(glow::VERTEX_ARRAY_BINDING),
+                array_buffer: gl.get_parameter_buffer(glow::ARRAY_BUFFER_BINDING),
+                draw_framebuffer: gl.get_parameter_framebuffer(glow::DRAW_FRAMEBUFFER_BINDING),
+                read_framebuffer: gl.get_parameter_framebuffer(glow::READ_FRAMEBUFFER_BINDING),
+                renderbuffer: gl.get_parameter_renderbuffer(glow::RENDERBUFFER_BINDING),
+                viewport,
+                scissor_box,
+                blend_enabled: gl.is_enabled(glow::BLEND),
+                depth_test_enabled: gl.is_enabled(glow::DEPTH_TEST),
+                stencil_test_enabled: gl.is_enabled(glow::STENCIL_TEST),
+                cull_face_enabled: gl.is_enabled(glow::CULL_FACE),
+                scissor_test_enabled: gl.is_enabled(glow::SCISSOR_TEST),
+                blend_src_rgb: gl.get_parameter_i32(glow::BLEND_SRC_RGB),
+                blend_dst_rgb: gl.get_parameter_i32(glow::BLEND_DST_RGB),
+                blend_src_alpha: gl.get_parameter_i32(glow::BLEND_SRC_ALPHA),
+                blend_dst_alpha: gl.get_parameter_i32(glow::BLEND_DST_ALPHA),
+                blend_equation_rgb: gl.get_parameter_i32(glow::BLEND_EQUATION_RGB),
+                blend_equation_alpha: gl.get_parameter_i32(glow::BLEND_EQUATION_ALPHA),
+                depth_writemask: gl.get_parameter_bool(glow::DEPTH_WRITEMASK),
+                color_writemask: gl.get_parameter_bool_array(glow::COLOR_WRITEMASK),
+            }
+        }
+    }
+
+    fn restore_capability(gl: &glow::Context, capability: u32, enabled: bool) {
+        unsafe {
+            if enabled {
+                gl.enable(capability);
+            } else {
+                gl.disable(capability);
+            }
+        }
+    }
+}
+
+impl Drop for GlStateGuard<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            self.gl.use_program(self.current_program);
+            self.gl.bind_vertex_array(self.vertex_array);
+            self.gl.bind_buffer(glow::ARRAY_BUFFER, self.array_buffer);
+            self.gl
+                .bind_framebuffer(glow::DRAW_FRAMEBUFFER, self.draw_framebuffer);
+            self.gl
+                .bind_framebuffer(glow::READ_FRAMEBUFFER, self.read_framebuffer);
+            self.gl
+                .bind_renderbuffer(glow::RENDERBUFFER, self.renderbuffer);
+
+            self.gl.active_texture(glow::TEXTURE0);
+            self.gl
+                .bind_texture(glow::TEXTURE_2D, self.texture0_binding_2d);
+            self.gl.bind_sampler(0, self.sampler0_binding);
+            self.gl.active_texture(self.active_texture as u32);
+
+            self.gl.viewport(
+                self.viewport[0],
+                self.viewport[1],
+                self.viewport[2],
+                self.viewport[3],
+            );
+            self.gl.scissor(
+                self.scissor_box[0],
+                self.scissor_box[1],
+                self.scissor_box[2],
+                self.scissor_box[3],
+            );
+            self.gl.blend_func_separate(
+                self.blend_src_rgb as u32,
+                self.blend_dst_rgb as u32,
+                self.blend_src_alpha as u32,
+                self.blend_dst_alpha as u32,
+            );
+            self.gl.blend_equation_separate(
+                self.blend_equation_rgb as u32,
+                self.blend_equation_alpha as u32,
+            );
+            self.gl.depth_mask(self.depth_writemask);
+            self.gl.color_mask(
+                self.color_writemask[0],
+                self.color_writemask[1],
+                self.color_writemask[2],
+                self.color_writemask[3],
+            );
+
+            Self::restore_capability(self.gl, glow::BLEND, self.blend_enabled);
+            Self::restore_capability(self.gl, glow::DEPTH_TEST, self.depth_test_enabled);
+            Self::restore_capability(self.gl, glow::STENCIL_TEST, self.stencil_test_enabled);
+            Self::restore_capability(self.gl, glow::CULL_FACE, self.cull_face_enabled);
+            Self::restore_capability(self.gl, glow::SCISSOR_TEST, self.scissor_test_enabled);
+        }
+    }
 }
 
 unsafe fn compile_toolbar_texture_program(
