@@ -688,6 +688,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             "browser_launch_url": browser_launch_url.clone(),
             "target_url": cfg.url.clone(),
             "visible_bootstrap": !cfg.headless,
+            "exit_on_last_window_close": !cfg.headless,
             "foreground_attempted": !cfg.headless && cfg!(target_os = "macos"),
             "userscripts_dir": userscripts_dir.clone(),
         },
@@ -840,9 +841,19 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
                     grant_path.display(),
                     report_path.display(),
                 );
+                let live_stop_event = wait_for_live_bridge_stop(&server, &mut child);
                 let _ = server.handle.join();
+                let browser_process_exited = live_stop_event
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    == Some("browser_process_exited");
+                report["live_stop_event"] = live_stop_event;
                 report["live_stopped"] = json!(true);
-                report["process"] = finish_webdriver_child(&client, session_id.as_deref(), child);
+                report["process"] = if browser_process_exited {
+                    collect_child_output(child, "browser_process_exited")
+                } else {
+                    finish_webdriver_child(&client, session_id.as_deref(), child)
+                };
                 write_json(&report_path, &report)?;
                 Ok(BridgeOutcome {
                     ok: false,
@@ -1689,6 +1700,9 @@ fn launch_servoshell_for_url(
         cmd.arg("-z");
     }
     cmd.arg(format!("--webdriver={port}"));
+    if !headless {
+        cmd.env("SACCADE_EXIT_ON_LAST_WINDOW_CLOSE", "1");
+    }
     if let Some(profile_dir) = profile_dir {
         fs::create_dir_all(profile_dir)
             .with_context(|| format!("create ServoShell profile dir {}", profile_dir.display()))?;
@@ -2793,6 +2807,36 @@ fn stop_bridge_control_server(server: BridgeControlServer) {
     server.shutdown.store(true, Ordering::SeqCst);
     let _ = TcpStream::connect((server.endpoint.host.as_str(), server.endpoint.port));
     let _ = server.handle.join();
+}
+
+fn wait_for_live_bridge_stop(server: &BridgeControlServer, child: &mut Child) -> Value {
+    loop {
+        if server.shutdown.load(Ordering::SeqCst) {
+            return json!({
+                "reason": "bridge_control_shutdown",
+            });
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                server.shutdown.store(true, Ordering::SeqCst);
+                let _ = TcpStream::connect((server.endpoint.host.as_str(), server.endpoint.port));
+                return json!({
+                    "reason": "browser_process_exited",
+                    "code": status.code(),
+                    "success": status.success(),
+                });
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(100)),
+            Err(error) => {
+                server.shutdown.store(true, Ordering::SeqCst);
+                let _ = TcpStream::connect((server.endpoint.host.as_str(), server.endpoint.port));
+                return json!({
+                    "reason": "browser_process_wait_error",
+                    "error": error.to_string(),
+                });
+            }
+        }
+    }
 }
 
 fn handle_bridge_control_stream(
