@@ -15,7 +15,7 @@ limits, video/article shot list, and the "agent drafts, human posts" policy.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-020 | P1 | ready | Real-site dogfood | Use `docs/ai020_human_in_loop_site_matrix.md` to test one or two additional low-risk human-in-loop draft surfaces without adding blanket publish blocks: owned GitHub issue/discussion draft first, then Hacker News/Discourse/Reddit/LinkedIn only as measured evidence allows. | The matrix records login handoff, editor detection, draft fill/edit, no hidden value logging, and final publish/submit left to a current user gesture or explicit current-session confirmation. |
+| AI-020 | P1 | in_progress | Real-site dogfood | Use `docs/ai020_human_in_loop_site_matrix.md` to test one or two additional low-risk human-in-loop draft surfaces without adding blanket publish blocks. Hacker News read/editor/draft dry-run now passes on a real thread after adding generic textarea body draft fill; visible login/handoff/post rehearsal remains. | The matrix records login handoff, editor detection, draft fill/edit, no hidden value logging, and final publish/submit left to a current user gesture or explicit current-session confirmation. |
 
 ## Next
 

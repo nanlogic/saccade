@@ -43,7 +43,7 @@ Each site gets four separate statuses:
 | --- | --- | --- | --- | --- | --- |
 | P0 | Owned GitHub issue/discussion draft | Developer users constantly need issue/PR/discussion drafting. | Yellow after login | User logs in; Saccade drafts title/body; user submits if desired. | Untested; next target. |
 | P0 | GitHub Gist draft | Already useful for code notes/snippets. | Yellow after login | User logs in; Saccade fills description/filename/body; no publish by default. | Passed in AI-017. |
-| P1 | Hacker News submit/comment draft | High-signal public technical forum, low UI complexity. | Yellow after login | Draft title/text/comment; user posts. | Untested. |
+| P1 | Hacker News submit/comment draft | High-signal public technical forum, low UI complexity. | Yellow after login | Draft title/text/comment; user posts. | Read/editor/draft dry-run passed on a real HN thread; visible human handoff/post rehearsal pending. |
 | P1 | Reddit post/comment draft | Common forum workflow; useful for editing and summarization. | Yellow/Orange depending subreddit/account reputation | Draft post/comment; user posts. | Untested; likely provider/policy friction. |
 | P1 | dev.to / Medium / Hashnode article draft | Long-form developer writing. | Yellow after login | Draft title/body/tags; user publishes. | Untested. |
 | P1 | Discourse forum draft | Common forum engine; reusable across communities. | Yellow after login | Draft topic/reply; user posts. | Untested. |
@@ -81,6 +81,30 @@ provider_block_or_warning:
 chrome/reference_needed:
 artifact_paths:
 verdict:
+```
+
+## Measurements
+
+### Hacker News Comment Draft Dry-Run
+
+```text
+site: Hacker News
+url: https://news.ycombinator.com/item?id=48706714
+profile/session: normal persisted Saccade dogfood profile
+read_status: pass; title and 54k body chars extracted
+draft_status: pass; generic `draft_editor_fill` filled the visible comment textarea
+handoff_status: pending visible user login/review/post rehearsal
+replay_status: pass; control report/replay written
+screenshots_used: no
+values_logged: false; draft sentinel grep found no artifact leak
+publish_attempted: false
+provider_block_or_warning: none for read/draft; persistent macOS GLD warning remains unrelated
+chrome/reference_needed: no
+artifact_paths:
+- `runs/ai020_hn/thread_read_recheck_20260630-192018/control/report.json`
+- `runs/ai020_hn/hn_draft_dryrun_wait_20260630-192058/control/report.json`
+- `runs/ai020_hn/hn_draft_dryrun_wait_20260630-192058/control/replay.jsonl`
+verdict: measured green for read, editor detection, and no-submit draft fill; not yet a claim about visible human posting.
 ```
 
 ## Acceptance For AI-020

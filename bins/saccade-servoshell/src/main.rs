@@ -5525,12 +5525,25 @@ return (() => {
     return controls.find((el) => patterns.some((pattern) => pattern.test(haystack(el))));
   }
 
+  function chooseBodyTextControl() {
+    const textareas = visibleTextControls()
+      .filter((el) => (el.tagName ? el.tagName.toLowerCase() : "") === "textarea");
+    const strong = textareas.find((el) =>
+      /\b(body|content|comment|message|post|reply|text)\b/.test(haystack(el))
+    );
+    if (strong) return strong;
+    if (textareas.length === 1) return textareas[0];
+    return textareas.find((el) => existingLength(el) <= 2) || null;
+  }
+
   function chooseBodyEditor() {
     const editors = visibleAuthoringEditors();
     const strong = editors.find((el) => /\b(body|content|editor|code|gist|snippet|markdown|comment|post|reply)\b/.test(haystack(el)));
     if (strong) return strong;
     if (editors.length === 1) return editors[0];
-    return editors.find((el) => existingLength(el) <= 2) || null;
+    const emptyEditor = editors.find((el) => existingLength(el) <= 2);
+    if (emptyEditor) return emptyEditor;
+    return chooseBodyTextControl();
   }
 
   function writeSlot(slot, value) {
