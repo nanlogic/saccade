@@ -734,6 +734,15 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             .cloned()
             .unwrap_or(Value::Null);
         report["webdriver"]["initial_navigate"] = initial_navigate;
+        if !cfg.headless {
+            report["webdriver"]["window_cleanup"] = close_extra_webdriver_windows(&client, &sid)
+                .unwrap_or_else(|error| {
+                    json!({
+                        "ok": false,
+                        "error": error.to_string(),
+                    })
+                });
+        }
 
         report["page"]["ready"] = ready.clone();
 
@@ -2080,6 +2089,50 @@ impl WebDriverClient {
         .map(|response| response.body)
     }
 
+    fn current_window_handle(&self, session_id: &str) -> Result<String> {
+        let response = self.request("GET", &format!("/session/{session_id}/window"), None)?;
+        response
+            .body
+            .get("value")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| anyhow!("window handle response missing value"))
+    }
+
+    fn window_handles(&self, session_id: &str) -> Result<Vec<String>> {
+        let response = self.request(
+            "GET",
+            &format!("/session/{session_id}/window/handles"),
+            None,
+        )?;
+        response
+            .body
+            .get("value")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow!("window handles response missing value array"))?
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| anyhow!("window handle value was not a string"))
+            })
+            .collect()
+    }
+
+    fn switch_to_window(&self, session_id: &str, handle: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("/session/{session_id}/window"),
+            Some(json!({ "handle": handle })),
+        )
+        .map(|response| response.body)
+    }
+
+    fn close_window(&self, session_id: &str) -> Result<Value> {
+        self.request("DELETE", &format!("/session/{session_id}/window"), None)
+            .map(|response| response.body)
+    }
+
     fn click_element(&self, session_id: &str, element_id: &str) -> Result<Value> {
         self.request(
             "POST",
@@ -2182,6 +2235,42 @@ impl WebDriverClient {
             )
         })
     }
+}
+
+fn close_extra_webdriver_windows(client: &WebDriverClient, session_id: &str) -> Result<Value> {
+    let keep = client.current_window_handle(session_id)?;
+    let before = client.window_handles(session_id)?;
+    let mut closed = Vec::new();
+    let mut close_errors = Vec::new();
+
+    for handle in before.iter().filter(|handle| *handle != &keep) {
+        match client
+            .switch_to_window(session_id, handle)
+            .and_then(|_| client.close_window(session_id))
+        {
+            Ok(_) => closed.push(handle.clone()),
+            Err(error) => close_errors.push(json!({
+                "handle": handle,
+                "error": error.to_string(),
+            })),
+        }
+    }
+
+    if !closed.is_empty() {
+        client.switch_to_window(session_id, &keep)?;
+    }
+    let after = client.window_handles(session_id).unwrap_or_default();
+
+    Ok(json!({
+        "ok": close_errors.is_empty(),
+        "policy": "keep_current_target_window_close_bootstrap_or_stale_windows",
+        "current_kept": keep,
+        "before_count": before.len(),
+        "after_count": after.len(),
+        "closed_count": closed.len(),
+        "closed": closed,
+        "errors": close_errors,
+    }))
 }
 
 fn preview_http_bytes(bytes: &[u8]) -> String {
