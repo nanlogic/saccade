@@ -1,7 +1,7 @@
 # AI-020 Human-In-Loop Site Matrix
 
-Date: 2026-06-20
-Status: planned
+Date: 2026-07-01
+Status: in progress
 
 ## Purpose
 
@@ -15,6 +15,33 @@ user gesture or explicit current-session confirmation.
 ```
 
 This matrix lists what to test next and how to classify failures.
+
+## Current Dogfood Runtime
+
+Use this kit for the next measurements:
+
+```text
+dist/saccade-dogfood-20260701-184402/
+dist/saccade-dogfood-current -> saccade-dogfood-20260701-184402
+Saccade commit: 0ae5e28
+ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
+```
+
+Baseline checks:
+
+```text
+check-saccade: PASS
+artifact: dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
+
+public article reader: PASS on The Rookies modular environment article
+article_text_length: 9352
+artifact: dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json
+```
+
+These checks prove the current dogfood kit opens, attaches, extracts useful
+truth, preserves the normal profile mode, and shuts ServoShell down cleanly.
+They do not prove any logged-in third-party draft surface until that exact site
+is measured.
 
 ## Current Bug Triage
 
@@ -55,14 +82,28 @@ Each site gets four separate statuses:
 | P2 | Jira / Linear / GitHub Projects issue fields | Real PM/dev workflow. | Yellow after login | Fill ticket title/body/labels/non-sensitive fields; user creates. | Untested. |
 | P3 | AdMob / App Store Connect / cloud console | Important admin workflows but high impact. | Orange | Redacted analysis/checklists only unless a specific low-risk action is measured. | Redacted fallback passed for App Store Connect. |
 
-## First Measurement Batch
+## Next Measurement Batch
 
 Run these sequentially, never parallel real-site runs:
 
-1. Owned GitHub issue/discussion draft.
-2. Hacker News or Discourse draft.
-3. Reddit draft if login and UI behave.
-4. LinkedIn post draft only after the first two pass.
+1. GitHub issue/discussion draft on an owned or throwaway repo.
+2. Hacker News visible login/handoff rehearsal, building on the existing dry-run.
+3. Discourse draft on a low-risk public/community instance.
+4. Reddit draft only if login and UI behave.
+5. LinkedIn post draft only after two lower-risk forum surfaces pass.
+
+Preferred procedure for each site:
+
+```text
+1. Open with dist/saccade-dogfood-current/open-saccade <URL>.
+2. Human logs in if needed. Login/password/OTP/CAPTCHA are human-only.
+3. Human grants the current tab / tells the agent to continue.
+4. Agent reads title/body/actions and records read_status.
+5. Agent drafts harmless non-sensitive content into the editor.
+6. Agent verifies editor state without logging raw sensitive values.
+7. Human reviews. Human alone clicks post/submit/publish if desired.
+8. Record artifact paths and verdict in this file.
+```
 
 For each run, record:
 
@@ -84,6 +125,50 @@ verdict:
 ```
 
 ## Measurements
+
+### Dogfood Kit Baseline
+
+```text
+site: local Saccade dogfood kit
+url: file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/browser_session/index.html
+profile/session: normal persisted Saccade dogfood profile
+read_status: pass; title Browser Session Smoke, readyState complete
+draft_status: n/a
+handoff_status: n/a
+replay_status: pass; same_webview_control=true, control replay/report written
+screenshots_used: no
+values_logged: false
+publish_attempted: false
+provider_block_or_warning: macOS GLD texture warning observed; non-blocking for this route
+chrome/reference_needed: no
+artifact_paths:
+- `dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json`
+- `dist/saccade-dogfood-current/runs/check/bridge_smoke/control/report.json`
+- `dist/saccade-dogfood-current/runs/check/bridge_smoke/control/replay.jsonl`
+verdict: current kit is ready for same-machine dogfood.
+```
+
+### Public Article Reader Baseline
+
+```text
+site: The Rookies
+url: https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art
+profile/session: normal persisted Saccade dogfood profile
+read_status: pass; title correct, bodyTextLength=9680, article_text_length=9352
+draft_status: n/a
+handoff_status: n/a
+replay_status: pass; control report/replay written
+screenshots_used: no
+values_logged: false
+publish_attempted: false
+provider_block_or_warning: IntersectionObserver error and macOS GLD texture warning observed; non-blocking for article extraction
+chrome/reference_needed: no for this reader path
+artifact_paths:
+- `dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json`
+- `dist/saccade-dogfood-current/runs/article/rookies_20260701/control/report.json`
+- `dist/saccade-dogfood-current/runs/article/rookies_20260701/control/replay.jsonl`
+verdict: current kit is green for public long-form article learning; not a claim about logged-in drafting.
+```
 
 ### Hacker News Comment Draft Dry-Run
 

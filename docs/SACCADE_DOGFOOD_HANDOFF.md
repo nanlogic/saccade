@@ -1,6 +1,6 @@
 # Saccade Dogfood Handoff
 
-Date: 2026-06-15
+Date: 2026-07-01
 
 ## Purpose
 
@@ -13,7 +13,10 @@ input, replay, and dogfood diagnostics.
 ## Current Saccade Baseline
 
 ```text
-Use the latest SACCADE main branch unless Wayne says otherwise.
+Use SACCADE main at 0ae5e28 or newer unless Wayne says otherwise.
+Current local dogfood kit:
+dist/saccade-dogfood-20260701-184402/
+dist/saccade-dogfood-current -> saccade-dogfood-20260701-184402
 ```
 
 The local reflex runner defaults to `--policy visual`, uses live
@@ -131,7 +134,9 @@ Give another session this prompt when it needs to dogfood web work through
 Saccade:
 
 ```text
-Use Saccade first for local/owned/public low-risk browser checks.
+Use Saccade first for local/owned/public low-risk browser checks. Use Chrome or
+Safari as the reference browser when exact mainstream rendering or provider
+compatibility matters.
 
 Repo:
 /Users/waynema/Documents/GitHub/SACCADE
@@ -147,6 +152,13 @@ Preferred same-machine dogfood release:
 dist/saccade-dogfood-current/check-saccade
 dist/saccade-dogfood-current/open-saccade <URL>
 
+Current verified kit:
+dist/saccade-dogfood-20260701-184402
+Saccade commit: 0ae5e28
+ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
+Bridge smoke artifact:
+dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
+
 `open-saccade` should visibly open a local Saccade launch page first, then
 navigate the same bridge session to the target URL. If a provider page is slow,
 watch the terminal for `SACCADE_SERVOSHELL_BRIDGE READY` and inspect
@@ -154,6 +166,13 @@ watch the terminal for `SACCADE_SERVOSHELL_BRIDGE READY` and inspect
 
 For public article/tutorial learning pages, prefer the one-shot reader:
 dist/saccade-dogfood-current/read-article <URL>
+
+Known green public reader check:
+dist/saccade-dogfood-current/read-article \
+  https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art
+
+Evidence:
+dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json
 
 If the browser article path times out or exits nonzero, `read-article` returns a
 bounded public HTTP fallback packet with `route=http_article_fallback`. This
@@ -189,6 +208,12 @@ Safety policy:
 
 Never ask Saccade to bypass anti-bot, CAPTCHA, login, payment, release, signing,
 or security controls.
+
+Real-site dogfood reporting rule:
+Do not promote a site to "works" from vibes. Record read/draft/handoff/replay
+separately in docs/ai020_human_in_loop_site_matrix.md with artifact paths.
+If a site needs login, the human logs in and explicitly tells the agent when to
+continue. The agent may draft non-sensitive text, but the human posts/submits.
 
 If a high-risk site blocks Saccade:
 1. Record the visible error/request id if safe.

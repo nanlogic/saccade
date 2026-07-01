@@ -1,6 +1,6 @@
 # Saccade Current Action Items
 
-Date: 2026-06-22
+Date: 2026-07-01
 Status: canonical execution queue
 
 This file is the short, current action list. Use it with
@@ -15,7 +15,7 @@ limits, video/article shot list, and the "agent drafts, human posts" policy.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-020 | P1 | in_progress | Real-site dogfood | Use `docs/ai020_human_in_loop_site_matrix.md` to test one or two additional low-risk human-in-loop draft surfaces without adding blanket publish blocks. Hacker News read/editor/draft dry-run now passes on a real thread after adding generic textarea body draft fill; visible login/handoff/post rehearsal remains. | The matrix records login handoff, editor detection, draft fill/edit, no hidden value logging, and final publish/submit left to a current user gesture or explicit current-session confirmation. |
+| AI-020 | P1 | in_progress | Real-site dogfood | Use `docs/ai020_human_in_loop_site_matrix.md` to test one or two additional low-risk human-in-loop draft surfaces without adding blanket publish blocks. Current dogfood kit is `dist/saccade-dogfood-20260701-184402` (`dist/saccade-dogfood-current`), with `check-saccade` and public article reader both green. Hacker News read/editor/draft dry-run passes; next manual step is visible login/handoff rehearsal, then GitHub issue/discussion or Discourse draft. | The matrix records login handoff, editor detection, draft fill/edit, no hidden value logging, and final publish/submit left to a current user gesture or explicit current-session confirmation. |
 
 ## Next
 

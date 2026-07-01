@@ -1,6 +1,6 @@
 # Saccade Dogfood Browser Quickstart
 
-Date: 2026-06-16
+Date: 2026-07-01
 
 ## What exists now
 
@@ -8,7 +8,7 @@ Saccade's preferred dogfood browser path is now the ServoShell 0.3 bridge:
 
 ```bash
 ./scripts/build_dogfood_release.sh
-dist/saccade-dogfood-<timestamp>/open-saccade https://example.com
+dist/saccade-dogfood-current/open-saccade https://example.com
 ```
 
 It opens ServoShell with the Saccade bridge attached, writes a current-tab grant,
@@ -25,8 +25,9 @@ From Finder, double-click:
 scripts/saccade-open.command
 ```
 
-It asks for a URL and launches the legacy shell. Prefer the release-kit
-`open-saccade` command above for current dogfood.
+It asks for a URL and launches the legacy shell. This is kept only as a
+fallback convenience. Prefer the release-kit `open-saccade` command above for
+current dogfood.
 
 From Terminal:
 
@@ -39,7 +40,7 @@ From Terminal:
 Open a site:
 
 ```bash
-dist/saccade-dogfood-<timestamp>/open-saccade https://mouseaccuracy.com/classic/
+dist/saccade-dogfood-current/open-saccade https://mouseaccuracy.com/classic/
 ```
 
 By default this uses the stable normal dogfood profile:
@@ -66,13 +67,13 @@ for logged-out comparison and untrusted browsing checks.
 Run a bridge smoke:
 
 ```bash
-dist/saccade-dogfood-<timestamp>/servoshell-bridge --smoke
+dist/saccade-dogfood-current/check-saccade
 ```
 
 Read a public article/tutorial page, wait for content, emit JSON, and exit:
 
 ```bash
-dist/saccade-dogfood-<timestamp>/read-article \
+dist/saccade-dogfood-current/read-article \
   https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art
 ```
 
@@ -90,7 +91,7 @@ does not use the persisted Saccade profile. Disable it with
 Run the local game reflex gate:
 
 ```bash
-dist/saccade-dogfood-<timestamp>/run-local-game-reflex http://127.0.0.1:4173/
+dist/saccade-dogfood-current/run-local-game-reflex http://127.0.0.1:4173/
 ```
 
 Legacy embedded shell, only when you need an old regression check:
@@ -99,6 +100,45 @@ Legacy embedded shell, only when you need an old regression check:
 SACCADE_INCLUDE_LEGACY_SHELL=1 ./scripts/build_dogfood_release.sh
 dist/saccade-dogfood-<timestamp>/open-legacy-saccade https://example.com
 ```
+
+## Current Verified Kit
+
+Latest local dogfood kit:
+
+```text
+dist/saccade-dogfood-20260701-184402/
+dist/saccade-dogfood-current -> saccade-dogfood-20260701-184402
+```
+
+Verification:
+
+```text
+check-saccade: PASS
+runtime: official_servoshell_webdriver
+profile_mode: normal
+profile_persistent: true
+smoke title: Browser Session Smoke
+same_webview_control: true
+termination: graceful_servo_shutdown
+artifact: dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
+
+read-article Rookies: PASS
+title: Step-by-Step Guide to Modular Environment Art: From Blender to UE5 | The Rookies Blog
+bodyTextLength: 9680
+article_text_length: 9352
+selector: main.layout-content
+termination: graceful_servo_shutdown
+artifact: dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json
+```
+
+Known warning during these green routes:
+
+```text
+UNSUPPORTED ... GLD_TEXTURE_INDEX_2D ...
+```
+
+Treat that warning as monitored noise for the current article/check routes
+unless the page is visibly slow, blank, or missing required Canvas/WebGL state.
 
 The legacy profile path shares Saccade-owned cookies/storage across Saccade
 processes. It does not import Chrome/Safari/Firefox cookies. For Google/GitHub
