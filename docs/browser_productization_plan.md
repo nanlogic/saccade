@@ -70,9 +70,10 @@ Modes:
 - Profile clearing: `clear-profile` is the first explicit clear-profile UX. It
   prints counts/bytes only, refuses custom paths unless `--force-custom` is
   supplied, and requires either `--yes` or a typed confirmation.
-- Browser chrome profile picker/badge: still future UX. The wrappers now provide
-  the product semantics that chrome UI should display: `Normal`,
-  `Incognito`, `Profile: <name>`, and agent grant state.
+- Browser chrome profile badge: first read-only version is implemented in the
+  ServoShell thin fork. It reads trusted Saccade status JSON and shows `Normal`,
+  `Incognito`, or `Profile: <name>` separately from the Copilot badge. Browser
+  chrome profile picker/switcher remains future UX.
 
 Safety rules:
 
@@ -84,7 +85,7 @@ Safety rules:
   stay out of git/backups unless intentionally managed.
 - Clearing or switching profiles should be an explicit user action with visible
   state, not a hidden wrapper side effect. The local wrapper implementation
-  starts this with `profile-status` and `clear-profile`; in-browser chrome
+  starts this with `profile-status` and `clear-profile`; in-browser clear-profile
   controls are still a follow-up.
 
 Profile chrome UI design:

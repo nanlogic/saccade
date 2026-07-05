@@ -843,9 +843,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
                 );
                 let live_stop_event = wait_for_live_bridge_stop(&server, &mut child);
                 let _ = server.handle.join();
-                let browser_process_exited = live_stop_event
-                    .get("reason")
-                    .and_then(Value::as_str)
+                let browser_process_exited = live_stop_event.get("reason").and_then(Value::as_str)
                     == Some("browser_process_exited");
                 report["live_stop_event"] = live_stop_event;
                 report["live_stopped"] = json!(true);
@@ -3027,6 +3025,35 @@ fn bridge_copilot_state_for_visible_ui(visible_ui: &str) -> Value {
     })
 }
 
+fn bridge_profile_state_for_visible_ui() -> Value {
+    let mode = std::env::var("SACCADE_EFFECTIVE_PROFILE_MODE")
+        .ok()
+        .or_else(|| std::env::var("SACCADE_PROFILE_MODE").ok())
+        .unwrap_or_else(|| "normal".to_string());
+    let name = std::env::var("SACCADE_PROFILE_NAME").unwrap_or_else(|_| "default".to_string());
+    let persistent = std::env::var("SACCADE_EFFECTIVE_PROFILE_PERSISTENT")
+        .ok()
+        .and_then(|value| parse_env_bool(&value))
+        .unwrap_or(mode != "incognito");
+
+    json!({
+        "mode": mode,
+        "name": name,
+        "persistent": persistent,
+        "raw_cookies_exposed_to_agent": false,
+        "raw_storage_exposed_to_agent": false,
+        "sensitive_values_exposed_to_agent": false,
+    })
+}
+
+fn parse_env_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 fn bridge_artifacts(state: &BridgeControlState) -> Value {
     json!({
         "run_dir": state.output_dir.display().to_string(),
@@ -3046,7 +3073,8 @@ fn configure_saccade_copilot_status_env(cmd: &mut ProcessCommand, port: u16) -> 
     write_json(
         &path,
         &json!({
-            "copilot": bridge_copilot_state_for_visible_ui("servoshell_thin_fork_chrome")
+            "copilot": bridge_copilot_state_for_visible_ui("servoshell_thin_fork_chrome"),
+            "profile": bridge_profile_state_for_visible_ui()
         }),
     )?;
     cmd.env("SACCADE_COPILOT_STATUS_PATH", path);
