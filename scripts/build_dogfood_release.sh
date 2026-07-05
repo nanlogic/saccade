@@ -8,6 +8,7 @@ SERVOSHELL_BIN="${SACCADE_SERVOSHELL_BIN:-/Users/waynema/Documents/GitHub/servo-
 OWNED_DOMAINS="${SACCADE_OWNED_DOMAINS:-nanmesh.ai,mythcastera.com,mysterypartynow.com}"
 SERVOSHELL_USERSCRIPTS_DIR="${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}"
 DEFAULT_PROFILE_DIR="${SACCADE_PROFILE_DIR:-$ROOT/runs/dogfood_profile/default}"
+DEFAULT_PROFILE_ROOT="${SACCADE_PROFILE_ROOT:-$ROOT/runs/dogfood_profile}"
 INCLUDE_LEGACY_SHELL="${SACCADE_INCLUDE_LEGACY_SHELL:-0}"
 BUILD_TIME_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RELEASE_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -42,7 +43,9 @@ SACCADE_RELEASE_BRANCH=$RELEASE_BRANCH
 SACCADE_RELEASE_BUILD_TIME_UTC=$BUILD_TIME_UTC
 SACCADE_SERVOSHELL_BIN=$SERVOSHELL_BIN
 SACCADE_SERVOSHELL_USERSCRIPTS_DIR=\${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-$SERVOSHELL_USERSCRIPTS_DIR}
-SACCADE_PROFILE_DIR=\${SACCADE_PROFILE_DIR:-$DEFAULT_PROFILE_DIR}
+SACCADE_PROFILE_ROOT=\${SACCADE_PROFILE_ROOT:-$DEFAULT_PROFILE_ROOT}
+SACCADE_PROFILE_NAME=\${SACCADE_PROFILE_NAME:-default}
+SACCADE_PROFILE_DIR=\${SACCADE_PROFILE_DIR:-\${SACCADE_PROFILE_ROOT}/\${SACCADE_PROFILE_NAME}}
 SACCADE_PROFILE_MODE=\${SACCADE_PROFILE_MODE:-normal}
 SACCADE_INCOGNITO=\${SACCADE_INCOGNITO:-0}
 SACCADE_INCOGNITO_BASE_DIR=\${SACCADE_INCOGNITO_BASE_DIR:-$OUT/runs/incognito}
@@ -53,8 +56,40 @@ ENV
 
 cat > "$OUT/lib/profile.sh" <<'SH'
 # Shared dogfood profile resolver. Source after saccade-dogfood.env.
+saccade_validate_profile_name() {
+  local name="${SACCADE_PROFILE_NAME:-default}"
+  case "$name" in
+    ""|.|..|*/*|*\\*|*:*|*" "*)
+      echo "invalid SACCADE_PROFILE_NAME=$name; use a short name like default, work, or test" >&2
+      exit 2
+      ;;
+  esac
+}
+
+saccade_mark_profile() {
+  local mode="$1"
+  local persistent="$2"
+  local dir="$3"
+  mkdir -p "$dir"
+  python3 - "$dir/.saccade-profile.json" "$mode" "$persistent" "${SACCADE_PROFILE_NAME:-default}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = {
+    "kind": "saccade_browser_profile",
+    "mode": sys.argv[2],
+    "persistent": sys.argv[3] == "1",
+    "name": sys.argv[4],
+}
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
 saccade_resolve_profile() {
   local requested="${SACCADE_PROFILE_MODE:-normal}"
+  saccade_validate_profile_name
   case "${SACCADE_INCOGNITO:-0}" in
     1|true|TRUE|yes|YES|on|ON) requested="incognito" ;;
   esac
@@ -66,6 +101,7 @@ saccade_resolve_profile() {
       SACCADE_EFFECTIVE_PROFILE_PERSISTENT=1
       SACCADE_PROFILE_CLEANUP_DIR=""
       mkdir -p "$SACCADE_EFFECTIVE_PROFILE_DIR"
+      saccade_mark_profile "normal" "1" "$SACCADE_EFFECTIVE_PROFILE_DIR"
       ;;
     incognito|private|ephemeral)
       SACCADE_EFFECTIVE_PROFILE_MODE="incognito"
@@ -74,6 +110,7 @@ saccade_resolve_profile() {
       SACCADE_EFFECTIVE_PROFILE_DIR="$(mktemp -d "$SACCADE_INCOGNITO_BASE_DIR/profile_XXXXXXXX")"
       SACCADE_PROFILE_CLEANUP_DIR="$SACCADE_EFFECTIVE_PROFILE_DIR"
       : > "$SACCADE_PROFILE_CLEANUP_DIR/.saccade-incognito-profile"
+      saccade_mark_profile "incognito" "0" "$SACCADE_EFFECTIVE_PROFILE_DIR"
       ;;
     *)
       echo "unknown SACCADE_PROFILE_MODE=$requested; expected normal or incognito" >&2
@@ -306,6 +343,227 @@ saccade_run_with_profile_cleanup python3 "$DIR/lib/run_ai020_live_draft.py" \
   "$@"
 SH
 
+cat > "$OUT/profile-status" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
+source "$DIR/saccade-dogfood.env"
+set +a
+source "$DIR/lib/profile.sh"
+saccade_resolve_profile
+trap saccade_cleanup_profile EXIT
+python3 - "$DIR" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+dogfood_dir = Path(sys.argv[1])
+profile_dir = Path(os.environ["SACCADE_EFFECTIVE_PROFILE_DIR"]).expanduser()
+profile_root = Path(os.environ.get("SACCADE_PROFILE_ROOT", "")).expanduser()
+grant_path = dogfood_dir / "current_tab_grant.json"
+marker_path = profile_dir / ".saccade-profile.json"
+
+file_count = 0
+size_bytes = 0
+if profile_dir.exists():
+    for path in profile_dir.rglob("*"):
+        try:
+            if path.is_file():
+                file_count += 1
+                size_bytes += path.stat().st_size
+        except OSError:
+            pass
+
+payload = {
+    "ok": True,
+    "dogfood_dir": str(dogfood_dir),
+    "profile": {
+        "mode": os.environ["SACCADE_EFFECTIVE_PROFILE_MODE"],
+        "name": os.environ.get("SACCADE_PROFILE_NAME", "default"),
+        "persistent": os.environ["SACCADE_EFFECTIVE_PROFILE_PERSISTENT"] in ("1", "true", "yes", "on"),
+        "dir": str(profile_dir),
+        "root": str(profile_root) if str(profile_root) else None,
+        "marker_exists": marker_path.exists(),
+        "cookie_jar_exists": (profile_dir / "cookie_jar.json").exists(),
+        "file_count": file_count,
+        "size_bytes": size_bytes,
+    },
+    "agent": {
+        "grant_path": str(grant_path),
+        "grant_exists": grant_path.exists(),
+        "grants_are_session_scoped": True,
+        "raw_cookies_exposed": False,
+        "sensitive_values_exposed": False,
+    },
+    "commands": {
+        "open": f"{dogfood_dir}/open-saccade https://example.com",
+        "incognito": f"SACCADE_PROFILE_MODE=incognito {dogfood_dir}/open-saccade https://example.com",
+        "clear_profile": f"{dogfood_dir}/clear-profile --yes",
+    },
+}
+print(json.dumps(payload, indent=2, sort_keys=True))
+PY
+SH
+
+cat > "$OUT/clear-profile" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
+source "$DIR/saccade-dogfood.env"
+set +a
+source "$DIR/lib/profile.sh"
+
+YES=0
+DRY_RUN=0
+FORCE_CUSTOM=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --yes|-y)
+      YES=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --force-custom)
+      FORCE_CUSTOM=1
+      shift
+      ;;
+    --help|-h)
+      cat <<HELP
+usage: clear-profile [--yes] [--dry-run] [--force-custom]
+
+Deletes the current persistent Saccade browser profile contents after a safety
+check. This signs sites out. It never prints cookies or storage values.
+
+By default it clears the resolved normal profile under SACCADE_PROFILE_ROOT.
+Custom profile dirs require --force-custom.
+HELP
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+saccade_resolve_profile
+if [[ "$SACCADE_EFFECTIVE_PROFILE_MODE" != "normal" ]]; then
+  echo "clear-profile only clears persistent normal profiles; current mode is $SACCADE_EFFECTIVE_PROFILE_MODE" >&2
+  exit 2
+fi
+
+python3 - "$SACCADE_EFFECTIVE_PROFILE_DIR" "$SACCADE_PROFILE_ROOT" "$SACCADE_PROFILE_NAME" "$YES" "$DRY_RUN" "$FORCE_CUSTOM" <<'PY'
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+profile_dir = Path(sys.argv[1]).expanduser().resolve()
+profile_root = Path(sys.argv[2]).expanduser().resolve()
+profile_name = sys.argv[3]
+yes = sys.argv[4] == "1"
+dry_run = sys.argv[5] == "1"
+force_custom = sys.argv[6] == "1"
+
+home = Path.home().resolve()
+cwd = Path.cwd().resolve()
+default_child = profile_dir.parent == profile_root and profile_dir.name == profile_name
+
+refuse_reasons = []
+if profile_dir in (Path("/").resolve(), home, cwd):
+    refuse_reasons.append("target is too broad")
+if not default_child and not force_custom:
+    refuse_reasons.append("target is not the named profile under SACCADE_PROFILE_ROOT")
+if not profile_dir.exists():
+    payload = {
+        "ok": True,
+        "action": "noop_missing_profile",
+        "profile_dir": str(profile_dir),
+        "profile_name": profile_name,
+        "persistent": True,
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    raise SystemExit(0)
+if refuse_reasons:
+    payload = {
+        "ok": False,
+        "action": "refused",
+        "profile_dir": str(profile_dir),
+        "profile_name": profile_name,
+        "reasons": refuse_reasons,
+        "hint": "Pass --force-custom only if this is intentionally a Saccade test profile.",
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    raise SystemExit(2)
+
+children = [child for child in profile_dir.iterdir()]
+file_count = 0
+size_bytes = 0
+for path in profile_dir.rglob("*"):
+    try:
+        if path.is_file():
+            file_count += 1
+            size_bytes += path.stat().st_size
+    except OSError:
+        pass
+
+summary = {
+    "ok": True,
+    "action": "dry_run" if dry_run else "clear_profile",
+    "profile_dir": str(profile_dir),
+    "profile_name": profile_name,
+    "persistent": True,
+    "would_remove_entries": len(children),
+    "would_remove_files": file_count,
+    "would_remove_bytes": size_bytes,
+    "raw_cookies_printed": False,
+    "raw_storage_printed": False,
+}
+
+if dry_run:
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    raise SystemExit(0)
+
+if not yes:
+    print(json.dumps({**summary, "ok": False, "action": "confirmation_required"}, indent=2, sort_keys=True))
+    expected = f"CLEAR {profile_name}"
+    typed = input(f"Type {expected!r} to clear this Saccade profile: ")
+    if typed != expected:
+        print(json.dumps({"ok": False, "action": "cancelled", "profile_dir": str(profile_dir)}, indent=2, sort_keys=True))
+        raise SystemExit(3)
+
+for child in children:
+    if child.is_dir() and not child.is_symlink():
+        shutil.rmtree(child)
+    else:
+        child.unlink(missing_ok=True)
+profile_dir.mkdir(parents=True, exist_ok=True)
+(profile_dir / ".saccade-profile.json").write_text(
+    json.dumps(
+        {
+            "kind": "saccade_browser_profile",
+            "mode": "normal",
+            "persistent": True,
+            "name": profile_name,
+            "cleared": True,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+print(json.dumps(summary, indent=2, sort_keys=True))
+PY
+SH
+
 if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
   cat > "$OUT/open-legacy-saccade" <<'SH'
 #!/usr/bin/env bash
@@ -327,7 +585,7 @@ SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
 
-chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft"
+chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
 chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/run_ai020_live_draft.py"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
@@ -336,6 +594,7 @@ cp "$ROOT/docs/ai017_real_dogfood_flow_matrix.md" "$OUT/docs/" 2>/dev/null || tr
 cp "$ROOT/docs/ai018_dogfood_launch_visibility.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai019_public_evidence_pack.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai020_human_in_loop_site_matrix.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai021_profile_productization_report.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -358,6 +617,7 @@ ServoShell binary: $SERVOSHELL_BIN
 
 \`\`\`bash
 $OUT/check-saccade
+$OUT/profile-status
 $OUT/open-saccade https://example.com
 \`\`\`
 
@@ -369,6 +629,13 @@ $OUT/open-saccade https://example.com
   measured local profile flows.
 - Wrappers default to the stable Saccade profile at \`$DEFAULT_PROFILE_DIR\`,
   not a per-build kit profile. Override with \`SACCADE_PROFILE_DIR=/path/to/profile\`.
+- Named local profiles are available with \`SACCADE_PROFILE_NAME=work\`,
+  resolving under \`$DEFAULT_PROFILE_ROOT/<name>\` unless \`SACCADE_PROFILE_DIR\`
+  is explicitly set.
+- \`profile-status\` prints a JSON profile/grant summary without cookie or
+  storage values. \`clear-profile\` clears the current normal profile only after
+  explicit confirmation or \`--yes\`; custom profile paths require
+  \`--force-custom\`.
 - Incognito/ephemeral dogfood is available with \`SACCADE_INCOGNITO=1\` or
   \`SACCADE_PROFILE_MODE=incognito\`; wrappers create a temporary marked profile
   under \`$OUT/runs/incognito\` and delete it when the command exits.
@@ -425,6 +692,12 @@ Check the kit first:
 $OUT/check-saccade
 \`\`\`
 
+See the active browser profile and current agent grant file:
+
+\`\`\`bash
+$OUT/profile-status
+\`\`\`
+
 Open a page:
 
 \`\`\`bash
@@ -451,11 +724,27 @@ $DEFAULT_PROFILE_DIR
 That directory is under \`runs/\`, which is gitignored. It stores browser cookies
 and local storage locally, similar to a Chrome profile, but Saccade control
 artifacts still redact sensitive field values and do not print cookies. To use a
-separate profile:
+named profile under the Saccade profile root:
+
+\`\`\`bash
+SACCADE_PROFILE_NAME=work $OUT/open-saccade https://example.com
+\`\`\`
+
+To use a fully custom profile path:
 
 \`\`\`bash
 SACCADE_PROFILE_DIR=/path/to/another/profile $OUT/open-saccade https://example.com
 \`\`\`
+
+To clear the current normal Saccade profile and sign sites out:
+
+\`\`\`bash
+$OUT/clear-profile --dry-run
+$OUT/clear-profile --yes
+\`\`\`
+
+\`clear-profile\` refuses custom profile paths unless \`--force-custom\` is
+passed. It prints counts/bytes only; it never prints cookie or storage values.
 
 For incognito/ephemeral browsing:
 

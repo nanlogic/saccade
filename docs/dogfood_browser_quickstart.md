@@ -53,6 +53,29 @@ That profile is the human browser profile. Login cookies and site storage can
 survive new dogfood builds when the site permits it, while the agent only sees
 explicitly granted redacted truth/actions.
 
+Check the active profile/grant state without launching a browser:
+
+```bash
+dist/saccade-dogfood-current/profile-status
+```
+
+Use a named local profile:
+
+```bash
+SACCADE_PROFILE_NAME=work dist/saccade-dogfood-current/open-saccade https://example.com
+```
+
+Clear the current normal profile only when you intentionally want to sign sites
+out:
+
+```bash
+dist/saccade-dogfood-current/clear-profile --dry-run
+dist/saccade-dogfood-current/clear-profile --yes
+```
+
+`clear-profile` reports counts and bytes only; it never prints cookies or
+storage values. Custom profile paths require `--force-custom`.
+
 For a throwaway/incognito-style run:
 
 ```bash

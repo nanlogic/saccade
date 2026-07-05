@@ -57,14 +57,22 @@ Modes:
   `runs/dogfood_profile/default` for local dogfood builds. This should feel like
   Chrome/Safari profile reuse: close and reopen the Saccade browser, and normal
   sites can remain logged in when the provider allows it.
+- Named local profiles: wrapper-level mode for `default`, `work`, `test`, or
+  project-specific sessions. Set `SACCADE_PROFILE_NAME=work` to resolve the
+  profile under `runs/dogfood_profile/work`, or set `SACCADE_PROFILE_DIR` for a
+  fully custom path. `profile-status` reports the active name/mode/path without
+  exposing cookie or storage values.
 - Incognito / Ephemeral profile: explicit mode for untrusted checks, logged-out
   comparison, and throwaway browsing. Dogfood wrappers already support this
   with `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito`; they create a
   temporary marked profile and delete it on close. Agent grants can still exist
   inside the incognito session, but nothing should persist after shutdown.
-- Named profiles: future UX for `default`, `work`, `test`, or project-specific
-  profiles. A visible chrome badge/picker should show the active profile and
-  whether the current tab is Human-only or Copilot-granted.
+- Profile clearing: `clear-profile` is the first explicit clear-profile UX. It
+  prints counts/bytes only, refuses custom paths unless `--force-custom` is
+  supplied, and requires either `--yes` or a typed confirmation.
+- Browser chrome profile picker/badge: still future UX. The wrappers now provide
+  the product semantics that chrome UI should display: `Normal`,
+  `Incognito`, `Profile: <name>`, and agent grant state.
 
 Safety rules:
 
@@ -75,7 +83,9 @@ Safety rules:
   sensitive values. The profile directory itself is local browser data and must
   stay out of git/backups unless intentionally managed.
 - Clearing or switching profiles should be an explicit user action with visible
-  state, not a hidden wrapper side effect.
+  state, not a hidden wrapper side effect. The local wrapper implementation
+  starts this with `profile-status` and `clear-profile`; in-browser chrome
+  controls are still a follow-up.
 
 Profile chrome UI design:
 

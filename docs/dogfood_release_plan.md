@@ -40,6 +40,8 @@ dist/saccade-dogfood-<timestamp>/
   bin/saccade-mcp
   bin/saccade-servoshell
   check-saccade
+  profile-status
+  clear-profile
   open-saccade
   servoshell-bridge
   read-article
@@ -75,7 +77,13 @@ position / resize call for the ServoShell process.
 `runs/dogfood_profile/default` by default, so a human login can be reused across
 new dogfood kit builds and later bridge/co-pilot runs. This is closer to Chrome's
 "same profile stays logged in" behavior. It does not import Chrome/Safari/Firefox
-cookies. Override it with:
+cookies. Use a named local profile with:
+
+```bash
+SACCADE_PROFILE_NAME=work dist/saccade-dogfood-current/open-saccade https://example.com
+```
+
+This resolves under `runs/dogfood_profile/work`. Override the full path with:
 
 ```bash
 SACCADE_PROFILE_DIR=/path/to/profile dist/saccade-dogfood-current/open-saccade https://example.com
@@ -85,6 +93,23 @@ Profile ownership rule: this profile is human browser state. The agent may
 attach to the current tab after an explicit grant and receive redacted
 truth/actions, but it must not receive the raw cookie jar, password data,
 storage dumps, or sensitive field values.
+
+Check the current profile and grant file without launching a browser:
+
+```bash
+dist/saccade-dogfood-current/profile-status
+```
+
+Clear a normal Saccade profile explicitly:
+
+```bash
+dist/saccade-dogfood-current/clear-profile --dry-run
+dist/saccade-dogfood-current/clear-profile --yes
+```
+
+`clear-profile` signs sites out by deleting the current normal profile contents.
+It reports counts and bytes only; it never prints cookie or storage values. It
+refuses custom `SACCADE_PROFILE_DIR` paths unless `--force-custom` is supplied.
 
 Incognito/ephemeral browsing is available through the wrapper layer:
 
@@ -138,9 +163,11 @@ dist/saccade-dogfood-<timestamp>/run-formmax
 Latest verification:
 
 ```text
-dist/saccade-dogfood-20260622-212931/
-dist/saccade-dogfood-current -> saccade-dogfood-20260622-212931
-dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
+dist/saccade-dogfood-ai021-profile-20260705-final/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-20260705-final
+runs/profile_productization/ai021_profile_commands_final_20260705/
+runs/profile_productization/ai021_check_saccade_final_20260705/check_saccade.json
+runs/profile_productization/ai021_incognito_check_final_20260705/check_saccade_incognito.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
@@ -155,7 +182,10 @@ Result:
 ```text
 default kit: no bin/saccade-shell
 check-saccade: PASS, JSON stdout, package-local profile/grant/output paths
+profile-status: PASS, JSON stdout, no cookie/storage values, reports profile mode/name/persistence/grant file
+clear-profile: PASS on disposable named profile, dry-run and --yes paths verified, custom path requires --force-custom
 normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=runs/dogfood_profile/default
+named profile check: SACCADE_PROFILE_NAME=work resolves to runs/dogfood_profile/work
 real GitHub profile reuse: after one human login, reopened bridge reached https://gist.github.com/new with title "Create a new Gist" and route=usable_ignore_hidden_backing_fields
 GitHub/Gist CodeMirror userscript: PASS, shim=saccade_github_codemirror_input_shim_v1, visible Saccade caret/focus ring, textValuesLogged=false
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit
