@@ -210,8 +210,10 @@ def main() -> int:
     parser.add_argument("--human-wait-sec", type=float, default=0)
     parser.add_argument("--ready-timeout-sec", type=float, default=45)
     parser.add_argument("--control-timeout-sec", type=float, default=35)
+    parser.add_argument("--review-gate", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--shutdown", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
+    review_gate = args.review_gate if args.review_gate is not None else (args.manual_gate and not args.headless)
 
     fields = load_fields(args)
     run_name = safe_slug(args.run_name or args.site or "ai020_live_draft")
@@ -275,6 +277,7 @@ def main() -> int:
         "field_summary": redacted_field_summary(fields),
         "policy": {
             "manual_login_human_only": True,
+            "review_gate": review_gate,
             "block_sensitive": True,
             "no_submit": True,
             "values_logged": False,
@@ -395,6 +398,14 @@ def main() -> int:
         if not leak_check["ok"]:
             report["ok"] = False
             report["draft_status"] = "failed_value_leak_check"
+        if review_gate and report.get("ok"):
+            write_json(output_dir / "report.json", report)
+            print(
+                "Draft filled. Review the visible Saccade window now; press Enter here to close it.",
+                file=sys.stderr,
+            )
+            sys.stdin.readline()
+            report["handoff_status"] = "human_review_gate_acknowledged"
     except Exception as error:
         report["ok"] = False
         report["error"] = str(error)
@@ -406,20 +417,30 @@ def main() -> int:
                     call_bridge(report["bridge_ready"]["endpoint"], "shutdown", {}, 5)
             except Exception as error:
                 report["shutdown_error"] = str(error)
-        try:
-            proc.wait(timeout=8)
-        except subprocess.TimeoutExpired:
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=8)
             except subprocess.TimeoutExpired:
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    os.killpg(proc.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+        else:
+            report["process_left_running"] = proc.poll() is None
+            report["process_pid"] = proc.pid
+            try:
+                if proc.stdout:
+                    proc.stdout.close()
+                if proc.stderr:
+                    proc.stderr.close()
+            except Exception:
+                pass
         report["process"] = {"returncode": proc.poll()}
         report["tail_lines"] = collect_remaining_lines(line_queue)
         write_json(output_dir / "report.json", report)

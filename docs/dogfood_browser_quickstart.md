@@ -108,7 +108,9 @@ dist/saccade-dogfood-current/run-ai020-live-draft \
 This launches the visible ServoShell bridge, waits for the human when
 `--manual-gate` is set, calls `inspect_editors` and `draft_editor_fill`, writes a
 redacted AI-020 report, and verifies draft values do not appear in the report or
-control replay. It never clicks submit/publish.
+control replay. It never clicks submit/publish. In visible `--manual-gate` mode
+it stops again after filling so the human can inspect the draft before pressing
+Enter to close the browser.
 
 Legacy embedded shell, only when you need an old regression check:
 
@@ -122,8 +124,8 @@ dist/saccade-dogfood-<timestamp>/open-legacy-saccade https://example.com
 Latest local dogfood kit:
 
 ```text
-dist/saccade-dogfood-20260705-174747/
-dist/saccade-dogfood-current -> saccade-dogfood-20260705-174747
+dist/saccade-dogfood-20260705-175900/
+dist/saccade-dogfood-current -> saccade-dogfood-20260705-175900
 ```
 
 Verification:
@@ -151,7 +153,7 @@ read_status: pass
 draft_status: pass
 control artifacts: present
 value_leak_check: pass, including final_report_candidate
-artifact: runs/ai020_live/local_forum_fixture_release2/report.json
+artifact: runs/ai020_live/local_forum_fixture_review_release/report.json
 ```
 
 Known warning during these green routes:

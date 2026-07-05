@@ -1,7 +1,7 @@
 # AI-020 Human-In-Loop Site Matrix
 
-Date: 2026-07-01
-Status: in progress
+Date: 2026-07-05
+Status: complete
 
 ## Purpose
 
@@ -21,8 +21,8 @@ This matrix lists what to test next and how to classify failures.
 Use this kit for the next measurements:
 
 ```text
-dist/saccade-dogfood-20260705-174747/
-dist/saccade-dogfood-current -> saccade-dogfood-20260705-174747
+dist/saccade-dogfood-20260705-175900/
+dist/saccade-dogfood-current -> saccade-dogfood-20260705-175900
 Saccade commit: 20f52e2
 ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
 ```
@@ -38,7 +38,7 @@ article_text_length: 9352
 artifact: dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json
 
 AI-020 live draft harness local fixture: PASS
-artifact: runs/ai020_live/local_forum_fixture_release2/report.json
+artifact: runs/ai020_live/local_forum_fixture_review_release/report.json
 ```
 
 These checks prove the current dogfood kit opens, attaches, extracts useful
@@ -118,6 +118,11 @@ dist/saccade-dogfood-current/run-ai020-live-draft \
   --body-file /tmp/saccade-draft.txt \
   --manual-gate
 ```
+
+Visible `--manual-gate` mode has two human gates: one before Saccade fills the
+draft, and one after fill so the human can inspect the browser before closing
+it. CI/headless local fixture runs skip the post-fill review gate unless
+`--review-gate` is explicitly set.
 
 For each run, record:
 
@@ -200,9 +205,9 @@ publish_attempted: false; submit_attempted=false
 provider_block_or_warning: none
 chrome/reference_needed: no
 artifact_paths:
-- `runs/ai020_live/local_forum_fixture_release2/report.json`
-- `runs/ai020_live/local_forum_fixture_release2/bridge/control/report.json`
-- `runs/ai020_live/local_forum_fixture_release2/bridge/control/replay.jsonl`
+- `runs/ai020_live/local_forum_fixture_review_release/report.json`
+- `runs/ai020_live/local_forum_fixture_review_release/bridge/control/report.json`
+- `runs/ai020_live/local_forum_fixture_review_release/bridge/control/replay.jsonl`
 verdict: the reusable AI-020 harness is green on a local low-risk draft fixture and is ready for a visible real-site human handoff run.
 ```
 
@@ -228,10 +233,37 @@ artifact_paths:
 verdict: measured green for read, editor detection, and no-submit draft fill; not yet a claim about visible human posting.
 ```
 
+### Hacker News Visible Login/Handoff Draft
+
+```text
+site: Hacker News
+url: https://news.ycombinator.com/item?id=48706714
+profile/session: normal persisted Saccade dogfood profile; Wayne confirmed the visible Saccade page was logged in
+read_status: pass; title "A way to exclude sensitive files issue still open for OpenAI Codex | Hacker News"
+draft_status: pass; `run-ai020-live-draft` filled one visible comment textarea
+handoff_status: pass for agent-drafts/human-reviews flow; final submit remained human-owned and was not attempted
+replay_status: pass; control report/replay present
+screenshots_used: no
+values_logged: false; control report/replay plus final report candidate checked
+publish_attempted: false; `submit_attempted=false`
+provider_block_or_warning: none
+chrome/reference_needed: no
+artifact_paths:
+- `runs/ai020_live/hn_comment_visible_20260705/report.json`
+- `runs/ai020_live/hn_comment_visible_20260705/bridge/control/report.json`
+- `runs/ai020_live/hn_comment_visible_20260705/bridge/control/replay.jsonl`
+verdict: measured green for visible logged-in human handoff, editor inspection, no-submit draft fill, replay artifacts, and no draft value leakage. This closes AI-020's required low-risk real-site human-in-loop proof beyond Gist.
+```
+
 ## Acceptance For AI-020
 
 AI-020 is complete when at least one new low-risk real draft surface beyond Gist
 has measured evidence, or when the matrix records a provider/engine blocker
 with artifact paths and a fallback route.
+
+Completion: the Hacker News visible login/handoff run above satisfies this
+gate. It proves the current Saccade dogfood path can preserve user-owned auth,
+inspect a real logged-in draft surface, fill a non-sensitive draft, leave final
+submit to the human, and produce no-value-leak replay evidence.
 
 Do not promote any site from unmeasured to "works" without artifacts.

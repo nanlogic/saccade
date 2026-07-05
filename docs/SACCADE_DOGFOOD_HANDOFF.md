@@ -15,8 +15,8 @@ input, replay, and dogfood diagnostics.
 ```text
 Use SACCADE main at 0ae5e28 or newer unless Wayne says otherwise.
 Current local dogfood kit:
-dist/saccade-dogfood-20260705-174747/
-dist/saccade-dogfood-current -> saccade-dogfood-20260705-174747
+dist/saccade-dogfood-20260705-175900/
+dist/saccade-dogfood-current -> saccade-dogfood-20260705-175900
 ```
 
 The local reflex runner defaults to `--policy visual`, uses live
@@ -153,7 +153,7 @@ dist/saccade-dogfood-current/check-saccade
 dist/saccade-dogfood-current/open-saccade <URL>
 
 Current verified kit:
-dist/saccade-dogfood-20260705-174747
+dist/saccade-dogfood-20260705-175900
 Saccade commit: 20f52e2
 ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
 Bridge smoke artifact:
@@ -200,7 +200,9 @@ The human completes login/password/OTP/CAPTCHA and any navigation in the
 visible browser, then returns to the terminal and presses Enter. The harness
 then calls `inspect_editors` and `draft_editor_fill`, writes a redacted AI-020
 report, verifies draft values do not leak into report/replay artifacts, and
-does not click submit/publish.
+does not click submit/publish. In visible `--manual-gate` mode it pauses again
+after filling; the human inspects the filled draft, then presses Enter to close
+the browser.
 
 The dogfood release defaults to ServoShell 0.3 bridge. Do not use the legacy
 embedded `saccade-shell browse` path unless the Saccade session explicitly asks
