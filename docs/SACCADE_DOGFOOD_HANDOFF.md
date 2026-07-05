@@ -15,8 +15,8 @@ input, replay, and dogfood diagnostics.
 ```text
 Use SACCADE main at 0ae5e28 or newer unless Wayne says otherwise.
 Current local dogfood kit:
-dist/saccade-dogfood-20260701-184402/
-dist/saccade-dogfood-current -> saccade-dogfood-20260701-184402
+dist/saccade-dogfood-20260705-174747/
+dist/saccade-dogfood-current -> saccade-dogfood-20260705-174747
 ```
 
 The local reflex runner defaults to `--policy visual`, uses live
@@ -153,8 +153,8 @@ dist/saccade-dogfood-current/check-saccade
 dist/saccade-dogfood-current/open-saccade <URL>
 
 Current verified kit:
-dist/saccade-dogfood-20260701-184402
-Saccade commit: 0ae5e28
+dist/saccade-dogfood-20260705-174747
+Saccade commit: 20f52e2
 ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
 Bridge smoke artifact:
 dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
@@ -187,6 +187,20 @@ This waits for the ServoShell bridge page, extracts article/main text through
 `article_text`, writes a JSON report under the kit's `runs/article/`, and exits.
 Use it for Chrome-vs-Saccade speed/accuracy/token comparisons on long learning
 pages.
+
+For real-site human-in-loop draft dogfood, use:
+
+dist/saccade-dogfood-current/run-ai020-live-draft \
+  --site <short_site_name> \
+  --url <draft_or_reply_url> \
+  --body-file /path/to/draft.txt \
+  --manual-gate
+
+The human completes login/password/OTP/CAPTCHA and any navigation in the
+visible browser, then returns to the terminal and presses Enter. The harness
+then calls `inspect_editors` and `draft_editor_fill`, writes a redacted AI-020
+report, verifies draft values do not leak into report/replay artifacts, and
+does not click submit/publish.
 
 The dogfood release defaults to ServoShell 0.3 bridge. Do not use the legacy
 embedded `saccade-shell browse` path unless the Saccade session explicitly asks

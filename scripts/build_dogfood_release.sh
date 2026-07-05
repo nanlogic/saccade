@@ -31,6 +31,7 @@ if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
   cp "$ROOT/target/release/saccade-shell" "$OUT/bin/"
 fi
 cp "$ROOT/scripts/read_article_fallback.py" "$OUT/lib/"
+cp "$ROOT/scripts/run_ai020_live_draft.py" "$OUT/lib/"
 
 cat > "$OUT/saccade-dogfood.env" <<ENV
 SACCADE_RELEASE_KIND=dogfood
@@ -283,6 +284,28 @@ node "$SACCADE_ROOT/scripts/run_local_game_reflex_loop.js" \
   --output-dir "$SACCADE_ROOT/runs/local_game_reflex/$NAME"
 SH
 
+cat > "$OUT/run-ai020-live-draft" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
+source "$DIR/saccade-dogfood.env"
+set +a
+source "$DIR/lib/profile.sh"
+cd "$SACCADE_ROOT"
+saccade_resolve_profile
+userscripts_extra=()
+if [[ -n "${SACCADE_SERVOSHELL_USERSCRIPTS_DIR:-}" ]]; then
+  userscripts_extra+=(--userscripts-dir "$SACCADE_SERVOSHELL_USERSCRIPTS_DIR")
+fi
+saccade_run_with_profile_cleanup python3 "$DIR/lib/run_ai020_live_draft.py" \
+  --bin "$DIR/bin/saccade-servoshell" \
+  --servoshell "$SACCADE_SERVOSHELL_BIN" \
+  --profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR" \
+  ${userscripts_extra[@]+"${userscripts_extra[@]}"} \
+  "$@"
+SH
+
 if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
   cat > "$OUT/open-legacy-saccade" <<'SH'
 #!/usr/bin/env bash
@@ -304,8 +327,8 @@ SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
 
-chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-local-game-reflex"
-chmod +x "$OUT/lib/read_article_fallback.py"
+chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft"
+chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/run_ai020_live_draft.py"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
@@ -360,6 +383,11 @@ $OUT/open-saccade https://example.com
   hanging silently. Disable fallback with \`SACCADE_READ_ARTICLE_FALLBACK=off\`.
 - Local long-form/table fill dogfood is available through \`run-formmax\`.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
+- Real-site human-in-loop draft measurements are available through
+  \`run-ai020-live-draft\`. It launches the visible ServoShell bridge, waits
+  for the human when requested, calls \`inspect_editors\` and
+  \`draft_editor_fill\`, writes a redacted AI-020 report, and verifies draft
+  values do not leak into the report/replay artifacts.
 - Optional ServoShell userscripts can be enabled by setting
   \`SACCADE_SERVOSHELL_USERSCRIPTS_DIR=$OUT/userscripts\` before running
   \`open-saccade\`, \`servoshell-bridge\`, \`check-saccade\`, or
@@ -475,6 +503,20 @@ Run the local FORMMAX long-form gate:
 \`\`\`bash
 $OUT/run-formmax
 \`\`\`
+
+Run a real-site human-in-loop draft measurement:
+
+\`\`\`bash
+printf 'Saccade AI-020 draft rehearsal. Human will review and decide whether to submit.\\n' > /tmp/saccade-draft.txt
+$OUT/run-ai020-live-draft \\
+  --site hn_comment \\
+  --url https://news.ycombinator.com/item?id=48706714 \\
+  --body-file /tmp/saccade-draft.txt \\
+  --manual-gate
+\`\`\`
+
+Login/password/OTP/CAPTCHA stay human-only. The agent writes only a draft and
+does not click submit/publish.
 
 Legacy embedded Servo 0.2 shell is not built by default. To include it for old
 regression checks only:

@@ -21,9 +21,9 @@ This matrix lists what to test next and how to classify failures.
 Use this kit for the next measurements:
 
 ```text
-dist/saccade-dogfood-20260701-184402/
-dist/saccade-dogfood-current -> saccade-dogfood-20260701-184402
-Saccade commit: 0ae5e28
+dist/saccade-dogfood-20260705-174747/
+dist/saccade-dogfood-current -> saccade-dogfood-20260705-174747
+Saccade commit: 20f52e2
 ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
 ```
 
@@ -36,6 +36,9 @@ artifact: dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
 public article reader: PASS on The Rookies modular environment article
 article_text_length: 9352
 artifact: dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json
+
+AI-020 live draft harness local fixture: PASS
+artifact: runs/ai020_live/local_forum_fixture_release2/report.json
 ```
 
 These checks prove the current dogfood kit opens, attaches, extracts useful
@@ -105,6 +108,17 @@ Preferred procedure for each site:
 8. Record artifact paths and verdict in this file.
 ```
 
+Harness command:
+
+```bash
+printf 'Saccade AI-020 draft rehearsal. Human will review and decide whether to submit.\n' > /tmp/saccade-draft.txt
+dist/saccade-dogfood-current/run-ai020-live-draft \
+  --site hn_comment \
+  --url https://news.ycombinator.com/item?id=48706714 \
+  --body-file /tmp/saccade-draft.txt \
+  --manual-gate
+```
+
 For each run, record:
 
 ```text
@@ -168,6 +182,28 @@ artifact_paths:
 - `dist/saccade-dogfood-current/runs/article/rookies_20260701/control/report.json`
 - `dist/saccade-dogfood-current/runs/article/rookies_20260701/control/replay.jsonl`
 verdict: current kit is green for public long-form article learning; not a claim about logged-in drafting.
+```
+
+### AI-020 Live Draft Harness Local Fixture
+
+```text
+site: local forum draft fixture
+url: file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/forum_draft/index.html
+profile/session: normal persisted Saccade dogfood profile
+read_status: pass; title Saccade Forum Draft Fixture
+draft_status: pass; one body textarea filled
+handoff_status: pending_human_review_submit
+replay_status: pass; control report/replay present
+screenshots_used: no
+values_logged: false; final report candidate plus control report/replay checked
+publish_attempted: false; submit_attempted=false
+provider_block_or_warning: none
+chrome/reference_needed: no
+artifact_paths:
+- `runs/ai020_live/local_forum_fixture_release2/report.json`
+- `runs/ai020_live/local_forum_fixture_release2/bridge/control/report.json`
+- `runs/ai020_live/local_forum_fixture_release2/bridge/control/replay.jsonl`
+verdict: the reusable AI-020 harness is green on a local low-risk draft fixture and is ready for a visible real-site human handoff run.
 ```
 
 ### Hacker News Comment Draft Dry-Run

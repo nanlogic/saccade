@@ -94,6 +94,22 @@ Run the local game reflex gate:
 dist/saccade-dogfood-current/run-local-game-reflex http://127.0.0.1:4173/
 ```
 
+Run a real-site human-in-loop draft measurement:
+
+```bash
+printf 'Saccade AI-020 draft rehearsal. Human will review and decide whether to submit.\n' > /tmp/saccade-draft.txt
+dist/saccade-dogfood-current/run-ai020-live-draft \
+  --site hn_comment \
+  --url https://news.ycombinator.com/item?id=48706714 \
+  --body-file /tmp/saccade-draft.txt \
+  --manual-gate
+```
+
+This launches the visible ServoShell bridge, waits for the human when
+`--manual-gate` is set, calls `inspect_editors` and `draft_editor_fill`, writes a
+redacted AI-020 report, and verifies draft values do not appear in the report or
+control replay. It never clicks submit/publish.
+
 Legacy embedded shell, only when you need an old regression check:
 
 ```bash
@@ -106,8 +122,8 @@ dist/saccade-dogfood-<timestamp>/open-legacy-saccade https://example.com
 Latest local dogfood kit:
 
 ```text
-dist/saccade-dogfood-20260701-184402/
-dist/saccade-dogfood-current -> saccade-dogfood-20260701-184402
+dist/saccade-dogfood-20260705-174747/
+dist/saccade-dogfood-current -> saccade-dogfood-20260705-174747
 ```
 
 Verification:
@@ -129,6 +145,13 @@ article_text_length: 9352
 selector: main.layout-content
 termination: graceful_servo_shutdown
 artifact: dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json
+
+run-ai020-live-draft local fixture: PASS
+read_status: pass
+draft_status: pass
+control artifacts: present
+value_leak_check: pass, including final_report_candidate
+artifact: runs/ai020_live/local_forum_fixture_release2/report.json
 ```
 
 Known warning during these green routes:
