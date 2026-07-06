@@ -198,6 +198,15 @@ fallback does not send browser cookies and does not use the persisted Saccade
 profile. Use it for public reference pages only; do not use it for logged-in
 account data, forms, filings, payments, uploads, or legally meaningful actions.
 
+For a quick no-login public web smoke matrix, use:
+
+dist/saccade-dogfood-current/run-public-site-smoke-matrix
+
+This runs a small sequential public matrix, writes per-site reports, and does
+not log in, fill, submit, or bypass provider controls. The first AI-023 run
+passed example.com, Hacker News, Wikipedia's Servo page, and The Rookies
+tutorial.
+
 For long-form/table fill dogfood, use:
 dist/saccade-dogfood-current/run-formmax
 

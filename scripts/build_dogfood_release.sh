@@ -33,6 +33,7 @@ if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
 fi
 cp "$ROOT/scripts/read_article_fallback.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_ai020_live_draft.py" "$OUT/lib/"
+cp "$ROOT/scripts/run_public_site_smoke_matrix.py" "$OUT/lib/"
 
 cat > "$OUT/saccade-dogfood.env" <<ENV
 SACCADE_RELEASE_KIND=dogfood
@@ -440,6 +441,25 @@ exec "$DIR/bin/saccade-servoshell" formmax-selftest \
   --timeout-sec "${SACCADE_FORMMAX_TIMEOUT_SEC:-35}"
 SH
 
+cat > "$OUT/run-public-site-smoke-matrix" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
+source "$DIR/saccade-dogfood.env"
+set +a
+cd "$SACCADE_ROOT"
+NAME="matrix_$(date +%Y%m%d-%H%M%S)"
+if [[ $# -gt 0 && "$1" != --* ]]; then
+  NAME="$1"
+  shift
+fi
+exec python3 "$DIR/lib/run_public_site_smoke_matrix.py" \
+  --kit "$DIR" \
+  --output-dir "$DIR/runs/public_site_matrix/$NAME" \
+  "$@"
+SH
+
 cat > "$OUT/run-local-game-reflex" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -729,8 +749,8 @@ SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
 
-chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
-chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/run_ai020_live_draft.py"
+chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-public-site-smoke-matrix" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
+chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/run_ai020_live_draft.py" "$OUT/lib/run_public_site_smoke_matrix.py"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
@@ -739,6 +759,7 @@ cp "$ROOT/docs/ai018_dogfood_launch_visibility.md" "$OUT/docs/" 2>/dev/null || t
 cp "$ROOT/docs/ai019_public_evidence_pack.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai020_human_in_loop_site_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai021_profile_productization_report.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai023_public_site_smoke_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -792,6 +813,9 @@ $OUT/open-saccade https://example.com
   If the Saccade browser article path hangs or exits nonzero,
   \`read-article\` returns a bounded public HTTP fallback packet instead of
   hanging silently. Disable fallback with \`SACCADE_READ_ARTICLE_FALLBACK=off\`.
+- Public low-risk site smoke matrices are available through
+  \`run-public-site-smoke-matrix\`. It runs sequentially, writes one report per
+  site, and does not log in, fill, submit, or bypass provider controls.
 - Local long-form/table fill dogfood is available through \`run-formmax\`.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
 - Real-site human-in-loop draft measurements are available through
@@ -935,6 +959,12 @@ Run the local FORMMAX long-form gate:
 
 \`\`\`bash
 $OUT/run-formmax
+\`\`\`
+
+Run a public low-risk site smoke matrix:
+
+\`\`\`bash
+$OUT/run-public-site-smoke-matrix
 \`\`\`
 
 Run a real-site human-in-loop draft measurement:

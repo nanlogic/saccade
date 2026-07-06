@@ -1771,3 +1771,19 @@
 - Evidence: final kit `dist/saccade-dogfood-ai021-profile-final-20260705/`,
   report `docs/ai021_profile_productization_report.md`, and clear-on-quit
   summary `runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json`.
+
+## DECISION_DOGFOOD_041 - Public site smoke matrix is a first-class dogfood gate
+
+- Added `scripts/run_public_site_smoke_matrix.py` and packaged it in the
+  dogfood kit as `run-public-site-smoke-matrix`.
+- The tool runs low-risk public URLs sequentially through the ServoShell bridge,
+  collects same-WebView smoke truth, optionally extracts article text, and
+  writes per-site stdout/stderr/grant/control artifacts plus an aggregate
+  report.
+- Boundary: this is a no-login read/article smoke gate. It does not fill forms,
+  submit, post, delete, pay, sign, bypass provider controls, or claim Chrome
+  visual parity.
+- First run passed 4/4 public sites: example.com, Hacker News, Wikipedia's Servo
+  page, and The Rookies modular environment tutorial. Evidence:
+  `runs/ai023_public_site_matrix/default_20260705/report.json` and
+  `docs/ai023_public_site_smoke_matrix.md`.

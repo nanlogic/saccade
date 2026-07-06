@@ -166,6 +166,12 @@ Run the local FORMMAX long-form gate:
 dist/saccade-dogfood-<timestamp>/run-formmax
 ```
 
+Run the public no-login site smoke matrix:
+
+```bash
+dist/saccade-dogfood-<timestamp>/run-public-site-smoke-matrix
+```
+
 Latest verification:
 
 ```text
@@ -177,6 +183,7 @@ runs/profile_productization/ai021_incognito_check_final_20260705/check_saccade_i
 runs/ai021_profile_badge/profile_badge_final_20260705/browser_chrome.png
 runs/ai021_profile_badge/profile_badge_final_20260705/smoke_stdout.json
 runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json
+runs/ai023_public_site_matrix/default_20260705/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
@@ -197,6 +204,7 @@ normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=
 named profile check: SACCADE_PROFILE_NAME=work resolves to runs/dogfood_profile/work
 browser chrome profile badge: PASS, internal ServoShell chrome screenshot shows separate `Profile: work` and `Copilot` badges
 browser chrome profile panel: PASS, clicking the profile badge can request clear-on-quit; wrapper applies the request after browser exit and keeps raw cookies/storage hidden
+public site smoke matrix: PASS, 4/4 public no-login sites with same-WebView control and graceful shutdown
 real GitHub profile reuse: after one human login, reopened bridge reached https://gist.github.com/new with title "Create a new Gist" and route=usable_ignore_hidden_backing_fields
 GitHub/Gist CodeMirror userscript: PASS, shim=saccade_github_codemirror_input_shim_v1, visible Saccade caret/focus ring, textValuesLogged=false
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit

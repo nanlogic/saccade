@@ -111,6 +111,15 @@ with `route=http_article_fallback`. The fallback sends no browser cookies and
 does not use the persisted Saccade profile. Disable it with
 `SACCADE_READ_ARTICLE_FALLBACK=off` when you need a strict browser-only test.
 
+Run the no-login public-site smoke matrix:
+
+```bash
+dist/saccade-dogfood-current/run-public-site-smoke-matrix
+```
+
+This opens a small sequential public matrix through Saccade, writes per-site
+reports, and does not log in, fill, submit, or bypass provider controls.
+
 Run the local game reflex gate:
 
 ```bash
