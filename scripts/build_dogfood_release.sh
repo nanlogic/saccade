@@ -16,7 +16,7 @@ RELEASE_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/lib" "$OUT/profile/default" "$OUT/userscripts"
+mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/lib" "$OUT/profile/default" "$OUT/site_matrices" "$OUT/userscripts"
 mkdir -p "$DEFAULT_PROFILE_DIR"
 
 packages=(-p saccade-mcp -p saccade-servoshell)
@@ -34,6 +34,7 @@ fi
 cp "$ROOT/scripts/read_article_fallback.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_ai020_live_draft.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_public_site_smoke_matrix.py" "$OUT/lib/"
+cp "$ROOT/site_matrices"/public_*.json "$OUT/site_matrices/"
 
 cat > "$OUT/saccade-dogfood.env" <<ENV
 SACCADE_RELEASE_KIND=dogfood
@@ -760,6 +761,7 @@ cp "$ROOT/docs/ai019_public_evidence_pack.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai020_human_in_loop_site_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai021_profile_productization_report.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai023_public_site_smoke_matrix.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai024_public_site_matrix_expansion.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -815,7 +817,8 @@ $OUT/open-saccade https://example.com
   hanging silently. Disable fallback with \`SACCADE_READ_ARTICLE_FALLBACK=off\`.
 - Public low-risk site smoke matrices are available through
   \`run-public-site-smoke-matrix\`. It runs sequentially, writes one report per
-  site, and does not log in, fill, submit, or bypass provider controls.
+  site, and does not log in, fill, submit, or bypass provider controls. Use
+  \`--matrix extended\` for the larger public-read exploratory matrix.
 - Local long-form/table fill dogfood is available through \`run-formmax\`.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
 - Real-site human-in-loop draft measurements are available through
@@ -965,6 +968,12 @@ Run a public low-risk site smoke matrix:
 
 \`\`\`bash
 $OUT/run-public-site-smoke-matrix
+\`\`\`
+
+Run the larger public-read exploratory matrix:
+
+\`\`\`bash
+$OUT/run-public-site-smoke-matrix extended --matrix extended
 \`\`\`
 
 Run a real-site human-in-loop draft measurement:

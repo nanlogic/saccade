@@ -1787,3 +1787,21 @@
   page, and The Rookies modular environment tutorial. Evidence:
   `runs/ai023_public_site_matrix/default_20260705/report.json` and
   `docs/ai023_public_site_smoke_matrix.md`.
+
+## DECISION_DOGFOOD_042 - Public-read matrices are reusable release artifacts
+
+- Added `site_matrices/public_core.json` and
+  `site_matrices/public_extended.json`.
+- `scripts/run_public_site_smoke_matrix.py` now accepts `--matrix`, resolves
+  named matrices from the repo or dogfood kit, and supports `required=false`
+  exploratory sites. Required failures fail the aggregate report; optional
+  failures are recorded but do not fail the required public-read gate.
+- The dogfood release builder copies public matrix files into the kit so other
+  sessions can run `run-public-site-smoke-matrix extended --matrix extended`.
+- First extended run passed 8/8 read-only public sites, including public GitHub,
+  Gist, Stack Overflow, and Reddit pages. Evidence:
+  `runs/ai024_public_site_matrix/extended_20260705/report.json` and
+  `docs/ai024_public_site_matrix_expansion.md`.
+- Boundary: this is read-only public coverage. It does not prove logged-in
+  drafting, rich-editor compatibility, posting, submitting, visual parity, or
+  provider automation acceptance.

@@ -13,11 +13,11 @@ Active next item: none selected after AI-021 closure. AI-020 and AI-021 are now
 complete. The current dogfood kit has visible human-in-loop drafting, stable
 normal/incognito/named profile wrappers, trusted chrome profile/agent badges,
 user-confirmed clear-profile-on-quit flow, and a no-login public-site smoke
-matrix runner.
+matrix runner with reusable core/extended matrices.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| - | - | idle | Supervisor | Pick the next big block when Wayne is ready. Suggested candidates: WebGL/canvas reliability, real-site dogfood matrix expansion, or public release packaging. | A new AI item is selected and scoped before implementation starts. |
+| - | - | idle | Supervisor | Pick the next big block when Wayne is ready. Suggested candidates: logged-in human-in-loop draft expansion, WebGL/canvas reliability, or public release packaging/signing. | A new AI item is selected and scoped before implementation starts. |
 
 ## Next
 
@@ -34,6 +34,7 @@ matrix runner.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-024 | 2026-07-05 | Expanded the public no-login smoke matrix into reusable `site_matrices/public_core.json` and `site_matrices/public_extended.json`. `scripts/run_public_site_smoke_matrix.py` now supports `--matrix`, packaged matrix files, and optional exploratory sites through `required=false`. The extended matrix passed 8/8 public read-only sites: example.com, Hacker News, Wikipedia Servo, The Rookies, GitHub Servo repo, Gist discover, Stack Overflow Rust tag, and Reddit Rust subreddit. Evidence: `docs/ai024_public_site_matrix_expansion.md` and `runs/ai024_public_site_matrix/extended_20260705/report.json`. |
 | AI-023 | 2026-07-05 | Added the no-login public-site smoke matrix runner. `scripts/run_public_site_smoke_matrix.py` sequentially opens low-risk public URLs through the current ServoShell bridge, collects same-WebView smoke truth, optionally extracts article text, and writes per-site artifacts plus an aggregate report. Default matrix passed on example.com, Hacker News, Wikipedia's Servo page, and The Rookies tutorial with `same_webview_control=true` and `graceful_servo_shutdown`. The dogfood release kit now packages it as `run-public-site-smoke-matrix`. Evidence: `docs/ai023_public_site_smoke_matrix.md` and `runs/ai023_public_site_matrix/default_20260705/report.json`. |
 | AI-021 | 2026-07-05 | Closed browser product UX/profile/session for the local dogfood gate. Dogfood wrappers expose normal, named, and incognito profiles; `profile-status` and `clear-profile` are safe CLI controls; ServoShell chrome displays separate trusted Profile and Copilot badges; clicking the profile badge opens a browser-chrome panel with persistence and agent-boundary details; normal named profiles can request clear-on-quit with user confirmation; wrappers apply that request only after browser exit and only under `SACCADE_PROFILE_ROOT`, writing counts/bytes but no cookie/storage values. Evidence: `docs/ai021_profile_productization_report.md`, `runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json`, and final kit `dist/saccade-dogfood-ai021-profile-final-20260705/`. Future profile picker/relaunch UX and password-manager UX are separate product items, not AI-021 blockers. |
 | AI-020 | 2026-07-05 | Closed the real-site human-in-loop draft matrix. Current dogfood kit `dist/saccade-dogfood-ai021-profile-final-20260705` includes `run-ai020-live-draft`, which launches a visible ServoShell bridge, waits for the human before fill, pauses again after fill for review, fills only non-sensitive draft fields, writes redacted control artifacts, and never submits. Evidence: local forum fixture `runs/ai020_live/local_forum_fixture_review_release/report.json` and logged-in Hacker News visible comment draft `runs/ai020_live/hn_comment_visible_20260705/report.json`, both with no value leaks in control report/replay. |

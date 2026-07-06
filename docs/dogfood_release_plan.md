@@ -172,6 +172,12 @@ Run the public no-login site smoke matrix:
 dist/saccade-dogfood-<timestamp>/run-public-site-smoke-matrix
 ```
 
+Run the larger public-read exploratory matrix:
+
+```bash
+dist/saccade-dogfood-<timestamp>/run-public-site-smoke-matrix extended --matrix extended
+```
+
 Latest verification:
 
 ```text
@@ -184,6 +190,7 @@ runs/ai021_profile_badge/profile_badge_final_20260705/browser_chrome.png
 runs/ai021_profile_badge/profile_badge_final_20260705/smoke_stdout.json
 runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json
 runs/ai023_public_site_matrix/default_20260705/report.json
+runs/ai024_public_site_matrix/extended_20260705/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
@@ -205,6 +212,7 @@ named profile check: SACCADE_PROFILE_NAME=work resolves to runs/dogfood_profile/
 browser chrome profile badge: PASS, internal ServoShell chrome screenshot shows separate `Profile: work` and `Copilot` badges
 browser chrome profile panel: PASS, clicking the profile badge can request clear-on-quit; wrapper applies the request after browser exit and keeps raw cookies/storage hidden
 public site smoke matrix: PASS, 4/4 public no-login sites with same-WebView control and graceful shutdown
+public extended read matrix: PASS, 8/8 public read-only sites; adds GitHub, Gist, Stack Overflow, and Reddit
 real GitHub profile reuse: after one human login, reopened bridge reached https://gist.github.com/new with title "Create a new Gist" and route=usable_ignore_hidden_backing_fields
 GitHub/Gist CodeMirror userscript: PASS, shim=saccade_github_codemirror_input_shim_v1, visible Saccade caret/focus ring, textValuesLogged=false
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit

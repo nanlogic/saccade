@@ -1,0 +1,52 @@
+[
+  {
+    "name": "example",
+    "url": "https://example.com/",
+    "kind": "public_simple",
+    "read_article": true
+  },
+  {
+    "name": "hacker_news",
+    "url": "https://news.ycombinator.com/",
+    "kind": "public_forum_read",
+    "read_article": false
+  },
+  {
+    "name": "wikipedia_servo",
+    "url": "https://en.wikipedia.org/wiki/Servo_(software)",
+    "kind": "public_reference",
+    "read_article": true
+  },
+  {
+    "name": "rookies_modular_environment",
+    "url": "https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art",
+    "kind": "public_tutorial",
+    "read_article": true
+  },
+  {
+    "name": "github_servo_repo",
+    "url": "https://github.com/servo/servo",
+    "kind": "public_code_host_read",
+    "read_article": false
+  },
+  {
+    "name": "gist_discover",
+    "url": "https://gist.github.com/discover",
+    "kind": "public_code_host_read",
+    "read_article": false
+  },
+  {
+    "name": "stackoverflow_rust_questions",
+    "url": "https://stackoverflow.com/questions/tagged/rust",
+    "kind": "public_qna_read_exploratory",
+    "read_article": false,
+    "required": false
+  },
+  {
+    "name": "reddit_rust_front_page",
+    "url": "https://www.reddit.com/r/rust/",
+    "kind": "public_forum_read_exploratory",
+    "read_article": false,
+    "required": false
+  }
+]

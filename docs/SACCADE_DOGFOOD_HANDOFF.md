@@ -207,6 +207,14 @@ not log in, fill, submit, or bypass provider controls. The first AI-023 run
 passed example.com, Hacker News, Wikipedia's Servo page, and The Rookies
 tutorial.
 
+For the larger public-read exploratory matrix, use:
+
+dist/saccade-dogfood-current/run-public-site-smoke-matrix extended --matrix extended
+
+AI-024 passed 8/8 public read-only sites, adding public GitHub, Gist, Stack
+Overflow, and Reddit coverage. This is read-only evidence only; logged-in drafts
+and posting remain separate human-in-loop measurements.
+
 For long-form/table fill dogfood, use:
 dist/saccade-dogfood-current/run-formmax
 

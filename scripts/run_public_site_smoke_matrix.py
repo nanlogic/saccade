@@ -21,6 +21,7 @@ from typing import Any
 
 ROOT = Path(os.environ.get("SACCADE_ROOT", Path(__file__).resolve().parents[1])).resolve()
 DEFAULT_KIT = ROOT / "dist" / "saccade-dogfood-current"
+MATRIX_DIR = ROOT / "site_matrices"
 
 DEFAULT_SITES = [
     {
@@ -50,6 +51,22 @@ DEFAULT_SITES = [
 ]
 
 
+def matrix_path(args: argparse.Namespace) -> Path | None:
+    matrix = args.matrix.strip()
+    if not matrix:
+        return None
+
+    candidate = Path(matrix).expanduser()
+    if candidate.suffix == ".json" or "/" in matrix:
+        return candidate.resolve()
+
+    filename = f"public_{matrix}.json"
+    kit_candidate = Path(args.kit).expanduser().resolve() / "site_matrices" / filename
+    if kit_candidate.exists():
+        return kit_candidate
+    return MATRIX_DIR / filename
+
+
 def now_stamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
@@ -64,25 +81,46 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def normalize_site(item: dict[str, Any], default_read_article: bool) -> dict[str, Any]:
+    if not item.get("url"):
+        raise SystemExit("each site must be an object with at least url")
+    return {
+        "name": str(item.get("name") or safe_slug(str(item["url"]))),
+        "url": str(item["url"]),
+        "kind": str(item.get("kind") or "public"),
+        "read_article": bool(item.get("read_article", default_read_article)),
+        "required": bool(item.get("required", True)),
+    }
+
+
 def load_sites(args: argparse.Namespace) -> list[dict[str, Any]]:
     if args.sites_json:
         data = json.loads(Path(args.sites_json).read_text(encoding="utf-8"))
-        if not isinstance(data, list):
-            raise SystemExit("--sites-json must contain a JSON array")
-        sites = []
-        for item in data:
-            if not isinstance(item, dict) or not item.get("url"):
-                raise SystemExit("each site must be an object with at least url")
-            sites.append(
-                {
-                    "name": str(item.get("name") or safe_slug(str(item["url"]))),
-                    "url": str(item["url"]),
-                    "kind": str(item.get("kind") or "public"),
-                    "read_article": bool(item.get("read_article", args.read_article)),
-                }
-            )
-        return sites
-    return [dict(site) for site in DEFAULT_SITES]
+    else:
+        path = matrix_path(args)
+        if path and path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+        elif args.matrix == "core":
+            data = DEFAULT_SITES
+        else:
+            raise SystemExit(f"matrix not found: {path}")
+
+    if not isinstance(data, list):
+        raise SystemExit("site matrix must contain a JSON array")
+    sites = []
+    for item in data:
+        if not isinstance(item, dict):
+            raise SystemExit("each site must be an object")
+        sites.append(normalize_site(item, args.read_article))
+    return sites
+
+
+def site_status_for_report(result: dict[str, Any]) -> str:
+    if result.get("ok"):
+        return "pass"
+    if result.get("required"):
+        return "required_fail"
+    return "optional_fail"
 
 
 def bridge_bin(args: argparse.Namespace) -> Path:
@@ -169,6 +207,7 @@ def run_site(
         "name": site["name"],
         "url": site["url"],
         "kind": site.get("kind"),
+        "required": bool(site.get("required", True)),
         "ok": ok,
         "returncode": completed.returncode,
         "elapsed_sec": round(elapsed_sec, 3),
@@ -210,6 +249,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kit", default=str(DEFAULT_KIT))
     parser.add_argument("--bridge-bin")
+    parser.add_argument(
+        "--matrix",
+        default="core",
+        help="Named matrix under site_matrices/public_<name>.json, or a JSON path.",
+    )
     parser.add_argument("--sites-json")
     parser.add_argument("--output-dir")
     parser.add_argument("--timeout-sec", type=int, default=45)
@@ -254,14 +298,24 @@ def main() -> int:
             write_json(site_dir / "summary.json", result)
         results.append(result)
 
+    required_results = [result for result in results if result.get("required", True)]
+    optional_results = [result for result in results if not result.get("required", True)]
     report = {
-        "ok": all(result.get("ok") for result in results),
-        "route": "saccade_public_site_smoke_matrix_v0",
+        "ok": all(result.get("ok") for result in required_results),
+        "route": "saccade_public_site_smoke_matrix_v1",
         "kit": str(Path(args.kit).expanduser().resolve()),
         "bridge": str(bridge),
+        "matrix": str(args.sites_json or args.matrix),
         "site_count": len(results),
         "pass_count": sum(1 for result in results if result.get("ok")),
         "fail_count": sum(1 for result in results if not result.get("ok")),
+        "required_count": len(required_results),
+        "required_pass_count": sum(1 for result in required_results if result.get("ok")),
+        "required_fail_count": sum(1 for result in required_results if not result.get("ok")),
+        "optional_count": len(optional_results),
+        "optional_pass_count": sum(1 for result in optional_results if result.get("ok")),
+        "optional_fail_count": sum(1 for result in optional_results if not result.get("ok")),
+        "status_by_site": {str(result.get("name")): site_status_for_report(result) for result in results},
         "results": results,
     }
     write_json(output_dir / "report.json", report)

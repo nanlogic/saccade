@@ -120,6 +120,15 @@ dist/saccade-dogfood-current/run-public-site-smoke-matrix
 This opens a small sequential public matrix through Saccade, writes per-site
 reports, and does not log in, fill, submit, or bypass provider controls.
 
+Run the larger public-read matrix before handing the kit to another session:
+
+```bash
+dist/saccade-dogfood-current/run-public-site-smoke-matrix extended --matrix extended
+```
+
+The extended matrix includes public GitHub/Gist, Stack Overflow, and Reddit
+read-only pages. Passing it does not imply logged-in drafting or posting.
+
 Run the local game reflex gate:
 
 ```bash

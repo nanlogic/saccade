@@ -1,0 +1,26 @@
+[
+  {
+    "name": "example",
+    "url": "https://example.com/",
+    "kind": "public_simple",
+    "read_article": true
+  },
+  {
+    "name": "hacker_news",
+    "url": "https://news.ycombinator.com/",
+    "kind": "public_forum_read",
+    "read_article": false
+  },
+  {
+    "name": "wikipedia_servo",
+    "url": "https://en.wikipedia.org/wiki/Servo_(software)",
+    "kind": "public_reference",
+    "read_article": true
+  },
+  {
+    "name": "rookies_modular_environment",
+    "url": "https://www.therookies.co/blog/breakdowns/step-by-step-guide-blender-environment-art",
+    "kind": "public_tutorial",
+    "read_article": true
+  }
+]
