@@ -111,6 +111,12 @@ dist/saccade-dogfood-current/clear-profile --yes
 It reports counts and bytes only; it never prints cookie or storage values. It
 refuses custom `SACCADE_PROFILE_DIR` paths unless `--force-custom` is supplied.
 
+The source ServoShell dogfood chrome also exposes a safer interactive version:
+click the `Normal` / `Incognito` / `Profile: <name>` badge, review the profile
+state and agent boundary, then request `Clear this profile on quit`. The browser
+writes only a small clear request. The dogfood wrapper applies it after the
+browser exits, refuses custom paths, and reports counts/bytes only.
+
 Incognito/ephemeral browsing is available through the wrapper layer:
 
 ```bash
@@ -163,13 +169,14 @@ dist/saccade-dogfood-<timestamp>/run-formmax
 Latest verification:
 
 ```text
-dist/saccade-dogfood-ai021-profile-badge-20260705/
-dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-badge-20260705
+dist/saccade-dogfood-ai021-profile-final-20260705/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-final-20260705
 runs/profile_productization/ai021_profile_commands_final_20260705/
 runs/profile_productization/ai021_check_saccade_final_20260705/check_saccade.json
 runs/profile_productization/ai021_incognito_check_final_20260705/check_saccade_incognito.json
 runs/ai021_profile_badge/profile_badge_final_20260705/browser_chrome.png
 runs/ai021_profile_badge/profile_badge_final_20260705/smoke_stdout.json
+runs/ai021_profile_finalize/clear_on_quit_final_20260705/summary.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
@@ -189,6 +196,7 @@ clear-profile: PASS on disposable named profile, dry-run and --yes paths verifie
 normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=runs/dogfood_profile/default
 named profile check: SACCADE_PROFILE_NAME=work resolves to runs/dogfood_profile/work
 browser chrome profile badge: PASS, internal ServoShell chrome screenshot shows separate `Profile: work` and `Copilot` badges
+browser chrome profile panel: PASS, clicking the profile badge can request clear-on-quit; wrapper applies the request after browser exit and keeps raw cookies/storage hidden
 real GitHub profile reuse: after one human login, reopened bridge reached https://gist.github.com/new with title "Create a new Gist" and route=usable_ignore_hidden_backing_fields
 GitHub/Gist CodeMirror userscript: PASS, shim=saccade_github_codemirror_input_shim_v1, visible Saccade caret/focus ring, textValuesLogged=false
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit

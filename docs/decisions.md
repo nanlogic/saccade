@@ -1748,3 +1748,26 @@
   `dist/saccade-dogfood-current/runs/article/uscis_i797_forced_fallback3/report.json`.
   Rookies regression still used the browser path with
   `runtime=saccade-servoshell-bridge-v0`, `chars=9392`, and no fallback.
+
+## DECISION_BROWSER_040 - AI-021 closes profile/session UX for local dogfood
+
+- AI-021 is closed for the local dogfood product gate. Saccade now has normal,
+  named, and incognito profile wrappers; `profile-status`; safe CLI
+  `clear-profile`; trusted browser-chrome Profile and Copilot badges; and an
+  interactive browser-chrome profile panel.
+- The profile panel shows mode, name, persistence, and the agent boundary. For
+  normal named Saccade profiles it can write a user-confirmed
+  `clear_profile_on_quit` request. The browser itself does not delete profile
+  data; the dogfood wrapper applies the request after ServoShell exits.
+- Safety boundary: the wrapper applies clear-on-quit only for normal persistent
+  profiles under `SACCADE_PROFILE_ROOT/<profile_name>`, refuses custom
+  `--profile-dir` action paths, preserves a `.saccade-profile.json` marker, and
+  writes result counts/bytes without printing raw cookies, raw storage, or
+  sensitive values.
+- Product boundary: full in-browser profile switching remains a future
+  relaunch/picker UX. Current switching is launch-time via
+  `SACCADE_PROFILE_NAME`, which is safer than attempting to hot-swap storage
+  under a live browser engine.
+- Evidence: final kit `dist/saccade-dogfood-ai021-profile-final-20260705/`,
+  report `docs/ai021_profile_productization_report.md`, and clear-on-quit
+  summary `runs/ai021_profile_finalize/clear_on_quit_final_20260705/summary.json`.

@@ -47,6 +47,7 @@ SACCADE_PROFILE_ROOT=\${SACCADE_PROFILE_ROOT:-$DEFAULT_PROFILE_ROOT}
 SACCADE_PROFILE_NAME=\${SACCADE_PROFILE_NAME:-default}
 SACCADE_PROFILE_DIR=\${SACCADE_PROFILE_DIR:-\${SACCADE_PROFILE_ROOT}/\${SACCADE_PROFILE_NAME}}
 SACCADE_PROFILE_MODE=\${SACCADE_PROFILE_MODE:-normal}
+SACCADE_PROFILE_ACTIONS_DIR=\${SACCADE_PROFILE_ACTIONS_DIR:-$OUT/runs/profile_actions}
 SACCADE_INCOGNITO=\${SACCADE_INCOGNITO:-0}
 SACCADE_INCOGNITO_BASE_DIR=\${SACCADE_INCOGNITO_BASE_DIR:-$OUT/runs/incognito}
 SACCADE_OWNED_DOMAINS=$OWNED_DOMAINS
@@ -100,7 +101,9 @@ saccade_resolve_profile() {
       SACCADE_EFFECTIVE_PROFILE_DIR="$SACCADE_PROFILE_DIR"
       SACCADE_EFFECTIVE_PROFILE_PERSISTENT=1
       SACCADE_PROFILE_CLEANUP_DIR=""
+      SACCADE_PROFILE_ACTIONS_PATH="$SACCADE_PROFILE_ACTIONS_DIR/$SACCADE_PROFILE_NAME.json"
       mkdir -p "$SACCADE_EFFECTIVE_PROFILE_DIR"
+      mkdir -p "$SACCADE_PROFILE_ACTIONS_DIR"
       saccade_mark_profile "normal" "1" "$SACCADE_EFFECTIVE_PROFILE_DIR"
       ;;
     incognito|private|ephemeral)
@@ -109,6 +112,7 @@ saccade_resolve_profile() {
       mkdir -p "$SACCADE_INCOGNITO_BASE_DIR"
       SACCADE_EFFECTIVE_PROFILE_DIR="$(mktemp -d "$SACCADE_INCOGNITO_BASE_DIR/profile_XXXXXXXX")"
       SACCADE_PROFILE_CLEANUP_DIR="$SACCADE_EFFECTIVE_PROFILE_DIR"
+      SACCADE_PROFILE_ACTIONS_PATH=""
       : > "$SACCADE_PROFILE_CLEANUP_DIR/.saccade-incognito-profile"
       saccade_mark_profile "incognito" "0" "$SACCADE_EFFECTIVE_PROFILE_DIR"
       ;;
@@ -122,6 +126,7 @@ saccade_resolve_profile() {
   export SACCADE_EFFECTIVE_PROFILE_DIR
   export SACCADE_EFFECTIVE_PROFILE_PERSISTENT
   export SACCADE_PROFILE_CLEANUP_DIR
+  export SACCADE_PROFILE_ACTIONS_PATH
 }
 
 saccade_cleanup_profile() {
@@ -132,11 +137,134 @@ saccade_cleanup_profile() {
 }
 
 saccade_run_with_profile_cleanup() {
-  if [[ -n "${SACCADE_PROFILE_CLEANUP_DIR:-}" ]]; then
-    trap saccade_cleanup_profile EXIT
-    "$@"
+  local status=0
+  set +e
+  "$@"
+  status=$?
+  set -e
+  saccade_apply_profile_action_requests
+  saccade_cleanup_profile
+  return "$status"
+}
+
+saccade_apply_profile_action_requests() {
+  local request="${SACCADE_PROFILE_ACTIONS_PATH:-}"
+  if [[ -z "$request" || ! -f "$request" ]]; then
+    return 0
+  fi
+  if [[ "${SACCADE_EFFECTIVE_PROFILE_MODE:-}" != "normal" || "${SACCADE_EFFECTIVE_PROFILE_PERSISTENT:-0}" != "1" ]]; then
+    echo "Ignoring Saccade profile action request outside normal persistent mode: $request" >&2
+    rm -f -- "$request"
+    return 0
+  fi
+
+  python3 - "$request" "$SACCADE_EFFECTIVE_PROFILE_DIR" "$SACCADE_PROFILE_ROOT" "$SACCADE_PROFILE_NAME" <<'PY'
+import json
+import shutil
+import sys
+from pathlib import Path
+
+request_path = Path(sys.argv[1]).expanduser().resolve()
+profile_dir = Path(sys.argv[2]).expanduser().resolve()
+profile_root = Path(sys.argv[3]).expanduser().resolve()
+profile_name = sys.argv[4]
+result_path = request_path.with_suffix(".result.json")
+
+def write_result(payload):
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+try:
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+except Exception as error:
+    write_result({"ok": False, "action": "ignored_invalid_request", "error": str(error)})
+    request_path.unlink(missing_ok=True)
+    raise SystemExit(0)
+
+if request.get("action") != "clear_profile_on_quit" or request.get("confirmed") is not True:
+    write_result({"ok": False, "action": "ignored", "reason": "unsupported or unconfirmed request"})
+    request_path.unlink(missing_ok=True)
+    raise SystemExit(0)
+
+home = Path.home().resolve()
+cwd = Path.cwd().resolve()
+default_child = profile_dir.parent == profile_root and profile_dir.name == profile_name
+refuse_reasons = []
+if profile_dir in (Path("/").resolve(), home, cwd):
+    refuse_reasons.append("target is too broad")
+if not default_child:
+    refuse_reasons.append("target is not the named profile under SACCADE_PROFILE_ROOT")
+if not profile_dir.exists():
+    write_result({
+        "ok": True,
+        "action": "noop_missing_profile",
+        "profile_dir": str(profile_dir),
+        "profile_name": profile_name,
+    })
+    request_path.unlink(missing_ok=True)
+    raise SystemExit(0)
+if refuse_reasons:
+    write_result({
+        "ok": False,
+        "action": "refused",
+        "profile_dir": str(profile_dir),
+        "profile_name": profile_name,
+        "reasons": refuse_reasons,
+    })
+    request_path.unlink(missing_ok=True)
+    raise SystemExit(0)
+
+children = [child for child in profile_dir.iterdir()]
+file_count = 0
+size_bytes = 0
+for path in profile_dir.rglob("*"):
+    try:
+        if path.is_file():
+            file_count += 1
+            size_bytes += path.stat().st_size
+    except OSError:
+        pass
+
+for child in children:
+    if child.is_dir() and not child.is_symlink():
+        shutil.rmtree(child)
+    else:
+        child.unlink(missing_ok=True)
+profile_dir.mkdir(parents=True, exist_ok=True)
+(profile_dir / ".saccade-profile.json").write_text(
+    json.dumps(
+        {
+            "kind": "saccade_browser_profile",
+            "mode": "normal",
+            "persistent": True,
+            "name": profile_name,
+            "cleared": True,
+            "cleared_by": "saccade_clear_on_quit",
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+request_path.unlink(missing_ok=True)
+write_result({
+    "ok": True,
+    "action": "clear_profile_on_quit",
+    "profile_dir": str(profile_dir),
+    "profile_name": profile_name,
+    "removed_entries": len(children),
+    "removed_files": file_count,
+    "removed_bytes": size_bytes,
+    "raw_cookies_printed": False,
+    "raw_storage_printed": False,
+})
+PY
+  local result="${request%.json}.result.json"
+  if [[ -f "$result" ]]; then
+    echo "Saccade profile action result: $result" >&2
   else
-    exec "$@"
+    echo "Saccade profile action request was processed: $request" >&2
   fi
 }
 SH
@@ -195,7 +323,8 @@ if has_arg --profile-dir "$@"; then
   SACCADE_EFFECTIVE_PROFILE_MODE="custom"
   SACCADE_EFFECTIVE_PROFILE_PERSISTENT=1
   SACCADE_PROFILE_CLEANUP_DIR=""
-  export SACCADE_EFFECTIVE_PROFILE_MODE SACCADE_EFFECTIVE_PROFILE_PERSISTENT SACCADE_PROFILE_CLEANUP_DIR
+  SACCADE_PROFILE_ACTIONS_PATH=""
+  export SACCADE_EFFECTIVE_PROFILE_MODE SACCADE_EFFECTIVE_PROFILE_PERSISTENT SACCADE_PROFILE_CLEANUP_DIR SACCADE_PROFILE_ACTIONS_PATH
 else
   saccade_resolve_profile
   extra+=(--profile-dir "$SACCADE_EFFECTIVE_PROFILE_DIR")
@@ -364,6 +493,8 @@ profile_dir = Path(os.environ["SACCADE_EFFECTIVE_PROFILE_DIR"]).expanduser()
 profile_root = Path(os.environ.get("SACCADE_PROFILE_ROOT", "")).expanduser()
 grant_path = dogfood_dir / "current_tab_grant.json"
 marker_path = profile_dir / ".saccade-profile.json"
+actions_path_raw = os.environ.get("SACCADE_PROFILE_ACTIONS_PATH", "")
+actions_path = Path(actions_path_raw).expanduser() if actions_path_raw else None
 
 file_count = 0
 size_bytes = 0
@@ -389,6 +520,8 @@ payload = {
         "cookie_jar_exists": (profile_dir / "cookie_jar.json").exists(),
         "file_count": file_count,
         "size_bytes": size_bytes,
+        "clear_on_quit_request_path": str(actions_path) if actions_path else None,
+        "clear_on_quit_pending": actions_path.exists() if actions_path else False,
     },
     "agent": {
         "grant_path": str(grant_path),

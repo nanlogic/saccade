@@ -295,8 +295,10 @@ node scripts/probe_reflex_readback_canvas.js \
   `runs/dogfood_profile/default` profile so login can survive dogfood kit
   rebuilds. Override with `SACCADE_PROFILE_DIR=/path/to/profile`. Use
   `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito` for temporary
-  no-persistence dogfood. There is not yet a friendly profile picker or
-  password-manager flow, and it does not import Chrome/Safari/Firefox cookies.
+  no-persistence dogfood. The ServoShell dogfood chrome shows the active profile
+  badge and includes a clear-on-quit profile panel for normal named Saccade
+  profiles. There is not yet a full profile picker/relaunch or password-manager
+  flow, and it does not import Chrome/Safari/Firefox cookies.
 - Canvas/WebGL-heavy pages can hit current Saccade/Servo canvas/runtime issues on this machine. Full-window Canvas2D can reproduce missing captured layers even without GL warnings. If logs show `GLD_TEXTURE_INDEX_2D is unloadable`, canvas/WebGL is extremely slow, or the page cannot be judged in Saccade, stop that run, record it as a Saccade runtime blocker, and validate with Chrome/reference instead.
 - Visual parity with Chrome/Safari is still tracked separately. Use this shell for dogfood, and use Chrome reference captures when exact mainstream rendering matters.
 - `servo-modern` improves action/layout correctness for current local gates, but it is not a claim that Servo renders like Chrome.

@@ -3035,11 +3035,18 @@ fn bridge_profile_state_for_visible_ui() -> Value {
         .ok()
         .and_then(|value| parse_env_bool(&value))
         .unwrap_or(mode != "incognito");
+    let clear_on_quit_request_path = std::env::var("SACCADE_PROFILE_ACTIONS_PATH")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let can_clear_on_quit =
+        persistent && mode != "incognito" && clear_on_quit_request_path.is_some();
 
     json!({
         "mode": mode,
         "name": name,
         "persistent": persistent,
+        "can_clear_on_quit": can_clear_on_quit,
+        "clear_on_quit_request_path": clear_on_quit_request_path,
         "raw_cookies_exposed_to_agent": false,
         "raw_storage_exposed_to_agent": false,
         "sensitive_values_exposed_to_agent": false,

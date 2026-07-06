@@ -1,7 +1,7 @@
-# AI-021A Profile Productization Report
+# AI-021 Profile Productization Report
 
 Date: 2026-07-05
-Status: first two slices complete
+Status: complete for the local dogfood product gate
 
 ## What Changed
 
@@ -39,13 +39,35 @@ for profile state, separate from the Copilot/Agent badge:
 This remains browser chrome, not page DOM. A webpage cannot spoof the badge by
 changing title text, CSS, or page markup.
 
+### AI-021C Interactive Profile Panel
+
+The source ServoShell thin fork now makes the profile badge actionable without
+turning browser profile data into agent data:
+
+- Clicking the profile badge opens a browser-chrome `Saccade Profile` panel.
+- The panel shows mode, profile name, persistence, and the agent boundary:
+  raw cookies hidden, raw storage hidden, sensitive values hidden.
+- Normal named Saccade profiles can request `Clear this profile on quit` from
+  the panel, with a second confirmation before the request is written.
+- The browser only writes a small action request file. The dogfood wrapper
+  applies the request after ServoShell exits, deletes only the named profile
+  under `SACCADE_PROFILE_ROOT`, keeps the profile marker, and writes a result
+  JSON with counts/bytes only.
+- Incognito and custom `--profile-dir` runs cannot use this in-browser clear
+  action, so a page or accidental custom path cannot wipe arbitrary local data.
+
+This closes the product requirement Wayne wanted for dogfood: the human can see
+which profile is active, see whether the agent boundary is safe, use named or
+incognito profiles, and clear a local Saccade profile without opening terminal
+commands.
+
 ## Verification
 
 Final kit:
 
 ```text
-dist/saccade-dogfood-ai021-profile-badge-20260705/
-dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-badge-20260705
+dist/saccade-dogfood-ai021-profile-final-20260705/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-final-20260705
 ```
 
 Evidence:
@@ -54,6 +76,7 @@ Evidence:
 runs/profile_productization/ai021_profile_commands_final_20260705/
 runs/profile_productization/ai021_check_saccade_final_20260705/check_saccade.json
 runs/profile_productization/ai021_incognito_check_final_20260705/check_saccade_incognito.json
+runs/ai021_profile_finalize/clear_on_quit_final_20260705/summary.json
 ```
 
 Measured results:
@@ -70,6 +93,7 @@ check-saccade incognito: ok=true, profile_mode=incognito, profile_persistent=fal
 Browser chrome tests:
 
 ```text
+bash -n scripts/build_dogfood_release.sh
 cargo check -p saccade-servoshell
 cargo test -p servoshell saccade_
 cargo build -p servoshell --release
@@ -95,15 +119,29 @@ ServoShell badge tests passed:
 saccade_profile_badge_reads_bridge_json
 saccade_profile_badge_marks_incognito
 saccade_profile_badge_rejects_agent_storage_exposure
+saccade_profile_badge_writes_clear_on_quit_request
 saccade_copilot_badge_reads_bridge_json
 saccade_copilot_badge_rejects_spoofable_page_dom_status
 ```
 
-## Still Open
+Clear-on-quit integration passed:
 
-This closes wrapper-level profile controls and the read-only browser chrome
-profile badge. Remaining AI-021 work:
+```text
+ok=true
+smoke.ok=true
+profile_mode=normal
+action=clear_profile_on_quit
+raw_cookies_printed=false
+raw_storage_printed=false
+clear_on_quit_pending=false
+```
 
-- separate profile state from agent grant state,
-- profile picker / switcher in browser chrome,
-- user-facing clear-profile confirmation without terminal commands.
+## Future Follow-Ups
+
+AI-021 itself is closed. Future browser-product work should be tracked as new
+items:
+
+- full in-browser profile picker/relaunch UX instead of launch-time
+  `SACCADE_PROFILE_NAME`,
+- password-manager UX,
+- public signed/notarized `.app` packaging.

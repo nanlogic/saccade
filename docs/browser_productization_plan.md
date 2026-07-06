@@ -72,8 +72,15 @@ Modes:
   supplied, and requires either `--yes` or a typed confirmation.
 - Browser chrome profile badge: first read-only version is implemented in the
   ServoShell thin fork. It reads trusted Saccade status JSON and shows `Normal`,
-  `Incognito`, or `Profile: <name>` separately from the Copilot badge. Browser
-  chrome profile picker/switcher remains future UX.
+  `Incognito`, or `Profile: <name>` separately from the Copilot badge.
+- Browser chrome profile panel: implemented in the ServoShell thin fork. Click
+  the profile badge to see mode, name, persistence, and the agent boundary; on
+  normal named Saccade profiles the user can request clear-on-quit with a second
+  confirmation. The wrapper applies that request after browser exit and refuses
+  custom profile dirs.
+- Profile switching: currently launch-time through `SACCADE_PROFILE_NAME` or
+  `SACCADE_PROFILE_DIR`. A full in-browser profile picker/relaunch UX remains
+  future work.
 
 Safety rules:
 
@@ -84,9 +91,10 @@ Safety rules:
   sensitive values. The profile directory itself is local browser data and must
   stay out of git/backups unless intentionally managed.
 - Clearing or switching profiles should be an explicit user action with visible
-  state, not a hidden wrapper side effect. The local wrapper implementation
-  starts this with `profile-status` and `clear-profile`; in-browser clear-profile
-  controls are still a follow-up.
+  state, not a hidden wrapper side effect. The local implementation now has
+  `profile-status`, `clear-profile`, a chrome profile badge, and in-browser
+  clear-on-quit confirmation. Full profile switching remains launch-time for
+  now.
 
 Profile chrome UI design:
 
@@ -96,8 +104,8 @@ Profile chrome UI design:
 - Profile labels:
   - `Normal`: saved browser profile; tooltip text: "Sites may stay signed in."
   - `Incognito`: temporary profile; tooltip text: "Deleted when this run exits."
-  - `Profile: <name>` later for named profiles; never show the raw filesystem
-    path by default.
+  - `Profile: <name>` for named profiles; never show the raw filesystem path by
+    default.
 - Agent labels:
   - `Human only`: agent cannot see or act on this tab.
   - `Agent ready`: agent has a current-tab grant and can use redacted page
@@ -108,8 +116,7 @@ Profile chrome UI design:
   no profile persistence; it does not mean the agent can read secrets.
 - Use text plus icon/state shape, not color alone. Avoid scary warning colors
   for normal browsing. Use a small popover for details: storage persistence,
-  current-tab grant, sensitive-value redaction, and a future "Clear profile"
-  action.
+  current-tab grant, sensitive-value redaction, and "Clear profile on quit".
 - Do not show repeated modal warnings on every launch. Use one-time onboarding
   copy and stable chrome labels.
 
@@ -250,8 +257,9 @@ Current auth/session state:
   `SACCADE_INCOGNITO=1` or `SACCADE_PROFILE_MODE=incognito`; they create a
   marked temporary profile under the kit's `runs/incognito/` directory and
   delete it when the command exits.
-- Product backlog: add visible profile mode UI, named profiles, and a
-  user-confirmed clear-profile command.
+- Product backlog: add a polished profile picker/relaunch UX and
+  password-manager flow. The visible profile badge, named profiles, incognito
+  wrappers, and user-confirmed clear-on-quit command are implemented.
 
 Browser chrome architecture note:
 

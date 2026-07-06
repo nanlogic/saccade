@@ -9,14 +9,14 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-021 browser product UX/profile/session finish. AI-020 is
-complete: the current dogfood kit includes the visible human-in-loop draft
-harness, HN logged-in comment drafting passed, no draft values leaked into
-control artifacts, and final publish/submit remained a user gesture.
+Active next item: none selected after AI-021 closure. AI-020 and AI-021 are now
+complete. The current dogfood kit has visible human-in-loop drafting, stable
+normal/incognito/named profile wrappers, trusted chrome profile/agent badges,
+and a user-confirmed clear-profile-on-quit flow.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-021 | P1 | in_progress | Browser product UX | Productize profile/session modes: normal persisted human profile, incognito/ephemeral profile, named profiles, visible profile/grant badge, and user-confirmed clear-profile. AI-021A is implemented at the dogfood wrapper level: `profile-status`, named profiles, and safe `clear-profile`. AI-021B is implemented in the ServoShell thin fork: browser chrome now reads trusted Saccade status JSON and displays a separate `Normal` / `Incognito` / `Profile: <name>` badge next to the Copilot badge, with unsafe cookie/storage/sensitive exposure forced to `Profile Error`. Remaining work is interactive browser chrome UX: profile picker/switcher and clear-profile confirmation without terminal commands. | The dogfood browser exposes active profile mode in chrome, normal mode reuses `runs/dogfood_profile/default`, incognito uses disposable storage, agent grants remain tab/session-scoped, and no raw cookies/storage/sensitive values are exposed to LLM artifacts. |
+| - | - | idle | Supervisor | Pick the next big block when Wayne is ready. Suggested candidates: WebGL/canvas reliability, real-site dogfood matrix expansion, or public release packaging. | A new AI item is selected and scoped before implementation starts. |
 
 ## Next
 
@@ -33,6 +33,7 @@ control artifacts, and final publish/submit remained a user gesture.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-021 | 2026-07-05 | Closed browser product UX/profile/session for the local dogfood gate. Dogfood wrappers expose normal, named, and incognito profiles; `profile-status` and `clear-profile` are safe CLI controls; ServoShell chrome displays separate trusted Profile and Copilot badges; clicking the profile badge opens a browser-chrome panel with persistence and agent-boundary details; normal named profiles can request clear-on-quit with user confirmation; wrappers apply that request only after browser exit and only under `SACCADE_PROFILE_ROOT`, writing counts/bytes but no cookie/storage values. Evidence: `docs/ai021_profile_productization_report.md`, `runs/ai021_profile_finalize/clear_on_quit_final_20260705/summary.json`, and final kit `dist/saccade-dogfood-ai021-profile-final-20260705/`. Future profile picker/relaunch UX and password-manager UX are separate product items, not AI-021 blockers. |
 | AI-020 | 2026-07-05 | Closed the real-site human-in-loop draft matrix. Current dogfood kit `dist/saccade-dogfood-20260705-175900` includes `run-ai020-live-draft`, which launches a visible ServoShell bridge, waits for the human before fill, pauses again after fill for review, fills only non-sensitive draft fields, writes redacted control artifacts, and never submits. Evidence: local forum fixture `runs/ai020_live/local_forum_fixture_review_release/report.json` and logged-in Hacker News visible comment draft `runs/ai020_live/hn_comment_visible_20260705/report.json`, both with no value leaks in control report/replay. |
 | BP-020 | 2026-06-22 | Fixed local GitHub/Gist CodeMirror human input UX through the existing ServoShell userscript compatibility layer. `scripts/userscripts/github_compat_shim.js` now installs `saccade_github_codemirror_input_shim_v1` only on `github.com` / `gist.github.com`, focuses the visible editor shell, handles basic keys through CodeMirror when needed, draws a visible Saccade focus ring/caret, syncs the hidden textarea, and logs counters/geometry only. Evidence: `runs/servoshell_ui/github_codemirror_input_shim_20260622/report.json` with `ok=true`, `caretRect=2x18`, and `textValuesLogged=false`. |
 | AI-019 | 2026-06-20 | Closed the public evidence pack. `docs/ai019_public_evidence_pack.md` records the current dogfood kit (`1028bd6`), proven claims, rerun commands, artifact paths, non-claims, video/article shot list, and next real-site draft matrix. It also records the product policy requested by Wayne: do not add a blanket posting block; use "agent drafts, human posts" with current user gesture/confirmation for side effects. |
