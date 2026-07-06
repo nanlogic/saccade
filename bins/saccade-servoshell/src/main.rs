@@ -25,6 +25,16 @@ const PAGE_SETTLE_MIN: Duration = Duration::from_millis(2500);
 const PAGE_SETTLE_MAX: Duration = Duration::from_millis(7000);
 const PAGE_SETTLE_POLL: Duration = Duration::from_millis(250);
 const PAGE_SETTLE_SHORT_TEXT_FLOOR: u64 = 500;
+const PAGE_USABLE_TEXT_FLOOR: u64 = 80;
+const PAGE_USABLE_CHILD_FLOOR: u64 = 2;
+const DOCUMENT_PROBE_JS: &str = r#"return {
+  title: document.title,
+  readyState: document.readyState,
+  url: document.URL,
+  bodyTextLength: document.body ? document.body.innerText.length : 0,
+  actionCount: document.querySelectorAll("button,a,input,select,textarea,[role='button'],[contenteditable='true']").length,
+  childCount: document.body ? document.body.children.length : 0
+};"#;
 
 #[derive(Parser)]
 #[command(name = "saccade-servoshell")]
@@ -2018,29 +2028,30 @@ struct HttpResponse {
     body: Value,
 }
 
+fn new_session_payload() -> Value {
+    json!({
+        "capabilities": {
+            "alwaysMatch": {
+                "browserName": "servo",
+                "pageLoadStrategy": "none",
+                "timeouts": {
+                    "script": 120000,
+                    "pageLoad": 5000,
+                    "implicit": 0
+                }
+            }
+        }
+    })
+}
+
 impl WebDriverClient {
     fn new(port: u16, timeout: Duration) -> Self {
         Self { port, timeout }
     }
 
     fn new_session(&self) -> Result<Value> {
-        self.request(
-            "POST",
-            "/session",
-            Some(json!({
-                "capabilities": {
-                    "alwaysMatch": {
-                        "browserName": "servo",
-                        "timeouts": {
-                            "script": 120000,
-                            "pageLoad": 300000,
-                            "implicit": 0
-                        }
-                    }
-                }
-            })),
-        )
-        .map(|response| response.body)
+        self.request("POST", "/session", Some(new_session_payload()))
+            .map(|response| response.body)
     }
 
     fn execute_sync(&self, session_id: &str, script: &str) -> Result<Value> {
@@ -2449,6 +2460,37 @@ fn formmax_values_absent(report: &Value, replay_path: &Path) -> Result<Value> {
     }))
 }
 
+fn document_probe_is_ready_or_usable(value: &Value) -> bool {
+    let ready_state = value
+        .get("readyState")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if matches!(ready_state, "interactive" | "complete") {
+        return true;
+    }
+
+    let title_present = value
+        .get("title")
+        .and_then(Value::as_str)
+        .is_some_and(|title| !title.trim().is_empty());
+    let body_text_length = value
+        .get("bodyTextLength")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let action_count = value
+        .get("actionCount")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let child_count = value
+        .get("childCount")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+
+    body_text_length >= PAGE_USABLE_TEXT_FLOOR
+        || action_count > 0
+        || (title_present && child_count >= PAGE_USABLE_CHILD_FLOOR)
+}
+
 fn wait_for_title(
     client: &WebDriverClient,
     session_id: &str,
@@ -2479,13 +2521,9 @@ fn wait_for_document_ready(
     let deadline = Instant::now() + timeout;
     let mut last = Value::Null;
     while Instant::now() < deadline {
-        last = client.execute_sync(
-            session_id,
-            "return { title: document.title, readyState: document.readyState, url: document.URL };",
-        )?;
+        last = client.execute_sync(session_id, DOCUMENT_PROBE_JS)?;
         fail_if_servoshell_error_page(&last)?;
-        let ready_state = last.get("readyState").and_then(Value::as_str).unwrap_or("");
-        if matches!(ready_state, "interactive" | "complete") {
+        if document_probe_is_ready_or_usable(&last) {
             let remaining = deadline.saturating_duration_since(Instant::now());
             return wait_for_dynamic_page_settle(client, session_id, remaining, last);
         }
@@ -2509,7 +2547,14 @@ fn navigate_and_wait(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let webdriver_response = client.navigate(session_id, url)?;
+    let webdriver_response = match client.navigate(session_id, url) {
+        Ok(response) => response,
+        Err(error) if is_webdriver_load_timeout(&error) => json!({
+            "continued_after": "webdriver_load_timeout",
+            "error": error.to_string(),
+        }),
+        Err(error) => return Err(error),
+    };
     let mut ready = wait_for_document_ready(client, session_id, timeout)?;
     let after_url = ready
         .get("url")
@@ -2534,6 +2579,11 @@ fn navigate_and_wait(
         "fallback": fallback,
         "ready": ready,
     }))
+}
+
+fn is_webdriver_load_timeout(error: &anyhow::Error) -> bool {
+    let message = error.to_string();
+    message.contains("\"error\":\"timeout\"") || message.contains("Load timed out")
 }
 
 fn wait_for_url_change_after_fallback(
@@ -2617,7 +2667,8 @@ fn wait_for_dynamic_page_settle(
             .get("bodyTextLength")
             .and_then(Value::as_u64)
             .unwrap_or_default();
-        let enough_content = body_text_length >= PAGE_SETTLE_SHORT_TEXT_FLOOR;
+        let enough_content = body_text_length >= PAGE_SETTLE_SHORT_TEXT_FLOOR
+            || document_probe_is_ready_or_usable(&last);
         if Instant::now() >= min_until && stable_polls >= 2 && enough_content {
             return Ok(last);
         }
@@ -4771,6 +4822,57 @@ mod tests {
                 .to_string()
                 .contains("ServoShell reached its internal error page")
         );
+    }
+
+    #[test]
+    fn webdriver_session_uses_non_blocking_page_load_strategy() {
+        let payload = new_session_payload();
+        assert_eq!(
+            payload.pointer("/capabilities/alwaysMatch/pageLoadStrategy"),
+            Some(&json!("none"))
+        );
+        assert_eq!(
+            payload.pointer("/capabilities/alwaysMatch/timeouts/pageLoad"),
+            Some(&json!(5000))
+        );
+    }
+
+    #[test]
+    fn webdriver_load_timeout_is_continuable_navigation() {
+        let error = anyhow!(
+            "{}",
+            "parse webdriver response for POST /session/abc/url: WebDriver HTTP 500: {\"value\":{\"error\":\"timeout\",\"message\":\"Load timed out\"}}"
+        );
+
+        assert!(is_webdriver_load_timeout(&error));
+    }
+
+    #[test]
+    fn loading_document_with_visible_content_is_usable() {
+        let value = json!({
+            "title": "Long Load Fixture",
+            "readyState": "loading",
+            "url": "http://127.0.0.1:8765/",
+            "bodyTextLength": 120,
+            "actionCount": 1,
+            "childCount": 3
+        });
+
+        assert!(document_probe_is_ready_or_usable(&value));
+    }
+
+    #[test]
+    fn blank_loading_document_is_not_usable() {
+        let value = json!({
+            "title": "",
+            "readyState": "loading",
+            "url": "about:blank",
+            "bodyTextLength": 0,
+            "actionCount": 0,
+            "childCount": 0
+        });
+
+        assert!(!document_probe_is_ready_or_usable(&value));
     }
 }
 
