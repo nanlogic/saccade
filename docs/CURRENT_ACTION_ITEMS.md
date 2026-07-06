@@ -9,7 +9,7 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: none selected after AI-021 closure. AI-020 and AI-021 are now
+Active next item: AI-027 GitHub UI canary. AI-020 and AI-021 are now
 complete. The current dogfood kit has visible human-in-loop drafting, stable
 normal/incognito/named profile wrappers, trusted chrome profile/agent badges,
 user-confirmed clear-profile-on-quit flow, and a no-login public-site smoke
@@ -19,7 +19,7 @@ for GitHub issue/discussion targets.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| - | - | idle | Supervisor | Retry the real logged-in GitHub issue/discussion draft measurement, or pick another big block. | A new AI item is selected and scoped before implementation starts. |
+| AI-027 | P1 | active | GitHub UI canary | Classify and reduce GitHub UI failures exposed during dogfood, starting with profile dropdown hit-testing. | Public GitHub smoke, API compatibility, and dropdown hit-test evidence are recorded; next reduction identifies whether the overlay bug is Servo hit-test, GitHub shim, or Saccade product chrome. |
 
 ## Next
 
@@ -31,6 +31,7 @@ for GitHub issue/discussion targets.
 | AI-008B | P1 | done | Canvas/WebGL | Route non-hot diagnostic fixture screenshots to `take_screenshot()` where safe, and keep a separate gate for reflex hot-loop `read_to_image()`. | Default `probe_canvas_reductions.py` uses `take-local` and marks `bare-gradient2-size-1152x648` green in `runs/webgl_runtime/canvas_reductions_1781806451861/report.json`; forced `--saccade-screenshot-mode manual` still marks it red in `runs/webgl_runtime/canvas_reductions_1781806531266/report.json`. |
 | AI-008C | P1 | done | Canvas/WebGL | Add a focused hot-loop/readback gate that tests the actual reflex `read_to_image()` path separately from diagnostic screenshots. | Source ServoShell reflex bridge sample metrics pass `bare-gradient2-size-1152x648` with `readback_foreground_present` in `runs/webgl_runtime/reflex_readback_canvas_1781806982624/report.json`; gradient-only negative control routes `readback_blank_or_flat` in `runs/webgl_runtime/reflex_readback_canvas_1781807000176/report.json`. |
 | AI-008D | P2 | done | Canvas/WebGL | Expand the reflex readback gate from local Canvas2D reduction to the live local game when the game server is running. | `runs/local_game_reflex/ai008d_live_game_release_1781810191/report.json` records `live_game_reflex_readback_green`: 1292/1292 readbacks, 176 semantic facts, 53 commands/receipts, `time_scale=0.989`, `fill_delta=12`, and `hp_delta=0`. |
+| AI-027 | P1 | active | GitHub UI canary | Use GitHub as the current browser-product canary. First measurement shows public GitHub/Gist read-only smoke is green, the GitHub compat userscript fixes `IntersectionObserver`/`adoptedStyleSheets` API gaps, and the logged-in profile dropdown still fails because the visible Sign out row does not receive pointer hit-testing; `elementFromPoint` targets underlying gist content. | Next slice is a local overlay hit-test reduction and then either a narrow GitHub shim or source-fork hit-test investigation. Evidence: `docs/ai027_github_ui_canary.md`. |
 
 ## Recently Closed
 

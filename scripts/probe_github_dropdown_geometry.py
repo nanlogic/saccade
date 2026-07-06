@@ -162,14 +162,25 @@ GEOMETRY_JS = r"""
   const menu = candidates[0] || null;
   const signOutRect = findSignOutRect();
   const menuRect = menu ? menu.rect : null;
-  const signOutHit = signOutRect
+  const signOutHitTarget = signOutRect
     ? (() => {
         const x = Math.min(innerWidth - 1, Math.max(0, signOutRect.left + signOutRect.width / 2));
         const y = Math.min(innerHeight - 1, Math.max(0, signOutRect.top + signOutRect.height / 2));
         const hit = document.elementFromPoint(x, y);
-        return !!hit && !!hit.closest("a, button");
+        const clickable = hit ? hit.closest("a, button, [role='menuitem'], [role='option']") : null;
+        return {
+          x: Math.round(x * 100) / 100,
+          y: Math.round(y * 100) / 100,
+          tag: hit && hit.tagName ? hit.tagName.toLowerCase() : "",
+          role: hit ? hit.getAttribute("role") || "" : "",
+          path: hit ? cssPath(hit) : "",
+          clickablePath: clickable ? cssPath(clickable) : "",
+          clickableTag: clickable && clickable.tagName ? clickable.tagName.toLowerCase() : "",
+          clickableRole: clickable ? clickable.getAttribute("role") || "" : ""
+        };
       })()
-    : false;
+    : null;
+  const signOutHit = !!signOutHitTarget && !!signOutHitTarget.clickablePath;
 
   return {
     url: location.origin + location.pathname,
@@ -212,6 +223,7 @@ GEOMETRY_JS = r"""
     selectedMenu: menu,
     signOutRect,
     signOutHit,
+    signOutHitTarget,
     menuWithinViewport: !!menuRect &&
       menuRect.left >= 0 &&
       menuRect.top >= 0 &&
