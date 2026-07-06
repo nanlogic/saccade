@@ -136,14 +136,25 @@ saccade_cleanup_profile() {
   fi
 }
 
+saccade_finalize_profile_run() {
+  if [[ "${SACCADE_PROFILE_FINALIZED:-0}" == "1" ]]; then
+    return 0
+  fi
+  SACCADE_PROFILE_FINALIZED=1
+  saccade_apply_profile_action_requests
+  saccade_cleanup_profile
+}
+
 saccade_run_with_profile_cleanup() {
   local status=0
+  SACCADE_PROFILE_FINALIZED=0
+  trap saccade_finalize_profile_run EXIT
   set +e
   "$@"
   status=$?
   set -e
-  saccade_apply_profile_action_requests
-  saccade_cleanup_profile
+  saccade_finalize_profile_run
+  trap - EXIT
   return "$status"
 }
 
