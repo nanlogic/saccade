@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Overlay Hit Test Probe</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --ink: #172033;
+      --muted: #5f6b7a;
+      --line: #d6dde8;
+      --panel: #ffffff;
+      --accent: #2563eb;
+      --danger: #991b1b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 0;
+      overflow-x: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 64px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .brand {
+      flex: 0 0 auto;
+      font-size: 18px;
+      font-weight: 750;
+    }
+
+    .search {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      line-height: 38px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .account {
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .profile-button {
+      width: 46px;
+      height: 40px;
+      border: 1px solid #afbccd;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #bbf7d0, #93c5fd);
+      color: #0f172a;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .overlay-shell {
+      width: 216px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+      overflow: hidden;
+      pointer-events: auto;
+    }
+
+    .overlay-shell[hidden] {
+      display: none;
+    }
+
+    .overlay-menu {
+      display: block;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .overlay-menu button,
+    .overlay-menu a {
+      display: block;
+      width: 100%;
+      min-height: 42px;
+      padding: 10px 14px;
+      border: 0;
+      border-bottom: 1px solid #edf0f5;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      text-align: left;
+      text-decoration: none;
+    }
+
+    .overlay-menu li:last-child button {
+      border-bottom: 0;
+      color: var(--danger);
+    }
+
+    body[data-variant="absolute"] .overlay-shell {
+      position: absolute;
+      top: 48px;
+      right: 0;
+      z-index: 50;
+    }
+
+    body[data-variant="fixed"] .overlay-shell {
+      position: fixed;
+      top: 58px;
+      right: 16px;
+      z-index: 100;
+    }
+
+    body[data-variant="static-child"] .overlay-shell {
+      position: absolute;
+      top: 48px;
+      right: 0;
+      z-index: 50;
+    }
+
+    body[data-variant="static-child"] .overlay-menu {
+      position: static;
+    }
+
+    body[data-variant="transformed-underlay"] .overlay-shell {
+      position: absolute;
+      top: 48px;
+      right: 0;
+      z-index: 50;
+    }
+
+    body[data-variant="transformed-underlay"] .feed {
+      position: relative;
+      z-index: 1;
+      transform: translateZ(0);
+    }
+
+    body[data-variant="primer-like"] .overlay-shell {
+      position: absolute;
+      top: 48px;
+      right: 0;
+      z-index: 50;
+    }
+
+    body[data-variant="primer-like"] .Overlay-body {
+      display: block;
+      padding: 0;
+      overflow: visible;
+    }
+
+    body[data-variant="primer-like"] action-list,
+    body[data-variant="primer-like"] focus-group {
+      display: block;
+    }
+
+    body[data-variant="primer-like"] .ActionListWrap {
+      position: static;
+      display: block;
+    }
+
+    main {
+      max-width: 1140px;
+      margin: 34px auto;
+      padding: 0 24px 90px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 32px;
+      line-height: 1.1;
+    }
+
+    .lede {
+      max-width: 720px;
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.5;
+    }
+
+    .feed {
+      display: grid;
+      gap: 14px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      gap: 16px;
+      align-items: center;
+      min-height: 72px;
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .row strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 17px;
+    }
+
+    .row span {
+      color: var(--muted);
+    }
+
+    .underlay-button {
+      min-width: 92px;
+      min-height: 38px;
+      border: 1px solid #c7d2e3;
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+
+    .underlay-link {
+      color: var(--accent);
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    #probe-state {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      max-width: calc(100vw - 24px);
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.94);
+      color: #475569;
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body data-variant="absolute">
+  <header class="topbar">
+    <div class="brand">Saccade Canary</div>
+    <div class="search">Search or enter website name</div>
+    <div class="account">
+      <action-menu>
+        <focus-group>
+          <button id="profile-button" class="profile-button" type="button" aria-haspopup="menu" aria-expanded="true">W</button>
+        </focus-group>
+        <div id="overlay-shell" class="overlay-shell Overlay" role="presentation">
+          <div class="Overlay-body Overlay-body--paddingNone">
+            <action-list>
+              <div>
+                <ul id="profile-menu" class="overlay-menu ActionListWrap ActionListWrap--inset" role="menu" aria-label="Profile menu">
+                  <li><a id="menu-profile" href="#profile" role="menuitem">Your profile</a></li>
+                  <li><a id="menu-settings" href="#settings" role="menuitem">Settings</a></li>
+                  <li><a id="menu-help" href="#help" role="menuitem">Help</a></li>
+                  <li><button id="sign-out" type="button" role="menuitem">Sign out</button></li>
+                </ul>
+              </div>
+            </action-list>
+          </div>
+        </div>
+      </action-menu>
+    </div>
+  </header>
+  <main>
+    <h1>Overlay Hit Test Probe</h1>
+    <p class="lede">
+      The visible profile menu must receive pointer hits even when it overlaps
+      normal page content. This catches dropdowns that render above content but
+      still click through to elements underneath.
+    </p>
+    <section id="feed" class="feed" aria-label="Background content">
+      <article class="row">
+        <div><strong>llm-wiki.md</strong><span>A background row placed under the top-right menu area.</span></div>
+        <a class="underlay-link" href="#file">1 file</a>
+        <button class="underlay-button" type="button">Fork</button>
+        <button class="underlay-button" type="button">Star</button>
+      </article>
+      <article class="row">
+        <div><strong>torrc</strong><span>Another row that should not receive menu item clicks.</span></div>
+        <a class="underlay-link" href="#comments">1 comment</a>
+        <button class="underlay-button" type="button">Copy</button>
+        <button class="underlay-button" type="button">Open</button>
+      </article>
+      <article class="row">
+        <div><strong>Computer Desktop Wallpapers Collection</strong><span>Longer content creates a GitHub-like list under the dropdown.</span></div>
+        <a class="underlay-link" href="#stars">4 stars</a>
+        <button class="underlay-button" type="button">Watch</button>
+        <button class="underlay-button" type="button">More</button>
+      </article>
+    </section>
+  </main>
+  <pre id="probe-state">menuClicks=0 underlayClicks=0</pre>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const variant = params.get("variant") || "absolute";
+    document.body.dataset.variant = variant;
+
+    const state = {
+      variant,
+      menuClicks: 0,
+      underlayClicks: 0,
+      lastClickTarget: ""
+    };
+
+    const profileButton = document.querySelector("#profile-button");
+    const overlayShell = document.querySelector("#overlay-shell");
+    const signOut = document.querySelector("#sign-out");
+    const probeState = document.querySelector("#probe-state");
+
+    function updateProbeState() {
+      probeState.textContent = `variant=${state.variant} menuClicks=${state.menuClicks} underlayClicks=${state.underlayClicks} last=${state.lastClickTarget}`;
+    }
+
+    function openMenu() {
+      overlayShell.hidden = false;
+      profileButton.setAttribute("aria-expanded", "true");
+    }
+
+    profileButton.addEventListener("click", openMenu);
+
+    signOut.addEventListener("click", (event) => {
+      state.menuClicks += 1;
+      state.lastClickTarget = event.currentTarget.id || "sign-out";
+      updateProbeState();
+    });
+
+    document.querySelectorAll(".underlay-button, .underlay-link").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.preventDefault();
+        state.underlayClicks += 1;
+        state.lastClickTarget = element.id || element.textContent.trim();
+        updateProbeState();
+      });
+    });
+
+    function rectOf(element) {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: Math.round(rect.left * 100) / 100,
+        top: Math.round(rect.top * 100) / 100,
+        right: Math.round(rect.right * 100) / 100,
+        bottom: Math.round(rect.bottom * 100) / 100,
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100
+      };
+    }
+
+    function cssPath(element) {
+      if (!element) return "";
+      const parts = [];
+      let current = element;
+      for (let depth = 0; current && depth < 5; depth += 1) {
+        let part = current.tagName ? current.tagName.toLowerCase() : "node";
+        if (current.id) part += "#" + current.id;
+        const classes = String(current.className || "").trim().split(/\s+/).filter(Boolean).slice(0, 3);
+        if (classes.length) part += "." + classes.join(".");
+        parts.unshift(part);
+        current = current.parentElement;
+      }
+      return parts.join(">");
+    }
+
+    function centerOf(rect) {
+      return {
+        x: Math.round((rect.left + rect.width / 2) * 100) / 100,
+        y: Math.round((rect.top + rect.height / 2) * 100) / 100
+      };
+    }
+
+    function hitDetails(x, y) {
+      const hit = document.elementFromPoint(x, y);
+      const clickable = hit ? hit.closest("button,a,[role='menuitem']") : null;
+      const stack = document.elementsFromPoint
+        ? document.elementsFromPoint(x, y).slice(0, 6).map(cssPath)
+        : [];
+      return {
+        x,
+        y,
+        tag: hit && hit.tagName ? hit.tagName.toLowerCase() : "",
+        id: hit ? hit.id || "" : "",
+        role: hit ? hit.getAttribute("role") || "" : "",
+        path: hit ? cssPath(hit) : "",
+        clickableTag: clickable && clickable.tagName ? clickable.tagName.toLowerCase() : "",
+        clickableId: clickable ? clickable.id || "" : "",
+        clickableRole: clickable ? clickable.getAttribute("role") || "" : "",
+        clickablePath: clickable ? cssPath(clickable) : "",
+        stack
+      };
+    }
+
+    function snapshot(label, options = {}) {
+      openMenu();
+      state.menuClicks = 0;
+      state.underlayClicks = 0;
+      state.lastClickTarget = "";
+      updateProbeState();
+
+      const menuRect = rectOf(overlayShell);
+      const signOutRect = rectOf(signOut);
+      const center = centerOf(signOutRect);
+      const before = hitDetails(center.x, center.y);
+      if (options.click) {
+        const hit = document.elementFromPoint(center.x, center.y);
+        if (hit) {
+          hit.dispatchEvent(new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            clientX: center.x,
+            clientY: center.y,
+            view: window
+          }));
+        }
+      }
+      const after = hitDetails(center.x, center.y);
+      const expectedHit = before.clickableId === "sign-out";
+      const clickReceiptOk = !options.click || (state.menuClicks === 1 && state.underlayClicks === 0);
+
+      return {
+        label,
+        variant: state.variant,
+        viewport: {
+          innerWidth,
+          innerHeight,
+          devicePixelRatio,
+          documentClientWidth: document.documentElement.clientWidth,
+          documentClientHeight: document.documentElement.clientHeight,
+          bodyClientWidth: document.body.clientWidth,
+          bodyScrollWidth: document.body.scrollWidth
+        },
+        menuRect,
+        signOutRect,
+        signOutCenter: center,
+        hitBeforeClick: before,
+        hitAfterClick: after,
+        expectedClickableId: "sign-out",
+        expectedHit,
+        clickRequested: !!options.click,
+        clickReceiptOk,
+        menuClicks: state.menuClicks,
+        underlayClicks: state.underlayClicks,
+        lastClickTarget: state.lastClickTarget,
+        menuWithinViewport:
+          menuRect.left >= 0 &&
+          menuRect.top >= 0 &&
+          menuRect.right <= innerWidth &&
+          menuRect.bottom <= innerHeight,
+        horizontalOverflow: Math.max(0, menuRect.right - innerWidth),
+        verticalOverflow: Math.max(0, menuRect.bottom - innerHeight)
+      };
+    }
+
+    openMenu();
+    updateProbeState();
+    window.__saccadeOverlayHitTest = {
+      variants: ["absolute", "fixed", "static-child", "transformed-underlay", "primer-like"],
+      openMenu,
+      snapshot
+    };
+  </script>
+</body>
+</html>

@@ -335,6 +335,133 @@
 
   installed.githubCodeMirrorInputShim = installCodeMirrorInputShim();
 
+  function installAccountMenuPointerShim() {
+    const host = String(location.hostname || "");
+    if (!/(^|\.)github\.com$/.test(host) && !/(^|\.)gist\.github\.com$/.test(host)) {
+      return { enabled: false, reason: "not_github" };
+    }
+    if (window.__saccadeGithubAccountMenuPointerShim) {
+      return window.__saccadeGithubAccountMenuPointerShim;
+    }
+
+    const state = {
+      enabled: true,
+      kind: "saccade_github_account_menu_pointer_shim_v1",
+      probeCalls: 0,
+      pointerEventsRerouted: 0,
+      clicksRerouted: 0,
+      textValuesLogged: false
+    };
+
+    function visible(element) {
+      if (!element) return false;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        rect.right > 0 &&
+        rect.bottom > 0 &&
+        rect.left < innerWidth &&
+        rect.top < innerHeight &&
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity || "1") > 0.01;
+    }
+
+    function cssPath(element) {
+      if (!element) return "";
+      const parts = [];
+      let current = element;
+      for (let depth = 0; current && depth < 5; depth++) {
+        let part = current.tagName ? current.tagName.toLowerCase() : "node";
+        if (current.id) part += "#" + current.id;
+        const classes = String(current.className || "").trim().split(/\s+/).filter(Boolean).slice(0, 3);
+        if (classes.length) part += "." + classes.join(".");
+        parts.unshift(part);
+        current = current.parentElement;
+      }
+      return parts.join(">");
+    }
+
+    function rectOf(element) {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: Math.round(rect.left * 100) / 100,
+        top: Math.round(rect.top * 100) / 100,
+        right: Math.round(rect.right * 100) / 100,
+        bottom: Math.round(rect.bottom * 100) / 100,
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100
+      };
+    }
+
+    function containsPoint(rect, x, y) {
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    }
+
+    function isAccountMenuItem(element) {
+      if (!element || !visible(element)) return false;
+      const menu = element.closest('[role="menu"], .ActionListWrap, .dropdown-menu, details[open]');
+      if (!menu || !visible(menu)) return false;
+      const menuRect = menu.getBoundingClientRect();
+      return menuRect.top <= 320 && menuRect.right >= innerWidth - 560;
+    }
+
+    function menuItemAtPoint(x, y) {
+      const items = Array.from(document.querySelectorAll('a, button, [role="menuitem"]'))
+        .filter(isAccountMenuItem)
+        .map((element) => ({ element, rect: rectOf(element) }))
+        .filter((item) => containsPoint(item.rect, x, y))
+        .sort((a, b) => (a.rect.width * a.rect.height) - (b.rect.width * b.rect.height));
+      return items[0] || null;
+    }
+
+    function probePoint(x, y) {
+      state.probeCalls++;
+      const item = menuItemAtPoint(Number(x), Number(y));
+      const nativeHit = document.elementFromPoint(Number(x), Number(y));
+      return {
+        found: !!item,
+        nativeHitInside: !!(item && nativeHit && item.element.contains(nativeHit)),
+        path: item ? cssPath(item.element) : "",
+        tag: item && item.element.tagName ? item.element.tagName.toLowerCase() : "",
+        role: item ? item.element.getAttribute("role") || "" : "",
+        rect: item ? item.rect : null,
+        nativeHitPath: nativeHit ? cssPath(nativeHit) : ""
+      };
+    }
+
+    function routePointer(event) {
+      if (!event || event.defaultPrevented) return;
+      if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
+      const item = menuItemAtPoint(event.clientX, event.clientY);
+      if (!item || item.element.contains(event.target)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      state.pointerEventsRerouted++;
+      if (event.type === "click") {
+        state.clicksRerouted++;
+        item.element.click();
+      }
+    }
+
+    document.addEventListener("pointerdown", routePointer, true);
+    document.addEventListener("mousedown", routePointer, true);
+    document.addEventListener("mouseup", routePointer, true);
+    document.addEventListener("click", routePointer, true);
+
+    Object.defineProperty(state, "probePoint", {
+      configurable: true,
+      enumerable: false,
+      value: probePoint
+    });
+    window.__saccadeGithubAccountMenuPointerShim = state;
+    return state;
+  }
+
+  installed.githubAccountMenuPointerShim = installAccountMenuPointerShim();
+
   const report = {
     kind: "saccade_github_compat_shim_v0",
     timing: "servoshell_userscript_head_bind_or_webdriver_execute",

@@ -37,6 +37,25 @@ GEOMETRY_JS = r"""
     };
   }
 
+  function styleOf(el) {
+    if (!el) return null;
+    const style = getComputedStyle(el);
+    return {
+      display: style.display,
+      visibility: style.visibility,
+      opacity: style.opacity,
+      pointerEvents: style.pointerEvents,
+      position: style.position,
+      zIndex: style.zIndex,
+      overflow: style.overflow,
+      overflowX: style.overflowX,
+      overflowY: style.overflowY,
+      transform: style.transform,
+      contain: style.contain,
+      isolation: style.isolation
+    };
+  }
+
   function visible(el) {
     if (!el) return false;
     const rect = el.getBoundingClientRect();
@@ -139,6 +158,7 @@ GEOMETRY_JS = r"""
           role: el.getAttribute("role") || "",
           path: cssPath(el),
           rect,
+          style: styleOf(el),
           position: style.position,
           score,
           area: Math.round(area)
@@ -155,12 +175,18 @@ GEOMETRY_JS = r"""
     return item ? rectOf(item) : null;
   }
 
+  function findSignOutElement() {
+    return Array.from(document.querySelectorAll("a, button"))
+      .find((el) => visible(el) && /sign\s*out/i.test(String(el.textContent || ""))) || null;
+  }
+
   const bodyText = String(document.body ? document.body.innerText || "" : "");
   const authRouteHint = /\/login|\/sessions\/|\/session|\/signup|two-factor/.test(location.pathname);
   const profile = findProfileButton();
   const candidates = floatingCandidates();
   const menu = candidates[0] || null;
-  const signOutRect = findSignOutRect();
+  const signOutElement = findSignOutElement();
+  const signOutRect = signOutElement ? rectOf(signOutElement) : null;
   const menuRect = menu ? menu.rect : null;
   const signOutHitTarget = signOutRect
     ? (() => {
@@ -181,6 +207,15 @@ GEOMETRY_JS = r"""
       })()
     : null;
   const signOutHit = !!signOutHitTarget && !!signOutHitTarget.clickablePath;
+  const signOutShimTarget = signOutRect &&
+    window.__saccadeGithubAccountMenuPointerShim &&
+    typeof window.__saccadeGithubAccountMenuPointerShim.probePoint === "function"
+      ? window.__saccadeGithubAccountMenuPointerShim.probePoint(
+          signOutHitTarget ? signOutHitTarget.x : signOutRect.left + signOutRect.width / 2,
+          signOutHitTarget ? signOutHitTarget.y : signOutRect.top + signOutRect.height / 2
+        )
+      : null;
+  const signOutShimHit = !!signOutShimTarget && signOutShimTarget.found;
 
   return {
     url: location.origin + location.pathname,
@@ -222,8 +257,11 @@ GEOMETRY_JS = r"""
     menuCandidates: candidates,
     selectedMenu: menu,
     signOutRect,
+    signOutStyle: styleOf(signOutElement),
     signOutHit,
     signOutHitTarget,
+    signOutShimHit,
+    signOutShimTarget,
     menuWithinViewport: !!menuRect &&
       menuRect.left >= 0 &&
       menuRect.top >= 0 &&
@@ -610,8 +648,8 @@ def classify(phases: list[dict]) -> tuple[str, list[str]]:
             failures.append(
                 f"{label}: menu overflow h={after.get('horizontalOverflow')} v={after.get('verticalOverflow')}"
             )
-        if after.get("signOutRect") and not after.get("signOutHit"):
-            failures.append(f"{label}: sign-out center is not hittable")
+        if after.get("signOutRect") and not after.get("signOutHit") and not after.get("signOutShimHit"):
+            failures.append(f"{label}: sign-out center is not hittable and shim target is missing")
 
     return ("pass" if not failures else "fail"), failures
 
@@ -625,6 +663,12 @@ def classify_api_probe(probe: dict, expect_shim: bool) -> tuple[str, list[str]]:
             failures.append("saccade compat shim marker missing")
         elif shim.get("kind") != "saccade_github_compat_shim_v0":
             failures.append(f"unexpected shim marker kind: {shim.get('kind')!r}")
+        else:
+            account_shim = (shim.get("installed") or {}).get("githubAccountMenuPointerShim")
+            if not isinstance(account_shim, dict):
+                failures.append("github account menu pointer shim marker missing")
+            elif account_shim.get("kind") != "saccade_github_account_menu_pointer_shim_v1":
+                failures.append(f"unexpected account menu shim marker kind: {account_shim.get('kind')!r}")
     if features.get("intersectionObserver") != "function":
         failures.append(f"intersectionObserver={features.get('intersectionObserver')!r}")
     if features.get("cssStyleSheetReplaceSync") != "function":
