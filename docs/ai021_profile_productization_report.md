@@ -44,8 +44,8 @@ changing title text, CSS, or page markup.
 Final kit:
 
 ```text
-dist/saccade-dogfood-ai021-profile-20260705-final/
-dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-20260705-final
+dist/saccade-dogfood-ai021-profile-badge-20260705/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-badge-20260705
 ```
 
 Evidence:
@@ -78,6 +78,9 @@ cargo build -p servoshell --release
 Browser chrome visual evidence:
 
 ```text
+runs/ai021_profile_badge/profile_badge_final_20260705/browser_chrome.png
+runs/ai021_profile_badge/profile_badge_final_20260705/smoke_stdout.json
+runs/ai021_profile_badge/profile_badge_final_20260705/profile_status.json
 runs/ai021_profile_badge/profile_badge_smoke_20260705/browser_chrome.png
 runs/ai021_profile_badge/profile_badge_smoke_20260705/smoke_stdout.json
 ```

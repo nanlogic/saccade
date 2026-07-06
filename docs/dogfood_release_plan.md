@@ -163,11 +163,13 @@ dist/saccade-dogfood-<timestamp>/run-formmax
 Latest verification:
 
 ```text
-dist/saccade-dogfood-ai021-profile-20260705-final/
-dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-20260705-final
+dist/saccade-dogfood-ai021-profile-badge-20260705/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-badge-20260705
 runs/profile_productization/ai021_profile_commands_final_20260705/
 runs/profile_productization/ai021_check_saccade_final_20260705/check_saccade.json
 runs/profile_productization/ai021_incognito_check_final_20260705/check_saccade_incognito.json
+runs/ai021_profile_badge/profile_badge_final_20260705/browser_chrome.png
+runs/ai021_profile_badge/profile_badge_final_20260705/smoke_stdout.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
@@ -186,6 +188,7 @@ profile-status: PASS, JSON stdout, no cookie/storage values, reports profile mod
 clear-profile: PASS on disposable named profile, dry-run and --yes paths verified, custom path requires --force-custom
 normal profile check: profile_mode=normal, profile_persistent=true, profile_dir=runs/dogfood_profile/default
 named profile check: SACCADE_PROFILE_NAME=work resolves to runs/dogfood_profile/work
+browser chrome profile badge: PASS, internal ServoShell chrome screenshot shows separate `Profile: work` and `Copilot` badges
 real GitHub profile reuse: after one human login, reopened bridge reached https://gist.github.com/new with title "Create a new Gist" and route=usable_ignore_hidden_backing_fields
 GitHub/Gist CodeMirror userscript: PASS, shim=saccade_github_codemirror_input_shim_v1, visible Saccade caret/focus ring, textValuesLogged=false
 incognito profile check: profile_mode=incognito, profile_persistent=false, temporary profile removed after exit
