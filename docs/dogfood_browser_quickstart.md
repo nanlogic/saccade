@@ -147,8 +147,10 @@ dist/saccade-dogfood-<timestamp>/open-legacy-saccade https://example.com
 Latest local dogfood kit:
 
 ```text
-dist/saccade-dogfood-20260705-175900/
-dist/saccade-dogfood-current -> saccade-dogfood-20260705-175900
+dist/saccade-dogfood-ai021-profile-final-20260705/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-final-20260705
+Saccade commit: 138c9b4
+ServoShell source fork: 2ac8f98d7
 ```
 
 Verification:
@@ -159,9 +161,15 @@ runtime: official_servoshell_webdriver
 profile_mode: normal
 profile_persistent: true
 smoke title: Browser Session Smoke
-same_webview_control: true
-termination: graceful_servo_shutdown
-artifact: dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
+smoke.same_webview_control: true
+process.termination: graceful_servo_shutdown
+control report: dist/saccade-dogfood-current/runs/check/bridge_smoke/control/report.json
+
+profile product controls: PASS
+profile-status: JSON stdout, no cookie/storage values
+browser chrome: trusted Profile and Copilot badges
+clear-on-quit: PASS, pending request applied after browser exit
+artifact: runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json
 
 read-article Rookies: PASS
 title: Step-by-Step Guide to Modular Environment Art: From Blender to UE5 | The Rookies Blog

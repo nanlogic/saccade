@@ -1770,4 +1770,4 @@
   under a live browser engine.
 - Evidence: final kit `dist/saccade-dogfood-ai021-profile-final-20260705/`,
   report `docs/ai021_profile_productization_report.md`, and clear-on-quit
-  summary `runs/ai021_profile_finalize/clear_on_quit_final_20260705/summary.json`.
+  summary `runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json`.

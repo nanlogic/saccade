@@ -76,7 +76,7 @@ Evidence:
 runs/profile_productization/ai021_profile_commands_final_20260705/
 runs/profile_productization/ai021_check_saccade_final_20260705/check_saccade.json
 runs/profile_productization/ai021_incognito_check_final_20260705/check_saccade_incognito.json
-runs/ai021_profile_finalize/clear_on_quit_final_20260705/summary.json
+runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json
 ```
 
 Measured results:
@@ -118,6 +118,7 @@ ServoShell badge tests passed:
 ```text
 saccade_profile_badge_reads_bridge_json
 saccade_profile_badge_marks_incognito
+saccade_profile_badge_derives_clear_capability_from_request_path
 saccade_profile_badge_rejects_agent_storage_exposure
 saccade_profile_badge_writes_clear_on_quit_request
 saccade_copilot_badge_reads_bridge_json

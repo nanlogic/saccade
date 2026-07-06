@@ -1,6 +1,6 @@
 # Saccade Dogfood Handoff
 
-Date: 2026-07-01
+Date: 2026-07-05
 
 ## Purpose
 
@@ -13,15 +13,22 @@ input, replay, and dogfood diagnostics.
 ## Current Saccade Baseline
 
 ```text
-Use SACCADE main at 0ae5e28 or newer unless Wayne says otherwise.
+Use SACCADE main at 138c9b4 or newer unless Wayne says otherwise.
 Current local dogfood kit:
-dist/saccade-dogfood-20260705-175900/
-dist/saccade-dogfood-current -> saccade-dogfood-20260705-175900
+dist/saccade-dogfood-ai021-profile-final-20260705/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-final-20260705
+ServoShell source fork: 2ac8f98d7 or newer
 ```
 
 The local reflex runner defaults to `--policy visual`, uses live
 `semantic_object_seen` facts to choose motor commands, and writes a
 human-readable `review.html` at the end of each successful run.
+
+The dogfood browser now has normal/named/incognito profile wrappers, trusted
+Profile and Copilot chrome badges, and a user-confirmed clear-profile-on-quit
+panel. Profile data remains human-owned browser state; agent grants are still
+tab/session scoped and do not expose raw cookies, storage, passwords, or
+sensitive field values.
 
 ## Ownership
 
@@ -153,11 +160,22 @@ dist/saccade-dogfood-current/check-saccade
 dist/saccade-dogfood-current/open-saccade <URL>
 
 Current verified kit:
-dist/saccade-dogfood-20260705-175900
-Saccade commit: 20f52e2
+dist/saccade-dogfood-ai021-profile-final-20260705
+Saccade commit: 138c9b4
+ServoShell source fork commit: 2ac8f98d7
 ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
-Bridge smoke artifact:
-dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
+Bridge smoke control report:
+dist/saccade-dogfood-current/runs/check/bridge_smoke/control/report.json
+
+Profile controls:
+dist/saccade-dogfood-current/profile-status
+SACCADE_PROFILE_NAME=work dist/saccade-dogfood-current/open-saccade <URL>
+SACCADE_INCOGNITO=1 dist/saccade-dogfood-current/open-saccade <URL>
+
+The source ServoShell dogfood chrome also shows a Profile badge. Clicking it
+opens a profile panel. For normal named Saccade profiles, the panel can request
+clear-on-quit; the wrapper applies that request after the browser exits and
+records only counts/bytes.
 
 `open-saccade` should visibly open a local Saccade launch page first, then
 navigate the same bridge session to the target URL. If a provider page is slow,

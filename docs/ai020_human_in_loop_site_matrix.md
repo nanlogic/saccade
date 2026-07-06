@@ -21,9 +21,10 @@ This matrix lists what to test next and how to classify failures.
 Use this kit for the next measurements:
 
 ```text
-dist/saccade-dogfood-20260705-175900/
-dist/saccade-dogfood-current -> saccade-dogfood-20260705-175900
-Saccade commit: 20f52e2
+dist/saccade-dogfood-ai021-profile-final-20260705/
+dist/saccade-dogfood-current -> saccade-dogfood-ai021-profile-final-20260705
+Saccade commit: 138c9b4
+ServoShell source fork commit: 2ac8f98d7
 ServoShell: /Users/waynema/Documents/GitHub/servo-saccade-upstream/target/release/servoshell
 ```
 
@@ -31,7 +32,7 @@ Baseline checks:
 
 ```text
 check-saccade: PASS
-artifact: dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json
+artifact: dist/saccade-dogfood-current/runs/check/bridge_smoke/control/report.json
 
 public article reader: PASS on The Rookies modular environment article
 article_text_length: 9352
@@ -39,6 +40,9 @@ artifact: dist/saccade-dogfood-current/runs/article/rookies_20260701/report.json
 
 AI-020 live draft harness local fixture: PASS
 artifact: runs/ai020_live/local_forum_fixture_review_release/report.json
+
+AI-021 profile/session product controls: PASS
+artifact: runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json
 ```
 
 These checks prove the current dogfood kit opens, attaches, extracts useful
@@ -161,7 +165,6 @@ publish_attempted: false
 provider_block_or_warning: macOS GLD texture warning observed; non-blocking for this route
 chrome/reference_needed: no
 artifact_paths:
-- `dist/saccade-dogfood-current/runs/check/bridge_smoke/report.json`
 - `dist/saccade-dogfood-current/runs/check/bridge_smoke/control/report.json`
 - `dist/saccade-dogfood-current/runs/check/bridge_smoke/control/replay.jsonl`
 verdict: current kit is ready for same-machine dogfood.

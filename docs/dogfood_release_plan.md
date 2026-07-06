@@ -176,7 +176,7 @@ runs/profile_productization/ai021_check_saccade_final_20260705/check_saccade.jso
 runs/profile_productization/ai021_incognito_check_final_20260705/check_saccade_incognito.json
 runs/ai021_profile_badge/profile_badge_final_20260705/browser_chrome.png
 runs/ai021_profile_badge/profile_badge_final_20260705/smoke_stdout.json
-runs/ai021_profile_finalize/clear_on_quit_final_20260705/summary.json
+runs/ai021_profile_finalize/clear_on_quit_cleanup_final_20260705/summary.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/servoshell_bridge/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/article/ai016_rookies_article_final/report.json
 dist/saccade-dogfood-ai016-20260619-204157/runs/formmax/ai017_formmax_wrapper/result.json
