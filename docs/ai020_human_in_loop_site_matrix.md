@@ -75,7 +75,7 @@ Each site gets four separate statuses:
 
 | Priority | Site / class | Why AI is useful | Risk lane | Test action | Current status |
 | --- | --- | --- | --- | --- | --- |
-| P0 | Owned GitHub issue/discussion draft | Developer users constantly need issue/PR/discussion drafting. | Yellow after login | User logs in; Saccade drafts title/body; user submits if desired. | Untested; next target. |
+| P0 | Owned GitHub issue/discussion draft | Developer users constantly need issue/PR/discussion drafting. | Yellow after login | User logs in; Saccade drafts title/body; user submits if desired. | Local `github_issue` draft profile fixture passed in AI-025; real logged-in site measurement still pending. |
 | P0 | GitHub Gist draft | Already useful for code notes/snippets. | Yellow after login | User logs in; Saccade fills description/filename/body; no publish by default. | Passed in AI-017. |
 | P1 | Hacker News submit/comment draft | High-signal public technical forum, low UI complexity. | Yellow after login | Draft title/text/comment; user posts. | Read/editor/draft dry-run passed on a real HN thread; visible human handoff/post rehearsal pending. |
 | P1 | Reddit post/comment draft | Common forum workflow; useful for editing and summarization. | Yellow/Orange depending subreddit/account reputation | Draft post/comment; user posts. | Untested; likely provider/policy friction. |
@@ -256,6 +256,28 @@ artifact_paths:
 - `runs/ai020_live/hn_comment_visible_20260705/bridge/control/report.json`
 - `runs/ai020_live/hn_comment_visible_20260705/bridge/control/replay.jsonl`
 verdict: measured green for visible logged-in human handoff, editor inspection, no-submit draft fill, replay artifacts, and no draft value leakage. This closes AI-020's required low-risk real-site human-in-loop proof beyond Gist.
+```
+
+### AI-025 Local GitHub Issue-Style Draft Profile
+
+```text
+site: local issue draft fixture
+url: file:///Users/waynema/Documents/GitHub/SACCADE/test_pages/issue_draft/index.html
+profile/session: normal persisted Saccade dogfood profile
+read_status: pass; title Saccade Issue Draft Fixture
+draft_status: pass; `github_issue` profile mapped title -> description and filled title/body
+handoff_status: pending_human_review_submit
+replay_status: pass; control report/replay present
+screenshots_used: no
+values_logged: false; final report candidate plus control report/replay checked
+publish_attempted: false; `submit_attempted=false`
+provider_block_or_warning: none
+chrome/reference_needed: no
+artifact_paths:
+- `runs/ai025_live_draft_profiles/local_issue_fixture_20260706/report.json`
+- `runs/ai025_live_draft_profiles/local_issue_fixture_20260706/bridge/control/report.json`
+- `runs/ai025_live_draft_profiles/local_issue_fixture_20260706/bridge/control/replay.jsonl`
+verdict: local profile/product gate is green for issue-style title/body drafts. This does not yet claim real logged-in GitHub issue/discussion compatibility.
 ```
 
 ## Acceptance For AI-020

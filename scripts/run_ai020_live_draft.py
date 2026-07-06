@@ -33,6 +33,68 @@ DEFAULT_SERVOSHELL = Path(
 )
 DEFAULT_PROFILE = ROOT / "runs" / "dogfood_profile" / "default"
 
+CANONICAL_DRAFT_FIELDS = {"description", "filename", "body"}
+DRAFT_PROFILES: dict[str, dict[str, str]] = {
+    "raw": {
+        "description": "description",
+        "filename": "filename",
+        "body": "body",
+    },
+    "gist": {
+        "description": "description",
+        "filename": "filename",
+        "body": "body",
+    },
+    "generic_body": {
+        "body": "body",
+        "comment": "body",
+        "message": "body",
+        "reply": "body",
+        "text": "body",
+    },
+    "hn_comment": {
+        "body": "body",
+        "comment": "body",
+        "reply": "body",
+        "text": "body",
+    },
+    "discourse_reply": {
+        "body": "body",
+        "comment": "body",
+        "reply": "body",
+        "text": "body",
+    },
+    "reddit_comment": {
+        "body": "body",
+        "comment": "body",
+        "reply": "body",
+        "text": "body",
+    },
+    "github_issue": {
+        "title": "description",
+        "description": "description",
+        "body": "body",
+        "comment": "body",
+    },
+    "github_discussion": {
+        "title": "description",
+        "description": "description",
+        "body": "body",
+        "comment": "body",
+    },
+}
+PROFILE_BY_SITE = {
+    "gist": "gist",
+    "gist_draft": "gist",
+    "hn_comment": "hn_comment",
+    "local_forum": "generic_body",
+    "local_forum_fixture": "generic_body",
+    "github_issue": "github_issue",
+    "github_discussion": "github_discussion",
+    "discourse_reply": "discourse_reply",
+    "reddit_comment": "reddit_comment",
+}
+
 
 def now_stamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
@@ -46,42 +108,81 @@ def safe_slug(text: str) -> str:
 def read_text(path: str | None) -> str | None:
     if not path:
         return None
-    return Path(path).read_text()
+    return Path(path).read_text(encoding="utf-8")
 
 
-def load_fields(args: argparse.Namespace) -> dict[str, str]:
-    fields: dict[str, str] = {}
+def resolve_draft_profile(args: argparse.Namespace) -> str:
+    profile = args.draft_profile or PROFILE_BY_SITE.get(args.site, "raw")
+    if profile not in DRAFT_PROFILES:
+        known = ", ".join(sorted(DRAFT_PROFILES))
+        raise SystemExit(f"unknown --draft-profile {profile!r}; known profiles: {known}")
+    return profile
+
+
+def normalize_fields(raw_fields: dict[str, str], profile: str) -> dict[str, str]:
+    field_map = DRAFT_PROFILES[profile]
+    normalized: dict[str, str] = {}
+    source_for_slot: dict[str, str] = {}
+    unsupported = sorted(set(raw_fields) - set(field_map))
+    if unsupported:
+        raise SystemExit(
+            f"unsupported draft field(s) for profile {profile}: {', '.join(unsupported)}"
+        )
+
+    for source, value in raw_fields.items():
+        slot = field_map[source]
+        if slot not in CANONICAL_DRAFT_FIELDS:
+            raise SystemExit(f"draft profile {profile} maps {source} to unsupported slot {slot}")
+        if slot in normalized and normalized[slot] != value:
+            first = source_for_slot[slot]
+            raise SystemExit(
+                f"fields {first!r} and {source!r} both map to draft slot {slot!r}; "
+                "provide only one"
+            )
+        normalized[slot] = value
+        source_for_slot[slot] = source
+    return normalized
+
+
+def load_fields(args: argparse.Namespace) -> tuple[dict[str, str], dict[str, Any]]:
+    raw_fields: dict[str, str] = {}
     if args.fields_json:
         data = json.loads(args.fields_json)
         if not isinstance(data, dict):
             raise SystemExit("--fields-json must decode to an object")
-        fields.update({str(k): str(v) for k, v in data.items()})
+        raw_fields.update({str(k): str(v) for k, v in data.items()})
     if args.fields_file:
-        data = json.loads(Path(args.fields_file).read_text())
+        data = json.loads(Path(args.fields_file).read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise SystemExit("--fields-file must decode to an object")
-        fields.update({str(k): str(v) for k, v in data.items()})
+        raw_fields.update({str(k): str(v) for k, v in data.items()})
     for key, value in {
+        "title": read_text(args.title_file),
         "description": read_text(args.description_file),
         "filename": read_text(args.filename_file),
         "body": read_text(args.body_file),
+        "comment": read_text(args.comment_file),
     }.items():
         if value is not None:
-            fields[key] = value
-
-    allowed = {"description", "filename", "body"}
-    unsupported = sorted(set(fields) - allowed)
-    if unsupported:
-        raise SystemExit(f"unsupported draft field(s): {', '.join(unsupported)}")
+            raw_fields[key] = value
+    profile = resolve_draft_profile(args)
+    fields = normalize_fields(raw_fields, profile)
     if not fields:
         raise SystemExit("provide at least one draft field")
-    return fields
+    return fields, redacted_field_summary(fields, raw_fields, profile)
 
 
-def redacted_field_summary(fields: dict[str, str]) -> dict[str, Any]:
+def redacted_field_summary(
+    fields: dict[str, str],
+    raw_fields: dict[str, str],
+    profile: str,
+) -> dict[str, Any]:
     return {
+        "draft_profile": profile,
+        "source_names": sorted(raw_fields),
         "names": sorted(fields),
         "lengths": {key: len(value) for key, value in fields.items()},
+        "source_lengths": {key: len(value) for key, value in raw_fields.items()},
     }
 
 
@@ -199,11 +300,21 @@ def main() -> int:
     parser.add_argument("--profile-dir", default=str(DEFAULT_PROFILE))
     parser.add_argument("--userscripts-dir", default="")
     parser.add_argument("--output-dir", default="")
+    parser.add_argument(
+        "--draft-profile",
+        default="",
+        help=(
+            "Field profile: raw, gist, generic_body, hn_comment, discourse_reply, "
+            "reddit_comment, github_issue, or github_discussion. Defaults from --site when known."
+        ),
+    )
     parser.add_argument("--fields-json", default="")
     parser.add_argument("--fields-file", default="")
+    parser.add_argument("--title-file", default="")
     parser.add_argument("--description-file", default="")
     parser.add_argument("--filename-file", default="")
     parser.add_argument("--body-file", default="")
+    parser.add_argument("--comment-file", default="")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--manual-gate", action="store_true")
@@ -215,7 +326,7 @@ def main() -> int:
     args = parser.parse_args()
     review_gate = args.review_gate if args.review_gate is not None else (args.manual_gate and not args.headless)
 
-    fields = load_fields(args)
+    fields, field_summary = load_fields(args)
     run_name = safe_slug(args.run_name or args.site or "ai020_live_draft")
     output_dir = under_root(args.output_dir) if args.output_dir else ROOT / "runs" / "ai020_live" / f"{run_name}_{now_stamp()}"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -274,7 +385,7 @@ def main() -> int:
         "bridge_output_dir": str(bridge_output),
         "grant_path": str(grant_path),
         "profile_dir": args.profile_dir,
-        "field_summary": redacted_field_summary(fields),
+        "field_summary": field_summary,
         "policy": {
             "manual_login_human_only": True,
             "review_gate": review_gate,

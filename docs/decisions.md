@@ -1805,3 +1805,23 @@
 - Boundary: this is read-only public coverage. It does not prove logged-in
   drafting, rich-editor compatibility, posting, submitting, visual parity, or
   provider automation acceptance.
+
+## DECISION_DOGFOOD_043 - Live draft profiles map user-facing fields to narrow bridge slots
+
+- Added draft profiles to `scripts/run_ai020_live_draft.py`: `raw`, `gist`,
+  `generic_body`, `hn_comment`, `discourse_reply`, `reddit_comment`,
+  `github_issue`, and `github_discussion`.
+- Profiles map user-facing fields such as `title` and `comment` onto the
+  existing safe bridge slots `description`, `filename`, and `body`; they do not
+  permit arbitrary form filling.
+- Added `test_pages/issue_draft/index.html` as a local issue-style fixture with
+  title, body, password, search, and submit controls.
+- Local verification passed for `github_issue` title/body fill and
+  `local_forum` comment/body regression. Both runs left submit untouched and
+  found no draft values in report/replay artifacts. Evidence:
+  `runs/ai025_live_draft_profiles/local_issue_fixture_20260706/report.json`,
+  `runs/ai025_live_draft_profiles/local_forum_regression_20260706/report.json`,
+  and `docs/ai025_live_draft_profiles.md`.
+- Boundary: this is a local profile/product gate. Real logged-in GitHub
+  issue/discussion, Discourse, and Reddit draft flows still need visible
+  human-in-loop site measurements before being claimed.

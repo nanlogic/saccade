@@ -762,6 +762,7 @@ cp "$ROOT/docs/ai020_human_in_loop_site_matrix.md" "$OUT/docs/" 2>/dev/null || t
 cp "$ROOT/docs/ai021_profile_productization_report.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai023_public_site_smoke_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai024_public_site_matrix_expansion.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai025_live_draft_profiles.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -825,7 +826,8 @@ $OUT/open-saccade https://example.com
   \`run-ai020-live-draft\`. It launches the visible ServoShell bridge, waits
   for the human when requested, calls \`inspect_editors\` and
   \`draft_editor_fill\`, writes a redacted AI-020 report, and verifies draft
-  values do not leak into the report/replay artifacts.
+  values do not leak into the report/replay artifacts. Use
+  \`--draft-profile github_issue\` for title/body issue-style drafts.
 - Optional ServoShell userscripts can be enabled by setting
   \`SACCADE_SERVOSHELL_USERSCRIPTS_DIR=$OUT/userscripts\` before running
   \`open-saccade\`, \`servoshell-bridge\`, \`check-saccade\`, or
@@ -989,6 +991,20 @@ $OUT/run-ai020-live-draft \\
 
 Login/password/OTP/CAPTCHA stay human-only. The agent writes only a draft and
 does not click submit/publish.
+
+For an issue/discussion-style title + body draft:
+
+\`\`\`bash
+printf 'Saccade draft issue title\\n' > /tmp/saccade-title.txt
+printf 'Saccade draft issue body. Human owns submit.\\n' > /tmp/saccade-body.txt
+$OUT/run-ai020-live-draft \\
+  --site github_issue \\
+  --draft-profile github_issue \\
+  --url <new_issue_url> \\
+  --title-file /tmp/saccade-title.txt \\
+  --body-file /tmp/saccade-body.txt \\
+  --manual-gate
+\`\`\`
 
 Legacy embedded Servo 0.2 shell is not built by default. To include it for old
 regression checks only:

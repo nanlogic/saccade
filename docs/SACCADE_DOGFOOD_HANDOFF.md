@@ -231,6 +231,16 @@ dist/saccade-dogfood-current/run-ai020-live-draft \
   --body-file /path/to/draft.txt \
   --manual-gate
 
+For issue/discussion-style title + body drafts, use a draft profile:
+
+dist/saccade-dogfood-current/run-ai020-live-draft \
+  --site github_issue \
+  --draft-profile github_issue \
+  --url <new_issue_url> \
+  --title-file /path/to/title.txt \
+  --body-file /path/to/body.txt \
+  --manual-gate
+
 The human completes login/password/OTP/CAPTCHA and any navigation in the
 visible browser, then returns to the terminal and presses Enter. The harness
 then calls `inspect_editors` and `draft_editor_fill`, writes a redacted AI-020
@@ -238,6 +248,11 @@ report, verifies draft values do not leak into report/replay artifacts, and
 does not click submit/publish. In visible `--manual-gate` mode it pauses again
 after filling; the human inspects the filled draft, then presses Enter to close
 the browser.
+
+Supported draft profiles include `generic_body`, `hn_comment`,
+`discourse_reply`, `reddit_comment`, `github_issue`, and `github_discussion`.
+Profiles only map user-facing names to the existing safe draft slots; they do
+not allow arbitrary form filling.
 
 The dogfood release defaults to ServoShell 0.3 bridge. Do not use the legacy
 embedded `saccade-shell browse` path unless the Saccade session explicitly asks

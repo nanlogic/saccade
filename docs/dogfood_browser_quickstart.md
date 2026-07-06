@@ -146,12 +146,29 @@ dist/saccade-dogfood-current/run-ai020-live-draft \
   --manual-gate
 ```
 
+For an issue/discussion-style title + body draft:
+
+```bash
+printf 'Saccade draft issue title\n' > /tmp/saccade-title.txt
+printf 'Saccade draft issue body. Human owns submit.\n' > /tmp/saccade-body.txt
+dist/saccade-dogfood-current/run-ai020-live-draft \
+  --site github_issue \
+  --draft-profile github_issue \
+  --url <new_issue_url> \
+  --title-file /tmp/saccade-title.txt \
+  --body-file /tmp/saccade-body.txt \
+  --manual-gate
+```
+
 This launches the visible ServoShell bridge, waits for the human when
 `--manual-gate` is set, calls `inspect_editors` and `draft_editor_fill`, writes a
 redacted AI-020 report, and verifies draft values do not appear in the report or
 control replay. It never clicks submit/publish. In visible `--manual-gate` mode
 it stops again after filling so the human can inspect the draft before pressing
 Enter to close the browser.
+
+Draft profiles only map user-facing names such as `title` or `comment` onto the
+existing safe bridge slots. They do not allow arbitrary form fill.
 
 Legacy embedded shell, only when you need an old regression check:
 
