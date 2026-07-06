@@ -169,6 +169,9 @@ Enter to close the browser.
 
 Draft profiles only map user-facing names such as `title` or `comment` onto the
 existing safe bridge slots. They do not allow arbitrary form fill.
+Run visible `--manual-gate` commands from a real interactive terminal. For
+`github_issue` and `github_discussion`, the harness verifies the browser is on a
+GitHub new issue/discussion URL before filling anything.
 
 Legacy embedded shell, only when you need an old regression check:
 

@@ -94,6 +94,11 @@ PROFILE_BY_SITE = {
     "discourse_reply": "discourse_reply",
     "reddit_comment": "reddit_comment",
 }
+DEFAULT_REQUIRED_URL_PATTERNS = {
+    "github_issue": r"^https://github\.com/[^/]+/[^/]+/issues/new(?:[/?#]|$)",
+    "github_discussion": r"^https://github\.com/[^/]+/[^/]+/discussions/new(?:[/?#]|$)",
+}
+STRICT_ALL_FIELD_PROFILES = {"github_issue", "github_discussion"}
 
 
 def now_stamp() -> str:
@@ -117,6 +122,27 @@ def resolve_draft_profile(args: argparse.Namespace) -> str:
         known = ", ".join(sorted(DRAFT_PROFILES))
         raise SystemExit(f"unknown --draft-profile {profile!r}; known profiles: {known}")
     return profile
+
+
+def required_url_pattern_for(args: argparse.Namespace, profile: str) -> str:
+    if args.require_url_regex:
+        return args.require_url_regex
+    return DEFAULT_REQUIRED_URL_PATTERNS.get(profile, "")
+
+
+def require_all_fields_for(args: argparse.Namespace, profile: str) -> bool:
+    if args.require_all_fields is not None:
+        return bool(args.require_all_fields)
+    return profile in STRICT_ALL_FIELD_PROFILES
+
+
+def is_local_fixture_url(url: str) -> bool:
+    return (
+        url.startswith("file://")
+        or url.startswith("http://127.0.0.1")
+        or url.startswith("http://localhost")
+        or url.startswith("http://[::1]")
+    )
 
 
 def normalize_fields(raw_fields: dict[str, str], profile: str) -> dict[str, str]:
@@ -252,6 +278,72 @@ def collect_remaining_lines(
     return out
 
 
+def wait_for_human_gate(prompt: str) -> None:
+    print(prompt, file=sys.stderr)
+    line = sys.stdin.readline()
+    if line == "":
+        raise RuntimeError(
+            "manual gate received EOF before human confirmation; rerun from an interactive terminal"
+        )
+
+
+def validate_prefill_gate(
+    args: argparse.Namespace,
+    profile: str,
+    fields: dict[str, str],
+    ping: dict[str, Any],
+    inspect_before: dict[str, Any],
+) -> dict[str, Any]:
+    url = str(ping.get("url") or inspect_before.get("source_url") or "")
+    title = str(ping.get("title") or inspect_before.get("source_title") or "")
+    required_url_regex = required_url_pattern_for(args, profile)
+    require_all_fields = require_all_fields_for(args, profile)
+    failures = []
+    if required_url_regex and not is_local_fixture_url(url) and not re.search(required_url_regex, url):
+        failures.append(
+            {
+                "kind": "url_mismatch",
+                "required_url_regex": required_url_regex,
+                "observed_url": url,
+            }
+        )
+    if title.strip().lower() in {"servo crashed!", "servo crashed"}:
+        failures.append({"kind": "servo_crash_page", "title": title})
+
+    route = inspect_before.get("route")
+    route_decision = route.get("decision") if isinstance(route, dict) else None
+    visible_authoring_count = int(inspect_before.get("visible_authoring_count") or 0)
+    if visible_authoring_count <= 0:
+        failures.append(
+            {
+                "kind": "no_visible_authoring_editor",
+                "route_decision": route_decision,
+                "visible_authoring_count": visible_authoring_count,
+            }
+        )
+
+    return {
+        "ok": not failures,
+        "draft_profile": profile,
+        "observed_url": url,
+        "observed_title": title,
+        "required_url_regex": required_url_regex or None,
+        "require_all_fields": require_all_fields,
+        "requested_slots": sorted(fields),
+        "route_decision": route_decision,
+        "visible_authoring_count": visible_authoring_count,
+        "failures": failures,
+    }
+
+
+def filled_slots(fill: dict[str, Any]) -> set[str]:
+    out = set()
+    for item in fill.get("filled", []):
+        if isinstance(item, dict) and item.get("slot"):
+            out.add(str(item["slot"]))
+    return out
+
+
 def assert_no_value_leak(
     paths: list[Path],
     fields: dict[str, str],
@@ -316,6 +408,17 @@ def main() -> int:
     parser.add_argument("--body-file", default="")
     parser.add_argument("--comment-file", default="")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--require-url-regex",
+        default="",
+        help="Abort before filling unless the post-human-gate page URL matches this regex.",
+    )
+    parser.add_argument(
+        "--require-all-fields",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Fail the run unless all requested draft slots are filled. Defaults on for issue/discussion profiles.",
+    )
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--manual-gate", action="store_true")
     parser.add_argument("--human-wait-sec", type=float, default=0)
@@ -326,6 +429,7 @@ def main() -> int:
     args = parser.parse_args()
     review_gate = args.review_gate if args.review_gate is not None else (args.manual_gate and not args.headless)
 
+    profile = resolve_draft_profile(args)
     fields, field_summary = load_fields(args)
     run_name = safe_slug(args.run_name or args.site or "ai020_live_draft")
     output_dir = under_root(args.output_dir) if args.output_dir else ROOT / "runs" / "ai020_live" / f"{run_name}_{now_stamp()}"
@@ -412,11 +516,17 @@ def main() -> int:
             print(f"Waiting {args.human_wait_sec:.0f}s for human login/navigation...", file=sys.stderr)
             time.sleep(args.human_wait_sec)
         if args.manual_gate:
-            print("Human step: log in/navigate/review visible page, then press Enter here.", file=sys.stderr)
-            sys.stdin.readline()
+            wait_for_human_gate("Human step: log in/navigate/review visible page, then press Enter here.")
 
         ping = call_bridge(endpoint, "ping", {}, args.control_timeout_sec)
         inspect_before = call_bridge(endpoint, "inspect_editors", {}, args.control_timeout_sec)
+        prefill_gate = validate_prefill_gate(args, profile, fields, ping, inspect_before)
+        report["prefill_gate"] = prefill_gate
+        if not prefill_gate["ok"]:
+            raise RuntimeError(
+                "prefill gate failed: "
+                + "; ".join(str(item.get("kind")) for item in prefill_gate["failures"])
+            )
         fill = call_bridge(
             endpoint,
             "draft_editor_fill",
@@ -429,6 +539,7 @@ def main() -> int:
             args.control_timeout_sec,
         )
         inspect_after = call_bridge(endpoint, "inspect_editors", {}, args.control_timeout_sec)
+        missing_required_slots = sorted(set(fields) - filled_slots(fill))
 
         control_report = under_root(
             fill.get("artifacts", {}).get("report")
@@ -473,6 +584,13 @@ def main() -> int:
                     "verification": fill.get("verification"),
                     "policy": fill.get("policy"),
                 },
+                "required_field_check": {
+                    "require_all_fields": require_all_fields_for(args, profile),
+                    "requested_slots": sorted(fields),
+                    "filled_slots": sorted(filled_slots(fill)),
+                    "missing_slots": missing_required_slots,
+                    "ok": not (require_all_fields_for(args, profile) and missing_required_slots),
+                },
                 "inspect_after": {
                     "route": inspect_after.get("route"),
                     "editor_count": inspect_after.get("editor_count"),
@@ -509,13 +627,14 @@ def main() -> int:
         if not leak_check["ok"]:
             report["ok"] = False
             report["draft_status"] = "failed_value_leak_check"
+        if not report.get("required_field_check", {}).get("ok", True):
+            report["ok"] = False
+            report["draft_status"] = "failed_missing_required_slots"
         if review_gate and report.get("ok"):
             write_json(output_dir / "report.json", report)
-            print(
-                "Draft filled. Review the visible Saccade window now; press Enter here to close it.",
-                file=sys.stderr,
+            wait_for_human_gate(
+                "Draft filled. Review the visible Saccade window now; press Enter here to close it."
             )
-            sys.stdin.readline()
             report["handoff_status"] = "human_review_gate_acknowledged"
     except Exception as error:
         report["ok"] = False

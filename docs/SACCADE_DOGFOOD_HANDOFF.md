@@ -254,6 +254,11 @@ Supported draft profiles include `generic_body`, `hn_comment`,
 Profiles only map user-facing names to the existing safe draft slots; they do
 not allow arbitrary form filling.
 
+Run `--manual-gate` from a real interactive terminal. If stdin is not
+interactive, the harness fails before fill. `github_issue` and
+`github_discussion` also require the post-human-gate URL to match the expected
+GitHub new issue/discussion path before any draft is written.
+
 The dogfood release defaults to ServoShell 0.3 bridge. Do not use the legacy
 embedded `saccade-shell browse` path unless the Saccade session explicitly asks
 for an old Servo 0.2 regression check.

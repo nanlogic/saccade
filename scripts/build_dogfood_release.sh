@@ -763,6 +763,7 @@ cp "$ROOT/docs/ai021_profile_productization_report.md" "$OUT/docs/" 2>/dev/null 
 cp "$ROOT/docs/ai023_public_site_smoke_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai024_public_site_matrix_expansion.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai025_live_draft_profiles.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai026_live_github_issue_gate_hardening.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
@@ -827,7 +828,9 @@ $OUT/open-saccade https://example.com
   for the human when requested, calls \`inspect_editors\` and
   \`draft_editor_fill\`, writes a redacted AI-020 report, and verifies draft
   values do not leak into the report/replay artifacts. Use
-  \`--draft-profile github_issue\` for title/body issue-style drafts.
+  \`--draft-profile github_issue\` for title/body issue-style drafts. Manual
+  gates require a real interactive stdin, and GitHub issue/discussion profiles
+  validate the target URL before fill.
 - Optional ServoShell userscripts can be enabled by setting
   \`SACCADE_SERVOSHELL_USERSCRIPTS_DIR=$OUT/userscripts\` before running
   \`open-saccade\`, \`servoshell-bridge\`, \`check-saccade\`, or

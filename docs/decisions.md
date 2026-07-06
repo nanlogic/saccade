@@ -1825,3 +1825,22 @@
 - Boundary: this is a local profile/product gate. Real logged-in GitHub
   issue/discussion, Discourse, and Reddit draft flows still need visible
   human-in-loop site measurements before being claimed.
+
+## DECISION_DOGFOOD_044 - Live draft fill requires target-page prefill gates
+
+- A visible GitHub dogfood attempt exposed a harness bug: if `--manual-gate`
+  ran without a real interactive stdin, EOF could let the run continue, and
+  `github_issue` could partially fill GitHub Dashboard's Copilot textarea while
+  still reporting success.
+- `scripts/run_ai020_live_draft.py` now treats manual-gate EOF as fatal before
+  fill.
+- `github_issue` and `github_discussion` profiles now have default URL prefill
+  gates for GitHub new issue/discussion paths. Local fixture URLs are exempt.
+- Those profiles also require all requested slots to be filled before the run is
+  considered green.
+- Evidence: `docs/ai026_live_github_issue_gate_hardening.md`,
+  `runs/ai026_live_github_issue/manual_gate_eof_regression_20260706/report.json`,
+  `runs/ai026_live_github_issue/example_prefill_gate_20260706/report.json`, and
+  `runs/ai026_live_github_issue/local_issue_prefill_gate_positive_20260706/report.json`.
+  The invalid live attempt remains recorded at
+  `runs/ai026_live_github_issue/github_issue_visible_20260706/report.json`.

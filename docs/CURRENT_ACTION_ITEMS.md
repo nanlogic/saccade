@@ -14,11 +14,12 @@ complete. The current dogfood kit has visible human-in-loop drafting, stable
 normal/incognito/named profile wrappers, trusted chrome profile/agent badges,
 user-confirmed clear-profile-on-quit flow, and a no-login public-site smoke
 matrix runner with reusable core/extended matrices. The live draft harness also
-has reusable draft profiles for issue/comment-style flows.
+has reusable draft profiles for issue/comment-style flows plus prefill guards
+for GitHub issue/discussion targets.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| - | - | idle | Supervisor | Pick the next big block when Wayne is ready. Suggested candidates: logged-in human-in-loop draft expansion, WebGL/canvas reliability, or public release packaging/signing. | A new AI item is selected and scoped before implementation starts. |
+| - | - | idle | Supervisor | Retry the real logged-in GitHub issue/discussion draft measurement, or pick another big block. | A new AI item is selected and scoped before implementation starts. |
 
 ## Next
 
@@ -35,6 +36,7 @@ has reusable draft profiles for issue/comment-style flows.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-026 | 2026-07-06 | Hardened the live GitHub issue draft gate after a visible attempt exposed two harness bugs: non-interactive `--manual-gate` could continue after EOF, and `github_issue` could partially fill GitHub Dashboard's Copilot textarea while still reporting `ok=true`. `scripts/run_ai020_live_draft.py` now treats manual-gate EOF as fatal, adds default URL prefill gates for `github_issue` and `github_discussion`, and requires all requested slots for those profiles. Evidence: `docs/ai026_live_github_issue_gate_hardening.md`, `runs/ai026_live_github_issue/manual_gate_eof_regression_20260706/report.json`, `runs/ai026_live_github_issue/example_prefill_gate_20260706/report.json`, and `runs/ai026_live_github_issue/local_issue_prefill_gate_positive_20260706/report.json`. Real logged-in GitHub issue/discussion remains pending. |
 | AI-025 | 2026-07-06 | Added live draft profiles to `scripts/run_ai020_live_draft.py` so user-facing fields like `title` and `comment` map to the existing safe `description/body` bridge slots without widening the bridge to arbitrary inputs. Added `test_pages/issue_draft/index.html` and verified `github_issue` profile fills title/body while leaving password and submit untouched; verified `local_forum` still fills comment/body through inferred `generic_body`. Evidence: `docs/ai025_live_draft_profiles.md`, `runs/ai025_live_draft_profiles/local_issue_fixture_20260706/report.json`, and `runs/ai025_live_draft_profiles/local_forum_regression_20260706/report.json`. Real logged-in GitHub issue/discussion remains the next human-in-loop measurement. |
 | AI-024 | 2026-07-05 | Expanded the public no-login smoke matrix into reusable `site_matrices/public_core.json` and `site_matrices/public_extended.json`. `scripts/run_public_site_smoke_matrix.py` now supports `--matrix`, packaged matrix files, and optional exploratory sites through `required=false`. The extended matrix passed 8/8 public read-only sites: example.com, Hacker News, Wikipedia Servo, The Rookies, GitHub Servo repo, Gist discover, Stack Overflow Rust tag, and Reddit Rust subreddit. Evidence: `docs/ai024_public_site_matrix_expansion.md` and `runs/ai024_public_site_matrix/extended_20260705/report.json`. |
 | AI-023 | 2026-07-05 | Added the no-login public-site smoke matrix runner. `scripts/run_public_site_smoke_matrix.py` sequentially opens low-risk public URLs through the current ServoShell bridge, collects same-WebView smoke truth, optionally extracts article text, and writes per-site artifacts plus an aggregate report. Default matrix passed on example.com, Hacker News, Wikipedia's Servo page, and The Rookies tutorial with `same_webview_control=true` and `graceful_servo_shutdown`. The dogfood release kit now packages it as `run-public-site-smoke-matrix`. Evidence: `docs/ai023_public_site_smoke_matrix.md` and `runs/ai023_public_site_matrix/default_20260705/report.json`. |
