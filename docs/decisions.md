@@ -1866,3 +1866,21 @@
   `runs/ai028_mouseaccuracy_original/classic_gate_headed_release_2/report.json`,
   and
   `runs/ai028_mouseaccuracy_original/modern_game_headed_release_3/report.json`.
+
+## DECISION_DOGFOOD_045 - Hacker News submit is a human-in-loop draft target
+
+- Hacker News submit is a useful public dogfood target because it is a real
+  posting surface, but Saccade must not publish from automation.
+- Added `hn_submit` to the live draft harness. It maps user-facing `title`,
+  `url`, and `text`/`body` onto the existing safe draft slots:
+  `description`, `filename`, and `body`.
+- The profile has a default prefill gate requiring the real HN submit URL and
+  requires all requested slots to be filled before returning green.
+- `saccade-servoshell` now treats visible URL fields as authoring candidates for
+  this draft path and lets the `filename` slot target `name=url` controls.
+- Release-source and packaged dogfood wrapper runs filled all three HN submit
+  fields with no rejected slots, did not click submit, and passed value-leak
+  checks on report/replay artifacts.
+- Evidence: `docs/ai029_hn_submit_dogfood.md`,
+  `runs/ai029_hn_dogfood/hn_submit_live_draft_release/report.json`, and
+  `runs/ai029_hn_dogfood/hn_submit_packaged_wrapper/report.json`.

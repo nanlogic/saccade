@@ -2361,6 +2361,7 @@ fn editor_is_visible_authoring(editor: &Value) -> bool {
         "title",
         "description",
         "filename",
+        "url",
         "gist",
         "body",
         "content",

@@ -3842,6 +3842,7 @@ fn editor_is_visible_authoring(editor: &Value) -> bool {
         "title",
         "description",
         "filename",
+        "url",
         "gist",
         "body",
         "content",
@@ -5790,7 +5791,7 @@ return (() => {
     const controls = visibleTextControls();
     const patterns = {
       description: [/gist.*description/, /\bdescription\b/, /\btitle\b/],
-      filename: [/gist.*contents.*name/, /\bfilename\b/, /\bfile.*name\b/]
+      filename: [/gist.*contents.*name/, /\bfilename\b/, /\bfile.*name\b/, /\burl\b/]
     }[slot] || [];
     return controls.find((el) => patterns.some((pattern) => pattern.test(haystack(el))));
   }

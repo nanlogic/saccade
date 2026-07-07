@@ -32,6 +32,7 @@ raw
 gist
 generic_body
 hn_comment
+hn_submit
 discourse_reply
 reddit_comment
 github_issue
@@ -42,6 +43,7 @@ Known `--site` values infer profiles automatically:
 
 ```text
 hn_comment -> hn_comment
+hn_submit -> hn_submit
 local_forum -> generic_body
 github_issue -> github_issue
 github_discussion -> github_discussion
@@ -52,6 +54,11 @@ reddit_comment -> reddit_comment
 For `github_issue` and `github_discussion`, `title` maps to the internal
 `description` slot because the bridge already targets title/description-like
 visible text inputs through that slot. `body` maps to the body editor.
+
+For `hn_submit`, `title` maps to `description`, `url` maps to the existing
+`filename` draft slot, and `text`/`body` map to `body`. It is still a draft-only
+profile: Saccade fills visible non-sensitive fields and the human owns the final
+Hacker News submit click.
 
 ## Verification
 

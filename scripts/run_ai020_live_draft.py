@@ -58,6 +58,12 @@ DRAFT_PROFILES: dict[str, dict[str, str]] = {
         "reply": "body",
         "text": "body",
     },
+    "hn_submit": {
+        "title": "description",
+        "url": "filename",
+        "body": "body",
+        "text": "body",
+    },
     "discourse_reply": {
         "body": "body",
         "comment": "body",
@@ -87,6 +93,7 @@ PROFILE_BY_SITE = {
     "gist": "gist",
     "gist_draft": "gist",
     "hn_comment": "hn_comment",
+    "hn_submit": "hn_submit",
     "local_forum": "generic_body",
     "local_forum_fixture": "generic_body",
     "github_issue": "github_issue",
@@ -95,10 +102,11 @@ PROFILE_BY_SITE = {
     "reddit_comment": "reddit_comment",
 }
 DEFAULT_REQUIRED_URL_PATTERNS = {
+    "hn_submit": r"^https://news\.ycombinator\.com/submit(?:[/?#]|$)",
     "github_issue": r"^https://github\.com/[^/]+/[^/]+/issues/new(?:[/?#]|$)",
     "github_discussion": r"^https://github\.com/[^/]+/[^/]+/discussions/new(?:[/?#]|$)",
 }
-STRICT_ALL_FIELD_PROFILES = {"github_issue", "github_discussion"}
+STRICT_ALL_FIELD_PROFILES = {"github_issue", "github_discussion", "hn_submit"}
 
 
 def now_stamp() -> str:
@@ -397,7 +405,8 @@ def main() -> int:
         default="",
         help=(
             "Field profile: raw, gist, generic_body, hn_comment, discourse_reply, "
-            "reddit_comment, github_issue, or github_discussion. Defaults from --site when known."
+            "reddit_comment, hn_submit, github_issue, or github_discussion. "
+            "Defaults from --site when known."
         ),
     )
     parser.add_argument("--fields-json", default="")
