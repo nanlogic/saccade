@@ -1844,3 +1844,25 @@
   `runs/ai026_live_github_issue/local_issue_prefill_gate_positive_20260706/report.json`.
   The invalid live attempt remains recorded at
   `runs/ai026_live_github_issue/github_issue_visible_20260706/report.json`.
+
+## DECISION_DEMO_003 - Original MouseAccuracy works through release/headed ServoShell
+
+- Added `scripts/probe_mouseaccuracy_original_gate.py` as a narrow real-site
+  diagnostic gate for MouseAccuracy original pages.
+- The classic gate opened `https://mouseaccuracy.com/classic/` in a visible
+  release ServoShell window, selected Epic/Tiny, started the game, clicked real
+  `.target` elements through WebDriver pointer actions, and moved score from
+  `0` to `8`.
+- The modern gate opened `https://mouseaccuracy.com/game` in a visible release
+  ServoShell window, completed countdown, observed one canvas plus DOM `.target`
+  facts, clicked target rectangles through WebDriver pointer actions, and moved
+  score from `0` to `12`.
+- The recurring `GLD_TEXTURE_INDEX_2D` warning still appears, but it did not
+  block original-site MouseAccuracy rendering or clicks in these gates.
+- Boundary: this closes the original-site viability question, not the full
+  30-second highest-difficulty launch benchmark. Full public benchmark evidence
+  should be a separate AI-029 run.
+- Evidence: `docs/ai028_mouseaccuracy_original_gate.md`,
+  `runs/ai028_mouseaccuracy_original/classic_gate_headed_release_2/report.json`,
+  and
+  `runs/ai028_mouseaccuracy_original/modern_game_headed_release_3/report.json`.

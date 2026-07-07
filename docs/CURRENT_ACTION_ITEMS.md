@@ -9,8 +9,9 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-027 GitHub UI canary. AI-020 and AI-021 are now
-complete. The current dogfood kit has visible human-in-loop drafting, stable
+Active next item: AI-027 GitHub UI canary, unless Wayne wants to promote
+AI-029 MouseAccuracy full public benchmark next. AI-020, AI-021, and AI-028 are
+now complete. The current dogfood kit has visible human-in-loop drafting, stable
 normal/incognito/named profile wrappers, trusted chrome profile/agent badges,
 user-confirmed clear-profile-on-quit flow, and a no-login public-site smoke
 matrix runner with reusable core/extended matrices. The live draft harness also
@@ -37,6 +38,7 @@ for GitHub issue/discussion targets.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-028 | 2026-07-06 | Added the MouseAccuracy original-site gate and verified real public URLs through release/headed source ServoShell. Classic `https://mouseaccuracy.com/classic/` selected Epic/Tiny, started the game, used browser pointer actions on real `.target` elements, and moved score `0 -> 8`. Modern `https://mouseaccuracy.com/game` loaded the original modern game, completed countdown, exposed one canvas plus DOM `.target` rectangles, used browser pointer actions on target facts, and moved score `0 -> 12`. Persistent `GLD_TEXTURE_INDEX_2D` warning remains monitored but did not block either gate. Evidence: `docs/ai028_mouseaccuracy_original_gate.md`, `runs/ai028_mouseaccuracy_original/classic_gate_headed_release_2/report.json`, and `runs/ai028_mouseaccuracy_original/modern_game_headed_release_3/report.json`. |
 | AI-026 | 2026-07-06 | Hardened the live GitHub issue draft gate after a visible attempt exposed two harness bugs: non-interactive `--manual-gate` could continue after EOF, and `github_issue` could partially fill GitHub Dashboard's Copilot textarea while still reporting `ok=true`. `scripts/run_ai020_live_draft.py` now treats manual-gate EOF as fatal, adds default URL prefill gates for `github_issue` and `github_discussion`, and requires all requested slots for those profiles. Evidence: `docs/ai026_live_github_issue_gate_hardening.md`, `runs/ai026_live_github_issue/manual_gate_eof_regression_20260706/report.json`, `runs/ai026_live_github_issue/example_prefill_gate_20260706/report.json`, and `runs/ai026_live_github_issue/local_issue_prefill_gate_positive_20260706/report.json`. Real logged-in GitHub issue/discussion remains pending. |
 | AI-025 | 2026-07-06 | Added live draft profiles to `scripts/run_ai020_live_draft.py` so user-facing fields like `title` and `comment` map to the existing safe `description/body` bridge slots without widening the bridge to arbitrary inputs. Added `test_pages/issue_draft/index.html` and verified `github_issue` profile fills title/body while leaving password and submit untouched; verified `local_forum` still fills comment/body through inferred `generic_body`. Evidence: `docs/ai025_live_draft_profiles.md`, `runs/ai025_live_draft_profiles/local_issue_fixture_20260706/report.json`, and `runs/ai025_live_draft_profiles/local_forum_regression_20260706/report.json`. Real logged-in GitHub issue/discussion remains the next human-in-loop measurement. |
 | AI-024 | 2026-07-05 | Expanded the public no-login smoke matrix into reusable `site_matrices/public_core.json` and `site_matrices/public_extended.json`. `scripts/run_public_site_smoke_matrix.py` now supports `--matrix`, packaged matrix files, and optional exploratory sites through `required=false`. The extended matrix passed 8/8 public read-only sites: example.com, Hacker News, Wikipedia Servo, The Rookies, GitHub Servo repo, Gist discover, Stack Overflow Rust tag, and Reddit Rust subreddit. Evidence: `docs/ai024_public_site_matrix_expansion.md` and `runs/ai024_public_site_matrix/extended_20260705/report.json`. |
