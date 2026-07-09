@@ -32,6 +32,8 @@ if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
   cp "$ROOT/target/release/saccade-shell" "$OUT/bin/"
 fi
 cp "$ROOT/scripts/read_article_fallback.py" "$OUT/lib/"
+cp "$ROOT/scripts/chrome_compat_cdp.py" "$OUT/lib/"
+cp "$ROOT/scripts/chrome_reference_cdp.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_ai020_live_draft.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_public_site_smoke_matrix.py" "$OUT/lib/"
 cp "$ROOT/site_matrices"/public_*.json "$OUT/site_matrices/"
@@ -50,6 +52,8 @@ SACCADE_PROFILE_NAME=\${SACCADE_PROFILE_NAME:-default}
 SACCADE_PROFILE_DIR=\${SACCADE_PROFILE_DIR:-\${SACCADE_PROFILE_ROOT}/\${SACCADE_PROFILE_NAME}}
 SACCADE_PROFILE_MODE=\${SACCADE_PROFILE_MODE:-normal}
 SACCADE_PROFILE_ACTIONS_DIR=\${SACCADE_PROFILE_ACTIONS_DIR:-$OUT/runs/profile_actions}
+SACCADE_COMPAT_PROFILE_DIR=\${SACCADE_COMPAT_PROFILE_DIR:-$DEFAULT_PROFILE_ROOT/chrome-compat-default}
+SACCADE_COMPAT_RUNS_DIR=\${SACCADE_COMPAT_RUNS_DIR:-$OUT/runs/chrome_compat}
 SACCADE_INCOGNITO=\${SACCADE_INCOGNITO:-0}
 SACCADE_INCOGNITO_BASE_DIR=\${SACCADE_INCOGNITO_BASE_DIR:-$OUT/runs/incognito}
 SACCADE_OWNED_DOMAINS=$OWNED_DOMAINS
@@ -309,6 +313,30 @@ saccade_run_with_profile_cleanup "$DIR/bin/saccade-servoshell" bridge \
   --no-headless \
   --output-dir "$DIR/runs/servoshell_bridge" \
   --grant-path "$DIR/current_tab_grant.json"
+SH
+
+cat > "$OUT/open-saccade-compat" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
+source "$DIR/saccade-dogfood.env"
+set +a
+URL="${1:?usage: open-saccade-compat <url> [compat options]}"
+shift
+STAMP="$(date +%Y%m%d-%H%M%S)"
+OUTPUT_DIR="$SACCADE_COMPAT_RUNS_DIR/compat_$STAMP"
+mkdir -p "$SACCADE_COMPAT_PROFILE_DIR" "$OUTPUT_DIR"
+echo "Opening visible Saccade Compatibility browser..." >&2
+echo "Target: $URL" >&2
+echo "Engine: Chrome compatibility (Servo remains the default Saccade engine)" >&2
+echo "Profile: persistent dedicated compatibility profile ($SACCADE_COMPAT_PROFILE_DIR)" >&2
+echo "CAPTCHA or human verification remains user-owned; Saccade will only wait." >&2
+exec python3 "$DIR/lib/chrome_compat_cdp.py" \
+  "$URL" "$OUTPUT_DIR" \
+  --profile-dir "$SACCADE_COMPAT_PROFILE_DIR" \
+  --keep-open \
+  "$@"
 SH
 
 cat > "$OUT/servoshell-bridge" <<'SH'
@@ -750,8 +778,8 @@ SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
 
-chmod +x "$OUT/open-saccade" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-public-site-smoke-matrix" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
-chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/run_ai020_live_draft.py" "$OUT/lib/run_public_site_smoke_matrix.py"
+chmod +x "$OUT/open-saccade" "$OUT/open-saccade-compat" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-public-site-smoke-matrix" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
+chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/chrome_compat_cdp.py" "$OUT/lib/chrome_reference_cdp.py" "$OUT/lib/run_ai020_live_draft.py" "$OUT/lib/run_public_site_smoke_matrix.py"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
@@ -788,6 +816,7 @@ ServoShell binary: $SERVOSHELL_BIN
 $OUT/check-saccade
 $OUT/profile-status
 $OUT/open-saccade https://example.com
+$OUT/open-saccade-compat https://www.gameuidatabase.com/
 \`\`\`
 
 ## Current Claims
@@ -811,6 +840,10 @@ $OUT/open-saccade https://example.com
 - Visible \`open-saccade\` launches show a local launch page first, print
   immediate terminal status, and then navigate that same bridge session to the
   target URL.
+- \`open-saccade-compat\` is an explicit headed Chrome compatibility route for
+  measured Servo engine blockers. It uses a dedicated persistent profile,
+  reports its engine visibly, never solves provider challenges, and exports no
+  cookies, storage, passwords, or field values.
 - Same-tab agent help is limited by the site policy docs copied into
   \`docs/\`.
 - Public article/tutorial extraction is available through \`read-article\`.

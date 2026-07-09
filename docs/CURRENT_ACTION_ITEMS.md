@@ -1,6 +1,6 @@
 # Saccade Current Action Items
 
-Date: 2026-07-05
+Date: 2026-07-09
 Status: canonical execution queue
 
 This file is the short, current action list. Use it with
@@ -9,17 +9,16 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-Active next item: AI-027 GitHub UI canary, unless Wayne wants to promote the
-MouseAccuracy full public benchmark next. AI-020, AI-021, AI-028, and AI-029 are
-now complete. The current dogfood kit has visible human-in-loop drafting, stable
-normal/incognito/named profile wrappers, trusted chrome profile/agent badges,
-user-confirmed clear-profile-on-quit flow, and a no-login public-site smoke
-matrix runner with reusable core/extended matrices. The live draft harness also
-has reusable draft profiles for issue/comment-style flows, Hacker News submit
-drafts, and prefill guards for GitHub issue/discussion targets.
+Active next item: AI-030B engine-neutral MCP attachment for the new explicit
+Chrome compatibility route. AI-030A proved that the measured Game UI Database
+Cloudflare blocker is not solved by removing WebDriver or by the later module
+Blob lifetime claim, then passed the same page twice through a visible,
+persistent compatibility profile with redacted live truth. AI-027 remains the
+Servo/GitHub UI canary; Servo remains the default reflex/truth engine.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
+| AI-030B | P0 | next | Compatibility adapter | Attach the existing engine-neutral MCP grant/action/replay surface to the headed persistent Chrome compatibility session. | A user can keep one visible compatibility window open, navigate normally, grant the current tab, and receive redacted truth plus verified safe-action receipts without exposing cookies, storage, passwords, OTPs, or sensitive values. |
 | AI-027 | P1 | active | GitHub UI canary | Classify and reduce GitHub UI failures exposed during dogfood, starting with profile dropdown hit-testing. | Public GitHub smoke, API compatibility, and dropdown hit-test evidence are recorded; next reduction identifies whether the overlay bug is Servo hit-test, GitHub shim, or Saccade product chrome. |
 
 ## Next
@@ -38,6 +37,7 @@ drafts, and prefill guards for GitHub issue/discussion targets.
 
 | ID | Closed In | Result |
 | --- | --- | --- |
+| AI-030A | 2026-07-09 | Added an explicit visible Chrome compatibility route for measured Servo engine blockers. Game UI Database remained on Cloudflare `Just a moment...` through an in-process non-WebDriver Servo bridge and a post-base module Blob lifetime experiment, while `chrome_compat_cdp.py` passed twice in `4.8s` and `3.0s` with `navigator.webdriver=false`, 364 redacted actions, and no cookie/storage/sensitive-value export. Live follow then tracked navigation to the home page and refreshed truth to 961 actions. The dogfood builder now packages `open-saccade-compat`; Servo remains default. Evidence: `docs/ai030_cloudflare_compatibility_route.md`. |
 | AI-029 | 2026-07-06 | Added Hacker News submit as a real human-in-loop draft target. `hn_submit` maps title/url/text onto the existing safe draft slots, requires the real HN submit URL, requires all requested slots, fills only visible non-sensitive draft fields, and keeps `no_submit=true`. Release-source and packaged dogfood wrapper gates both filled 3/3 fields with 0 rejected, `submit_attempted=false`, and value-leak checks green. Current package now points to `dist/saccade-dogfood-ai029-hn-submit-20260706`. Evidence: `docs/ai029_hn_submit_dogfood.md`, `runs/ai029_hn_dogfood/hn_submit_live_draft_release/report.json`, and `runs/ai029_hn_dogfood/hn_submit_packaged_wrapper/report.json`. |
 | AI-028 | 2026-07-06 | Added the MouseAccuracy original-site gate and verified real public URLs through release/headed source ServoShell. Classic `https://mouseaccuracy.com/classic/` selected Epic/Tiny, started the game, used browser pointer actions on real `.target` elements, and moved score `0 -> 8`. Modern `https://mouseaccuracy.com/game` loaded the original modern game, completed countdown, exposed one canvas plus DOM `.target` rectangles, used browser pointer actions on target facts, and moved score `0 -> 12`. Persistent `GLD_TEXTURE_INDEX_2D` warning remains monitored but did not block either gate. Evidence: `docs/ai028_mouseaccuracy_original_gate.md`, `runs/ai028_mouseaccuracy_original/classic_gate_headed_release_2/report.json`, and `runs/ai028_mouseaccuracy_original/modern_game_headed_release_3/report.json`. |
 | AI-026 | 2026-07-06 | Hardened the live GitHub issue draft gate after a visible attempt exposed two harness bugs: non-interactive `--manual-gate` could continue after EOF, and `github_issue` could partially fill GitHub Dashboard's Copilot textarea while still reporting `ok=true`. `scripts/run_ai020_live_draft.py` now treats manual-gate EOF as fatal, adds default URL prefill gates for `github_issue` and `github_discussion`, and requires all requested slots for those profiles. Evidence: `docs/ai026_live_github_issue_gate_hardening.md`, `runs/ai026_live_github_issue/manual_gate_eof_regression_20260706/report.json`, `runs/ai026_live_github_issue/example_prefill_gate_20260706/report.json`, and `runs/ai026_live_github_issue/local_issue_prefill_gate_positive_20260706/report.json`. Real logged-in GitHub issue/discussion remains pending. |

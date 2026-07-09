@@ -1884,3 +1884,22 @@
 - Evidence: `docs/ai029_hn_submit_dogfood.md`,
   `runs/ai029_hn_dogfood/hn_submit_live_draft_release/report.json`, and
   `runs/ai029_hn_dogfood/hn_submit_packaged_wrapper/report.json`.
+
+## DECISION_BROWSER_046 - Protected-site compatibility is explicit engine routing
+
+- Servo remains Saccade's default browser and owns the low-latency reflex proof.
+- Removing WebDriver did not clear Game UI Database's Cloudflare Turnstile
+  page, and the later module Blob lifetime claim did not clear it either.
+- Fresh headless Chrome was also blocked. A visible Chrome session using a
+  dedicated persistent compatibility profile passed twice and kept
+  `navigator.webdriver=false` without UA overrides or challenge automation.
+- Therefore Saccade will use an explicit compatibility engine for measured
+  Servo blockers. It must not present that mode as Servo or hide the active
+  engine from the user.
+- Compatibility truth preserves the Saccade boundary: no cookie/storage export,
+  no sensitive values, no automatic CAPTCHA action, and stale truth is removed
+  during navigation or provider challenge.
+- AI-030A provides live redacted truth. Full MCP grants, verified actions,
+  replay, FORMMAX, and trusted engine chrome are AI-030B.
+- Evidence: `docs/ai030_cloudflare_compatibility_route.md` and
+  `runs/chrome_compat/gameuidatabase_follow_check/report.json`.
