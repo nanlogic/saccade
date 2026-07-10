@@ -1765,8 +1765,13 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         .context("grant artifact is missing string url")?;
     let url =
         Url::parse(url_str).with_context(|| format!("invalid grant artifact URL: {url_str}"))?;
-    if !is_local_dev_url(&url) {
-        bail!("grant artifact URL must be localhost, loopback, or file URL: {url}");
+    let control_endpoint = dogfood_control_endpoint_from_grant(&grant)?;
+    let chrome_compatibility_grant =
+        is_chrome_compatibility_grant(&grant, control_endpoint.as_ref());
+    if !is_local_dev_url(&url) && !chrome_compatibility_grant {
+        bail!(
+            "grant artifact URL must be localhost, loopback, file, or an explicit Chrome compatibility grant: {url}"
+        );
     }
     let reason = arguments
         .get("reason")
@@ -1775,8 +1780,6 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         .map(str::trim)
         .unwrap_or("dogfood browser current-tab grant artifact");
     let read_grant = read_grant_from_grant_value(grant.get("read_grant").and_then(Value::as_str))?;
-    let control_endpoint = dogfood_control_endpoint_from_grant(&grant)?;
-
     Ok(CurrentTabGrantRequest {
         url,
         reason: reason.to_string(),
@@ -1785,6 +1788,17 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         grant_path: Some(grant_path.display().to_string()),
         control_endpoint,
     })
+}
+
+fn is_chrome_compatibility_grant(
+    grant: &Value,
+    control_endpoint: Option<&DogfoodControlEndpoint>,
+) -> bool {
+    control_endpoint.is_some()
+        && grant.get("runtime").and_then(Value::as_str) == Some("saccade-chrome-compat-cdp-v0")
+        && grant.get("rendering_profile").and_then(Value::as_str) == Some("chrome-compatibility")
+        && grant.get("transport_status").and_then(Value::as_str)
+            == Some("chrome_compatibility_control_v0")
 }
 
 fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodControlEndpoint>> {
@@ -5745,5 +5759,22 @@ mod tests {
 
         assert_eq!(tab_runtime(&state, TabId(7)), "saccade-dogfood-control-v0");
         assert_eq!(tab_runtime(&state, TabId(8)), "mcp_report_backed_v0");
+    }
+
+    #[test]
+    fn chrome_compatibility_grant_is_the_only_remote_grant_exception() {
+        let endpoint = DogfoodControlEndpoint {
+            host: "127.0.0.1".to_string(),
+            port: 49323,
+            protocol: "saccade-dogfood-control-v0".to_string(),
+        };
+        let grant = json!({
+            "runtime": "saccade-chrome-compat-cdp-v0",
+            "rendering_profile": "chrome-compatibility",
+            "transport_status": "chrome_compatibility_control_v0",
+        });
+        assert!(is_chrome_compatibility_grant(&grant, Some(&endpoint)));
+        assert!(!is_chrome_compatibility_grant(&grant, None));
+        assert!(!is_chrome_compatibility_grant(&json!({}), Some(&endpoint)));
     }
 }

@@ -10,6 +10,7 @@ import base64
 import json
 import pathlib
 import subprocess
+import sys
 import time
 
 import chrome_reference_cdp as reference
@@ -63,11 +64,25 @@ def parse_args():
     )
     parser.add_argument("--poll-ms", type=int, default=1000)
     parser.add_argument(
+        "--grant-current-tab",
+        action="store_true",
+        help="Write an explicit Human current-tab grant and start the loopback compatibility bridge.",
+    )
+    parser.add_argument(
+        "--grant-path",
+        help="Path for the explicit current-tab grant artifact; required with --grant-current-tab.",
+    )
+    parser.add_argument(
         "--screenshot",
         action="store_true",
         help="Capture visible pixels. Use only for public, non-sensitive pages.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.grant_current_tab and not args.keep_open:
+        parser.error("--grant-current-tab requires --keep-open")
+    if args.grant_current_tab and not args.grant_path:
+        parser.error("--grant-current-tab requires --grant-path")
+    return args
 
 
 def evaluate_json(client, expression):
@@ -152,6 +167,55 @@ def terminate(process):
         process.wait(timeout=5)
 
 
+def start_control_bridge(args, cdp_port):
+    script = pathlib.Path(__file__).with_name("chrome_compat_control.py")
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(script),
+            "--cdp-port",
+            str(cdp_port),
+            "--output-dir",
+            str(pathlib.Path(args.output_dir).resolve()),
+            "--grant-path",
+            str(pathlib.Path(args.grant_path).resolve()),
+            "--initial-url",
+            reference.safe_url(args.url),
+            "--timeout-sec",
+            str(args.timeout_sec),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def wait_for_file(path, process, timeout_sec):
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        if process.poll() is not None:
+            return False
+        time.sleep(0.05)
+    return path.exists()
+
+
+def attach_control_metadata(report, grant_path):
+    if grant_path is None:
+        return report
+    report["grant_path"] = str(grant_path)
+    if grant_path.exists():
+        try:
+            grant = json.loads(grant_path.read_text())
+            report["control_endpoint"] = grant.get("control_endpoint")
+            report["grant_status"] = grant.get("status")
+        except (OSError, json.JSONDecodeError):
+            report["grant_status"] = "unreadable"
+    else:
+        report["grant_status"] = "not_ready"
+    return report
+
+
 def write_json_atomic(path, payload):
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
@@ -212,6 +276,8 @@ def main():
     client = None
     started = time.monotonic()
     command = []
+    control_process = None
+    grant_path = pathlib.Path(args.grant_path).resolve() if args.grant_current_tab else None
     exit_code = 1
     try:
         command, process = launch_chrome(
@@ -244,6 +310,11 @@ def main():
 
         paths = {"truth": truth_path, "screenshot": screenshot_path}
         report = build_report(args, status, challenge_seen, truth, started, profile_dir, paths, command)
+        if ok and args.grant_current_tab:
+            control_process = start_control_bridge(args, port)
+            if not wait_for_file(grant_path, control_process, min(args.timeout_sec, 5)):
+                raise RuntimeError("Chrome compatibility control bridge did not write its grant")
+        attach_control_metadata(report, grant_path)
         write_json_atomic(report_path, report)
         print(json.dumps(report, indent=2, sort_keys=True))
         exit_code = 0 if ok else 1
@@ -268,6 +339,7 @@ def main():
                 report = build_report(
                     args, status, challenge_seen, truth, started, profile_dir, paths, command
                 )
+                attach_control_metadata(report, grant_path)
                 write_json_atomic(report_path, report)
             except Exception as error:
                 report["ok"] = False
@@ -275,6 +347,7 @@ def main():
                 report["truth_stale"] = True
                 report["last_error"] = str(error)
                 report["artifacts"]["truth"] = None
+                attach_control_metadata(report, grant_path)
                 truth_path.unlink(missing_ok=True)
                 write_json_atomic(report_path, report)
                 break
@@ -283,6 +356,7 @@ def main():
             report["route"] = "browser_closed"
             report["truth_stale"] = True
             report["artifacts"]["truth"] = None
+            attach_control_metadata(report, grant_path)
             truth_path.unlink(missing_ok=True)
             write_json_atomic(report_path, report)
         return exit_code
@@ -293,6 +367,7 @@ def main():
             report["route"] = "browser_closed"
             report["truth_stale"] = True
             report["artifacts"]["truth"] = None
+            attach_control_metadata(report, grant_path)
             write_json_atomic(report_path, report)
         return 0
     finally:
@@ -301,6 +376,7 @@ def main():
                 client.close()
             except Exception:
                 pass
+        terminate(control_process)
         terminate(process)
 
 

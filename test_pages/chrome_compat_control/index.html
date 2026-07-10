@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Chrome Compatibility Control Fixture</title>
+  </head>
+  <body>
+    <h1>Chrome Compatibility Control Fixture</h1>
+    <p id="count">Count: 0</p>
+    <button id="increment" type="button">Increment</button>
+    <button id="submit" type="submit">Submit</button>
+    <label>
+      Agent note
+      <input id="note" name="note" data-owner="agent" data-saccade-field value="">
+    </label>
+    <label>
+      SSN
+      <input id="ssn" name="ssn" data-sensitive="ssn" value="123-45-6789">
+    </label>
+    <script>
+      let count = 0;
+      document.querySelector("#increment").addEventListener("click", () => {
+        count += 1;
+        document.querySelector("#count").textContent = `Count: ${count}`;
+      });
+    </script>
+  </body>
+</html>

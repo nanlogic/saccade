@@ -33,6 +33,7 @@ if [[ "$INCLUDE_LEGACY_SHELL" == "1" ]]; then
 fi
 cp "$ROOT/scripts/read_article_fallback.py" "$OUT/lib/"
 cp "$ROOT/scripts/chrome_compat_cdp.py" "$OUT/lib/"
+cp "$ROOT/scripts/chrome_compat_control.py" "$OUT/lib/"
 cp "$ROOT/scripts/chrome_reference_cdp.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_ai020_live_draft.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_public_site_smoke_matrix.py" "$OUT/lib/"
@@ -332,10 +333,16 @@ echo "Target: $URL" >&2
 echo "Engine: Chrome compatibility (Servo remains the default Saccade engine)" >&2
 echo "Profile: persistent dedicated compatibility profile ($SACCADE_COMPAT_PROFILE_DIR)" >&2
 echo "CAPTCHA or human verification remains user-owned; Saccade will only wait." >&2
+grant_args=()
+if [[ "${SACCADE_COMPAT_GRANT_CURRENT:-0}" == "1" ]]; then
+  grant_args=(--grant-current-tab --grant-path "$DIR/current_tab_compat_grant.json")
+  echo "Current-tab co-pilot grant: explicit compatibility grant enabled" >&2
+fi
 exec python3 "$DIR/lib/chrome_compat_cdp.py" \
   "$URL" "$OUTPUT_DIR" \
   --profile-dir "$SACCADE_COMPAT_PROFILE_DIR" \
   --keep-open \
+  "${grant_args[@]}" \
   "$@"
 SH
 
@@ -779,7 +786,7 @@ SH
 fi
 
 chmod +x "$OUT/open-saccade" "$OUT/open-saccade-compat" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-public-site-smoke-matrix" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
-chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/chrome_compat_cdp.py" "$OUT/lib/chrome_reference_cdp.py" "$OUT/lib/run_ai020_live_draft.py" "$OUT/lib/run_public_site_smoke_matrix.py"
+chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/chrome_compat_cdp.py" "$OUT/lib/chrome_compat_control.py" "$OUT/lib/chrome_reference_cdp.py" "$OUT/lib/run_ai020_live_draft.py" "$OUT/lib/run_public_site_smoke_matrix.py"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
@@ -844,6 +851,12 @@ $OUT/open-saccade-compat https://www.gameuidatabase.com/
   measured Servo engine blockers. It uses a dedicated persistent profile,
   reports its engine visibly, never solves provider challenges, and exports no
   cookies, storage, passwords, or field values.
+- Set \`SACCADE_COMPAT_GRANT_CURRENT=1\` when launching
+  \`open-saccade-compat\` to make an explicit Human current-tab co-pilot grant.
+  It writes \`current_tab_compat_grant.json\` and exposes only redacted truth,
+  low-risk browser-input actions, navigation, sanitized replay, strict
+  agent-owned normal-field fill, and value-free field inspection through the
+  local bridge. It does not enable generic third-party form fill.
 - Same-tab agent help is limited by the site policy docs copied into
   \`docs/\`.
 - Public article/tutorial extraction is available through \`read-article\`.

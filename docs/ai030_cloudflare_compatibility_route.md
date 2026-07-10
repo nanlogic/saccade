@@ -107,17 +107,64 @@ dist/saccade-dogfood-current/open-saccade-compat \
   'https://www.gameuidatabase.com/gameData.php?id=2444'
 ```
 
+Explicit current-tab co-pilot grant for an agent session:
+
+```bash
+SACCADE_COMPAT_GRANT_CURRENT=1 \
+  dist/saccade-dogfood-current/open-saccade-compat \
+  'https://example.com'
+```
+
+This writes `current_tab_compat_grant.json` inside the dogfood directory. Give
+that artifact path to `saccade.tabs.grant_current`; it is not a cookie export
+or a reusable credential. The packaged local control gate passed using the
+release MCP binary: `runs/chrome_compat_mcp/ai030b_packaged_fill/report.json`.
+
 The packaged wrapper uses `--keep-open`. While the user navigates, it refreshes
 `report.json` and `truth.json`. During loading, provider challenge, or browser
 loss, it removes current truth and writes `truth_stale=true` instead of serving
 the previous page as current fact.
 
+## AI-030B Current-Tab Bridge
+
+AI-030B attaches the existing engine-neutral MCP current-tab protocol to the
+same visible compatibility window. It is an explicit Human grant, not an
+ambient connection to a Chrome profile:
+
+- `saccade.tabs.grant_current` attaches only to the loopback endpoint written
+  by `--grant-current-tab` / `SACCADE_COMPAT_GRANT_CURRENT=1`.
+- `saccade.web.truth`, `actions`, `act`, and named browser navigation operate
+  on that visible tab. Low-risk clicks use Chrome browser input, not
+  page-injected `element.click()`.
+- Every accepted control action writes a sanitized control report and replay.
+- `saccade.web.fill_agent_fields` is deliberately narrower than generic web
+  fill: it accepts only visible, non-sensitive fields explicitly marked
+  `data-owner="agent"` (or `data-saccade-owner="agent"`), and refuses existing
+  values rather than overwriting them.
+- `saccade.web.inspect_fields` returns ownership, sensitivity, and completion
+  state only. It never returns values.
+
+Local fixture gate: a visible agent-owned note field filled successfully;
+inspection returned `completed_without_value`; a human-owned SSN field was
+rejected as `sensitive_field`; and artifact scans found neither the fill text
+nor the fixture SSN value. A second write to the now-nonempty note was rejected
+as `already_has_user_value`. Evidence:
+`runs/chrome_compat_mcp/ai030b_fill_note/report.json`,
+`runs/chrome_compat_mcp/ai030b_fill_sensitive_reject/report.json`, and
+`runs/chrome_compat/ai030b_fill_fixture/control/replay.jsonl`.
+
+The measured Game UI Database page also attached through the same grant
+surface with 364 redacted actions, without clicking an unmeasured third-party
+control. Evidence:
+`runs/chrome_compat_mcp/ai030b_gameuidatabase_attach/report.json`.
+
 ## Boundary And Next Step
 
 AI-030A closes public read/navigation compatibility for this measured site.
-The current v0 emits redacted live truth but is not yet the full MCP Chrome
-adapter: safe action execution, current-tab grants, replay receipts, FORMMAX,
-and the trusted in-window engine badge remain AI-030B.
+AI-030B closes the current-tab MCP surface for truth, low-risk actions,
+navigation, replay, and explicit agent-owned controls. Generic third-party
+form filling, FORMMAX live fill, and a trusted compatibility-engine badge are
+still separate work; they must be measured before a broader claim.
 
 Servo continues to own MOUSEMAX/local-game reflex and normal compatible-site
 dogfood. Compatibility mode is explicit and should be selected only after a

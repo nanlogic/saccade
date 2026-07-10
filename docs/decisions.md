@@ -1903,3 +1903,21 @@
   replay, FORMMAX, and trusted engine chrome are AI-030B.
 - Evidence: `docs/ai030_cloudflare_compatibility_route.md` and
   `runs/chrome_compat/gameuidatabase_follow_check/report.json`.
+
+## DECISION_BROWSER_047 - Chrome compatibility control is an explicit current-tab grant
+
+- The headed Chrome compatibility route now exposes an engine-neutral loopback
+  current-tab endpoint only when the Human explicitly requests a grant.
+- MCP routes redacted truth/actions, low-risk browser-input act, navigation,
+  replay, strict agent-owned normal-field fill, and value-free inspection to
+  that same visible Chrome tab.
+- Fill is intentionally conservative: only visible controls marked agent-owned
+  are eligible; sensitive, human-owned, file/hidden, and already-nonempty
+  controls are rejected. This does not claim generic third-party form fill.
+- The local fixture proved a normal agent-owned fill with no value in artifacts,
+  sensitive SSN rejection with no literal in artifacts, and preservation of a
+  nonempty field. The real Game UI Database page attached through the same
+  bridge without an unmeasured click.
+- Evidence: `docs/ai030_cloudflare_compatibility_route.md`,
+  `runs/chrome_compat_mcp/ai030b_fill_note/report.json`, and
+  `runs/chrome_compat_mcp/ai030b_gameuidatabase_attach/report.json`.
