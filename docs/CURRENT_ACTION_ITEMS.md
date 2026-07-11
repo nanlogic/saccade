@@ -15,6 +15,10 @@ sensitive-field handoff, and verified output. Browser UI and compatibility work
 continue only when they block those workflows. Servo remains the default
 reflex/truth engine; Chrome compatibility remains the measured fallback.
 
+Vendor-adoption ordering and the evidence package live in
+`docs/VENDOR_INTEGRATION_READINESS_PLAN.md`. The next adoption gates are
+AI-033 security evaluation, AI-031 live form drafts, and AI-032 DOCMAX.
+
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
 | AI-031 | P0 | active | FORMMAX product | Generic inventory/compile/execute passes the 17-control fixture, a deliberate postcondition mismatch with non-looping repair, and two public automation test forms at 5/5 verified each with no submit or sentinel leaks. Compact/paged inventory is now implemented and gated; next is one human-reviewed real draft. | Dogfood release exposes the three MCP tools; compact inventory reduces large-page response size; one user-granted real draft preserves user/sensitive values and produces verified value-free evidence without submit. Evidence: `docs/ai031_generic_form_plan.md`, `runs/formmax/generic_compact_paged_20260711-073948/report.json`. |
