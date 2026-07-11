@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command as ProcessCommand, Stdio};
 use std::thread;
@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 22;
+const REQUIRED_TOOL_COUNT: usize = 25;
 
 #[derive(Parser)]
 #[command(name = "saccade-mcp")]
@@ -484,6 +484,33 @@ fn registry() -> ToolRegistry {
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
                 "Inspect explicitly named fields while redacting sensitive values.",
+                true,
+                true,
+                true,
+            ),
+            tool(
+                "saccade.web.form_inventory",
+                ToolNamespace::Web,
+                ToolRisk::PolicyGated,
+                "Discover form fields and redacted state in the granted current tab.",
+                true,
+                true,
+                true,
+            ),
+            tool(
+                "saccade.web.form_compile_plan",
+                ToolNamespace::Web,
+                ToolRisk::PolicyGated,
+                "Compile a non-writing form plan against a fixed page revision.",
+                true,
+                true,
+                true,
+            ),
+            tool(
+                "saccade.web.form_execute_plan",
+                ToolNamespace::Web,
+                ToolRisk::PolicyGated,
+                "Execute and verify an unchanged compiled form plan without submitting.",
                 true,
                 true,
                 true,
@@ -994,6 +1021,65 @@ fn input_schema(name: &str) -> Value {
             "required": ["tab_id", "fields"],
             "additionalProperties": false
         }),
+        "saccade.web.form_inventory" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"}
+            },
+            "required": ["tab_id"],
+            "additionalProperties": false
+        }),
+        "saccade.web.form_compile_plan" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "basis_page_revision": {"type": "integer"},
+                "assignments": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 5000,
+                    "additionalProperties": {"type": ["string", "number", "boolean"]}
+                },
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "block_sensitive": {"type": "boolean", "const": true},
+                        "preserve_existing": {"type": "boolean", "const": true},
+                        "no_submit": {"type": "boolean", "const": true}
+                    },
+                    "required": ["block_sensitive", "preserve_existing", "no_submit"],
+                    "additionalProperties": false
+                }
+            },
+            "required": ["tab_id", "basis_page_revision", "assignments", "policy"],
+            "additionalProperties": false
+        }),
+        "saccade.web.form_execute_plan" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "basis_page_revision": {"type": "integer"},
+                "expected_plan_id": {"type": "string", "minLength": 1},
+                "assignments": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 5000,
+                    "additionalProperties": {"type": ["string", "number", "boolean"]}
+                },
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "block_sensitive": {"type": "boolean", "const": true},
+                        "preserve_existing": {"type": "boolean", "const": true},
+                        "no_submit": {"type": "boolean", "const": true}
+                    },
+                    "required": ["block_sensitive", "preserve_existing", "no_submit"],
+                    "additionalProperties": false
+                }
+            },
+            "required": ["tab_id", "basis_page_revision", "expected_plan_id", "assignments", "policy"],
+            "additionalProperties": false
+        }),
         "saccade.web.fill_form" => json!({
             "type": "object",
             "properties": {
@@ -1093,6 +1179,9 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.web.act" => web_act_tool(state, arguments),
         "saccade.web.fill_agent_fields" => web_fill_agent_fields_tool(state, arguments),
         "saccade.web.inspect_fields" => web_inspect_fields_tool(state, arguments),
+        "saccade.web.form_inventory" => web_form_inventory_tool(state, arguments),
+        "saccade.web.form_compile_plan" => web_form_compile_plan_tool(state, arguments),
+        "saccade.web.form_execute_plan" => web_form_execute_plan_tool(state, arguments),
         "saccade.web.fill_form" => web_fill_form_tool(state, arguments),
         "saccade.report.validate_run" => report_validate_run_tool(arguments),
         "saccade.report.replay_summary" => report_replay_summary_tool(arguments),
@@ -1947,9 +2036,8 @@ fn call_dogfood_control(
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
     let read_timeout = match method {
-        "formmax_live_fill" | "fill_agent_fields" | "inspect_fields" | "act" => {
-            Duration::from_secs(65)
-        }
+        "formmax_live_fill" | "fill_agent_fields" | "inspect_fields" | "form_inventory"
+        | "form_compile_plan" | "form_execute_plan" | "act" => Duration::from_secs(65),
         _ => Duration::from_secs(5),
     };
     stream
@@ -1971,11 +2059,14 @@ fn call_dogfood_control(
     stream
         .flush()
         .with_context(|| format!("failed to flush dogfood control {method}"))?;
+    stream
+        .shutdown(Shutdown::Write)
+        .with_context(|| format!("failed to finish dogfood control {method} request"))?;
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     reader
         .read_line(&mut line)
-        .with_context(|| format!("failed to read dogfood control {method} response"))?;
+        .map_err(|error| anyhow!("failed to read dogfood control {method} response: {error}"))?;
     let response: Value = serde_json::from_str(&line)
         .with_context(|| format!("failed to parse dogfood control {method} response"))?;
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
@@ -2561,6 +2652,106 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
             "replay": tab.last_replay_path,
         },
     }))
+}
+
+fn web_form_inventory_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_truth_allowed(state, tab_id)?;
+    let endpoint = state
+        .dogfood_controls
+        .get(&tab_id.0)
+        .cloned()
+        .context("saccade.web.form_inventory requires a granted ServoShell current tab")?;
+    ensure_dogfood_control_capability(state, tab_id, "form_inventory")?;
+    let mut result = call_dogfood_control(&endpoint, "form_inventory", json!({}))?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &result);
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert("tab_id".to_string(), json!(tab_id.0));
+    }
+    Ok(result)
+}
+
+fn web_form_compile_plan_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_truth_allowed(state, tab_id)?;
+    let basis_page_revision = arguments
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("saccade.web.form_compile_plan requires integer basis_page_revision")?;
+    let current_revision = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .page_revision;
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale MCP form plan basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+    let endpoint = state
+        .dogfood_controls
+        .get(&tab_id.0)
+        .cloned()
+        .context("saccade.web.form_compile_plan requires a granted ServoShell current tab")?;
+    ensure_dogfood_control_capability(state, tab_id, "form_compile_plan")?;
+    let params = json!({
+        "basis_page_revision": basis_page_revision,
+        "assignments": arguments.get("assignments").cloned().unwrap_or(Value::Null),
+        "policy": arguments.get("policy").cloned().unwrap_or(Value::Null),
+    });
+    let mut result = call_dogfood_control(&endpoint, "form_compile_plan", params)?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &result);
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert("tab_id".to_string(), json!(tab_id.0));
+    }
+    Ok(result)
+}
+
+fn web_form_execute_plan_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_agent_input_allowed(state, tab_id)?;
+    let basis_page_revision = arguments
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("saccade.web.form_execute_plan requires integer basis_page_revision")?;
+    let current_revision = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .page_revision;
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale MCP form execution basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+    let endpoint = state
+        .dogfood_controls
+        .get(&tab_id.0)
+        .cloned()
+        .context("saccade.web.form_execute_plan requires a granted ServoShell current tab")?;
+    ensure_dogfood_control_capability(state, tab_id, "form_execute_plan")?;
+    let params = json!({
+        "basis_page_revision": basis_page_revision,
+        "expected_plan_id": arguments.get("expected_plan_id").cloned().unwrap_or(Value::Null),
+        "assignments": arguments.get("assignments").cloned().unwrap_or(Value::Null),
+        "policy": arguments.get("policy").cloned().unwrap_or(Value::Null),
+    });
+    let mut result = call_dogfood_control(&endpoint, "form_execute_plan", params)?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &result);
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert("tab_id".to_string(), json!(tab_id.0));
+    }
+    Ok(result)
 }
 
 fn web_fill_form_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {

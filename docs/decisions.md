@@ -1967,3 +1967,21 @@
 - Page revision is a hard plan boundary. A stale plan must be recompiled.
 - The 17-control adversarial gate and the 672-field regression pass. Evidence:
   `docs/ai031_generic_form_plan.md`.
+
+## DECISION_FORMMAX_051 - Execute only an unchanged compiled plan
+
+- `form_execute_plan` requires the original page revision, expected plan ID, and
+  explicit `block_sensitive`, `preserve_existing`, and `no_submit` policy.
+- Execution re-inventories and recompiles before writing. A changed page or plan
+  is rejected instead of receiving best-effort writes.
+- Every successful write has an internal value postcondition, but receipts expose
+  only field ID, method, and status. Existing values are compared before/after
+  inside the browser and reported only as `preserved_verified`.
+- The engine-neutral MCP surface exposes inventory, compile, and execute only for
+  an explicitly granted current ServoShell tab with advertised capabilities.
+- MCP control requests now half-close their write side after the JSONL request.
+  Without this framing, macOS reset compile requests before the bridge could read
+  them even though smaller inventory requests succeeded.
+- Local evidence is 6/6 filled, 4/4 existing values preserved, zero failed or
+  repair items, verified receipt, and zero sentinel leaks. Broad third-party
+  compatibility remains unclaimed.

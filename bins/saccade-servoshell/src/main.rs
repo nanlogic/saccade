@@ -2962,6 +2962,7 @@ fn bridge_control_result(
         "inspect_fields" => bridge_inspect_fields_response(state, params),
         "form_inventory" => bridge_form_inventory_response(state),
         "form_compile_plan" => bridge_form_compile_plan_response(state, params),
+        "form_execute_plan" => bridge_form_execute_plan_response(state, params),
         "act" => bridge_act_response(state, params),
         "formmax_live_fill" => bridge_formmax_live_fill_response(state, params),
         "navigate" => {
@@ -3050,6 +3051,7 @@ fn bridge_status_response(
             "inspect_fields",
             "form_inventory",
             "form_compile_plan",
+            "form_execute_plan",
             "act",
             "formmax_live_fill",
             "navigate",
@@ -3286,8 +3288,12 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
     let mut counts = serde_json::Map::new();
     bridge_insert_count(&mut counts, "actions", result.get("actions"));
     bridge_insert_count(&mut counts, "fields", result.get("fields"));
+    bridge_insert_count(&mut counts, "eligible", result.get("eligible"));
     bridge_insert_count(&mut counts, "filled", result.get("filled"));
+    bridge_insert_count(&mut counts, "preserved", result.get("preserved"));
     bridge_insert_count(&mut counts, "rejected", result.get("rejected"));
+    bridge_insert_count(&mut counts, "failed", result.get("failed"));
+    bridge_insert_count(&mut counts, "repair", result.get("repair"));
     for key in [
         "rows",
         "pages",
@@ -4079,9 +4085,9 @@ fn bridge_form_compile_plan_response(state: &BridgeControlState, params: Value) 
     }
     if assignments
         .values()
-        .any(|value| value.is_array() || value.is_object())
+        .any(|value| value.is_null() || value.is_array() || value.is_object())
     {
-        bail!("form_compile_plan assignment values must be scalar");
+        bail!("form_compile_plan assignment values must be non-null scalars");
     }
     let policy = params.get("policy").cloned().unwrap_or_else(|| json!({}));
     for required in ["block_sensitive", "preserve_existing", "no_submit"] {
@@ -4123,6 +4129,96 @@ fn bridge_form_compile_plan_response(state: &BridgeControlState, params: Value) 
             "no_submit": true,
             "values_returned": false,
             "writes_executed": false,
+        },
+        "artifacts": bridge_artifacts(state),
+    }))
+}
+
+fn bridge_form_execute_plan_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    let basis_page_revision = params
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("form_execute_plan requires integer basis_page_revision")?;
+    let current_revision = state.page_revision.load(Ordering::SeqCst);
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale form execution basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+    let expected_plan_id = params
+        .get("expected_plan_id")
+        .and_then(Value::as_str)
+        .context("form_execute_plan requires expected_plan_id")?;
+    let assignments = params
+        .get("assignments")
+        .and_then(Value::as_object)
+        .context("form_execute_plan requires object params.assignments")?;
+    if assignments.is_empty() {
+        bail!("form_execute_plan requires at least one assignment");
+    }
+    if assignments.len() > 5_000 {
+        bail!("form_execute_plan supports at most 5000 assignments");
+    }
+    if assignments
+        .values()
+        .any(|value| value.is_null() || value.is_array() || value.is_object())
+    {
+        bail!("form_execute_plan assignment values must be non-null scalars");
+    }
+    let policy = params.get("policy").cloned().unwrap_or_else(|| json!({}));
+    for required in ["block_sensitive", "preserve_existing", "no_submit"] {
+        if policy.get(required).and_then(Value::as_bool) != Some(true) {
+            bail!("form_execute_plan requires {required}=true");
+        }
+    }
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_fill_allowed {
+        bail!(
+            "site policy {:?} blocks form execution on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
+    let script = format!("{BRIDGE_FORM_HELPERS_JS}\n{BRIDGE_FORM_EXECUTE_PLAN_JS}");
+    let execution = state.client.execute_sync_args(
+        &state.session_id,
+        &script,
+        &[Value::Object(assignments.clone()), json!(expected_plan_id)],
+    )?;
+    let filled_count = execution
+        .get("filled")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    if filled_count > 0 {
+        state.page_revision.fetch_add(1, Ordering::SeqCst);
+    }
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-form-execute-v0",
+        "summary": "generic form plan executed and verified without returning field values or submitting",
+        "same_webview_control": true,
+        "basis_page_revision": basis_page_revision,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": site_policy,
+        "plan_id": execution.get("plan_id").cloned().unwrap_or(Value::Null),
+        "requested": assignments.len(),
+        "filled": execution.get("filled").cloned().unwrap_or_else(|| json!([])),
+        "preserved": execution.get("preserved").cloned().unwrap_or_else(|| json!([])),
+        "rejected": execution.get("rejected").cloned().unwrap_or_else(|| json!([])),
+        "failed": execution.get("failed").cloned().unwrap_or_else(|| json!([])),
+        "repair": execution.get("repair").cloned().unwrap_or_else(|| json!([])),
+        "receipt_verified": execution.get("receipt_verified").cloned().unwrap_or(json!(false)),
+        "policy": {
+            "block_sensitive": true,
+            "preserve_existing": true,
+            "no_submit": true,
+            "values_returned": false,
+            "writes_executed": filled_count > 0,
         },
         "artifacts": bridge_artifacts(state),
     }))
@@ -5585,15 +5681,8 @@ function saccadeFormInventory() {
     fields
   };
 }
-"###;
 
-const BRIDGE_FORM_INVENTORY_JS: &str = r###"
-return saccadeFormInventory();
-"###;
-
-const BRIDGE_FORM_COMPILE_PLAN_JS: &str = r###"
-return (() => {
-  const assignments = arguments[0] || {};
+function saccadeFormCompile(assignments) {
   const inventory = saccadeFormInventory();
   const byId = new Map(inventory.fields.map((field) => [field.field_id, field]));
   const eligible = [];
@@ -5628,6 +5717,132 @@ return (() => {
     plan_id: `form_plan_v0_${saccadeFormHash(planBasis)}`,
     eligible,
     rejected
+  };
+}
+"###;
+
+const BRIDGE_FORM_INVENTORY_JS: &str = r###"
+return saccadeFormInventory();
+"###;
+
+const BRIDGE_FORM_COMPILE_PLAN_JS: &str = r###"
+return saccadeFormCompile(arguments[0] || {});
+"###;
+
+const BRIDGE_FORM_EXECUTE_PLAN_JS: &str = r###"
+return (() => {
+  const assignments = arguments[0] || {};
+  const expectedPlanId = String(arguments[1] || "");
+  const compiled = saccadeFormCompile(assignments);
+  if (!expectedPlanId || compiled.plan_id !== expectedPlanId) {
+    throw new Error("form plan id mismatch; recompile before execution");
+  }
+  const controls = Array.from(document.querySelectorAll("input,select,textarea,[contenteditable='true']"));
+  const inventory = saccadeFormInventory();
+  const entries = new Map(inventory.fields.map((field, index) => [field.field_id, { field, el: controls[index] }]));
+  const filled = [];
+  const failed = [];
+
+  function internalValue(el, type) {
+    if (type === "checkbox" || type === "radio") return Boolean(el.checked);
+    if (el.isContentEditable) return String(el.textContent || "");
+    return String(el.value || "");
+  }
+
+  const preservedBefore = new Map();
+  for (const rejected of compiled.rejected) {
+    if (!(rejected.blocked_reasons || []).includes("preserve_existing_value")) continue;
+    const entry = entries.get(rejected.field_id);
+    if (entry && entry.el) {
+      preservedBefore.set(rejected.field_id, internalValue(entry.el, entry.field.type));
+    }
+  }
+
+  function dispatch(el) {
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  for (const planned of compiled.eligible) {
+    const entry = entries.get(planned.field_id);
+    if (!entry || !entry.el) {
+      failed.push({ field_id: planned.field_id, reason: "field_disappeared" });
+      continue;
+    }
+    const el = entry.el;
+    const value = assignments[planned.field_id];
+    let verified = false;
+    let method = "value_property";
+    try {
+      if (planned.type === "checkbox" || planned.type === "radio") {
+        if (typeof value !== "boolean") {
+          failed.push({ field_id: planned.field_id, reason: "boolean_required" });
+          continue;
+        }
+        el.checked = value;
+        dispatch(el);
+        verified = Boolean(el.checked) === value;
+        method = "checked_property";
+      } else if (planned.type === "select") {
+        const requested = String(value);
+        const options = Array.from(el.options || []);
+        const optionIndex = options.findIndex((option) =>
+          String(option.value) === requested || saccadeFormText(option.textContent) === requested
+        );
+        if (optionIndex < 0) {
+          failed.push({ field_id: planned.field_id, reason: "option_not_found" });
+          continue;
+        }
+        el.selectedIndex = optionIndex;
+        dispatch(el);
+        verified = el.selectedIndex === optionIndex;
+        method = "select_option_match";
+      } else if (planned.type === "contenteditable") {
+        el.textContent = String(value);
+        dispatch(el);
+        verified = String(el.textContent || "") === String(value);
+        method = "contenteditable_text";
+      } else {
+        el.value = String(value);
+        dispatch(el);
+        verified = String(el.value || "") === String(value);
+      }
+    } catch (_) {
+      failed.push({ field_id: planned.field_id, reason: "write_exception" });
+      continue;
+    }
+    if (verified) {
+      filled.push({ field_id: planned.field_id, status: "filled_verified", method });
+    } else {
+      failed.push({ field_id: planned.field_id, reason: "postcondition_mismatch" });
+    }
+  }
+
+  if (filled.length && document.body && document.body.dataset) {
+    const current = Number(document.body.dataset.sessionRevision || "0") || 0;
+    document.body.dataset.sessionRevision = String(current + 1);
+  }
+  const preserved = [];
+  for (const [fieldId, before] of preservedBefore.entries()) {
+    const entry = entries.get(fieldId);
+    if (entry && entry.el && internalValue(entry.el, entry.field.type) === before) {
+      preserved.push({ field_id: fieldId, status: "preserved_verified" });
+    } else {
+      failed.push({ field_id: fieldId, reason: "existing_value_changed" });
+    }
+  }
+  return {
+    plan_id: compiled.plan_id,
+    filled,
+    preserved,
+    rejected: compiled.rejected,
+    failed,
+    repair: failed.map((item) => ({
+      field_id: item.field_id,
+      action: "reinspect_and_retry",
+      reason: item.reason
+    })),
+    receipt_verified: failed.length === 0 && filled.length === compiled.eligible.length
   };
 })();
 "###;

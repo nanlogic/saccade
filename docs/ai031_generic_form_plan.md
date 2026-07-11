@@ -1,16 +1,22 @@
 # AI-031 Generic Form Inventory and Plan
 
 Date: 2026-07-11
-Status: first slice passed
+Status: local inventory/plan/execute/verify slice passed
 
 ## Result
 
-The official ServoShell bridge now exposes two value-free, non-writing control
-methods:
+The official ServoShell bridge now exposes three value-free control methods:
 
 - `form_inventory` discovers ordinary and sensitive fields on the current page;
 - `form_compile_plan` validates proposed assignments against a fixed page
-  revision and returns eligible/rejected field IDs without assignment values.
+  revision and returns eligible/rejected field IDs without assignment values;
+- `form_execute_plan` requires the unchanged revision and compiled plan ID,
+  writes only eligible fields, verifies each postcondition, preserves existing
+  fields, and returns repair metadata without values or submit.
+
+The same three methods are available through the engine-neutral MCP surface as
+`saccade.web.form_inventory`, `saccade.web.form_compile_plan`, and
+`saccade.web.form_execute_plan` after a user grants the current visible tab.
 
 The inventory reports stable field ID, selector hash, type, label and confidence,
 owner, sensitivity class, required/visible/enabled/readonly state, option count,
@@ -20,7 +26,8 @@ field values or select option contents.
 The plan rejects sensitive fields, human-owned fields, existing values, hidden or
 disabled controls, unsupported types, ambiguous labels, unstable identities,
 unknown field IDs, and stale page revisions. It performs no writes and cannot
-submit the form.
+submit the form. Execution rejects a stale revision, wrong plan ID, unsafe policy,
+and structured/non-scalar assignments.
 
 ## Adversarial gate
 
@@ -35,24 +42,26 @@ Command:
 
 ```text
 python3 scripts/probe_generic_form_plan.py \
-  --output-dir runs/formmax/generic_plan_ai031_20260711_final
+  --output-dir runs/formmax/generic_execute_mcp_ai031_20260711_final
 ```
 
 Observed:
 
 ```text
-GENERIC FORM PLAN PASS fields=17 eligible=6 rejected=12
+GENERIC FORM EXECUTION PASS fields=17 eligible=6 filled=6 preserved=4 rejected=12
 ```
 
 The 12 rejections include the 11 ineligible fixture fields plus an explicit
-unknown field request. The probe also proves stale revision rejection, explicit
-safe-policy enforcement, scalar-only assignments, and scans the full output tree
-for three assignment sentinels. No sentinel appeared.
+unknown field request. The positive path fills and verifies all six eligible
+fields through MCP, preserves four existing values, reports zero failed/repair
+items, and advances the page revision once. The probe also proves stale revision,
+wrong plan ID, explicit safe-policy, and scalar-only assignment rejection. It
+scans the full output tree for three assignment sentinels; no sentinel appeared.
 
 Artifact:
 
-- `runs/formmax/generic_plan_ai031_20260711_final/report.json`
-- `runs/formmax/generic_plan_ai031_20260711_final/bridge/control/replay.jsonl`
+- `runs/formmax/generic_execute_mcp_ai031_20260711_final/report.json`
+- `runs/formmax/generic_execute_mcp_ai031_20260711_final/bridge/control/replay.jsonl`
 
 ## Regression
 
@@ -65,14 +74,20 @@ blocked_sensitive=3 receipt_verified=true
 
 Artifact:
 
-- `runs/servoshell_adapter/formmax_ai031_regression_20260711/result.json`
-- `runs/servoshell_adapter/formmax_ai031_regression_20260711/replay.jsonl`
+- `runs/servoshell_adapter/formmax_ai031_executor_regression_20260711/result.json`
+- `runs/servoshell_adapter/formmax_ai031_executor_regression_20260711/replay.jsonl`
+
+The focused Rust tests pass: 7 ServoShell tests and 3 MCP tests. The broader
+`saccade-mcp selftest` did not produce a final aggregate report during this run;
+it exited while exercising the existing GL/browser matrix after repeated
+`GLD_TEXTURE_INDEX_2D` warnings. The focused MCP current-tab gate above remains
+green, but the broad selftest is not counted as passed.
 
 ## Next slice
 
-Add a bounded executor that consumes the compiled plan on the same page revision,
-writes only eligible controls, verifies each postcondition, preserves user values,
-and returns a repair plan for failures. Then expose inventory, plan, execute, and
-verify through the engine-neutral MCP surface.
+Measure the same MCP workflow on two real forms with human review. Add targeted
+fixtures for a failed postcondition and non-empty repair output, then package the
+three MCP tools in the next dogfood release.
 
-This checkpoint does not claim generic third-party form filling yet.
+This checkpoint proves a generic local form surface. It does not claim broad
+third-party form compatibility yet.

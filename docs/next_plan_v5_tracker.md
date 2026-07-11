@@ -36,6 +36,14 @@ Use this tracker as the normalized execution map.
 | N7 Public release package | Pending | README/site/video/report package | Launch docs and parity requirements exist; video/site not done |
 | Comparison benchmark | Smoke pass for Codex, Claude auth blocked | `python3 scripts/agent_compare.py run --agent both --tasks all --execute` | Codex-vs-Claude task suite, structured result schema, runner, parser, and SVG report generator exist under `eval/agent_compare/` and `scripts/agent_compare.py`; smoke run `runs/agent_compare/run_1781365508552` shows Codex passed `trusted_tabs_runtime` and `safety_truth_redaction`; Claude Code returned 403 subscription/API access blocked before tasks |
 
+2026-07-11 N3 addendum: the registry now has 25 implemented tools. A focused
+current-tab gate passes the new MCP `form_inventory`, `form_compile_plan`, and
+`form_execute_plan` path in
+`runs/formmax/generic_execute_mcp_ai031_20260711_final/report.json`. The older
+22-tool aggregate selftest report remains the last broad aggregate artifact;
+the broad rerun exited in the existing GL/browser matrix and is not counted as
+new aggregate evidence.
+
 ## What We Have Not Missed
 
 The big buckets from v5 are all represented:
