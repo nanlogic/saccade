@@ -1,6 +1,6 @@
 # Saccade Current Action Items
 
-Date: 2026-07-09
+Date: 2026-07-11
 Status: canonical execution queue
 
 This file is the short, current action list. Use it with
@@ -9,15 +9,15 @@ This file is the short, current action list. Use it with
 
 ## Now
 
-AI-030B has closed the engine-neutral MCP attachment for the explicit Chrome
-compatibility route. AI-030A proved that the measured Game UI Database
-Cloudflare blocker is not solved by removing WebDriver or by the later module
-Blob lifetime claim, then passed the same page twice through a visible,
-persistent compatibility profile with redacted live truth. AI-027 remains the
-Servo/GitHub UI canary; Servo remains the default reflex/truth engine.
+Product focus is FORMMAX + DOCMAX: fast bulk form work, PDF/document forms,
+sensitive-field handoff, and verified output. Browser UI and compatibility work
+continue only when they block those workflows. Servo remains the default
+reflex/truth engine; Chrome compatibility remains the measured fallback.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
+| AI-031 | P0 | next | FORMMAX product | Turn the local 96-row proof into a generic fast-fill plan: inspect once, classify ownership/sensitivity, bulk-fill ordinary controls, verify results, and leave side effects to the user. | Local fixture plus two measured real forms report success rate, wall time, action count, token use, preserved user values, blocked sensitive fields, and replay with no value leaks. |
+| AI-032 | P0 | active | DOCMAX PDF | Productize PDF form handling for AcroForm first, then classify flat/scanned/XFA documents without pretending they are fillable. The first slice removed synthetic field values from the feasibility report while retaining field names/counts and verification. | Inspect/fill/verify works on local AcroForm and one public blank form; tax ID, signature, attestation, and payment fields remain user-owned; output PDF and redacted diff/replay are produced without raw values in logs. |
 | AI-030B | P0 | done | Compatibility adapter | Attach the existing engine-neutral MCP grant/action/replay surface to the headed persistent Chrome compatibility session. | Passed same visible-tab grant, truth/actions, browser-input safe act, navigation, sanitized replay, explicit agent-owned non-sensitive fill, and value-free inspect. Generic third-party fill remains unclaimed. |
 | AI-027 | P1 | active | GitHub UI canary | Classify and reduce GitHub UI failures exposed during dogfood, starting with profile dropdown hit-testing. | Public GitHub smoke, API compatibility, and dropdown hit-test evidence are recorded; next reduction identifies whether the overlay bug is Servo hit-test, GitHub shim, or Saccade product chrome. |
 

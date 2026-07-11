@@ -1921,3 +1921,18 @@
 - Evidence: `docs/ai030_cloudflare_compatibility_route.md`,
   `runs/chrome_compat_mcp/ai030b_fill_note/report.json`, and
   `runs/chrome_compat_mcp/ai030b_gameuidatabase_attach/report.json`.
+
+## DECISION_PRODUCT_048 - FORMMAX and DOCMAX are the product wedge
+
+- Saccade's product focus is fast web/PDF form completion with user-owned
+  sensitive fields, signatures, legal attestations, payments, and final submit.
+- Browser UI, Servo compatibility, Chrome routing, MCP, truth, and replay are
+  supporting layers. New browser work must unblock this workflow or a measured
+  safety/reliability gate.
+- PDF support starts with AcroForm inspect/fill/verify. Flat, scanned, encrypted,
+  signed, and XFA documents must be classified and routed without false claims.
+- The existing PDF feasibility artifact now records only field names, counts,
+  classifications, and completion status. It no longer records even synthetic
+  ordinary field values.
+- Product plan: `docs/SACCADE_FORMS_PDF_FOCUS_PLAN_20260711.md`. First redacted
+  gate: `runs/formmax/pdf_feasibility/result.json`.

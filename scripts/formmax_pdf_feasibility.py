@@ -45,6 +45,11 @@ SENSITIVE_RULES = {
     "consent": "consent field",
 }
 
+SYNTHETIC_FILL_VALUES = {
+    "full_name": "Ada Lovelace",
+    "capacity_mw": "4.20",
+}
+
 
 def classify_field(name):
     text = name.lower().replace("_", " ")
@@ -123,16 +128,12 @@ def field_report(path):
 
 
 def fill_non_sensitive_pdf(source, output):
-    values = {
-        "full_name": "Ada Lovelace",
-        "capacity_mw": "4.20",
-    }
     reader = PdfReader(str(source))
     writer = PdfWriter()
     writer.clone_document_from_reader(reader)
     if hasattr(writer, "set_need_appearances_writer"):
         writer.set_need_appearances_writer(True)
-    writer.update_page_form_field_values(writer.pages[0], values)
+    writer.update_page_form_field_values(writer.pages[0], SYNTHETIC_FILL_VALUES)
     with output.open("wb") as fh:
         writer.write(fh)
 
@@ -161,11 +162,11 @@ def main():
         for name in sensitive_names
         if filled_fields.get(name, {}).get("value")
     ]
-    non_sensitive_filled = {
-        name: info["value"]
+    non_sensitive_filled_fields = sorted(
+        name
         for name, info in filled_fields.items()
         if not info["classification"]["sensitive"] and info["value"]
-    }
+    )
 
     failures = []
     if len(acro_fields) < 5:
@@ -174,8 +175,10 @@ def main():
         failures.append("expected sensitive AcroForm fields")
     if filled_sensitive:
         failures.append(f"sensitive fields were filled: {', '.join(filled_sensitive)}")
-    if set(non_sensitive_filled) != {"full_name", "capacity_mw"}:
-        failures.append(f"unexpected non-sensitive filled fields: {sorted(non_sensitive_filled)}")
+    if set(non_sensitive_filled_fields) != {"full_name", "capacity_mw"}:
+        failures.append(
+            f"unexpected non-sensitive filled fields: {non_sensitive_filled_fields}"
+        )
     if flat_fields:
         failures.append(f"flat PDF exposed fields: {sorted(flat_fields)}")
 
@@ -191,7 +194,9 @@ def main():
             "acroform": {
                 "field_count": len(acro_fields),
                 "sensitive_fields": sensitive_names,
-                "non_sensitive_filled": non_sensitive_filled,
+                "non_sensitive_filled_fields": non_sensitive_filled_fields,
+                "non_sensitive_filled_count": len(non_sensitive_filled_fields),
+                "field_values_logged": False,
             },
             "flat_pdf": {
                 "field_count": len(flat_fields),
@@ -204,6 +209,18 @@ def main():
         },
         "failures": failures,
     }
+
+    serialized_result = json.dumps(result, sort_keys=True)
+    leaked_values = [
+        name
+        for name, value in SYNTHETIC_FILL_VALUES.items()
+        if value in serialized_result
+    ]
+    if leaked_values:
+        result["failures"].append(
+            f"result leaked synthetic values for fields: {', '.join(leaked_values)}"
+        )
+        result["verdict"] = "FAIL"
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
