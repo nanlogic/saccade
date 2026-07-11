@@ -258,6 +258,29 @@ artifact_paths:
 verdict: measured green for visible logged-in human handoff, editor inspection, no-submit draft fill, replay artifacts, and no draft value leakage. This closes AI-020's required low-risk real-site human-in-loop proof beyond Gist.
 ```
 
+### Hacker News Human-Posted Draft Follow-Up
+
+```text
+site: Hacker News
+url: https://news.ycombinator.com/item?id=48859298
+profile/session: normal persisted Saccade dogfood profile; user completed login in the visible release browser
+read_status: pass; live bridge extracted the thread and action map through the same visible WebView
+draft_status: pass; one ordinary textarea was filled, then revised at the user's request
+handoff_status: pass; user reviewed and clicked submit. Agent did not invoke submit.
+publish_verification: pass; after the user action, page revision advanced from 1 to 3 and a value-free exact-marker check confirmed the published draft appeared in the public thread
+replay_status: pass; bridge control artifacts exist
+screenshots_used: no
+values_logged: false; the report deliberately omits the draft body, cookies, and bridge capability
+publish_attempted_by_agent: false
+publish_completed_by_user: true
+provider_block_or_warning: none
+chrome/reference_needed: no
+artifact_paths:
+- `dist/saccade-dogfood-current/runs/servoshell_bridge/control/report.json`
+- `dist/saccade-dogfood-current/runs/servoshell_bridge/control/replay.jsonl`
+verdict: a current release Saccade tab supported the full low-risk flow: human login, agent reading, agent draft fill, human review, and human publish. This is editor-flow evidence; AI-031's generic form-plan real-site gate remains separate.
+```
+
 ### AI-025 Local GitHub Issue-Style Draft Profile
 
 ```text
