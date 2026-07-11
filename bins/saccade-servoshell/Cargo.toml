@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+getrandom.workspace = true
 clap.workspace = true
 saccade_core = { path = "../../crates/saccade_core" }
 serde.workspace = true

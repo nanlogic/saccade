@@ -16,6 +16,7 @@ from probe_generic_form_plan import (
     DEFAULT_SERVOSHELL,
     ROOT,
     call,
+    load_control_capability,
     mcp_rpc,
     mcp_tool,
     read_lines,
@@ -65,6 +66,7 @@ def main() -> int:
     failures: list[str] = []
     try:
         endpoint, startup = wait_ready(proc, lines, args.timeout_sec)
+        load_control_capability(grant)
         ping = call(endpoint, "ping", {}, args.timeout_sec)["result"]
         revision = int(ping["page_revision"])
         safe_policy = {"block_sensitive": True, "preserve_existing": True, "no_submit": True}

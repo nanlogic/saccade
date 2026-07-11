@@ -1660,6 +1660,7 @@ struct DogfoodControlEndpoint {
     host: String,
     port: u16,
     protocol: String,
+    capability: String,
 }
 
 fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
@@ -1924,7 +1925,7 @@ fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodCo
         .get("protocol")
         .and_then(Value::as_str)
         .context("control_endpoint must include string protocol")?;
-    if protocol != "saccade-dogfood-control-v0" {
+    if protocol != "saccade-dogfood-control-v1" {
         bail!("unsupported control endpoint protocol {protocol:?}");
     }
     let scheme = endpoint
@@ -1948,10 +1949,25 @@ fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodCo
     if port == 0 || port > u16::MAX as u64 {
         bail!("control endpoint port is out of range: {port}");
     }
+    let capability = grant
+        .pointer("/control_capability/token")
+        .and_then(Value::as_str)
+        .context("control grant must include a session capability token")?;
+    if grant
+        .pointer("/control_capability/scheme")
+        .and_then(Value::as_str)
+        != Some("saccade_session_bearer_v1")
+    {
+        bail!("control grant must use saccade_session_bearer_v1");
+    }
+    if capability.len() < 32 {
+        bail!("control grant capability token is too short");
+    }
     Ok(Some(DogfoodControlEndpoint {
         host: host.to_string(),
         port: port as u16,
         protocol: protocol.to_string(),
+        capability: capability.to_string(),
     }))
 }
 
@@ -2076,6 +2092,7 @@ fn call_dogfood_control(
             "id": 1,
             "method": method,
             "params": params,
+            "capability": endpoint.capability,
         })
     )
     .with_context(|| format!("failed to write dogfood control {method}"))?;
@@ -3794,7 +3811,8 @@ fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
         DogfoodControlEndpoint {
             host: "127.0.0.1".to_string(),
             port: 1,
-            protocol: "saccade-dogfood-control-v0".to_string(),
+            protocol: "saccade-dogfood-control-v1".to_string(),
+            capability: "test-capability-token-with-sufficient-length".to_string(),
         },
     );
     let denied_without_grant = handle_json_rpc(
@@ -3828,7 +3846,7 @@ fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
         "navigate",
         json!({
             "status": "ok",
-            "runtime": "saccade-dogfood-control-v0",
+            "runtime": "saccade-dogfood-control-v1",
             "engine": "saccade-dogfood-control-shell-navigate-v0",
             "summary": "fake shell navigate completed",
             "same_webview_control": true,
@@ -3907,7 +3925,7 @@ fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
         .is_some_and(|content| {
             content.get("status").and_then(Value::as_str) == Some("ok")
                 && content.get("runtime").and_then(Value::as_str)
-                    == Some("saccade-dogfood-control-v0")
+                    == Some("saccade-dogfood-control-v1")
                 && content.get("action").and_then(Value::as_str) == Some("navigate")
                 && content.get("url").and_then(Value::as_str) == Some("https://example.test/after")
                 && content.get("changed").and_then(Value::as_bool) == Some(true)
@@ -3951,6 +3969,11 @@ fn spawn_fake_dogfood_control_once(
         if request.get("method").and_then(Value::as_str) != Some(expected_method) {
             return false;
         }
+        if request.get("capability").and_then(Value::as_str)
+            != Some("test-capability-token-with-sufficient-length")
+        {
+            return false;
+        }
         let response = json!({
             "id": request.get("id").cloned().unwrap_or(Value::Null),
             "ok": true,
@@ -3962,7 +3985,8 @@ fn spawn_fake_dogfood_control_once(
         DogfoodControlEndpoint {
             host: "127.0.0.1".to_string(),
             port: addr.port(),
-            protocol: "saccade-dogfood-control-v0".to_string(),
+            protocol: "saccade-dogfood-control-v1".to_string(),
+            capability: "test-capability-token-with-sufficient-length".to_string(),
         },
         handle,
     ))
@@ -5383,7 +5407,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
             .and_then(|actions| {
                 actions.iter().find_map(|action| {
                     let label = action.get("label").and_then(Value::as_str).unwrap_or("");
-                    if label == "Verify Action" {
+                    if label == "Preview Action" {
                         action
                             .get("action_id")
                             .or_else(|| action.get("id"))
@@ -5948,7 +5972,8 @@ mod tests {
         let endpoint = DogfoodControlEndpoint {
             host: "localhost".to_string(),
             port: 49321,
-            protocol: "saccade-dogfood-control-v0".to_string(),
+            protocol: "saccade-dogfood-control-v1".to_string(),
+            capability: "test-capability-token-with-sufficient-length".to_string(),
         };
         assert_eq!(
             dogfood_control_socket_addr(&endpoint)
@@ -5960,7 +5985,8 @@ mod tests {
         let endpoint = DogfoodControlEndpoint {
             host: "::1".to_string(),
             port: 49322,
-            protocol: "saccade-dogfood-control-v0".to_string(),
+            protocol: "saccade-dogfood-control-v1".to_string(),
+            capability: "test-capability-token-with-sufficient-length".to_string(),
         };
         assert_eq!(
             dogfood_control_socket_addr(&endpoint)
@@ -5978,11 +6004,12 @@ mod tests {
             DogfoodControlEndpoint {
                 host: "127.0.0.1".to_string(),
                 port: 49321,
-                protocol: "saccade-dogfood-control-v0".to_string(),
+                protocol: "saccade-dogfood-control-v1".to_string(),
+                capability: "test-capability-token-with-sufficient-length".to_string(),
             },
         );
 
-        assert_eq!(tab_runtime(&state, TabId(7)), "saccade-dogfood-control-v0");
+        assert_eq!(tab_runtime(&state, TabId(7)), "saccade-dogfood-control-v1");
         assert_eq!(tab_runtime(&state, TabId(8)), "mcp_report_backed_v0");
     }
 
@@ -5991,7 +6018,8 @@ mod tests {
         let endpoint = DogfoodControlEndpoint {
             host: "127.0.0.1".to_string(),
             port: 49323,
-            protocol: "saccade-dogfood-control-v0".to_string(),
+            protocol: "saccade-dogfood-control-v1".to_string(),
+            capability: "test-capability-token-with-sufficient-length".to_string(),
         };
         let grant = json!({
             "runtime": "saccade-chrome-compat-cdp-v0",
@@ -6023,5 +6051,35 @@ mod tests {
             &json!({}),
             Some(&endpoint)
         ));
+    }
+
+    #[test]
+    fn control_grant_requires_a_session_capability() {
+        let base = json!({
+            "control_endpoint": {
+                "protocol": "saccade-dogfood-control-v1",
+                "scheme": "tcp",
+                "host": "127.0.0.1",
+                "port": 49324
+            }
+        });
+        let missing = dogfood_control_endpoint_from_grant(&base).unwrap_err();
+        assert!(missing.to_string().contains("session capability"));
+
+        let grant = json!({
+            "control_endpoint": base["control_endpoint"].clone(),
+            "control_capability": {
+                "scheme": "saccade_session_bearer_v1",
+                "token": "test-capability-token-with-sufficient-length"
+            }
+        });
+        let endpoint = dogfood_control_endpoint_from_grant(&grant)
+            .expect("capability grant should parse")
+            .expect("endpoint should be present");
+        assert_eq!(endpoint.protocol, "saccade-dogfood-control-v1");
+        assert_eq!(
+            endpoint.capability,
+            "test-capability-token-with-sufficient-length"
+        );
     }
 }

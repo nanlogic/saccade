@@ -799,6 +799,7 @@ cp "$ROOT/docs/ai023_public_site_smoke_matrix.md" "$OUT/docs/" 2>/dev/null || tr
 cp "$ROOT/docs/ai024_public_site_matrix_expansion.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai025_live_draft_profiles.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai026_live_github_issue_gate_hardening.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/ai033_agent_safety.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true

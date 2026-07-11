@@ -26,6 +26,7 @@ default-members = [
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 base64 = "0.22"
+getrandom = "0.3"
 euclid = "0.22"
 anyhow = "1"
 thiserror = "2"

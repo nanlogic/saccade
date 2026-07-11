@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::sync::Arc;
@@ -12,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
 use clap::{Parser, Subcommand, ValueEnum};
 use saccade_core::{SitePolicy, classify_site_url_with_owned_domains, site_action_requires_user};
 use serde::{Deserialize, Serialize};
@@ -546,11 +548,12 @@ struct BridgeOutcome {
     report_path: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct BridgeControlEndpoint {
     host: String,
     port: u16,
     protocol: String,
+    capability: String,
 }
 
 impl BridgeControlEndpoint {
@@ -570,6 +573,7 @@ struct BridgeControlState {
     report_path: PathBuf,
     replay_path: PathBuf,
     control_seq: Arc<AtomicU64>,
+    control_capability: String,
 }
 
 struct BridgeControlServer {
@@ -761,6 +765,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
         let control_dir = cfg.output_dir.join("control");
         fs::create_dir_all(&control_dir)
             .with_context(|| format!("create {}", control_dir.display()))?;
+        let control_capability = generate_control_capability()?;
         let state = BridgeControlState {
             client: client.clone(),
             session_id: sid,
@@ -771,6 +776,7 @@ fn run_bridge(cfg: BridgeConfig) -> Result<BridgeOutcome> {
             report_path: control_dir.join("report.json"),
             replay_path: control_dir.join("replay.jsonl"),
             control_seq: Arc::new(AtomicU64::new(0)),
+            control_capability,
         };
         report["control_artifacts"] = bridge_artifacts(&state);
         let server = start_bridge_control_server(state)?;
@@ -2826,7 +2832,8 @@ fn start_bridge_control_server(state: BridgeControlState) -> Result<BridgeContro
     let endpoint = BridgeControlEndpoint {
         host: "127.0.0.1".to_string(),
         port: addr.port(),
-        protocol: "saccade-dogfood-control-v0".to_string(),
+        protocol: "saccade-dogfood-control-v1".to_string(),
+        capability: state.control_capability.clone(),
     };
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_for_thread = shutdown.clone();
@@ -2929,6 +2936,12 @@ fn bridge_control_response(
 ) -> Value {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+    let supplied_capability = request.get("capability").and_then(Value::as_str);
+    if !control_capability_matches(&state.control_capability, supplied_capability) {
+        let error = "bridge control capability required or invalid";
+        let _ = bridge_record_control_error(state, method, error);
+        return json!({"id": id, "ok": false, "error": error});
+    }
     let params = request.get("params").cloned().unwrap_or(Value::Null);
     match bridge_control_result(state, shutdown, method, params) {
         Ok(result) => match bridge_record_control_success(state, method, &result) {
@@ -3197,16 +3210,55 @@ fn bridge_record_control_error(
         state,
         method,
         false,
-        json!({
-            "method": method,
-            "status": "error",
-            "error": "redacted_control_error",
-        }),
+        bridge_control_error_summary(state, method, error),
     );
     bridge_append_replay(state, &event)?;
     bridge_write_control_report(state, &event)?;
     let _ = bridge_write_block_report(state, method, error, &event);
     Ok(())
+}
+
+fn bridge_control_error_summary(state: &BridgeControlState, method: &str, error: &str) -> Value {
+    let mut summary = json!({
+        "method": method,
+        "status": "error",
+        "error": "redacted_control_error",
+    });
+    if error.contains("bridge control capability") {
+        summary["error_kind"] = json!("invalid_or_missing_session_capability");
+    }
+    if let Some(confirmation) = trusted_confirmation_metadata(state, error) {
+        summary["status"] = json!("requires_user_confirmation");
+        summary["error_kind"] = json!("side_effect_confirmation_required");
+        summary["confirmation"] = confirmation;
+    }
+    summary
+}
+
+fn trusted_confirmation_metadata(state: &BridgeControlState, error: &str) -> Option<Value> {
+    let marker = "user confirmation required before action \"";
+    let action_id = error
+        .strip_prefix(marker)?
+        .split('"')
+        .next()
+        .filter(|value| !value.is_empty())?;
+    let page_origin = bridge_current_url(state)
+        .ok()
+        .and_then(|url| Url::parse(&url).ok())
+        .map(|url| url.origin().ascii_serialization())
+        .unwrap_or_else(|| "unknown".to_string());
+    let sequence = state.control_seq.load(Ordering::SeqCst) + 1;
+    Some(json!({
+        "kind": "trusted_confirmation_required",
+        "confirmation_id": format!("saccade_confirmation_v1_{}_{}", state.run_id, sequence),
+        "trust_source": "saccade_runtime_policy",
+        "page_origin": page_origin,
+        "action_id": action_id,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "expires_on_page_revision_change": true,
+        "user_gesture_required": true,
+        "page_content_may_authorize": false,
+    }))
 }
 
 fn bridge_write_block_report(
@@ -3553,7 +3605,19 @@ fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Val
         .get("actions")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mut action| {
+            if let Some(object) = action.as_object_mut() {
+                object.insert("label_provenance".into(), json!("untrusted_page_content"));
+                object.insert(
+                    "authorization_source".into(),
+                    json!("saccade_runtime_policy"),
+                );
+            }
+            action
+        })
+        .collect::<Vec<_>>();
     let page_url = truth
         .pointer("/page/url")
         .and_then(Value::as_str)
@@ -3574,6 +3638,13 @@ fn bridge_probe_response(state: &BridgeControlState, engine: &str) -> Result<Val
             "page": truth.get("page").cloned().unwrap_or(Value::Null),
             "viewport": truth.get("viewport").cloned().unwrap_or(Value::Null),
             "safety": truth.get("safety").cloned().unwrap_or(Value::Null),
+            "provenance": {
+                "page_title": "untrusted_page_content",
+                "page_text": "untrusted_page_content",
+                "action_labels": "untrusted_page_content",
+                "policy_and_side_effect_authorization": "saccade_runtime_policy",
+                "page_content_may_authorize_actions": false,
+            },
             "redaction_count": truth.get("redactions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
             "action_count": truth.get("actions").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
         },
@@ -3623,6 +3694,11 @@ fn bridge_article_text_response(state: &BridgeControlState, params: Value) -> Re
         "article_text_length": article_text_length,
         "text_chars_returned": text_chars_returned,
         "text_truncated": article.get("textTruncated").and_then(Value::as_bool).unwrap_or(false),
+        "provenance": {
+            "text": "untrusted_page_content",
+            "headings": "untrusted_page_content",
+            "page_content_may_authorize_actions": false,
+        },
         "extraction": {
             "mode": article.get("mode").cloned().unwrap_or(Value::Null),
             "selector": article.get("selector").cloned().unwrap_or(Value::Null),
@@ -4607,6 +4683,7 @@ fn bridge_control_call(
             "id": 1,
             "method": method,
             "params": params,
+            "capability": endpoint.capability,
         })
     )
     .with_context(|| format!("write bridge control {method}"))?;
@@ -4653,11 +4730,17 @@ fn write_bridge_grant(
         "rendering_profile": "official-servoshell",
         "mcp_tool": "saccade.tabs.grant_current",
         "control_endpoint": bridge_endpoint_json(endpoint),
+        "control_capability": {
+            "scheme": "saccade_session_bearer_v1",
+            "token": endpoint.capability,
+            "storage": "grant_file_owner_only",
+            "report_exposure": "forbidden",
+        },
         "transport_status": "official_servoshell_bridge_control_v0",
         "note": "MCP v0 can call saccade.tabs.grant_current with this artifact. This bridge supports ping, shell_status, truth, actions, article_text, safe non-sensitive fill/inspect/act, local FORMMAX fill, navigate, reload, back, and forward through official ServoShell WebDriver.",
         "written_unix_ms": unix_ms(),
     });
-    write_json(path, &payload)
+    write_private_json(path, &payload)
 }
 
 fn bridge_endpoint_json(endpoint: &BridgeControlEndpoint) -> Value {
@@ -4667,6 +4750,30 @@ fn bridge_endpoint_json(endpoint: &BridgeControlEndpoint) -> Value {
         "host": endpoint.host,
         "port": endpoint.port,
     })
+}
+
+fn generate_control_capability() -> Result<String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| anyhow!("generate bridge control capability: {error}"))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn control_capability_matches(expected: &str, supplied: Option<&str>) -> bool {
+    let Some(supplied) = supplied else {
+        return false;
+    };
+    if expected.len() != supplied.len() {
+        return false;
+    }
+    expected
+        .as_bytes()
+        .iter()
+        .zip(supplied.as_bytes())
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 fn wait_for_native_input_ready(
@@ -5064,6 +5171,14 @@ fn write_json(path: &Path, value: &Value) -> Result<()> {
         .with_context(|| format!("write {}", path.display()))
 }
 
+fn write_private_json(path: &Path, value: &Value) -> Result<()> {
+    write_json(path, value)?;
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("restrict {} to owner", path.display()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5160,6 +5275,35 @@ mod tests {
         });
 
         assert!(!document_probe_is_ready_or_usable(&value));
+    }
+
+    #[test]
+    fn control_capability_requires_the_exact_session_secret() {
+        let secret = "correct-session-capability";
+        assert!(control_capability_matches(secret, Some(secret)));
+        assert!(!control_capability_matches(secret, None));
+        assert!(!control_capability_matches(
+            secret,
+            Some("wrong-session-capability")
+        ));
+        assert!(!control_capability_matches("short", Some("longer")));
+    }
+
+    #[test]
+    fn public_endpoint_json_omits_the_control_capability() {
+        let endpoint = BridgeControlEndpoint {
+            host: "127.0.0.1".to_string(),
+            port: 41234,
+            protocol: "saccade-dogfood-control-v1".to_string(),
+            capability: "do-not-publish-this-capability".to_string(),
+        };
+        let public = bridge_endpoint_json(&endpoint);
+        assert_eq!(
+            public.get("protocol").and_then(Value::as_str),
+            Some("saccade-dogfood-control-v1")
+        );
+        assert!(public.get("capability").is_none());
+        assert!(!public.to_string().contains(&endpoint.capability));
     }
 }
 

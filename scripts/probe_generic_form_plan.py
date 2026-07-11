@@ -20,6 +20,7 @@ DEFAULT_BIN = ROOT / "target/debug/saccade-servoshell"
 DEFAULT_MCP_BIN = ROOT / "target/debug/saccade-mcp"
 DEFAULT_SERVOSHELL = Path("/Applications/Servo.app/Contents/MacOS/servoshell")
 SENTINELS = ["FORMPLAN_TEAM_SECRET", "FORMPLAN_SSN_SECRET", "FORMPLAN_NOTE_SECRET"]
+CONTROL_CAPABILITY = ""
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,9 +56,29 @@ def wait_ready(proc: subprocess.Popen[str], lines: "queue.Queue[str]", timeout: 
     raise TimeoutError(f"bridge not ready after {timeout}s; output={seen[-20:]}")
 
 
+def load_control_capability(grant_path: Path) -> str:
+    global CONTROL_CAPABILITY
+    grant = json.loads(grant_path.read_text(encoding="utf-8"))
+    capability = grant.get("control_capability", {})
+    if capability.get("scheme") != "saccade_session_bearer_v1":
+        raise RuntimeError("grant did not provide saccade_session_bearer_v1")
+    token = capability.get("token")
+    if not isinstance(token, str) or len(token) < 32:
+        raise RuntimeError("grant did not provide a usable control capability")
+    CONTROL_CAPABILITY = token
+    return token
+
+
 def call(endpoint: str, method: str, params: dict[str, Any], timeout: float, expect_ok: bool = True) -> dict[str, Any]:
+    if not CONTROL_CAPABILITY:
+        raise RuntimeError("control capability must be loaded from the grant before calling the bridge")
     host, port = endpoint.rsplit(":", 1)
-    request = json.dumps({"id": 1, "method": method, "params": params}) + "\n"
+    request = json.dumps({
+        "id": 1,
+        "method": method,
+        "params": params,
+        "capability": CONTROL_CAPABILITY,
+    }) + "\n"
     with socket.create_connection((host, int(port)), timeout=timeout) as sock:
         sock.settimeout(timeout)
         sock.sendall(request.encode())
@@ -136,6 +157,7 @@ def main() -> int:
     mcp_proc: subprocess.Popen[str] | None = None
     try:
         endpoint, startup = wait_ready(proc, lines, args.timeout_sec)
+        load_control_capability(grant)
         ping = call(endpoint, "ping", {}, args.timeout_sec)["result"]
         inventory = call(endpoint, "form_inventory", {}, args.timeout_sec)["result"]
         fields = inventory.get("fields", [])

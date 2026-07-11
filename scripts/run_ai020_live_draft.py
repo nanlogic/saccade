@@ -34,6 +34,7 @@ DEFAULT_SERVOSHELL = Path(
 DEFAULT_PROFILE = ROOT / "runs" / "dogfood_profile" / "default"
 
 CANONICAL_DRAFT_FIELDS = {"description", "filename", "body"}
+CONTROL_CAPABILITY = ""
 DRAFT_PROFILES: dict[str, dict[str, str]] = {
     "raw": {
         "description": "description",
@@ -250,9 +251,28 @@ def wait_for_ready(
     raise TimeoutError(f"bridge did not become ready within {timeout_sec}s")
 
 
+def load_control_capability(grant_path: str) -> None:
+    global CONTROL_CAPABILITY
+    grant = json.loads(Path(grant_path).read_text(encoding="utf-8"))
+    capability = grant.get("control_capability", {})
+    if capability.get("scheme") != "saccade_session_bearer_v1":
+        raise RuntimeError("bridge grant did not provide saccade_session_bearer_v1")
+    token = capability.get("token")
+    if not isinstance(token, str) or len(token) < 32:
+        raise RuntimeError("bridge grant did not provide a usable control capability")
+    CONTROL_CAPABILITY = token
+
+
 def call_bridge(endpoint: str, method: str, params: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+    if not CONTROL_CAPABILITY:
+        raise RuntimeError("control capability must be loaded from the bridge grant")
     host, port_text = endpoint.rsplit(":", 1)
-    request = json.dumps({"id": 1, "method": method, "params": params}) + "\n"
+    request = json.dumps({
+        "id": 1,
+        "method": method,
+        "params": params,
+        "capability": CONTROL_CAPABILITY,
+    }) + "\n"
     with socket.create_connection((host, int(port_text)), timeout=timeout_sec) as sock:
         sock.settimeout(timeout_sec)
         sock.sendall(request.encode("utf-8"))
@@ -512,6 +532,9 @@ def main() -> int:
 
     try:
         endpoint, ready_grant, ready_report, seen = wait_for_ready(proc, line_queue, args.ready_timeout_sec)
+        if not ready_grant:
+            raise RuntimeError("bridge ready output did not include a grant path")
+        load_control_capability(ready_grant)
         report["bridge_ready"] = {
             "endpoint": endpoint,
             "grant": ready_grant,

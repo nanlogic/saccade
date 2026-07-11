@@ -21,7 +21,7 @@ import chrome_reference_cdp as reference
 
 
 RUNTIME = "saccade-chrome-compat-cdp-v0"
-PROTOCOL = "saccade-dogfood-control-v0"
+PROTOCOL = "saccade-dogfood-control-v1"
 SAFE_ACTION_BLOCK = (
     "submit",
     "publish",
@@ -157,7 +157,9 @@ def write_json_atomic(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    temporary.chmod(0o600)
     temporary.replace(path)
+    path.chmod(0o600)
 
 
 class ChromeCompatControl:
@@ -170,6 +172,7 @@ class ChromeCompatControl:
         self.page_revision = 1
         self.last_fingerprint = None
         self.revision_salt = secrets.token_hex(16)
+        self.control_capability = secrets.token_urlsafe(32)
         self.shutdown = threading.Event()
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -225,6 +228,12 @@ class ChromeCompatControl:
             "rendering_profile": "chrome-compatibility",
             "mcp_tool": "saccade.tabs.grant_current",
             "control_endpoint": self.endpoint(),
+            "control_capability": {
+                "scheme": "saccade_session_bearer_v1",
+                "token": self.control_capability,
+                "storage": "grant_file_owner_only",
+                "report_exposure": "forbidden",
+            },
             "transport_status": "chrome_compatibility_control_v0",
             "note": "Explicit Human grant for a visible Chrome compatibility tab. Supports redacted truth/actions, low-risk browser-input act, and navigation. Sensitive fields, provider challenges, and side-effecting actions remain user-owned.",
             "written_unix_ms": round(time.time() * 1000),
@@ -580,6 +589,11 @@ class ChromeCompatControl:
             line = stream.makefile("r", encoding="utf-8").readline()
             try:
                 request = json.loads(line)
+                supplied = request.get("capability")
+                if not isinstance(supplied, str) or not secrets.compare_digest(
+                    supplied, self.control_capability
+                ):
+                    raise ValueError("bridge control capability required or invalid")
                 result = self.result(request.get("method", ""), request.get("params") or {})
                 self.write_report(result)
                 response = {"id": request.get("id"), "ok": True, "result": result}
