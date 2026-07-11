@@ -5,7 +5,8 @@ Status: canonical execution queue
 
 This file is the short, current action list. Use it with
 `docs/CURRENT_PLAN.md`, `docs/next_plan_v5_tracker.md`, and
-`docs/browser_compat_ledger.md`.
+`docs/browser_compat_ledger.md`. Product ordering comes from
+`docs/SACCADE_PAIN_LEDGER_20260711.md`.
 
 ## Now
 
@@ -16,8 +17,9 @@ reflex/truth engine; Chrome compatibility remains the measured fallback.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
-| AI-031 | P0 | next | FORMMAX product | Turn the local 96-row proof into a generic fast-fill plan: inspect once, classify ownership/sensitivity, bulk-fill ordinary controls, verify results, and leave side effects to the user. | Local fixture plus two measured real forms report success rate, wall time, action count, token use, preserved user values, blocked sensitive fields, and replay with no value leaks. |
-| AI-032 | P0 | active | DOCMAX PDF | Productize PDF form handling for AcroForm first, then classify flat/scanned/XFA documents without pretending they are fillable. The first slice removed synthetic field values from the feasibility report while retaining field names/counts and verification. | Inspect/fill/verify works on local AcroForm and one public blank form; tax ID, signature, attestation, and payment fields remain user-owned; output PDF and redacted diff/replay are produced without raw values in logs. |
+| AI-031 | P0 | active | FORMMAX product | Turn the local 96-row proof into a generic fast-fill plan: inspect once, classify ownership/sensitivity, bulk-fill ordinary controls, verify results, and leave side effects to the user. | Local adversarial fixture plus two measured real forms report success rate, wall time, action count, token use, preserved user values, blocked sensitive fields, repair outcomes, and replay with no value leaks. |
+| AI-033 | P0 | next | Agent safety | Make the safety claim measurable: add untrusted-source provenance, a per-session control capability, trusted confirmation metadata, and an AgentDojo subset. | Utility, attack success, false blocks, and value leaks are reported; protected-value leaks remain zero and page-controlled text cannot authorize side effects. |
+| AI-032 | P0 | next | DOCMAX PDF | Productize PDF form handling for AcroForm first, then classify flat/scanned/XFA documents without pretending they are fillable. The first slice removed synthetic field values from the feasibility report while retaining field names/counts and verification. | Inspect/fill/verify works on local AcroForm and one public blank form; tax ID, signature, attestation, and payment fields remain user-owned; output PDF and redacted diff/replay are produced without raw values in logs. |
 | AI-030B | P0 | done | Compatibility adapter | Attach the existing engine-neutral MCP grant/action/replay surface to the headed persistent Chrome compatibility session. | Passed same visible-tab grant, truth/actions, browser-input safe act, navigation, sanitized replay, explicit agent-owned non-sensitive fill, and value-free inspect. Generic third-party fill remains unclaimed. |
 | AI-027 | P1 | active | GitHub UI canary | Classify and reduce GitHub UI failures exposed during dogfood, starting with profile dropdown hit-testing. | Public GitHub smoke, API compatibility, and dropdown hit-test evidence are recorded; next reduction identifies whether the overlay bug is Servo hit-test, GitHub shim, or Saccade product chrome. |
 

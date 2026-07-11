@@ -1936,3 +1936,17 @@
   ordinary field values.
 - Product plan: `docs/SACCADE_FORMS_PDF_FOCUS_PLAN_20260711.md`. First redacted
   gate: `runs/formmax/pdf_feasibility/result.json`.
+
+## DECISION_PRODUCT_049 - Pain evidence orders the product backlog
+
+- The ranked pain ledger is `docs/SACCADE_PAIN_LEDGER_20260711.md`.
+- Development priority uses user cost, agent blockage, Saccade leverage, and
+  evidence confidence. The score orders work; it is not a prevalence estimate.
+- The first three targets are long multi-page forms, mixed sensitive/ordinary
+  fields, and verified recovery from partial failure.
+- Prompt-injection enforcement remains P0 because its impact is severe even
+  though public prevalence data is weak.
+- CAPTCHA is a measured blocker with low Saccade leverage. Route it to the user;
+  do not spend the product cycle on bypass or stealth behavior.
+- External statistics establish the problem. Thirty observed first-party tasks
+  with at least ten users must establish that Saccade solves it.
