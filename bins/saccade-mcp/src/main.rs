@@ -1024,7 +1024,10 @@ fn input_schema(name: &str) -> Value {
         "saccade.web.form_inventory" => json!({
             "type": "object",
             "properties": {
-                "tab_id": {"type": "integer"}
+                "tab_id": {"type": "integer"},
+                "mode": {"type": "string", "enum": ["full", "actionable", "compact"], "default": "full"},
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500}
             },
             "required": ["tab_id"],
             "additionalProperties": false
@@ -2683,7 +2686,18 @@ fn web_form_inventory_tool(state: &mut McpSessionState, arguments: Value) -> Res
         .cloned()
         .context("saccade.web.form_inventory requires a granted ServoShell current tab")?;
     ensure_dogfood_control_capability(state, tab_id, "form_inventory")?;
-    let mut result = call_dogfood_control(&endpoint, "form_inventory", json!({}))?;
+    let mode = arguments
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("full");
+    let mut params = json!({"mode": mode});
+    if let Some(offset) = arguments.get("offset") {
+        params["offset"] = offset.clone();
+    }
+    if let Some(limit) = arguments.get("limit") {
+        params["limit"] = limit.clone();
+    }
+    let mut result = call_dogfood_control(&endpoint, "form_inventory", params)?;
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &result);
     }

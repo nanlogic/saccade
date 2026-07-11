@@ -141,6 +141,19 @@ def main() -> int:
         fields = inventory.get("fields", [])
         by_id = {field.get("field_id"): field for field in fields}
 
+        compact = call(
+            endpoint,
+            "form_inventory",
+            {"mode": "compact", "offset": 0, "limit": 3},
+            args.timeout_sec,
+        )["result"]
+        if compact.get("returned_count") != 3 or compact.get("has_more") is not True:
+            failures.append(f"compact inventory pagination failed: {compact}")
+        if any("selector_hash" in field or "value" in field for field in compact.get("fields", [])):
+            failures.append("compact inventory returned verbose or raw value data")
+        if compact.get("candidate_count") != 17:
+            failures.append(f"compact candidate_count={compact.get('candidate_count')} expected=17")
+
         expected_eligible = {
             "id:team", "id:region", "id:instances", "id:launch-date",
             "id:include-staging", "id:summary",

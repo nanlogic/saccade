@@ -868,6 +868,10 @@ $OUT/open-saccade-compat https://www.gameuidatabase.com/
   site, and does not log in, fill, submit, or bypass provider controls. Use
   \`--matrix extended\` for the larger public-read exploratory matrix.
 - Local long-form/table fill dogfood is available through \`run-formmax\`.
+- Generic current-tab form planning is exposed through the MCP tools
+  \`saccade.web.form_inventory\`, \`saccade.web.form_compile_plan\`, and
+  \`saccade.web.form_execute_plan\`. Start with inventory mode \`compact\` and page
+  with \`offset\`/\`limit\`; use \`actionable\` when selecting empty eligible fields.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
 - Real-site human-in-loop draft measurements are available through
   \`run-ai020-live-draft\`. It launches the visible ServoShell bridge, waits

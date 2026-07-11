@@ -114,7 +114,10 @@ def main() -> int:
         )
         tab_id = int(granted["tab"]["tab_id"])
         inventory_started = time.monotonic()
-        inventory = mcp_tool(mcp_proc, 3, "saccade.web.form_inventory", {"tab_id": tab_id})
+        inventory = mcp_tool(
+            mcp_proc, 3, "saccade.web.form_inventory",
+            {"tab_id": tab_id, "mode": "actionable"},
+        )
         (output_dir / "inventory_diagnostic.json").write_text(
             json.dumps(inventory, indent=2) + "\n"
         )

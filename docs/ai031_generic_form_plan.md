@@ -115,6 +115,22 @@ Both receipts verified, the same WebView was attached, and output-tree sentinel
 scans were clean. The larger EvilTester response is useful evidence that the
 inventory needs a compact/paged mode before broad token-efficiency claims.
 
+## Compact and paged inventory
+
+`form_inventory` now accepts `mode=full|actionable|compact`, plus optional
+`offset` and `limit` (`1..500`). `full` preserves the original response;
+`actionable` returns only currently eligible fields; `compact` returns a small
+planning record for each field (`field_id`, type, label confidence, owner,
+sensitivity, required, redacted value state, eligibility, and block reasons).
+Compact mode defaults to the first 100 fields and exposes `candidate_count`,
+`returned_count`, `omitted_count`, and `has_more` so an agent can page without
+guessing. No mode returns raw field values or select option contents.
+
+The local adversarial gate also checks `compact offset=0 limit=3`: it returns
+three of 17 fields, reports `has_more=true`, and contains no selector hashes or
+value keys. This is a response-size control, not a claim that arbitrary public
+forms are safe to fill.
+
 Artifacts:
 
 - `runs/formmax/public_selenium_web_form_ai031_20260711_final/report.json`
@@ -133,8 +149,8 @@ remain blocked.
 
 ## Next slice
 
-Package the three MCP tools in the next dogfood release, add compact/paged
-inventory output, then run one human-reviewed draft on a non-sensitive real
+Package the three MCP tools in the next dogfood release, then run one
+human-reviewed draft on a non-sensitive real
 workflow without submit.
 
 This checkpoint proves the generic surface on local adversarial fixtures and two

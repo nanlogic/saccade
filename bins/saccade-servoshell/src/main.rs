@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -2960,7 +2961,7 @@ fn bridge_control_result(
         "draft_editor_fill" => bridge_draft_editor_fill_response(state, params),
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
-        "form_inventory" => bridge_form_inventory_response(state),
+        "form_inventory" => bridge_form_inventory_response(state, params),
         "form_compile_plan" => bridge_form_compile_plan_response(state, params),
         "form_execute_plan" => bridge_form_execute_plan_response(state, params),
         "act" => bridge_act_response(state, params),
@@ -4025,7 +4026,7 @@ fn bridge_inspect_fields_response(state: &BridgeControlState, params: Value) -> 
     }))
 }
 
-fn bridge_form_inventory_response(state: &BridgeControlState) -> Result<Value> {
+fn bridge_form_inventory_response(state: &BridgeControlState, params: Value) -> Result<Value> {
     let page_url = bridge_current_url(state)?;
     let site_policy = classify_site_url(&page_url);
     if !site_policy.agent_read_allowed {
@@ -4037,11 +4038,77 @@ fn bridge_form_inventory_response(state: &BridgeControlState) -> Result<Value> {
     }
     let script = format!("{BRIDGE_FORM_HELPERS_JS}\n{BRIDGE_FORM_INVENTORY_JS}");
     let inventory = state.client.execute_sync(&state.session_id, &script)?;
+    let mode = params.get("mode").and_then(Value::as_str).unwrap_or("full");
+    if !matches!(mode, "full" | "actionable" | "compact") {
+        bail!("form_inventory mode must be full, actionable, or compact");
+    }
+    let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let requested_limit = params
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize);
+    if requested_limit == Some(0) || requested_limit.is_some_and(|value| value > 500) {
+        bail!("form_inventory limit must be between 1 and 500");
+    }
+    let default_limit = if mode == "compact" { 100 } else { usize::MAX };
+    let limit = requested_limit.unwrap_or(default_limit);
+    let all_fields = inventory
+        .get("fields")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let candidate_fields = if mode == "actionable" {
+        all_fields
+            .iter()
+            .filter(|field| field.get("eligible").and_then(Value::as_bool) == Some(true))
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        all_fields.clone()
+    };
+    let compact_fields = candidate_fields
+        .iter()
+        .map(|field| {
+            json!({
+                "field_id": field.get("field_id").cloned().unwrap_or(Value::Null),
+                "type": field.get("type").cloned().unwrap_or(Value::Null),
+                "label": field.get("label").cloned().unwrap_or(Value::Null),
+                "label_confidence": field.get("label_confidence").cloned().unwrap_or(Value::Null),
+                "owner": field.get("owner").cloned().unwrap_or(Value::Null),
+                "sensitivity": field.get("sensitivity").cloned().unwrap_or(Value::Null),
+                "required": field.get("required").cloned().unwrap_or(Value::Null),
+                "value_state": field.get("value_state").cloned().unwrap_or(Value::Null),
+                "eligible": field.get("eligible").cloned().unwrap_or(Value::Null),
+                "blocked_reasons": field.get("blocked_reasons").cloned().unwrap_or_else(|| json!([])),
+            })
+        })
+        .collect::<Vec<_>>();
+    let source_fields = if mode == "compact" {
+        &compact_fields
+    } else {
+        &candidate_fields
+    };
+    let page_fields = source_fields
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut blocked_reason_counts = BTreeMap::<String, u64>::new();
+    for reason in all_fields
+        .iter()
+        .filter_map(|field| field.get("blocked_reasons").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        *blocked_reason_counts.entry(reason.to_string()).or_default() += 1;
+    }
     Ok(json!({
         "status": "ok",
         "runtime": "saccade-servoshell-bridge-v0",
         "engine": "saccade-servoshell-form-inventory-v0",
         "summary": "generic form inventory completed without returning field values",
+        "mode": mode,
         "same_webview_control": true,
         "page_revision": state.page_revision.load(Ordering::SeqCst),
         "site_policy": site_policy,
@@ -4049,7 +4116,14 @@ fn bridge_form_inventory_response(state: &BridgeControlState) -> Result<Value> {
         "eligible_count": inventory.get("eligible_count").cloned().unwrap_or(Value::Null),
         "sensitive_count": inventory.get("sensitive_count").cloned().unwrap_or(Value::Null),
         "existing_value_count": inventory.get("existing_value_count").cloned().unwrap_or(Value::Null),
-        "fields": inventory.get("fields").cloned().unwrap_or_else(|| json!([])),
+        "offset": offset,
+        "limit": if limit == usize::MAX { Value::Null } else { json!(limit) },
+        "candidate_count": candidate_fields.len(),
+        "returned_count": page_fields.len(),
+        "omitted_count": source_fields.len().saturating_sub(offset.saturating_add(page_fields.len())),
+        "has_more": offset.saturating_add(page_fields.len()) < source_fields.len(),
+        "blocked_reason_counts": blocked_reason_counts,
+        "fields": page_fields,
         "policy": {
             "values_returned": false,
             "block_sensitive": true,
