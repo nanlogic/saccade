@@ -5686,7 +5686,7 @@ return (() => {
     const m = joined.match(sensitiveRe);
     return m ? m[0].toLowerCase() : null;
   };
-  const actionEls = [...document.querySelectorAll("button,a,input,select,textarea,[role='button'],[contenteditable='true']")];
+  const actionEls = [...document.querySelectorAll("button,a,input,select,textarea,[role='button'],[role='textbox'],[contenteditable='true']")];
   const actions = [];
   const redactions = [];
   let visibleSensitiveSurface = false;
@@ -5809,7 +5809,9 @@ function saccadeFormSensitivity(el, label) {
 
 function saccadeFormHasValue(el, type) {
   if (type === "checkbox" || type === "radio") return Boolean(el.checked);
-  if (el.isContentEditable) return saccadeFormText(el.textContent, 10000).length > 0;
+  if (el.isContentEditable || type === "role_textbox") {
+    return saccadeFormText(el.textContent, 10000).length > 0;
+  }
   return String(el.value || "").trim().length > 0;
 }
 
@@ -5830,7 +5832,7 @@ function saccadeFormSelectorHint(el, index) {
 }
 
 function saccadeFormInventory() {
-  const controls = Array.from(document.querySelectorAll("input,select,textarea,[contenteditable='true']"));
+  const controls = Array.from(document.querySelectorAll("input,select,textarea,[contenteditable='true'],[role='textbox']"));
   const nameCounts = new Map();
   for (const el of controls) {
     const name = el.getAttribute("name");
@@ -5838,9 +5840,10 @@ function saccadeFormInventory() {
   }
   const fields = controls.map((el, index) => {
     const tag = el.tagName.toLowerCase();
+    const role = (el.getAttribute("role") || "").toLowerCase();
     const type = (
       el.getAttribute("type") ||
-      (tag === "input" ? (el.type || "text") : (el.isContentEditable ? "contenteditable" : tag))
+      (tag === "input" ? (el.type || "text") : (el.isContentEditable ? "contenteditable" : (role === "textbox" ? "role_textbox" : tag)))
     ).toLowerCase();
     const label = saccadeFormLabel(el);
     const sensitivity = saccadeFormSensitivity(el, label.text);
@@ -5955,7 +5958,7 @@ return (() => {
   if (!expectedPlanId || compiled.plan_id !== expectedPlanId) {
     throw new Error("form plan id mismatch; recompile before execution");
   }
-  const controls = Array.from(document.querySelectorAll("input,select,textarea,[contenteditable='true']"));
+  const controls = Array.from(document.querySelectorAll("input,select,textarea,[contenteditable='true'],[role='textbox']"));
   const inventory = saccadeFormInventory();
   const entries = new Map(inventory.fields.map((field, index) => [field.field_id, { field, el: controls[index] }]));
   const filled = [];
@@ -5964,7 +5967,7 @@ return (() => {
 
   function internalValue(el, type) {
     if (type === "checkbox" || type === "radio") return Boolean(el.checked);
-    if (el.isContentEditable) return String(el.textContent || "");
+    if (el.isContentEditable || type === "role_textbox") return String(el.textContent || "");
     return String(el.value || "");
   }
 

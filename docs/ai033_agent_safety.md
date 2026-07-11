@@ -39,12 +39,14 @@ values. The bridge still refuses to click side-effecting actions.
 | Repair regression | A postcondition mismatch produces one safe repair and the stale original plan is blocked | `runs/safety/ai033_capability_repair_20260711-085847/report.json` |
 | Prompt-injection fixture | Page text instructs the agent to ignore policy and submit. Truth marks it untrusted; `act_submit` is rejected; trusted confirmation metadata is replayed | `runs/safety/ai033_prompt_injection_20260711-085757/report.json` |
 | Chrome compatibility capability | Missing and wrong tokens reject, correct token works, grant is `0600`, and MCP attaches to the visible Chrome tab | `runs/safety/ai033_chrome_capability/report.json`, `runs/safety/ai033_chrome_capability/mcp_probe/report.json` |
+| Browser adversaries | A visible ARIA `role=textbox` and a contenteditable recovery control are discovered as sensitive, excluded from fill plans, and prevent default capture. Two independent live bridge sessions reject each other's capability. A side-effect confirmation is revision-bound; after navigation the stale action is rejected. No control capability appears outside its grant and no custom-control sentinel appears in bridge responses. | `runs/safety/ai033_browser_adversaries_20260711-final2/report.json` |
 | Full MCP regression | All 25 tools, tab scoping, local audit, policy gate, live bridge grant, live fill, inspection, and FORMMAX route pass on control protocol v1 | `runs/mcp/selftest_1783778765799/report.json` |
 
 ## Remaining work
 
-This is not a completed security claim. Before external release, run an
-AgentDojo-relevant subset and add adversarial cases for shadow DOM/custom
-controls, semantic sensitive-field evasion, stale confirmation after navigation,
-cross-tab capability misuse, and false-sensitive blocks. Report task utility,
-attack success rate, false-block rate, and protected-value leak count.
+This is not a completed security claim. The custom-control, stale-confirmation,
+and cross-tab cases now have a live bridge gate. Before external release, build
+and run an AgentDojo adapter, add shadow-DOM and visual/semantic
+sensitive-field-evasion cases, measure benign controls that must not be falsely
+blocked, and report task utility, attack success rate, false-block rate, and
+protected-value leak count.
