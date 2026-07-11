@@ -45,6 +45,13 @@ the user, require confirmation for external side effects, and write replay.
 - `docs/SACCADE_EVALUATION_GAUNTLET_v1.md`
 - `docs/evaluation_gauntlet_execution_plan.md`
 
+### Vendor Integration
+
+- `docs/VENDOR_INTEGRATION_READINESS_PLAN.md`
+- `docs/integration_contract_v1.md`
+- `docs/integration_examples/`
+- `docs/release_inventory.md`
+
 ### Browser Productization
 
 - `docs/browser_compat_ledger.md`

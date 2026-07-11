@@ -803,11 +803,17 @@ cp "$ROOT/docs/ai033_agent_safety.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/browser_compat_ledger.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/integration_contract_v1.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/release_inventory.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/github_dropdown_compat_shim_probe.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/SACCADE_DOGFOOD_HANDOFF.md" "$OUT/docs/"
 cp "$ROOT/docs/profile_persistence_report.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/site_policy_matrix.md" "$OUT/docs/"
 cp "$ROOT/docs/servo_0_2_retirement_plan.md" "$OUT/docs/" 2>/dev/null || true
+if [ -d "$ROOT/docs/integration_examples" ]; then
+  rm -rf "$OUT/docs/integration_examples"
+  cp -R "$ROOT/docs/integration_examples" "$OUT/docs/integration_examples"
+fi
 cp "$ROOT"/scripts/userscripts/*.js "$OUT/userscripts/" 2>/dev/null || true
 
 cat > "$OUT/DOGFOOD_STATUS.md" <<STATUS
@@ -826,6 +832,20 @@ $OUT/profile-status
 $OUT/open-saccade https://example.com
 $OUT/open-saccade-compat https://www.gameuidatabase.com/
 \`\`\`
+
+## Integration Kit
+
+This local dogfood release includes the Saccade Integration Contract v1 and
+minimal Python and TypeScript MCP host examples under \`docs/\`. Start with:
+
+\`\`\`text
+docs/integration_contract_v1.md
+docs/integration_examples/
+docs/release_inventory.md
+\`\`\`
+
+This is an unsigned engineering evaluation kit. It is not a notarized public
+distribution and does not include a hosted service.
 
 ## Current Claims
 

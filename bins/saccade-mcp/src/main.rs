@@ -18,7 +18,9 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 25;
+const REQUIRED_TOOL_COUNT: usize = 26;
+const SACCADE_CONTRACT_VERSION: &str = "1.0";
+const SACCADE_MIN_CONTRACT_VERSION: &str = "1.0";
 
 #[derive(Parser)]
 #[command(name = "saccade-mcp")]
@@ -38,6 +40,7 @@ enum Command {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum ToolNamespace {
+    System,
     Browser,
     Dev,
     Tabs,
@@ -96,6 +99,7 @@ struct SelftestEvidence {
     local_audit_report: String,
     stdio_initialize: bool,
     stdio_tools_list: bool,
+    stdio_contract_capabilities: bool,
     stdio_tool_call: bool,
     persistent_tabs: bool,
     browser_backed_tabs: bool,
@@ -230,6 +234,7 @@ fn selftest() -> Result<()> {
     let local_dev_audit = local_audit.findings.len() == 1
         && local_audit.actions.len() == 1
         && external_dev_url_rejected
+        && stdio_evidence.contract_capabilities
         && stdio_evidence.tool_call
         && stdio_evidence.persistent_tabs
         && stdio_evidence.browser_backed_tabs
@@ -263,6 +268,7 @@ fn selftest() -> Result<()> {
         local_audit_report: stdio_evidence.audit_report,
         stdio_initialize: stdio_evidence.initialize,
         stdio_tools_list: stdio_evidence.tools_list,
+        stdio_contract_capabilities: stdio_evidence.contract_capabilities,
         stdio_tool_call: stdio_evidence.tool_call,
         persistent_tabs: stdio_evidence.persistent_tabs,
         browser_backed_tabs: stdio_evidence.browser_backed_tabs,
@@ -324,8 +330,17 @@ fn selftest() -> Result<()> {
 
 fn registry() -> ToolRegistry {
     ToolRegistry {
-        version: "mcp-skeleton-v0",
+        version: "saccade-contract-v1",
         tools: vec![
+            tool(
+                "saccade.system.capabilities",
+                ToolNamespace::System,
+                ToolRisk::ReportOnly,
+                "Return the Saccade contract version, feature set, limits, and lifecycle rules.",
+                false,
+                false,
+                true,
+            ),
             tool(
                 "saccade.dev.open_local",
                 ToolNamespace::Dev,
@@ -635,6 +650,7 @@ impl McpSessionState {
 struct JsonRpcEvidence {
     initialize: bool,
     tools_list: bool,
+    contract_capabilities: bool,
     tool_call: bool,
     persistent_tabs: bool,
     browser_backed_tabs: bool,
@@ -786,8 +802,9 @@ fn handle_json_rpc(state: &mut McpSessionState, request: JsonRpcRequest) -> Opti
             },
             "serverInfo": {
                 "name": "saccade-mcp",
-                "version": "mcp-stdio-v0"
-            }
+                "version": "saccade-contract-v1"
+            },
+            "saccade": contract_capabilities()
         })),
         "tools/list" => Ok(json!({
             "tools": registry()
@@ -827,13 +844,75 @@ fn handle_json_rpc(state: &mut McpSessionState, request: JsonRpcRequest) -> Opti
 }
 
 fn rpc_error(id: Value, code: i64, message: &'static str, detail: String) -> Value {
+    let saccade_code = saccade_error_code(&detail);
     json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
             "code": code,
             "message": message,
-            "data": detail,
+            "data": {
+                "saccade_code": saccade_code,
+                "detail": detail,
+                "retryable": matches!(saccade_code, "SACCADE_STALE_BASIS" | "SACCADE_TIMEOUT")
+            },
+        }
+    })
+}
+
+fn saccade_error_code(detail: &str) -> &'static str {
+    if detail.contains("tool arguments")
+        || detail.contains("invalid ")
+        || detail.contains("requires integer")
+    {
+        "SACCADE_INVALID_ARGUMENT"
+    } else if detail.contains("stale") {
+        "SACCADE_STALE_BASIS"
+    } else if detail.contains("timeout") || detail.contains("timed out") {
+        "SACCADE_TIMEOUT"
+    } else if detail.contains("unknown tab_id") || detail.contains("not found") {
+        "SACCADE_NOT_FOUND"
+    } else if detail.contains("requires") || detail.contains("denied") || detail.contains("blocked")
+    {
+        "SACCADE_POLICY_DENIED"
+    } else if detail.contains("unsupported") || detail.contains("only accepts") {
+        "SACCADE_UNSUPPORTED"
+    } else {
+        "SACCADE_INTERNAL"
+    }
+}
+
+fn rpc_error_detail(error: &Value) -> Option<&str> {
+    let data = error.get("data")?;
+    data.as_str()
+        .or_else(|| data.get("detail").and_then(Value::as_str))
+}
+
+fn contract_capabilities() -> Value {
+    json!({
+        "contract_version": SACCADE_CONTRACT_VERSION,
+        "min_supported_contract_version": SACCADE_MIN_CONTRACT_VERSION,
+        "features": [
+            "current_tab_grant",
+            "redacted_truth",
+            "verified_safe_actions",
+            "form_compile_execute",
+            "value_free_replay",
+            "typed_errors"
+        ],
+        "limits": {
+            "form_inventory_max_page_size": 500,
+            "form_plan_max_assignments": 5000,
+            "default_control_connect_timeout_ms": 2000,
+            "default_control_read_timeout_ms": 5000
+        },
+        "lifecycle": {
+            "cancellation": "host stops issuing work, then calls saccade.tabs.pause_agent or saccade.tabs.close",
+            "shutdown": "saccade.tabs.close releases the MCP tab state and its attached worker or bridge",
+            "side_effects": "submit, publish, payment, login, OTP, signing, and destructive actions require user control or confirmation"
+        },
+        "data_boundary": {
+            "never_returned_by_default": ["cookies", "storage", "control_capability", "sensitive_field_values", "sensitive_page_screenshots"]
         }
     })
 }
@@ -848,6 +927,11 @@ fn mcp_tool_spec(tool: &ToolSpec) -> Value {
 
 fn input_schema(name: &str) -> Value {
     match name {
+        "saccade.system.capabilities" => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
         "saccade.dev.open_local" => json!({
             "type": "object",
             "properties": {
@@ -1162,6 +1246,11 @@ fn input_schema(name: &str) -> Value {
 
 fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Result<Value> {
     match name {
+        "saccade.system.capabilities" => Ok(json!({
+            "status": "ok",
+            "summary": "Saccade contract capabilities",
+            "saccade": contract_capabilities(),
+        })),
         "saccade.dev.open_local" => open_local_tool(state, arguments),
         "saccade.dev.audit_page" => audit_page_tool(state, arguments),
         "saccade.dev.click_all_primary_actions" => {
@@ -3836,8 +3925,7 @@ fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
     .and_then(|response| {
         response
             .get("error")
-            .and_then(|error| error.get("data"))
-            .and_then(Value::as_str)
+            .and_then(rpc_error_detail)
             .map(|detail| detail.contains("user-granted Human current tab"))
     })
     .unwrap_or(false);
@@ -4026,6 +4114,35 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
             .map(|tools| tools.len() >= REQUIRED_TOOL_COUNT)
     })
     .unwrap_or(false);
+
+    let contract_capabilities = handle_json_rpc(
+        &mut state,
+        JsonRpcRequest {
+            id: Some(json!(21)),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "saccade.system.capabilities",
+                "arguments": {}
+            }),
+        },
+    )
+    .and_then(|response| {
+        response
+            .pointer("/result/structuredContent/saccade")
+            .cloned()
+    })
+    .is_some_and(|capabilities| {
+        capabilities.get("contract_version").and_then(Value::as_str)
+            == Some(SACCADE_CONTRACT_VERSION)
+            && capabilities
+                .get("features")
+                .and_then(Value::as_array)
+                .is_some_and(|features| {
+                    features
+                        .iter()
+                        .any(|feature| feature.as_str() == Some("typed_errors"))
+                })
+    });
 
     let browser_navigate = verify_browser_navigate_json_rpc_surface()?;
 
@@ -4787,8 +4904,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         .and_then(|response| {
             response
                 .get("error")
-                .and_then(|error| error.get("data"))
-                .and_then(Value::as_str)
+                .and_then(rpc_error_detail)
                 .map(|detail| detail.contains("user confirmation required"))
         })
         .unwrap_or(false);
@@ -5067,6 +5183,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
     Ok(JsonRpcEvidence {
         initialize,
         tools_list,
+        contract_capabilities,
         tool_call,
         persistent_tabs,
         browser_backed_tabs,
@@ -5966,6 +6083,59 @@ fn workspace_root() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contract_capabilities_are_versioned_and_discoverable() {
+        let mut state = McpSessionState::default();
+        let response = handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(1)),
+                method: "tools/call".to_string(),
+                params: json!({
+                    "name": "saccade.system.capabilities",
+                    "arguments": {}
+                }),
+            },
+        )
+        .expect("capabilities request should return a response");
+        assert_eq!(
+            response.pointer("/result/structuredContent/saccade/contract_version"),
+            Some(&json!(SACCADE_CONTRACT_VERSION))
+        );
+        assert!(
+            response
+                .pointer("/result/structuredContent/saccade/features")
+                .and_then(Value::as_array)
+                .is_some_and(|features| features.iter().any(|feature| feature == "typed_errors"))
+        );
+    }
+
+    #[test]
+    fn rpc_errors_expose_stable_saccade_codes() {
+        let response = rpc_error(
+            json!(7),
+            -32603,
+            "Internal error",
+            "saccade.web.act requires integer basis_page_revision".to_string(),
+        );
+        assert_eq!(
+            response.pointer("/error/data/saccade_code"),
+            Some(&json!("SACCADE_INVALID_ARGUMENT"))
+        );
+        assert_eq!(
+            rpc_error_detail(response.get("error").expect("error object")),
+            Some("saccade.web.act requires integer basis_page_revision")
+        );
+        assert_eq!(
+            saccade_error_code("tool arguments must include integer field tab_id"),
+            "SACCADE_INVALID_ARGUMENT"
+        );
+        assert_eq!(
+            saccade_error_code("stale action basis: requested 1, current 2"),
+            "SACCADE_STALE_BASIS"
+        );
+    }
 
     #[test]
     fn dogfood_control_socket_addr_maps_allowed_loopback_hosts() {

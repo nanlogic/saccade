@@ -98,6 +98,13 @@ block, and confirm zero protected-value leaks in the published artifacts.
 
 Owner: bridge/MCP
 
+Status: v1 local integration core is implemented: `saccade.system.capabilities`
+advertises contract `1.0`, supported features, limits, and lifecycle rules;
+`docs/integration_contract_v1.md` freezes the host contract; and TypeScript and
+Python stdio host examples exercise the explicit-grant, no-submit plan flow.
+Release signing, license choice, SBOM attestation, and hosted artifacts remain
+separate release-owner blockers in `docs/release_inventory.md`.
+
 - Publish a versioned capability schema for grants, truth, field inventory,
   fill plans, action receipts, confirmation requests, block reports, and
   replay. Keep raw values, cookies, storage, and screenshot data out of the
