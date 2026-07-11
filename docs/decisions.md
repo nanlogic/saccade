@@ -1950,3 +1950,20 @@
   do not spend the product cycle on bypass or stealth behavior.
 - External statistics establish the problem. Thirty observed first-party tasks
   with at least ten users must establish that Saccade solves it.
+
+## DECISION_FORMMAX_050 - Generic planning precedes generic writing
+
+- The official ServoShell bridge owns the first generic FORMMAX layer. Do not
+  add a parallel form crate while the existing bridge can enforce the same
+  current-tab policy.
+- `form_inventory` returns field identity, semantics, owner, sensitivity, and
+  redacted state without values. `form_compile_plan` returns only eligible and
+  rejected field metadata and performs no writes.
+- Unknown-owner ordinary empty fields may enter a plan only because the caller
+  explicitly assigned that field; they are reported as `explicit_plan` rather
+  than implying separate user approval.
+  Human-owned, sensitive, existing, ambiguous, hidden, disabled, unsupported,
+  and unstable fields remain blocked.
+- Page revision is a hard plan boundary. A stale plan must be recompiled.
+- The 17-control adversarial gate and the 672-field regression pass. Evidence:
+  `docs/ai031_generic_form_plan.md`.

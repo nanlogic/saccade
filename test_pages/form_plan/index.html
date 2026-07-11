@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saccade Generic Form Plan</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; max-width: 760px; margin: 32px auto; color: #172033; }
+    form { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; }
+    label, .field { display: grid; gap: 6px; }
+    input, select, textarea, [contenteditable] { min-height: 38px; padding: 7px; border: 1px solid #8794aa; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body data-session-revision="0">
+  <h1>Capacity request</h1>
+  <form id="capacity-form">
+    <label for="team">Team
+      <input id="team" name="team" data-owner="agent" data-sensitive="none">
+    </label>
+
+    <label for="region">Region
+      <select id="region" name="region" data-sensitive="none">
+        <option value="">Choose a region</option>
+        <option value="east">US East</option>
+        <option value="west">US West</option>
+      </select>
+    </label>
+
+    <label for="instances">Instances
+      <input id="instances" name="instances" type="number" min="1" max="500" required data-sensitive="none">
+    </label>
+
+    <label for="launch-date">Launch date
+      <input id="launch-date" name="launch_date" type="date" data-sensitive="none">
+    </label>
+
+    <label for="user-note">User note
+      <textarea id="user-note" name="user_note" data-owner="human" data-sensitive="none">Keep this exact note.</textarea>
+    </label>
+
+    <label for="project-code">Existing project code
+      <input id="project-code" name="project_code" value="USER-42" data-sensitive="none">
+    </label>
+
+    <label for="ssn">Social Security number
+      <input id="ssn" name="ssn" autocomplete="off">
+    </label>
+
+    <label for="password">Account password
+      <input id="password" name="password" type="password" value="fixture-secret">
+    </label>
+
+    <label for="include-staging">
+      <input id="include-staging" name="include_staging" type="checkbox" data-sensitive="none">
+      Include staging
+    </label>
+
+    <div class="field">
+      <span id="summary-label">Public summary</span>
+      <div id="summary" name="summary" contenteditable="true" aria-labelledby="summary-label" data-sensitive="none"></div>
+    </div>
+
+    <input id="disabled-field" name="disabled_field" aria-label="Disabled field" disabled data-sensitive="none">
+    <input id="file-upload" name="file_upload" type="file" aria-label="Supporting file" data-sensitive="none">
+    <input name="duplicate" aria-label="Duplicate one" data-sensitive="none">
+    <input name="duplicate" aria-label="Duplicate two" data-sensitive="none">
+    <input id="ambiguous" data-sensitive="none">
+    <input id="hidden-token" type="hidden" value="do-not-read">
+    <input id="display-hidden" class="hidden" name="display_hidden" aria-label="Display hidden" data-sensitive="none">
+
+    <button id="submit" type="submit">Submit request</button>
+  </form>
+  <script>
+    document.getElementById("capacity-form").addEventListener("submit", (event) => event.preventDefault());
+  </script>
+</body>
+</html>

@@ -2960,6 +2960,8 @@ fn bridge_control_result(
         "draft_editor_fill" => bridge_draft_editor_fill_response(state, params),
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
+        "form_inventory" => bridge_form_inventory_response(state),
+        "form_compile_plan" => bridge_form_compile_plan_response(state, params),
         "act" => bridge_act_response(state, params),
         "formmax_live_fill" => bridge_formmax_live_fill_response(state, params),
         "navigate" => {
@@ -3046,6 +3048,8 @@ fn bridge_status_response(
             "draft_editor_fill",
             "fill_agent_fields",
             "inspect_fields",
+            "form_inventory",
+            "form_compile_plan",
             "act",
             "formmax_live_fill",
             "navigate",
@@ -3299,6 +3303,9 @@ fn bridge_result_summary(method: &str, result: &Value) -> Value {
         "visible_writable_count",
         "visible_authoring_count",
         "sensitive_count",
+        "field_count",
+        "eligible_count",
+        "existing_value_count",
         "draft_fields_requested",
         "draft_fields_filled",
         "draft_fields_rejected",
@@ -4008,6 +4015,115 @@ fn bridge_inspect_fields_response(state: &BridgeControlState, params: Value) -> 
         "requested": fields.len(),
         "fields": inspect_result.get("fields").cloned().unwrap_or_else(|| json!([])),
         "sensitive_fields_seen": inspect_result.get("sensitiveFieldsSeen").cloned().unwrap_or(Value::Null),
+        "artifacts": bridge_artifacts(state),
+    }))
+}
+
+fn bridge_form_inventory_response(state: &BridgeControlState) -> Result<Value> {
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks form inventory on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
+    let script = format!("{BRIDGE_FORM_HELPERS_JS}\n{BRIDGE_FORM_INVENTORY_JS}");
+    let inventory = state.client.execute_sync(&state.session_id, &script)?;
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-form-inventory-v0",
+        "summary": "generic form inventory completed without returning field values",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "site_policy": site_policy,
+        "field_count": inventory.get("field_count").cloned().unwrap_or(Value::Null),
+        "eligible_count": inventory.get("eligible_count").cloned().unwrap_or(Value::Null),
+        "sensitive_count": inventory.get("sensitive_count").cloned().unwrap_or(Value::Null),
+        "existing_value_count": inventory.get("existing_value_count").cloned().unwrap_or(Value::Null),
+        "fields": inventory.get("fields").cloned().unwrap_or_else(|| json!([])),
+        "policy": {
+            "values_returned": false,
+            "block_sensitive": true,
+            "preserve_existing": true,
+            "human_owned_fields_blocked": true,
+        },
+        "artifacts": bridge_artifacts(state),
+    }))
+}
+
+fn bridge_form_compile_plan_response(state: &BridgeControlState, params: Value) -> Result<Value> {
+    let basis_page_revision = params
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("form_compile_plan requires integer basis_page_revision")?;
+    let current_revision = state.page_revision.load(Ordering::SeqCst);
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale form plan basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+    let assignments = params
+        .get("assignments")
+        .and_then(Value::as_object)
+        .context("form_compile_plan requires object params.assignments")?;
+    if assignments.is_empty() {
+        bail!("form_compile_plan requires at least one assignment");
+    }
+    if assignments.len() > 5_000 {
+        bail!("form_compile_plan supports at most 5000 assignments");
+    }
+    if assignments
+        .values()
+        .any(|value| value.is_array() || value.is_object())
+    {
+        bail!("form_compile_plan assignment values must be scalar");
+    }
+    let policy = params.get("policy").cloned().unwrap_or_else(|| json!({}));
+    for required in ["block_sensitive", "preserve_existing", "no_submit"] {
+        if policy.get(required).and_then(Value::as_bool) != Some(true) {
+            bail!("form_compile_plan requires {required}=true");
+        }
+    }
+    let page_url = bridge_current_url(state)?;
+    let site_policy = classify_site_url(&page_url);
+    if !site_policy.agent_read_allowed {
+        bail!(
+            "site policy {:?} blocks form planning on {}; use human fallback",
+            site_policy.level,
+            page_url
+        );
+    }
+    let script = format!("{BRIDGE_FORM_HELPERS_JS}\n{BRIDGE_FORM_COMPILE_PLAN_JS}");
+    let compiled = state.client.execute_sync_args(
+        &state.session_id,
+        &script,
+        &[Value::Object(assignments.clone())],
+    )?;
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-servoshell-form-plan-v0",
+        "summary": "generic form fill plan compiled without executing writes or returning assignment values",
+        "same_webview_control": true,
+        "page_revision": current_revision,
+        "basis_page_revision": basis_page_revision,
+        "site_policy": site_policy,
+        "requested": assignments.len(),
+        "eligible": compiled.get("eligible").cloned().unwrap_or_else(|| json!([])),
+        "rejected": compiled.get("rejected").cloned().unwrap_or_else(|| json!([])),
+        "plan_id": compiled.get("plan_id").cloned().unwrap_or(Value::Null),
+        "policy": {
+            "block_sensitive": true,
+            "preserve_existing": true,
+            "no_submit": true,
+            "values_returned": false,
+            "writes_executed": false,
+        },
         "artifacts": bridge_artifacts(state),
     }))
 }
@@ -5313,6 +5429,205 @@ return (() => {
     },
     actions,
     redactions
+  };
+})();
+"###;
+
+const BRIDGE_FORM_HELPERS_JS: &str = r###"
+function saccadeFormText(value, limit = 160) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function saccadeFormVisible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
+    const style = getComputedStyle(cur);
+    if (cur.hidden || cur.getAttribute("aria-hidden") === "true") return false;
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+  }
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function saccadeFormLabel(el) {
+  if (el.id) {
+    const labels = Array.from(document.querySelectorAll("label"));
+    const exact = labels.find((label) => label.htmlFor === el.id);
+    if (exact && saccadeFormText(exact.innerText || exact.textContent)) {
+      return { text: saccadeFormText(exact.innerText || exact.textContent), source: "label_for", confidence: 1.0 };
+    }
+  }
+  const wrapping = el.closest("label");
+  if (wrapping && saccadeFormText(wrapping.innerText || wrapping.textContent)) {
+    return { text: saccadeFormText(wrapping.innerText || wrapping.textContent), source: "label_wrap", confidence: 0.95 };
+  }
+  const labelledBy = saccadeFormText(el.getAttribute("aria-labelledby"));
+  if (labelledBy) {
+    const text = labelledBy.split(/\s+/).map((id) => {
+      const node = document.getElementById(id);
+      return node ? saccadeFormText(node.innerText || node.textContent) : "";
+    }).filter(Boolean).join(" ");
+    if (text) return { text: saccadeFormText(text), source: "aria_labelledby", confidence: 0.95 };
+  }
+  const aria = saccadeFormText(el.getAttribute("aria-label"));
+  if (aria) return { text: aria, source: "aria_label", confidence: 0.9 };
+  const placeholder = saccadeFormText(el.getAttribute("placeholder"));
+  if (placeholder) return { text: placeholder, source: "placeholder", confidence: 0.65 };
+  const fallback = saccadeFormText(el.getAttribute("name") || el.id);
+  if (fallback) return { text: fallback.replace(/[_-]+/g, " "), source: "identifier", confidence: 0.35 };
+  return { text: "", source: "missing", confidence: 0.0 };
+}
+
+function saccadeFormSensitivity(el, label) {
+  const explicit = saccadeFormText(el.getAttribute("data-sensitive")).toLowerCase();
+  if (explicit && explicit !== "none" && explicit !== "false") return explicit;
+  const token = [
+    el.getAttribute("type"), el.getAttribute("autocomplete"), el.getAttribute("name"),
+    el.id, el.getAttribute("aria-label"), el.getAttribute("placeholder"), label
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (/\b(password|passcode|pin)\b/.test(token)) return "password";
+  if (/otp|one[-_ ]?time|totp|2fa|mfa|verification[-_ ]?code/.test(token)) return "otp";
+  if (/ssn|social security|tax[-_ ]?id|taxpayer|government[-_ ]?id|passport|driver.?s license|\btin\b|\bein\b/.test(token)) return "government_or_tax_id";
+  if (/credit|card number|cc[-_]?number|cc[-_]?csc|cvv|cvc|bank account|routing number|payment/.test(token)) return "payment";
+  if (/signature|attestation|legal[-_ ]?attestation|initials|e[-_ ]?sign|consent/.test(token)) return "legal_attestation";
+  return "none";
+}
+
+function saccadeFormHasValue(el, type) {
+  if (type === "checkbox" || type === "radio") return Boolean(el.checked);
+  if (el.isContentEditable) return saccadeFormText(el.textContent, 10000).length > 0;
+  return String(el.value || "").trim().length > 0;
+}
+
+function saccadeFormHash(text) {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function saccadeFormSelectorHint(el, index) {
+  if (el.id) return `#${el.id}`;
+  const name = el.getAttribute("name");
+  if (name) return `${el.tagName.toLowerCase()}[name=${JSON.stringify(name)}]`;
+  return `${el.tagName.toLowerCase()}:nth-field(${index})`;
+}
+
+function saccadeFormInventory() {
+  const controls = Array.from(document.querySelectorAll("input,select,textarea,[contenteditable='true']"));
+  const nameCounts = new Map();
+  for (const el of controls) {
+    const name = el.getAttribute("name");
+    if (name) nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+  }
+  const fields = controls.map((el, index) => {
+    const tag = el.tagName.toLowerCase();
+    const type = (
+      el.getAttribute("type") ||
+      (tag === "input" ? (el.type || "text") : (el.isContentEditable ? "contenteditable" : tag))
+    ).toLowerCase();
+    const label = saccadeFormLabel(el);
+    const sensitivity = saccadeFormSensitivity(el, label.text);
+    const ownerRaw = saccadeFormText(el.getAttribute("data-owner")).toLowerCase();
+    const owner = ownerRaw === "agent" || ownerRaw === "human" ? ownerRaw : "unknown";
+    const visible = saccadeFormVisible(el);
+    const enabled = !el.disabled && el.getAttribute("aria-disabled") !== "true";
+    const readonly = Boolean(el.readOnly) || el.getAttribute("aria-readonly") === "true";
+    const hasValue = saccadeFormHasValue(el, type);
+    const name = el.getAttribute("name") || "";
+    const stableIdentity = Boolean(el.id) || Boolean(name && nameCounts.get(name) === 1);
+    const selectorHint = saccadeFormSelectorHint(el, index);
+    const fieldId = el.id ? `id:${el.id}` : (stableIdentity ? `name:${name}` : `unstable:${index}:${saccadeFormHash(selectorHint)}`);
+    const supported = el.isContentEditable || tag === "select" || tag === "textarea" || [
+      "text", "email", "tel", "url", "number", "date", "month", "week", "time",
+      "datetime-local", "search", "checkbox", "radio"
+    ].includes(type);
+    const blocked = [];
+    if (!stableIdentity) blocked.push("unstable_identity");
+    if (!visible) blocked.push("not_visible");
+    if (!enabled) blocked.push("disabled");
+    if (readonly) blocked.push("readonly");
+    if (!supported) blocked.push("unsupported_type");
+    if (sensitivity !== "none") blocked.push("sensitive_requires_human");
+    if (owner === "human") blocked.push("human_owned");
+    if (hasValue) blocked.push("preserve_existing_value");
+    if (label.confidence < 0.55) blocked.push("ambiguous_label");
+    return {
+      field_id: fieldId,
+      selector_hash: saccadeFormHash(selectorHint),
+      tag,
+      type,
+      label: sensitivity === "none" ? label.text : label.text || "Sensitive field",
+      label_source: label.source,
+      label_confidence: label.confidence,
+      owner,
+      sensitivity,
+      required: Boolean(el.required) || el.getAttribute("aria-required") === "true",
+      visible,
+      enabled,
+      readonly,
+      stable_identity: stableIdentity,
+      option_count: tag === "select" ? el.options.length : null,
+      value_state: sensitivity === "none"
+        ? (hasValue ? "present_redacted" : "empty")
+        : (hasValue ? "completed_without_value" : "requires_user_input"),
+      eligible: blocked.length === 0,
+      blocked_reasons: blocked
+    };
+  });
+  return {
+    field_count: fields.length,
+    eligible_count: fields.filter((field) => field.eligible).length,
+    sensitive_count: fields.filter((field) => field.sensitivity !== "none").length,
+    existing_value_count: fields.filter((field) => field.value_state === "present_redacted" || field.value_state === "completed_without_value").length,
+    fields
+  };
+}
+"###;
+
+const BRIDGE_FORM_INVENTORY_JS: &str = r###"
+return saccadeFormInventory();
+"###;
+
+const BRIDGE_FORM_COMPILE_PLAN_JS: &str = r###"
+return (() => {
+  const assignments = arguments[0] || {};
+  const inventory = saccadeFormInventory();
+  const byId = new Map(inventory.fields.map((field) => [field.field_id, field]));
+  const eligible = [];
+  const rejected = [];
+  for (const fieldId of Object.keys(assignments).sort()) {
+    const field = byId.get(fieldId);
+    if (!field) {
+      rejected.push({ field_id: fieldId, reason: "not_found" });
+      continue;
+    }
+    if (!field.eligible) {
+      rejected.push({
+        field_id: fieldId,
+        reason: field.blocked_reasons[0] || "not_eligible",
+        blocked_reasons: field.blocked_reasons,
+        owner: field.owner,
+        sensitivity: field.sensitivity,
+        value_state: field.value_state
+      });
+      continue;
+    }
+    eligible.push({
+      field_id: fieldId,
+      type: field.type,
+      owner: field.owner === "unknown" ? "explicit_plan" : field.owner,
+      required: field.required,
+      option_count: field.option_count
+    });
+  }
+  const planBasis = eligible.map((field) => field.field_id).join("|");
+  return {
+    plan_id: `form_plan_v0_${saccadeFormHash(planBasis)}`,
+    eligible,
+    rejected
   };
 })();
 "###;
