@@ -23,6 +23,9 @@ The gate requires:
 - MCP selftest to report a JSON artifact;
 - the selftest artifact to report registered tools, tab scoping, local
   development audit, and policy gate success.
+- the generic form boundary fixture to verify a receipt, reject stale and
+  unsafe requests, preserve existing human values, block sensitive fields, and
+  write no field values to evidence.
 
 The gate does not claim that every third-party website works. Site-specific
 compatibility, WebGL, authentication-provider behavior, and release signing

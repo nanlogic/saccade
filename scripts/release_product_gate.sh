@@ -21,6 +21,7 @@ cd "$ROOT"
 
 run_step mcp_tests cargo test -p saccade-mcp
 run_step mcp_selftest cargo run -q -p saccade-mcp -- selftest
+run_step generic_form_boundary python3 scripts/probe_generic_form_plan.py --output-dir "$OUT/generic_form_boundary"
 
 python3 - "$OUT" <<'PY'
 import json
@@ -49,6 +50,30 @@ if not isinstance(report.get("tools_registered"), int) or report["tools_register
 if missing:
     raise SystemExit(f"PRODUCT GATE FAIL: MCP report missing/failed {', '.join(missing)}")
 
+form_report_path = out / "generic_form_boundary" / "report.json"
+form_report = json.loads(form_report_path.read_text())
+form_required = {
+    "ok": True,
+    "receipt_verified": True,
+    "mcp_attached": True,
+    "values_logged": False,
+    "stale_plan_blocked": True,
+    "stale_execution_blocked": True,
+    "unsafe_policy_blocked": True,
+    "wrong_plan_blocked": True,
+    "structured_assignment_blocked": True,
+}
+form_missing = [key for key, expected in form_required.items() if form_report.get(key) != expected]
+if form_report.get("sensitive_count", 0) < 1:
+    form_missing.append("sensitive_count")
+if form_report.get("preserved_count", 0) < 1:
+    form_missing.append("preserved_count")
+if form_missing:
+    raise SystemExit(
+        "PRODUCT GATE FAIL: generic form safety boundary missing/failed "
+        + ", ".join(form_missing)
+    )
+
 summary = {
     "status": "PASS",
     "gate": "release_product_gate",
@@ -57,6 +82,13 @@ summary = {
     "tab_scoping": report["tab_scoping"],
     "local_dev_audit": report["local_dev_audit"],
     "policy_gate": report["policy_gate"],
+    "generic_form_boundary_report": str(form_report_path),
+    "generic_form_boundary": {
+        "receipt_verified": form_report["receipt_verified"],
+        "sensitive_count": form_report["sensitive_count"],
+        "preserved_count": form_report["preserved_count"],
+        "values_logged": form_report["values_logged"],
+    },
     "known_runtime_warnings": [
         "GLD_TEXTURE_INDEX_2D may appear on macOS; it is recorded in stderr and is not a pass criterion."
     ],
@@ -68,6 +100,7 @@ print(
     f"tab_scoping={summary['tab_scoping']} "
     f"local_dev_audit={summary['local_dev_audit']} "
     f"policy_gate={summary['policy_gate']} "
+    f"form_boundary=pass "
     f"summary={out / 'summary.json'}"
 )
 PY
