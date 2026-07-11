@@ -1985,3 +1985,19 @@
 - Local evidence is 6/6 filled, 4/4 existing values preserved, zero failed or
   repair items, verified receipt, and zero sentinel leaks. Broad third-party
   compatibility remains unclaimed.
+
+## DECISION_FORMMAX_052 - A write attempt invalidates the plan even when verification fails
+
+- Page scripts may normalize or reject a value after assignment. The executor
+  counts attempted mutations separately from verified fills and advances the
+  page revision after any write attempt.
+- `postcondition_mismatch` routes to `human_review_or_remap`, not automatic
+  retry. Disappeared fields recompile; invalid option/type requests require a
+  corrected plan; existing-value mutation stops and hands off.
+- Remote current-tab execution requires an explicit trusted browser artifact.
+  Official ServoShell artifacts must have exact runtime/rendering/transport
+  metadata, prove no page DOM injection or sensitive-value exposure, and point
+  to a loopback same-WebView endpoint. Direct remote URL grants stay blocked.
+- Local mismatch evidence and two public no-submit test-form passes are recorded
+  in `docs/ai031_generic_form_plan.md`. This does not authorize arbitrary sites
+  or final submission.

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saccade Form Repair Gate</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; max-width: 680px; margin: 32px auto; color: #172033; }
+    form { display: grid; gap: 18px; }
+    label { display: grid; gap: 6px; }
+    input { min-height: 38px; padding: 7px; border: 1px solid #8794aa; }
+  </style>
+</head>
+<body data-session-revision="0">
+  <h1>Form repair gate</h1>
+  <form id="repair-form">
+    <label for="normal-field">Ordinary field
+      <input id="normal-field" name="normal_field" data-sensitive="none">
+    </label>
+
+    <label for="normalized-code">Normalized code
+      <input id="normalized-code" name="normalized_code" data-sensitive="none">
+    </label>
+
+    <label for="existing-field">Existing user value
+      <input id="existing-field" name="existing_field" value="KEEP-EXACTLY" data-sensitive="none">
+    </label>
+
+    <label for="ssn">Social Security number
+      <input id="ssn" name="ssn" autocomplete="off">
+    </label>
+
+    <button type="submit">Submit</button>
+  </form>
+  <script>
+    const normalized = document.getElementById("normalized-code");
+    normalized.addEventListener("input", () => {
+      normalized.value = normalized.value.toUpperCase();
+    });
+    document.getElementById("repair-form").addEventListener("submit", (event) => event.preventDefault());
+  </script>
+</body>
+</html>

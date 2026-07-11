@@ -1,7 +1,7 @@
 # AI-031 Generic Form Inventory and Plan
 
 Date: 2026-07-11
-Status: local inventory/plan/execute/verify slice passed
+Status: local failure recovery and two public test-form gates passed
 
 ## Result
 
@@ -83,11 +83,60 @@ it exited while exercising the existing GL/browser matrix after repeated
 `GLD_TEXTURE_INDEX_2D` warnings. The focused MCP current-tab gate above remains
 green, but the broad selftest is not counted as passed.
 
+## Failed-postcondition gate
+
+`test_pages/form_repair/index.html` deliberately uppercases one assigned value
+inside its `input` handler. The executor attempted two writes: one verified and
+one returned `postcondition_mismatch`. The result correctly has
+`receipt_verified=false` and a non-looping `human_review_or_remap` repair. Any
+write attempt now advances the page revision, so the original plan becomes
+stale even when the page rejects or normalizes the requested value.
+
+The fixture also preserved an existing value, left the SSN empty, attached
+through MCP to the same visible WebView, and produced zero sentinel matches in
+the output tree.
+
+Artifact:
+
+- `runs/formmax/generic_repair_ai031_20260711/report.json`
+
+## Public test forms
+
+Both pages are explicitly published for browser automation practice. Saccade
+used the official ServoShell bridge and engine-neutral MCP tools, filled only
+ordinary empty scalar controls, and never submitted either form.
+
+| Page | Ready | Discovered | Selected | Verified | Repair | Response chars |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Selenium Web Form | 3.214 s | 16 | 5 | 5 | 0 | 12,695 |
+| EvilTester Text Inputs | 4.068 s | 229 | 5 | 5 | 0 | 108,881 |
+
+Both receipts verified, the same WebView was attached, and output-tree sentinel
+scans were clean. The larger EvilTester response is useful evidence that the
+inventory needs a compact/paged mode before broad token-efficiency claims.
+
+Artifacts:
+
+- `runs/formmax/public_selenium_web_form_ai031_20260711_final/report.json`
+- `runs/formmax/public_eviltester_text_inputs_ai031_20260711/report.json`
+
+The EvilTester legacy URL `/styled/basic-html-form-test.html` did not produce a
+bridge-ready event within 45 seconds. The current documented Text Inputs route
+passed; a 12-second structured confirmation is recorded at
+`runs/formmax/public_eviltester_legacy_timeout_ai031_20260711/report.json`. The
+legacy timeout remains a compatibility observation, not a success.
+
+Remote pages remain gated. MCP accepts them only from an explicit official
+ServoShell or Chrome compatibility artifact with exact runtime/transport
+metadata and a loopback same-WebView control endpoint. Direct remote URL grants
+remain blocked.
+
 ## Next slice
 
-Measure the same MCP workflow on two real forms with human review. Add targeted
-fixtures for a failed postcondition and non-empty repair output, then package the
-three MCP tools in the next dogfood release.
+Package the three MCP tools in the next dogfood release, add compact/paged
+inventory output, then run one human-reviewed draft on a non-sensitive real
+workflow without submit.
 
-This checkpoint proves a generic local form surface. It does not claim broad
-third-party form compatibility yet.
+This checkpoint proves the generic surface on local adversarial fixtures and two
+public automation test pages. It does not claim arbitrary third-party form
+compatibility or permission to submit.

@@ -1,7 +1,7 @@
 # Saccade Next Plan v5 Tracker
 
 Date: 2026-06-11
-Updated: 2026-07-09
+Updated: 2026-07-11
 
 Canonical companion: `docs/CURRENT_PLAN.md`.
 
@@ -43,6 +43,14 @@ current-tab gate passes the new MCP `form_inventory`, `form_compile_plan`, and
 22-tool aggregate selftest report remains the last broad aggregate artifact;
 the broad rerun exited in the existing GL/browser matrix and is not counted as
 new aggregate evidence.
+
+2026-07-11 AI-031 addendum: failed writes now advance revision and return
+reason-specific, non-looping repair actions. The mismatch fixture passes with
+one verified fill, one `postcondition_mismatch`, one preserved existing field,
+and zero sensitive/value leaks. Official ServoShell remote-tab artifacts are
+accepted only with exact trusted bridge metadata and a loopback control endpoint.
+Public no-submit gates pass 5/5 fields on Selenium Web Form and 5/5 on EvilTester
+Text Inputs. Evidence: `docs/ai031_generic_form_plan.md`.
 
 ## What We Have Not Missed
 

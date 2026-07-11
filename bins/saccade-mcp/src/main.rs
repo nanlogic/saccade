@@ -1855,11 +1855,12 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
     let url =
         Url::parse(url_str).with_context(|| format!("invalid grant artifact URL: {url_str}"))?;
     let control_endpoint = dogfood_control_endpoint_from_grant(&grant)?;
-    let chrome_compatibility_grant =
-        is_chrome_compatibility_grant(&grant, control_endpoint.as_ref());
-    if !is_local_dev_url(&url) && !chrome_compatibility_grant {
+    let trusted_remote_control_grant =
+        is_chrome_compatibility_grant(&grant, control_endpoint.as_ref())
+            || is_official_servoshell_bridge_grant(&grant, control_endpoint.as_ref());
+    if !is_local_dev_url(&url) && !trusted_remote_control_grant {
         bail!(
-            "grant artifact URL must be localhost, loopback, file, or an explicit Chrome compatibility grant: {url}"
+            "grant artifact URL must be localhost, loopback, file, or an explicit trusted browser-control grant: {url}"
         );
     }
     let reason = arguments
@@ -1888,6 +1889,25 @@ fn is_chrome_compatibility_grant(
         && grant.get("rendering_profile").and_then(Value::as_str) == Some("chrome-compatibility")
         && grant.get("transport_status").and_then(Value::as_str)
             == Some("chrome_compatibility_control_v0")
+}
+
+fn is_official_servoshell_bridge_grant(
+    grant: &Value,
+    control_endpoint: Option<&DogfoodControlEndpoint>,
+) -> bool {
+    control_endpoint.is_some()
+        && grant.get("runtime").and_then(Value::as_str) == Some("saccade-servoshell-bridge-v0")
+        && grant.get("rendering_profile").and_then(Value::as_str) == Some("official-servoshell")
+        && grant.get("transport_status").and_then(Value::as_str)
+            == Some("official_servoshell_bridge_control_v0")
+        && grant
+            .pointer("/copilot/page_dom_injected")
+            .and_then(Value::as_bool)
+            == Some(false)
+        && grant
+            .pointer("/copilot/sensitive_values_exposed_to_agent")
+            .and_then(Value::as_bool)
+            == Some(false)
 }
 
 fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodControlEndpoint>> {
@@ -5953,7 +5973,7 @@ mod tests {
     }
 
     #[test]
-    fn chrome_compatibility_grant_is_the_only_remote_grant_exception() {
+    fn remote_grants_require_a_trusted_loopback_browser_control() {
         let endpoint = DogfoodControlEndpoint {
             host: "127.0.0.1".to_string(),
             port: 49323,
@@ -5967,5 +5987,27 @@ mod tests {
         assert!(is_chrome_compatibility_grant(&grant, Some(&endpoint)));
         assert!(!is_chrome_compatibility_grant(&grant, None));
         assert!(!is_chrome_compatibility_grant(&json!({}), Some(&endpoint)));
+
+        let servoshell_grant = json!({
+            "runtime": "saccade-servoshell-bridge-v0",
+            "rendering_profile": "official-servoshell",
+            "transport_status": "official_servoshell_bridge_control_v0",
+            "copilot": {
+                "page_dom_injected": false,
+                "sensitive_values_exposed_to_agent": false,
+            }
+        });
+        assert!(is_official_servoshell_bridge_grant(
+            &servoshell_grant,
+            Some(&endpoint)
+        ));
+        assert!(!is_official_servoshell_bridge_grant(
+            &servoshell_grant,
+            None
+        ));
+        assert!(!is_official_servoshell_bridge_grant(
+            &json!({}),
+            Some(&endpoint)
+        ));
     }
 }

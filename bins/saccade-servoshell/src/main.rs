@@ -4188,12 +4188,11 @@ fn bridge_form_execute_plan_response(state: &BridgeControlState, params: Value) 
         &script,
         &[Value::Object(assignments.clone()), json!(expected_plan_id)],
     )?;
-    let filled_count = execution
-        .get("filled")
-        .and_then(Value::as_array)
-        .map(Vec::len)
+    let write_attempted_count = execution
+        .get("write_attempted_count")
+        .and_then(Value::as_u64)
         .unwrap_or_default();
-    if filled_count > 0 {
+    if write_attempted_count > 0 {
         state.page_revision.fetch_add(1, Ordering::SeqCst);
     }
     Ok(json!({
@@ -4213,12 +4212,13 @@ fn bridge_form_execute_plan_response(state: &BridgeControlState, params: Value) 
         "failed": execution.get("failed").cloned().unwrap_or_else(|| json!([])),
         "repair": execution.get("repair").cloned().unwrap_or_else(|| json!([])),
         "receipt_verified": execution.get("receipt_verified").cloned().unwrap_or(json!(false)),
+        "write_attempted_count": write_attempted_count,
         "policy": {
             "block_sensitive": true,
             "preserve_existing": true,
             "no_submit": true,
             "values_returned": false,
-            "writes_executed": filled_count > 0,
+            "writes_executed": write_attempted_count > 0,
         },
         "artifacts": bridge_artifacts(state),
     }))
@@ -5742,6 +5742,7 @@ return (() => {
   const entries = new Map(inventory.fields.map((field, index) => [field.field_id, { field, el: controls[index] }]));
   const filled = [];
   const failed = [];
+  let writeAttemptedCount = 0;
 
   function internalValue(el, type) {
     if (type === "checkbox" || type === "radio") return Boolean(el.checked);
@@ -5779,6 +5780,7 @@ return (() => {
           failed.push({ field_id: planned.field_id, reason: "boolean_required" });
           continue;
         }
+        writeAttemptedCount += 1;
         el.checked = value;
         dispatch(el);
         verified = Boolean(el.checked) === value;
@@ -5793,16 +5795,19 @@ return (() => {
           failed.push({ field_id: planned.field_id, reason: "option_not_found" });
           continue;
         }
+        writeAttemptedCount += 1;
         el.selectedIndex = optionIndex;
         dispatch(el);
         verified = el.selectedIndex === optionIndex;
         method = "select_option_match";
       } else if (planned.type === "contenteditable") {
+        writeAttemptedCount += 1;
         el.textContent = String(value);
         dispatch(el);
         verified = String(el.textContent || "") === String(value);
         method = "contenteditable_text";
       } else {
+        writeAttemptedCount += 1;
         el.value = String(value);
         dispatch(el);
         verified = String(el.value || "") === String(value);
@@ -5818,7 +5823,7 @@ return (() => {
     }
   }
 
-  if (filled.length && document.body && document.body.dataset) {
+  if (writeAttemptedCount && document.body && document.body.dataset) {
     const current = Number(document.body.dataset.sessionRevision || "0") || 0;
     document.body.dataset.sessionRevision = String(current + 1);
   }
@@ -5837,11 +5842,22 @@ return (() => {
     preserved,
     rejected: compiled.rejected,
     failed,
-    repair: failed.map((item) => ({
-      field_id: item.field_id,
-      action: "reinspect_and_retry",
-      reason: item.reason
-    })),
+    repair: failed.map((item) => {
+      const actions = {
+        field_disappeared: "recompile_plan",
+        option_not_found: "request_option_choice",
+        boolean_required: "fix_assignment_type",
+        postcondition_mismatch: "human_review_or_remap",
+        existing_value_changed: "stop_and_handoff",
+        write_exception: "human_review"
+      };
+      return {
+        field_id: item.field_id,
+        action: actions[item.reason] || "human_review",
+        reason: item.reason
+      };
+    }),
+    write_attempted_count: writeAttemptedCount,
     receipt_verified: failed.length === 0 && filled.length === compiled.eligible.length
   };
 })();
