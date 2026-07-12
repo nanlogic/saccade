@@ -189,6 +189,41 @@ GitHub public read-only pages are usable through the current dogfood bridge.
 The Saccade GitHub userscript shim is necessary and effective for the known
 `IntersectionObserver` and `adoptedStyleSheets` gaps.
 
+### Live New Issue Observation, 2026-07-11
+
+The logged-in release-browser dogfood flow exposed a separate GitHub surface
+that is more important than the account menu. On the GitHub Dashboard, the
+visible `Create issue` control opened GitHub Copilot's `/create-issue` command
+surface, not a repository Issue form. GitHub displayed `Error sending message`;
+Saccade did not send a message or create an Issue.
+
+Direct navigation to the user's real repository New Issue URL reached a page
+titled `New Issue`. The human sees an Issue form. The same Saccade truth layer
+reported a different, safety-relevant reality:
+
+```text
+form controls discovered: 22
+eligible generic fields: 0
+visible writable editors: 0
+visible authoring editors: 0
+editor candidates with zero rect: 8
+sensitive fields: 0
+writes: 0
+```
+
+The controls were hidden query-builder, feedback, token, and backing-editor
+candidates. The generic planner refused all of them because they were hidden,
+unstable, ambiguous, or unsupported. This is a safety pass: filling one by CSS
+selector would risk targeting a backing field rather than the editor the person
+can see.
+
+Product decision: GitHub New Issue is a P1 Servo compatibility canary. Keep
+Servo as the default browser route, but use the explicit Chrome compatibility
+route for a measured GitHub issue draft today. The Saccade grant, redaction,
+policy, receipts, and replay contract remain the same across that engine route.
+Do not represent GitHub New Issue as Servo-native form support until a canary
+proves visible title/body editors, safe inventory, no-submit fill, and replay.
+
 The remaining GitHub profile dropdown native hit-test failure is a live GitHub
 state or GitHub/Primer integration bug, not a general ServoShell overlay
 failure and not a basic Primer-like wrapper failure. The current narrow
@@ -205,5 +240,5 @@ canary.
 3. Optional human dogfood: manually click a harmless account-menu item, such as
    profile/help, to confirm the event-route feels right. Avoid using Sign out
    as the manual test unless intentionally logging out.
-4. After the account-menu canary is classified, retry the real logged-in GitHub
-   issue/discussion draft gate from AI-026.
+4. Retry the real logged-in GitHub issue/discussion draft gate only through
+   Chrome compatibility until the Servo New Issue editor canary becomes green.

@@ -2001,3 +2001,23 @@
 - Local mismatch evidence and two public no-submit test-form passes are recorded
   in `docs/ai031_generic_form_plan.md`. This does not authorize arbitrary sites
   or final submission.
+
+## DECISION_BROWSER_053 - GitHub New Issue is a compatibility canary, not a forced Servo form target
+
+- In a logged-in release-browser dogfood run, direct navigation reached a real
+  GitHub `New Issue` page, while the Saccade form truth saw 22 controls but zero
+  visible authoring editors and zero eligible fields. Eight editor candidates
+  had zero rectangles.
+- The Dashboard `Create issue` control was also semantically different from a
+  normal form route: it opened GitHub Copilot's `/create-issue` command surface,
+  which showed GitHub's own send-message error. Saccade did not send a Copilot
+  request, write a form field, or create an Issue.
+- The generic planner correctly refused hidden tokens and backing controls. A
+  selector workaround would weaken the safety boundary because it could target
+  a field the user cannot see.
+- Product route: keep GitHub New Issue as a P1 Servo compatibility canary and
+  route currently measured issue-draft workflows to explicit Chrome
+  compatibility. The Saccade current-tab grant, redacted truth, policy,
+  verified actions, and value-free replay remain engine-neutral.
+- Evidence: `docs/ai027_github_ui_canary.md` and `BP-024` in
+  `docs/browser_compat_ledger.md`.
