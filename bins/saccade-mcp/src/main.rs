@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 26;
+const REQUIRED_TOOL_COUNT: usize = 27;
 const SACCADE_CONTRACT_VERSION: &str = "1.0";
 const SACCADE_MIN_CONTRACT_VERSION: &str = "1.0";
 
@@ -504,6 +504,15 @@ fn registry() -> ToolRegistry {
                 true,
             ),
             tool(
+                "saccade.web.render_preflight",
+                ToolNamespace::Web,
+                ToolRisk::ReportOnly,
+                "Check local render/semantic consistency before asking the user to enter task data.",
+                true,
+                false,
+                true,
+            ),
+            tool(
                 "saccade.web.form_inventory",
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
@@ -897,6 +906,7 @@ fn contract_capabilities() -> Value {
             "redacted_truth",
             "verified_safe_actions",
             "form_compile_execute",
+            "render_preflight",
             "value_free_replay",
             "typed_errors"
         ],
@@ -1105,6 +1115,14 @@ fn input_schema(name: &str) -> Value {
             "required": ["tab_id", "fields"],
             "additionalProperties": false
         }),
+        "saccade.web.render_preflight" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"}
+            },
+            "required": ["tab_id"],
+            "additionalProperties": false
+        }),
         "saccade.web.form_inventory" => json!({
             "type": "object",
             "properties": {
@@ -1271,6 +1289,7 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.web.act" => web_act_tool(state, arguments),
         "saccade.web.fill_agent_fields" => web_fill_agent_fields_tool(state, arguments),
         "saccade.web.inspect_fields" => web_inspect_fields_tool(state, arguments),
+        "saccade.web.render_preflight" => web_render_preflight_tool(state, arguments),
         "saccade.web.form_inventory" => web_form_inventory_tool(state, arguments),
         "saccade.web.form_compile_plan" => web_form_compile_plan_tool(state, arguments),
         "saccade.web.form_execute_plan" => web_form_execute_plan_tool(state, arguments),
@@ -2105,6 +2124,7 @@ fn default_dogfood_control_capabilities() -> Vec<String> {
         "reload",
         "fill_agent_fields",
         "inspect_fields",
+        "render_preflight",
         "act",
         "formmax_live_fill",
     ]
@@ -2781,6 +2801,25 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
             "replay": tab.last_replay_path,
         },
     }))
+}
+
+fn web_render_preflight_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_truth_allowed(state, tab_id)?;
+    let endpoint = state
+        .dogfood_controls
+        .get(&tab_id.0)
+        .cloned()
+        .context("saccade.web.render_preflight requires a granted ServoShell current tab")?;
+    ensure_dogfood_control_capability(state, tab_id, "render_preflight")?;
+    let mut result = call_dogfood_control(&endpoint, "render_preflight", json!({}))?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &result);
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert("tab_id".to_string(), json!(tab_id.0));
+    }
+    Ok(result)
 }
 
 fn web_form_inventory_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {

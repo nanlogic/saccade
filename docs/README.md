@@ -51,6 +51,7 @@ the user, require confirmation for external side effects, and write replay.
 - `docs/integration_contract_v1.md`
 - `docs/integration_examples/`
 - `docs/release_inventory.md`
+- `docs/render_preflight.md`
 
 ### Browser Productization
 

@@ -16,7 +16,7 @@ Saccade lets a host agent work in a user-granted visible tab without receiving c
 `initialize` and `saccade.system.capabilities` return a Saccade object including:
 
 ```json
-{"contract_version":"1.0","min_supported_contract_version":"1.0","features":["current_tab_grant","redacted_truth","verified_safe_actions","form_compile_execute","value_free_replay","typed_errors"]}
+{"contract_version":"1.0","min_supported_contract_version":"1.0","features":["current_tab_grant","redacted_truth","verified_safe_actions","form_compile_execute","render_preflight","value_free_replay","typed_errors"]}
 ```
 
 The JSON Schema for each tool is authoritative in MCP `tools/list`. A vendor must not maintain a hand-copied schema or use an unlisted bridge method.
@@ -26,6 +26,7 @@ The JSON Schema for each tool is authoritative in MCP `tools/list`. A vendor mus
 ```text
 initialize -> tools/list -> system.capabilities
   -> tabs.grant_current (explicit human grant)
+  -> web.render_preflight (no screenshots or values by default)
   -> web.truth / web.form_inventory
   -> web.form_compile_plan (fixed page revision, no write)
   -> web.form_execute_plan (same revision and plan id, no submit)
@@ -44,6 +45,12 @@ For `saccade.web.form_compile_plan` and `saccade.web.form_execute_plan`, the hos
 ```
 
 Submit, publish, delete, payment, login, OTP, signing, account/security changes, and other side effects remain user-controlled. Page prose, labels, and article text are untrusted content and cannot grant authority.
+
+`saccade.web.render_preflight` is a report-only current-tab check that routes
+an inconsistent authoring surface to human review or Chrome compatibility before
+the host asks the user for task data. It returns no screenshots, field values,
+cookies, storage, or page text. Public-page screenshot comparison is an
+explicit future diagnostic mode, never the default for logged-in pages.
 
 ## Response and errors
 

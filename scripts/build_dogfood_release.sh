@@ -805,6 +805,7 @@ cp "$ROOT/docs/dogfood_browser_quickstart.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/dogfood_release_plan.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/integration_contract_v1.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/release_inventory.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/render_preflight.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/github_dropdown_compat_shim_probe.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/SACCADE_DOGFOOD_HANDOFF.md" "$OUT/docs/"
 cp "$ROOT/docs/profile_persistence_report.md" "$OUT/docs/" 2>/dev/null || true

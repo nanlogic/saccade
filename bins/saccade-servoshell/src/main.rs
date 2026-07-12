@@ -2974,6 +2974,7 @@ fn bridge_control_result(
         "draft_editor_fill" => bridge_draft_editor_fill_response(state, params),
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
+        "render_preflight" => bridge_render_preflight_response(state),
         "form_inventory" => bridge_form_inventory_response(state, params),
         "form_compile_plan" => bridge_form_compile_plan_response(state, params),
         "form_execute_plan" => bridge_form_execute_plan_response(state, params),
@@ -3063,6 +3064,7 @@ fn bridge_status_response(
             "draft_editor_fill",
             "fill_agent_fields",
             "inspect_fields",
+            "render_preflight",
             "form_inventory",
             "form_compile_plan",
             "form_execute_plan",
@@ -3788,6 +3790,127 @@ fn bridge_inspect_editors_response(state: &BridgeControlState) -> Result<Value> 
         "editors": editors,
         "artifacts": bridge_artifacts(state),
     }))
+}
+
+fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value> {
+    let inventory = bridge_form_inventory_response(state, json!({"mode": "compact", "limit": 1}))?;
+    let editors = bridge_inspect_editors_response(state)?;
+    let title = editors
+        .get("source_title")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let field_count = inventory
+        .get("field_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let eligible_count = inventory
+        .get("eligible_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let editor_count = editors
+        .get("editor_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let zero_rect_count = editors
+        .get("zero_rect_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let visible_authoring_count = editors
+        .get("visible_authoring_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let (verdict, route, reason_codes) = render_preflight_decision(
+        title,
+        field_count,
+        eligible_count,
+        editor_count,
+        zero_rect_count,
+        visible_authoring_count,
+    );
+
+    Ok(json!({
+        "status": "ok",
+        "runtime": "saccade-servoshell-bridge-v0",
+        "engine": "saccade-render-preflight-v0",
+        "summary": "local render and semantic consistency preflight completed without screenshots or field values",
+        "same_webview_control": true,
+        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "source_url": editors.get("source_url").cloned().unwrap_or(Value::Null),
+        "source_title": editors.get("source_title").cloned().unwrap_or(Value::Null),
+        "verdict": verdict,
+        "recommended_route": route,
+        "reason_codes": reason_codes,
+        "agent_input_allowed": verdict == "green",
+        "observations": {
+            "form_field_count": field_count,
+            "eligible_field_count": eligible_count,
+            "editor_count": editor_count,
+            "zero_rect_editor_count": zero_rect_count,
+            "visible_authoring_editor_count": visible_authoring_count,
+        },
+        "privacy": {
+            "screenshots_captured": false,
+            "screenshots_persisted": false,
+            "field_values_returned": false,
+            "cookies_returned": false,
+            "storage_returned": false,
+        },
+        "policy": {
+            "page_content_may_authorize_actions": false,
+            "human_confirmation_required_for_side_effects": true,
+        },
+        "artifacts": bridge_artifacts(state),
+    }))
+}
+
+fn render_preflight_decision(
+    title: &str,
+    field_count: u64,
+    eligible_count: u64,
+    editor_count: u64,
+    zero_rect_count: u64,
+    visible_authoring_count: u64,
+) -> (&'static str, &'static str, Vec<&'static str>) {
+    let title_lower = title.to_ascii_lowercase();
+    let likely_authoring_surface = [
+        "new issue",
+        "new discussion",
+        "new pull request",
+        "create",
+        "compose",
+        "submit",
+        "apply",
+    ]
+    .iter()
+    .any(|needle| title_lower.contains(needle));
+    if likely_authoring_surface
+        && editor_count > 0
+        && zero_rect_count > 0
+        && visible_authoring_count == 0
+    {
+        (
+            "red",
+            "chrome_compat",
+            vec![
+                "authoring_surface_has_only_zero_rect_editors",
+                "visual_and_semantic_form_state_disagree",
+            ],
+        )
+    } else if field_count > 0 && eligible_count == 0 {
+        (
+            "yellow",
+            "human_review",
+            vec!["no_actionable_fields_after_safety_filter"],
+        )
+    } else if visible_authoring_count > 0 || eligible_count > 0 {
+        ("green", "servo", vec!["actionable_surface_detected"])
+    } else {
+        (
+            "yellow",
+            "not_a_form_surface",
+            vec!["no_authoring_surface_detected"],
+        )
+    }
 }
 
 fn bridge_draft_editor_fill_response(state: &BridgeControlState, params: Value) -> Result<Value> {
@@ -5304,6 +5427,23 @@ mod tests {
         );
         assert!(public.get("capability").is_none());
         assert!(!public.to_string().contains(&endpoint.capability));
+    }
+
+    #[test]
+    fn render_preflight_routes_zero_rect_issue_editor_to_chrome_compat() {
+        let (verdict, route, reasons) = render_preflight_decision("New Issue", 22, 0, 8, 8, 0);
+        assert_eq!(verdict, "red");
+        assert_eq!(route, "chrome_compat");
+        assert!(reasons.contains(&"visual_and_semantic_form_state_disagree"));
+    }
+
+    #[test]
+    fn render_preflight_keeps_actionable_form_in_servo() {
+        let (verdict, route, reasons) =
+            render_preflight_decision("Capacity Request", 17, 6, 0, 0, 0);
+        assert_eq!(verdict, "green");
+        assert_eq!(route, "servo");
+        assert_eq!(reasons, vec!["actionable_surface_detected"]);
     }
 }
 
