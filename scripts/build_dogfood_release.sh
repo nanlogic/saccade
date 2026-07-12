@@ -342,7 +342,7 @@ exec python3 "$DIR/lib/chrome_compat_cdp.py" \
   "$URL" "$OUTPUT_DIR" \
   --profile-dir "$SACCADE_COMPAT_PROFILE_DIR" \
   --keep-open \
-  "${grant_args[@]}" \
+  ${grant_args[@]+"${grant_args[@]}"} \
   "$@"
 SH
 

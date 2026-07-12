@@ -224,6 +224,13 @@ policy, receipts, and replay contract remain the same across that engine route.
 Do not represent GitHub New Issue as Servo-native form support until a canary
 proves visible title/body editors, safe inventory, no-submit fill, and replay.
 
+Chrome compatibility verification on the same logged-in URL reached `New Issue`
+with 112 actions, including a visible `Add a title` input (`958x30`) and visible
+`Markdown value` textarea (`958x452`). No values, cookies, storage, or
+screenshots were exported. This proves the fallback restores the human-visible
+form surface; it does not yet claim generic third-party issue filling through
+the compatibility bridge.
+
 The remaining GitHub profile dropdown native hit-test failure is a live GitHub
 state or GitHub/Primer integration bug, not a general ServoShell overlay
 failure and not a basic Primer-like wrapper failure. The current narrow
