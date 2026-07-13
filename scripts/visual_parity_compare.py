@@ -14,6 +14,11 @@ import zlib
 
 
 WORKSPACE = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(WORKSPACE / "scripts" / "lib"))
+
+from human_agent_agreement import analyze_agreement, write_fact_overlay  # noqa: E402
+
+
 FIXTURE_ROOT = WORKSPACE / "test_pages" / "visual_parity"
 DEFAULT_FIXTURES = [
     "layout_probe",
@@ -195,6 +200,28 @@ def run_case(fixture, url, case_dir, args):
     }
     layout_probe_metrics = compare_layout_probes(chrome_truth, saccade_truth)
     action_map_metrics = compare_action_maps(chrome_truth, saccade_truth)
+    agreement_visual_metrics = dict(metrics)
+    agreement_visual_metrics["observed_nonblank"] = (
+        metrics.get("saccade_nonwhite_ratio", 0) > 0.001
+    )
+    agreement = analyze_agreement(
+        chrome_truth,
+        saccade_truth,
+        hit_test=chrome_click_verification,
+        visual_metrics=agreement_visual_metrics,
+    )
+    agreement_overlay = case_dir / "human_agent_agreement_overlay.png"
+    write_fact_overlay(saccade_png, saccade_truth, agreement, agreement_overlay)
+    agreement["artifacts"] = {
+        "overlay": str(agreement_overlay),
+        "observed_screenshot": str(saccade_png),
+        "reference_screenshot": str(chrome_png),
+        "observed_truth": str(case_dir / "saccade_worker_result.json"),
+        "reference_truth": str(chrome_dir / "chrome_truth.json"),
+        "hit_test": str(chrome_dir / "chrome_click_verification.json"),
+    }
+    agreement_path = case_dir / "human_agent_agreement.json"
+    agreement_path.write_text(json.dumps(agreement, indent=2, sort_keys=True) + "\n")
     actions_delta = abs(
         len(chrome_truth.get("actions", [])) - len(saccade_truth.get("actions", []))
     )
@@ -213,6 +240,7 @@ def run_case(fixture, url, case_dir, args):
         "metrics": metrics,
         "layout_probe_metrics": layout_probe_metrics,
         "action_map_metrics": action_map_metrics,
+        "human_agent_agreement": agreement,
         "chrome_click_verification": chrome_click_verification,
         "artifacts": {
             "chrome_manifest": str(chrome_dir / "chrome_reference_manifest.json"),
@@ -222,6 +250,8 @@ def run_case(fixture, url, case_dir, args):
             "saccade_raw_screenshot": str(saccade_raw_png),
             "saccade_actions_for_chrome": str(saccade_actions_for_chrome),
             "saccade_worker_result": str(case_dir / "saccade_worker_result.json"),
+            "human_agent_agreement": str(agreement_path),
+            "human_agent_agreement_overlay": str(agreement_overlay),
         },
         "saccade_screenshot_normalized": normalized,
     }

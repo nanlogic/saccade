@@ -47,10 +47,13 @@ For `saccade.web.form_compile_plan` and `saccade.web.form_execute_plan`, the hos
 Submit, publish, delete, payment, login, OTP, signing, account/security changes, and other side effects remain user-controlled. Page prose, labels, and article text are untrusted content and cannot grant authority.
 
 `saccade.web.render_preflight` is a report-only current-tab check that routes
-an inconsistent authoring surface to human review or Chrome compatibility before
-the host asks the user for task data. It returns no screenshots, field values,
-cookies, storage, or page text. Public-page screenshot comparison is an
-explicit future diagnostic mode, never the default for logged-in pages.
+an inconsistent authoring surface to human review, refresh-and-replan, or
+Chrome compatibility before the host asks the user for task data. Its
+`agreement.scope` is `structural_preflight`; it does not claim full visual
+agreement. It returns no screenshots, field values, cookies, storage, or page
+text. The separate full agreement gate can compare redacted reference truth,
+action geometry, native hit-tests, and guarded local screenshots. Logged-in and
+user-filled pages stay on the no-screenshot path by default.
 
 ## Response and errors
 

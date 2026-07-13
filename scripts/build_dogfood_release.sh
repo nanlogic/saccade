@@ -16,7 +16,7 @@ RELEASE_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/lib" "$OUT/profile/default" "$OUT/site_matrices" "$OUT/userscripts"
+mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/lib" "$OUT/profile/default" "$OUT/site_matrices" "$OUT/tools/lib" "$OUT/userscripts"
 mkdir -p "$DEFAULT_PROFILE_DIR"
 
 packages=(-p saccade-mcp -p saccade-servoshell)
@@ -37,6 +37,8 @@ cp "$ROOT/scripts/chrome_compat_control.py" "$OUT/lib/"
 cp "$ROOT/scripts/chrome_reference_cdp.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_ai020_live_draft.py" "$OUT/lib/"
 cp "$ROOT/scripts/run_public_site_smoke_matrix.py" "$OUT/lib/"
+cp "$ROOT/scripts/check_human_agent_agreement.py" "$OUT/tools/"
+cp "$ROOT/scripts/lib/human_agent_agreement.py" "$OUT/tools/lib/"
 cp "$ROOT/site_matrices"/public_*.json "$OUT/site_matrices/"
 
 cat > "$OUT/saccade-dogfood.env" <<ENV
@@ -785,11 +787,19 @@ SH
   chmod +x "$OUT/open-legacy-saccade"
 fi
 
-chmod +x "$OUT/open-saccade" "$OUT/open-saccade-compat" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-public-site-smoke-matrix" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
+cat > "$OUT/check-human-agent-agreement" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$DIR/tools/check_human_agent_agreement.py" "$@"
+SH
+
+chmod +x "$OUT/open-saccade" "$OUT/open-saccade-compat" "$OUT/servoshell-bridge" "$OUT/check-saccade" "$OUT/check-human-agent-agreement" "$OUT/read-article" "$OUT/run-formmax" "$OUT/run-public-site-smoke-matrix" "$OUT/run-local-game-reflex" "$OUT/run-ai020-live-draft" "$OUT/profile-status" "$OUT/clear-profile"
 chmod +x "$OUT/lib/read_article_fallback.py" "$OUT/lib/chrome_compat_cdp.py" "$OUT/lib/chrome_compat_control.py" "$OUT/lib/chrome_reference_cdp.py" "$OUT/lib/run_ai020_live_draft.py" "$OUT/lib/run_public_site_smoke_matrix.py"
 
 cp "$ROOT/docs/CURRENT_ACTION_ITEMS.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/CURRENT_PLAN.md" "$OUT/docs/" 2>/dev/null || true
+cp "$ROOT/docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai017_real_dogfood_flow_matrix.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai018_dogfood_launch_visibility.md" "$OUT/docs/" 2>/dev/null || true
 cp "$ROOT/docs/ai019_public_evidence_pack.md" "$OUT/docs/" 2>/dev/null || true
@@ -894,6 +904,11 @@ distribution and does not include a hosted service.
   \`saccade.web.form_inventory\`, \`saccade.web.form_compile_plan\`, and
   \`saccade.web.form_execute_plan\`. Start with inventory mode \`compact\` and page
   with \`offset\`/\`limit\`; use \`actionable\` when selecting empty eligible fields.
+- Structural agreement preflight is exposed through
+  \`saccade.web.render_preflight\`. Use \`check-human-agent-agreement\` with
+  redacted reference/observed truth, hit-test evidence, and guarded local
+  screenshots for a full complex-page gate. The command does not embed field
+  values or image pixels in its JSON report.
 - Local game reflex dogfood is available through \`run-local-game-reflex\`.
 - Real-site human-in-loop draft measurements are available through
   \`run-ai020-live-draft\`. It launches the visible ServoShell bridge, waits
@@ -1016,6 +1031,19 @@ Run a bridge smoke manually:
 \`\`\`bash
 $OUT/servoshell-bridge --smoke
 \`\`\`
+
+Run a full human/agent agreement check on prepared, redacted evidence:
+
+\`\`\`bash
+$OUT/check-human-agent-agreement \\
+  --reference-truth /path/to/reference_truth.json \\
+  --observed-truth /path/to/observed_truth.json \\
+  --hit-test /path/to/hit_test.json \\
+  --output-dir /path/to/agreement_report
+\`\`\`
+
+Add screenshots only for public or reliably redacted pages. The wrapper writes
+an overlay only when you also pass \`--safe-visual-artifact\`.
 
 Read a public article/tutorial page and exit with JSON:
 

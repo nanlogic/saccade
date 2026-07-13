@@ -1,11 +1,13 @@
 # Saccade Current Action Items
 
-Date: 2026-07-11
+Date: 2026-07-13
 Status: canonical execution queue
 
 This file is the short, current action list. Use it with
 `docs/CURRENT_PLAN.md`, `docs/next_plan_v5_tracker.md`, and
-`docs/browser_compat_ledger.md`. Product ordering comes from
+`docs/browser_compat_ledger.md`. Capability status, release gates, and claim
+boundaries live in `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md`.
+Product ordering comes from
 `docs/SACCADE_PAIN_LEDGER_20260711.md`.
 
 ## Now
@@ -15,6 +17,13 @@ sensitive-field handoff, and verified output. Browser UI and compatibility work
 continue only when they block those workflows. Servo remains the default
 reflex/truth engine; Chrome compatibility remains the measured fallback.
 
+Cross-cutting browser quality gate: the user-visible screenshot, exported truth,
+action geometry, and actual hit-test must agree at the same revision. GitHub is
+the first complex canary because it exposes separate rendering, dynamic UI,
+truth-inventory, editor, and hit-test failures. A mismatch must block or route
+before task values are collected; a fast screenshot is available as optional
+evidence rather than the default agent input.
+
 Vendor-adoption ordering and the evidence package live in
 `docs/VENDOR_INTEGRATION_READINESS_PLAN.md`. The next adoption gates are
 AI-033 security evaluation, AI-031 live form drafts, and AI-032 DOCMAX.
@@ -23,6 +32,7 @@ AI-033 security evaluation, AI-031 live form drafts, and AI-032 DOCMAX.
 | --- | --- | --- | --- | --- | --- |
 | AI-031 | P0 | active | FORMMAX product | Generic inventory/compile/execute passes the 17-control fixture, a deliberate postcondition mismatch with non-looping repair, and two public automation test forms at 5/5 verified each with no submit or sentinel leaks. Compact/paged inventory is now implemented and gated; next is one human-reviewed real draft. | Dogfood release exposes the three MCP tools; compact inventory reduces large-page response size; one user-granted real draft preserves user/sensitive values and produces verified value-free evidence without submit. Evidence: `docs/ai031_generic_form_plan.md`, `runs/formmax/generic_compact_paged_20260711-073948/report.json`. |
 | AI-033 | P0 | active | Agent safety | Control protocol v1 now requires a per-session bearer capability from an owner-only grant for both ServoShell and Chrome compatibility. Truth/action labels and article text carry untrusted-page provenance; side-effect rejection writes trusted runtime confirmation metadata. Live bridge gates now reject cross-tab capability reuse and stale post-navigation action bases, and discover sensitive ARIA/custom textboxes without values. Next: AgentDojo adapter, shadow-DOM/visual evasion, and false-block measurement. | Utility, attack success, false blocks, and value leaks are reported; protected-value leaks remain zero and page-controlled text cannot authorize side effects. Evidence: `docs/ai033_agent_safety.md`, `runs/safety/ai033_browser_adversaries_20260711-final2/report.json`. |
+| AI-034 | P0 | active | Human/agent agreement | The offline gate now correlates redacted reference facts, Saccade facts, geometry, native hit-tests, revision, and optional guarded screenshots. ServoShell `render_preflight` reports a structural-only agreement scope, rejects mixed revisions, and exposes hidden/zero-rect editor contamination without returning values or pixels. | Run the full gate on GitHub Dashboard, account menu, and New Issue at fixed viewports. Each case must pass or route with a typed reason before Saccade collects task values. Evidence: `docs/render_preflight.md`, `runs/agreement_gate/`. |
 | AI-032 | P0 | next | DOCMAX PDF | Productize PDF form handling for AcroForm first, then classify flat/scanned/XFA documents without pretending they are fillable. The first slice removed synthetic field values from the feasibility report while retaining field names/counts and verification. | Inspect/fill/verify works on local AcroForm and one public blank form; tax ID, signature, attestation, and payment fields remain user-owned; output PDF and redacted diff/replay are produced without raw values in logs. |
 | AI-030B | P0 | done | Compatibility adapter | Attach the existing engine-neutral MCP grant/action/replay surface to the headed persistent Chrome compatibility session. | Passed same visible-tab grant, truth/actions, browser-input safe act, navigation, sanitized replay, explicit agent-owned non-sensitive fill, and value-free inspect. Generic third-party fill remains unclaimed. |
 | AI-027 | P1 | active | GitHub UI canary | Classify and reduce GitHub UI failures exposed during dogfood, starting with profile dropdown hit-testing. | Public GitHub smoke, API compatibility, and dropdown hit-test evidence are recorded; next reduction identifies whether the overlay bug is Servo hit-test, GitHub shim, or Saccade product chrome. |

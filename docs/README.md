@@ -7,11 +7,14 @@ Use this file as the navigation entry point.
 
 Read these first:
 
-1. `docs/CURRENT_PLAN.md` - the active product plan and next decision points.
-2. `docs/CURRENT_ACTION_ITEMS.md` - the short execution queue.
-3. `docs/next_plan_v5_tracker.md` - normalized status table and evidence map.
-4. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
-5. `docs/decisions.md` - append-only decision ledger.
+1. `docs/CURRENT_ACTION_ITEMS.md` - the canonical short execution queue.
+2. `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md` - product strengths,
+   evidence status, improvement queue, release gates, and claim boundaries.
+3. `docs/CURRENT_PLAN.md` - the broad product plan; milestone labels may lag the
+   execution queue.
+4. `docs/next_plan_v5_tracker.md` - normalized historical status and evidence map.
+5. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
+6. `docs/decisions.md` - append-only decision ledger.
 
 ## Current Active Direction
 
@@ -21,18 +24,20 @@ Saccade is now past the original MOUSEMAX proof. The active product direction is
 browser truth -> redacted action map -> verified action -> replay
 ```
 
-The next product gate is:
+The current P0 product gates are:
 
 ```text
-N8 Current Tab Co-Pilot
+AI-033 agent safety measurement
+AI-031 real user-granted form drafts
+AI-032 DOCMAX AcroForm inspect/fill/verify
 ```
 
 Goal:
 
 ```text
-User opens a Saccade tab, grants the agent access to the current tab, and the
-agent can explain the page, fill non-sensitive fields, leave sensitive fields to
-the user, require confirmation for external side effects, and write replay.
+Ship a human-supervised form and document copilot on top of the browser fact,
+redaction, verified-action, and replay contract. Compatibility work continues
+when it blocks these workflows; unsupported routes remain explicit.
 ```
 
 ## Document Groups
@@ -41,6 +46,7 @@ the user, require confirmation for external side effects, and write replay.
 
 - `docs/CURRENT_PLAN.md`
 - `docs/CURRENT_ACTION_ITEMS.md`
+- `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md`
 - `docs/next_plan_v5_tracker.md`
 - `docs/SACCADE_EVALUATION_GAUNTLET_v1.md`
 - `docs/evaluation_gauntlet_execution_plan.md`

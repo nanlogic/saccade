@@ -3793,8 +3793,21 @@ fn bridge_inspect_editors_response(state: &BridgeControlState) -> Result<Value> 
 }
 
 fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value> {
+    let start_revision = state.page_revision.load(Ordering::SeqCst);
     let inventory = bridge_form_inventory_response(state, json!({"mode": "compact", "limit": 1}))?;
     let editors = bridge_inspect_editors_response(state)?;
+    let end_revision = state.page_revision.load(Ordering::SeqCst);
+    let inventory_revision = inventory
+        .get("page_revision")
+        .and_then(Value::as_u64)
+        .unwrap_or(start_revision);
+    let editor_revision = editors
+        .get("page_revision")
+        .and_then(Value::as_u64)
+        .unwrap_or(end_revision);
+    let observation_base_consistent = start_revision == inventory_revision
+        && inventory_revision == editor_revision
+        && editor_revision == end_revision;
     let title = editors
         .get("source_title")
         .and_then(Value::as_str)
@@ -3819,34 +3832,60 @@ fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value>
         .get("visible_authoring_count")
         .and_then(Value::as_u64)
         .unwrap_or_default();
+    let visible_writable_count = editors
+        .get("visible_writable_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
     let (verdict, route, reason_codes) = render_preflight_decision(
         title,
         field_count,
         eligible_count,
         editor_count,
         zero_rect_count,
+        visible_writable_count,
         visible_authoring_count,
+        observation_base_consistent,
+    );
+    let agreement = render_preflight_agreement(
+        verdict,
+        route,
+        &reason_codes,
+        field_count,
+        eligible_count,
+        editor_count,
+        zero_rect_count,
+        visible_writable_count,
+        visible_authoring_count,
+        start_revision,
+        end_revision,
+        observation_base_consistent,
     );
 
     Ok(json!({
         "status": "ok",
         "runtime": "saccade-servoshell-bridge-v0",
-        "engine": "saccade-render-preflight-v0",
-        "summary": "local render and semantic consistency preflight completed without screenshots or field values",
+        "engine": "saccade-render-preflight-v1",
+        "summary": "structural human/agent agreement preflight completed without screenshots or field values",
         "same_webview_control": true,
-        "page_revision": state.page_revision.load(Ordering::SeqCst),
+        "page_revision": end_revision,
         "source_url": editors.get("source_url").cloned().unwrap_or(Value::Null),
         "source_title": editors.get("source_title").cloned().unwrap_or(Value::Null),
+        "site_policy": editors.get("site_policy").cloned().unwrap_or(Value::Null),
         "verdict": verdict,
         "recommended_route": route,
         "reason_codes": reason_codes,
         "agent_input_allowed": verdict == "green",
+        "agreement": agreement,
         "observations": {
             "form_field_count": field_count,
             "eligible_field_count": eligible_count,
             "editor_count": editor_count,
             "zero_rect_editor_count": zero_rect_count,
+            "visible_writable_editor_count": visible_writable_count,
             "visible_authoring_editor_count": visible_authoring_count,
+            "start_page_revision": start_revision,
+            "end_page_revision": end_revision,
+            "observation_base_consistent": observation_base_consistent,
         },
         "privacy": {
             "screenshots_captured": false,
@@ -3869,7 +3908,9 @@ fn render_preflight_decision(
     eligible_count: u64,
     editor_count: u64,
     zero_rect_count: u64,
+    visible_writable_count: u64,
     visible_authoring_count: u64,
+    observation_base_consistent: bool,
 ) -> (&'static str, &'static str, Vec<&'static str>) {
     let title_lower = title.to_ascii_lowercase();
     let likely_authoring_surface = [
@@ -3883,7 +3924,13 @@ fn render_preflight_decision(
     ]
     .iter()
     .any(|needle| title_lower.contains(needle));
-    if likely_authoring_surface
+    if !observation_base_consistent {
+        (
+            "red",
+            "refresh_replan",
+            vec!["observation_base_changed_during_preflight"],
+        )
+    } else if likely_authoring_surface
         && editor_count > 0
         && zero_rect_count > 0
         && visible_authoring_count == 0
@@ -3904,6 +3951,12 @@ fn render_preflight_decision(
         )
     } else if visible_authoring_count > 0 || eligible_count > 0 {
         ("green", "servo", vec!["actionable_surface_detected"])
+    } else if visible_writable_count > 0 {
+        (
+            "yellow",
+            "human_review",
+            vec!["visible_writable_surface_not_classified_as_authoring"],
+        )
     } else {
         (
             "yellow",
@@ -3911,6 +3964,85 @@ fn render_preflight_decision(
             vec!["no_authoring_surface_detected"],
         )
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_preflight_agreement(
+    verdict: &str,
+    route: &str,
+    reason_codes: &[&str],
+    field_count: u64,
+    eligible_count: u64,
+    editor_count: u64,
+    zero_rect_count: u64,
+    visible_writable_count: u64,
+    visible_authoring_count: u64,
+    start_revision: u64,
+    end_revision: u64,
+    observation_base_consistent: bool,
+) -> Value {
+    let typed_reasons = reason_codes
+        .iter()
+        .filter_map(|reason| match *reason {
+            "actionable_surface_detected" => None,
+            "observation_base_changed_during_preflight" => Some("AGREEMENT_REVISION_MISMATCH"),
+            "authoring_surface_has_only_zero_rect_editors" => {
+                Some("AGREEMENT_VISIBLE_AUTHORING_MISSING")
+            }
+            "visual_and_semantic_form_state_disagree" => Some("AGREEMENT_HIDDEN_ACTION"),
+            "no_actionable_fields_after_safety_filter" => {
+                Some("AGREEMENT_ACTIONABILITY_UNRESOLVED")
+            }
+            "visible_writable_surface_not_classified_as_authoring" => {
+                Some("AGREEMENT_ACTIONABILITY_UNRESOLVED")
+            }
+            "no_authoring_surface_detected" => Some("AGREEMENT_REFERENCE_UNMEASURED"),
+            _ => Some("AGREEMENT_STRUCTURAL_RESULT"),
+        })
+        .collect::<Vec<_>>();
+    let visual_escalation = match verdict {
+        "green" => "not_required_for_structural_green",
+        "red" => "guarded_diagnostic_optional_after_routing",
+        _ => "guarded_diagnostic_recommended_before_task_values",
+    };
+
+    json!({
+        "schema_version": "saccade.structural_agreement_preflight/1",
+        "full_gate_schema": "saccade.human_agent_agreement/1",
+        "scope": "structural_preflight",
+        "full_agreement_measured": false,
+        "structural_verdict": verdict,
+        "recommended_route": route,
+        "typed_reason_codes": typed_reasons,
+        "metrics": {
+            "form_field_count": field_count,
+            "eligible_field_count": eligible_count,
+            "editor_count": editor_count,
+            "zero_rect_editor_count": zero_rect_count,
+            "visible_writable_editor_count": visible_writable_count,
+            "visible_authoring_editor_count": visible_authoring_count,
+            "visible_control_recall": Value::Null,
+            "actionable_precision": Value::Null,
+            "native_hit_test_accuracy": Value::Null,
+            "screenshot_diff_ratio": Value::Null,
+        },
+        "observation_base": {
+            "start_page_revision": start_revision,
+            "end_page_revision": end_revision,
+            "consistent": observation_base_consistent,
+        },
+        "unmeasured_evidence": [
+            "reference_visible_controls",
+            "native_hit_test",
+            "screenshot_comparison",
+        ],
+        "visual_evidence": {
+            "status": "not_captured",
+            "escalation": visual_escalation,
+            "capture_policy": "guarded_optional_before_task_values",
+            "raw_pixels_returned": false,
+        },
+    })
 }
 
 fn bridge_draft_editor_fill_response(state: &BridgeControlState, params: Value) -> Result<Value> {
@@ -5431,7 +5563,8 @@ mod tests {
 
     #[test]
     fn render_preflight_routes_zero_rect_issue_editor_to_chrome_compat() {
-        let (verdict, route, reasons) = render_preflight_decision("New Issue", 22, 0, 8, 8, 0);
+        let (verdict, route, reasons) =
+            render_preflight_decision("New Issue", 22, 0, 8, 8, 1, 0, true);
         assert_eq!(verdict, "red");
         assert_eq!(route, "chrome_compat");
         assert!(reasons.contains(&"visual_and_semantic_form_state_disagree"));
@@ -5440,10 +5573,60 @@ mod tests {
     #[test]
     fn render_preflight_keeps_actionable_form_in_servo() {
         let (verdict, route, reasons) =
-            render_preflight_decision("Capacity Request", 17, 6, 0, 0, 0);
+            render_preflight_decision("Capacity Request", 17, 6, 0, 0, 0, 0, true);
         assert_eq!(verdict, "green");
         assert_eq!(route, "servo");
         assert_eq!(reasons, vec!["actionable_surface_detected"]);
+    }
+
+    #[test]
+    fn render_preflight_rejects_a_mixed_revision_observation() {
+        let (verdict, route, reasons) =
+            render_preflight_decision("Capacity Request", 17, 6, 1, 0, 1, 1, false);
+        assert_eq!(verdict, "red");
+        assert_eq!(route, "refresh_replan");
+        assert_eq!(reasons, vec!["observation_base_changed_during_preflight"]);
+    }
+
+    #[test]
+    fn structural_agreement_does_not_claim_full_visual_evidence() {
+        let agreement = render_preflight_agreement(
+            "red",
+            "chrome_compat",
+            &[
+                "authoring_surface_has_only_zero_rect_editors",
+                "visual_and_semantic_form_state_disagree",
+            ],
+            22,
+            0,
+            8,
+            8,
+            1,
+            0,
+            7,
+            7,
+            true,
+        );
+        assert_eq!(
+            agreement.get("scope").and_then(Value::as_str),
+            Some("structural_preflight")
+        );
+        assert_eq!(
+            agreement
+                .get("full_agreement_measured")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            agreement
+                .pointer("/visual_evidence/status")
+                .and_then(Value::as_str),
+            Some("not_captured")
+        );
+        let report_text = agreement.to_string();
+        assert!(!report_text.contains("field_value"));
+        assert!(!report_text.contains("screenshot_pixels"));
+        assert!(report_text.contains("AGREEMENT_VISIBLE_AUTHORING_MISSING"));
     }
 }
 
