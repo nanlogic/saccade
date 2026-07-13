@@ -1118,7 +1118,12 @@ fn input_schema(name: &str) -> Value {
         "saccade.web.render_preflight" => json!({
             "type": "object",
             "properties": {
-                "tab_id": {"type": "integer"}
+                "tab_id": {"type": "integer"},
+                "expected_surface": {
+                    "type": "string",
+                    "enum": ["page", "github_issue", "github_discussion"],
+                    "default": "page"
+                }
             },
             "required": ["tab_id"],
             "additionalProperties": false
@@ -2812,7 +2817,15 @@ fn web_render_preflight_tool(state: &mut McpSessionState, arguments: Value) -> R
         .cloned()
         .context("saccade.web.render_preflight requires a granted ServoShell current tab")?;
     ensure_dogfood_control_capability(state, tab_id, "render_preflight")?;
-    let mut result = call_dogfood_control(&endpoint, "render_preflight", json!({}))?;
+    let expected_surface = arguments
+        .get("expected_surface")
+        .and_then(Value::as_str)
+        .unwrap_or("page");
+    let mut result = call_dogfood_control(
+        &endpoint,
+        "render_preflight",
+        json!({"expected_surface": expected_surface}),
+    )?;
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &result);
     }
@@ -6148,6 +6161,18 @@ mod tests {
                 .and_then(Value::as_array)
                 .is_some_and(|features| features.iter().any(|feature| feature == "typed_errors"))
         );
+    }
+
+    #[test]
+    fn render_preflight_schema_exposes_task_surface_profiles() {
+        let schema = input_schema("saccade.web.render_preflight");
+        let values = schema
+            .pointer("/properties/expected_surface/enum")
+            .and_then(Value::as_array)
+            .expect("expected_surface enum");
+        assert!(values.iter().any(|value| value == "page"));
+        assert!(values.iter().any(|value| value == "github_issue"));
+        assert!(values.iter().any(|value| value == "github_discussion"));
     }
 
     #[test]

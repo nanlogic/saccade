@@ -2974,7 +2974,7 @@ fn bridge_control_result(
         "draft_editor_fill" => bridge_draft_editor_fill_response(state, params),
         "fill_agent_fields" => bridge_fill_agent_fields_response(state, params),
         "inspect_fields" => bridge_inspect_fields_response(state, params),
-        "render_preflight" => bridge_render_preflight_response(state),
+        "render_preflight" => bridge_render_preflight_response(state, params),
         "form_inventory" => bridge_form_inventory_response(state, params),
         "form_compile_plan" => bridge_form_compile_plan_response(state, params),
         "form_execute_plan" => bridge_form_execute_plan_response(state, params),
@@ -3792,7 +3792,7 @@ fn bridge_inspect_editors_response(state: &BridgeControlState) -> Result<Value> 
     }))
 }
 
-fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value> {
+fn bridge_render_preflight_response(state: &BridgeControlState, params: Value) -> Result<Value> {
     let start_revision = state.page_revision.load(Ordering::SeqCst);
     let inventory = bridge_form_inventory_response(state, json!({"mode": "compact", "limit": 1}))?;
     let editors = bridge_inspect_editors_response(state)?;
@@ -3812,6 +3812,15 @@ fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value>
         .get("source_title")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let source_url = editors
+        .get("source_url")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let expected_surface = params
+        .get("expected_surface")
+        .and_then(Value::as_str)
+        .unwrap_or("page");
+    let task_surface_match = render_preflight_task_surface_matches(expected_surface, source_url)?;
     let field_count = inventory
         .get("field_count")
         .and_then(Value::as_u64)
@@ -3836,16 +3845,24 @@ fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value>
         .get("visible_writable_count")
         .and_then(Value::as_u64)
         .unwrap_or_default();
-    let (verdict, route, reason_codes) = render_preflight_decision(
-        title,
-        field_count,
-        eligible_count,
-        editor_count,
-        zero_rect_count,
-        visible_writable_count,
-        visible_authoring_count,
-        observation_base_consistent,
-    );
+    let (verdict, route, reason_codes) = if task_surface_match {
+        render_preflight_decision(
+            title,
+            field_count,
+            eligible_count,
+            editor_count,
+            zero_rect_count,
+            visible_writable_count,
+            visible_authoring_count,
+            observation_base_consistent,
+        )
+    } else {
+        (
+            "red",
+            "navigate_task_surface",
+            vec!["expected_task_surface_url_mismatch"],
+        )
+    };
     let agreement = render_preflight_agreement(
         verdict,
         route,
@@ -3871,10 +3888,12 @@ fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value>
         "source_url": editors.get("source_url").cloned().unwrap_or(Value::Null),
         "source_title": editors.get("source_title").cloned().unwrap_or(Value::Null),
         "site_policy": editors.get("site_policy").cloned().unwrap_or(Value::Null),
+        "expected_surface": expected_surface,
+        "task_surface_match": task_surface_match,
         "verdict": verdict,
         "recommended_route": route,
         "reason_codes": reason_codes,
-        "agent_input_allowed": verdict == "green",
+        "agent_input_allowed": verdict == "green" && task_surface_match,
         "agreement": agreement,
         "observations": {
             "form_field_count": field_count,
@@ -3886,6 +3905,7 @@ fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value>
             "start_page_revision": start_revision,
             "end_page_revision": end_revision,
             "observation_base_consistent": observation_base_consistent,
+            "task_surface_match": task_surface_match,
         },
         "privacy": {
             "screenshots_captured": false,
@@ -3900,6 +3920,34 @@ fn bridge_render_preflight_response(state: &BridgeControlState) -> Result<Value>
         },
         "artifacts": bridge_artifacts(state),
     }))
+}
+
+fn render_preflight_task_surface_matches(expected_surface: &str, source_url: &str) -> Result<bool> {
+    if expected_surface == "page" {
+        return Ok(true);
+    }
+    let url = Url::parse(source_url)
+        .with_context(|| format!("cannot validate expected surface against URL: {source_url}"))?;
+    let host = url.host_str().unwrap_or_default();
+    let segments = url
+        .path_segments()
+        .map(|segments| segments.collect::<Vec<_>>())
+        .unwrap_or_default();
+    let github_route = |kind: &str| {
+        host.eq_ignore_ascii_case("github.com")
+            && segments.len() >= 4
+            && !segments[0].is_empty()
+            && !segments[1].is_empty()
+            && segments[2] == kind
+            && segments[3] == "new"
+    };
+    match expected_surface {
+        "github_issue" => Ok(github_route("issues")),
+        "github_discussion" => Ok(github_route("discussions")),
+        _ => bail!(
+            "render_preflight expected_surface must be page, github_issue, or github_discussion"
+        ),
+    }
 }
 
 fn render_preflight_decision(
@@ -3985,6 +4033,7 @@ fn render_preflight_agreement(
         .iter()
         .filter_map(|reason| match *reason {
             "actionable_surface_detected" => None,
+            "expected_task_surface_url_mismatch" => Some("AGREEMENT_TASK_SURFACE_MISMATCH"),
             "observation_base_changed_during_preflight" => Some("AGREEMENT_REVISION_MISMATCH"),
             "authoring_surface_has_only_zero_rect_editors" => {
                 Some("AGREEMENT_VISIBLE_AUTHORING_MISSING")
@@ -5586,6 +5635,39 @@ mod tests {
         assert_eq!(verdict, "red");
         assert_eq!(route, "refresh_replan");
         assert_eq!(reasons, vec!["observation_base_changed_during_preflight"]);
+    }
+
+    #[test]
+    fn render_preflight_task_surface_rejects_dashboard_for_github_issue() {
+        assert!(
+            !render_preflight_task_surface_matches("github_issue", "https://github.com/")
+                .expect("surface check")
+        );
+        assert!(
+            render_preflight_task_surface_matches(
+                "github_issue",
+                "https://github.com/servo/servo/issues/new?template=bug.yml"
+            )
+            .expect("surface check")
+        );
+        assert!(
+            !render_preflight_task_surface_matches(
+                "github_discussion",
+                "https://github.com/servo/servo/issues/new"
+            )
+            .expect("surface check")
+        );
+    }
+
+    #[test]
+    fn render_preflight_task_surface_rejects_unknown_profile() {
+        assert!(
+            render_preflight_task_surface_matches(
+                "arbitrary_agent_surface",
+                "https://example.com/"
+            )
+            .is_err()
+        );
     }
 
     #[test]

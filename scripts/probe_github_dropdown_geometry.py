@@ -654,6 +654,61 @@ def classify(phases: list[dict]) -> tuple[str, list[str]]:
     return ("pass" if not failures else "fail"), failures
 
 
+def account_menu_agreement(phases: list[dict], classification: str) -> dict:
+    measured = [
+        phase
+        for phase in phases
+        if (phase.get("after") or {}).get("route") == "profile_button_seen"
+        and (phase.get("after") or {}).get("signOutRect")
+    ]
+    total = len(measured)
+    native_passed = sum(
+        1 for phase in measured if (phase.get("after") or {}).get("signOutHit") is True
+    )
+    shim_passed = sum(
+        1
+        for phase in measured
+        if (phase.get("after") or {}).get("signOutShimHit") is True
+    )
+    if not total:
+        verdict = "INCOMPLETE_EVIDENCE"
+        route = "human_review"
+        reasons = ["AGREEMENT_HIT_TEST_UNMEASURED"]
+    elif native_passed == total:
+        verdict = "PASS_ACTION_GREEN"
+        route = "servo_native"
+        reasons = []
+    elif shim_passed == total and classification == "pass":
+        verdict = "ROUTE_COMPATIBILITY"
+        route = "servo_with_github_pointer_shim"
+        reasons = ["AGREEMENT_HIT_TEST_MISMATCH"]
+    else:
+        verdict = "ROUTE_COMPATIBILITY"
+        route = "block_or_chrome_compat"
+        reasons = ["AGREEMENT_HIT_TEST_MISMATCH", "AGREEMENT_MITIGATION_UNVERIFIED"]
+    return {
+        "schema_version": "saccade.github_account_menu_agreement/1",
+        "full_gate_schema": "saccade.human_agent_agreement/1",
+        "scope": "native_hit_test_canary",
+        "full_agreement_measured": False,
+        "verdict": verdict,
+        "recommended_route": route,
+        "typed_reason_codes": reasons,
+        "metrics": {
+            "measured_viewports": total,
+            "native_hit_test_passed": native_passed,
+            "native_hit_test_accuracy": native_passed / total if total else None,
+            "shim_hit_test_passed": shim_passed,
+            "shim_hit_test_accuracy": shim_passed / total if total else None,
+        },
+        "visual_evidence": {
+            "status": "not_captured",
+            "reason": "logged_in_geometry_probe",
+            "raw_pixels_returned": False,
+        },
+    }
+
+
 def classify_api_probe(probe: dict, expect_shim: bool) -> tuple[str, list[str]]:
     failures = []
     features = probe.get("browserApiFeatures") or {}
@@ -827,6 +882,7 @@ def main() -> int:
         report["stdout_head"] = report["process"].get("stdout_head")
         report["stderr_head"] = report["process"].get("stderr_head")
         report["ok"] = classification == "pass"
+        report["agreement"] = account_menu_agreement(report["phases"], classification)
         report_path = output_dir / "report.json"
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
@@ -834,6 +890,8 @@ def main() -> int:
         "GITHUB_DROPDOWN_GEOMETRY "
         f"classification={classification} "
         f"ok={str(classification == 'pass').lower()} "
+        f"native={report['agreement']['metrics']['native_hit_test_accuracy']} "
+        f"route={report['agreement']['recommended_route']} "
         f"report={output_dir / 'report.json'}"
     )
     return 0 if classification in {"pass", "auth_required"} else 1

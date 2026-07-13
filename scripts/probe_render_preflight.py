@@ -34,6 +34,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bin", type=Path, default=DEFAULT_BIN)
     parser.add_argument("--servoshell", type=Path, default=DEFAULT_SERVOSHELL)
     parser.add_argument(
+        "--url",
+        help="Page to inspect. Defaults to the local generic form fixture.",
+    )
+    parser.add_argument("--profile-dir", type=Path)
+    parser.add_argument("--userscripts-dir", type=Path)
+    parser.add_argument(
+        "--expected-verdict",
+        choices=("green", "yellow", "red", "any"),
+        default="green",
+    )
+    parser.add_argument(
+        "--expected-surface",
+        choices=("page", "github_issue", "github_discussion"),
+        default="page",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=ROOT / "runs/agreement_gate/live_structural_preflight",
@@ -48,7 +64,8 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     grant_path = output_dir / "current_tab_grant.json"
     bridge_output = output_dir / "bridge"
-    url = (ROOT / "test_pages/form_plan/index.html").resolve().as_uri()
+    fixture_url = (ROOT / "test_pages/form_plan/index.html").resolve().as_uri()
+    url = args.url or fixture_url
     command = [
         str(args.bin.resolve()),
         "bridge",
@@ -63,6 +80,13 @@ def main() -> int:
         "--timeout-sec",
         str(args.timeout_sec),
     ]
+    if args.profile_dir:
+        args.profile_dir.mkdir(parents=True, exist_ok=True)
+        command.extend(["--profile-dir", str(args.profile_dir.resolve())])
+    if args.userscripts_dir:
+        if not args.userscripts_dir.is_dir():
+            raise SystemExit(f"userscripts directory does not exist: {args.userscripts_dir}")
+        command.extend(["--userscripts-dir", str(args.userscripts_dir.resolve())])
     proc = subprocess.Popen(
         command,
         cwd=ROOT,
@@ -81,13 +105,25 @@ def main() -> int:
     try:
         endpoint, startup = wait_ready(proc, lines, args.timeout_sec)
         load_control_capability(grant_path)
-        response = call(endpoint, "render_preflight", {}, 10)["result"]
+        response = call(
+            endpoint,
+            "render_preflight",
+            {"expected_surface": args.expected_surface},
+            10,
+        )["result"]
         agreement = response.get("agreement", {})
         observations = response.get("observations", {})
         if response.get("engine") != "saccade-render-preflight-v1":
             failures.append("live bridge did not return render preflight v1")
-        if response.get("verdict") != "green" or not response.get("agent_input_allowed"):
-            failures.append("local actionable form did not receive a structural green verdict")
+        actual_verdict = response.get("verdict")
+        if args.expected_verdict != "any" and actual_verdict != args.expected_verdict:
+            failures.append(
+                f"expected verdict {args.expected_verdict}, received {actual_verdict}"
+            )
+        if actual_verdict == "green" and not response.get("agent_input_allowed"):
+            failures.append("green verdict did not allow normal agent input policy")
+        if actual_verdict != "green" and response.get("agent_input_allowed"):
+            failures.append("non-green verdict allowed agent input")
         if agreement.get("scope") != "structural_preflight":
             failures.append("agreement scope was not structural_preflight")
         if agreement.get("full_agreement_measured") is not False:
@@ -96,10 +132,11 @@ def main() -> int:
             failures.append("inventory and editor probes used different page revisions")
         if agreement.get("visual_evidence", {}).get("status") != "not_captured":
             failures.append("structural preflight captured visual evidence by default")
-        serialized = json.dumps(response, sort_keys=True)
-        leaked = [value for value in PROTECTED_FIXTURE_VALUES if value in serialized]
-        if leaked:
-            failures.append(f"protected fixture values leaked: {len(leaked)}")
+        if url == fixture_url:
+            serialized = json.dumps(response, sort_keys=True)
+            leaked = [value for value in PROTECTED_FIXTURE_VALUES if value in serialized]
+            if leaked:
+                failures.append(f"protected fixture values leaked: {len(leaked)}")
         call(endpoint, "shutdown", {}, 10)
     finally:
         try:
@@ -115,9 +152,15 @@ def main() -> int:
         "ok": not failures,
         "engine": "saccade-render-preflight-live-probe-v1",
         "url": url,
+        "expected_verdict": args.expected_verdict,
+        "expected_surface": args.expected_surface,
+        "profile_used": bool(args.profile_dir),
+        "userscripts_used": bool(args.userscripts_dir),
         "bridge_response": response,
         "protected_fixture_values_returned": False
-        if response and not any(value in json.dumps(response) for value in PROTECTED_FIXTURE_VALUES)
+        if url == fixture_url
+        and response
+        and not any(value in json.dumps(response) for value in PROTECTED_FIXTURE_VALUES)
         else None,
         "startup_tail": startup[-12:],
         "failures": failures,

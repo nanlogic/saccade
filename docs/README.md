@@ -58,6 +58,7 @@ when it blocks these workflows; unsupported routes remain explicit.
 - `docs/integration_examples/`
 - `docs/release_inventory.md`
 - `docs/render_preflight.md`
+- `docs/ai034_github_human_agent_agreement.md`
 
 ### Browser Productization
 

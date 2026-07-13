@@ -11,6 +11,17 @@ The first live API is:
 saccade.web.render_preflight
 ```
 
+The host may bind preflight to a known task surface:
+
+```json
+{"expected_surface":"github_issue"}
+```
+
+Supported values are `page` (default), `github_issue`, and
+`github_discussion`. A mismatch returns `red` with
+`recommended_route=navigate_task_surface` before Saccade treats unrelated
+writable controls as task evidence.
+
 It returns a verdict, typed reason codes, field/editor counts, the observation
 revision, and an engine route. It does not return field values, cookies,
 storage, screenshots, or page text.
@@ -88,3 +99,5 @@ human-controlled.
 - `runs/agreement_gate/offline_textarea_red_20260713/report.json`: the gate
   routed the known textarea mismatch for duplicate facts, geometry escape, and
   failed hit-tests instead of treating complete-looking truth as safe.
+- `runs/ai034_human_agent_agreement/`: task-scoped GitHub Dashboard/New Issue
+  preflight plus separate native and shim account-menu hit-test evidence.

@@ -55,6 +55,12 @@ text. The separate full agreement gate can compare redacted reference truth,
 action geometry, native hit-tests, and guarded local screenshots. Logged-in and
 user-filled pages stay on the no-screenshot path by default.
 
+Hosts that know the intended workflow should pass `expected_surface`. V1
+supports `page`, `github_issue`, and `github_discussion`. Saccade rejects a URL
+that does not match the requested task surface before considering unrelated
+eligible fields. Hosts must not infer task-surface authorization from a generic
+page-level green result.
+
 ## Response and errors
 
 Successful `tools/call` replies use MCP `structuredContent`; Saccade results contain a concise `status` and `summary`, with artifact paths rather than full replay or screenshot payloads. A JSON-RPC error includes:
