@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "channel": "stable",
+  "platform": "macosarm64",
+  "cef_version": "150.0.11+gb887805+chromium-150.0.7871.115",
+  "cef_git_revision": "b88780525f76c1c1d67d30b87e3b16bb37955175",
+  "chromium_version": "150.0.7871.115",
+  "chromium_git_revision": "25f5b661e5b08141ec24b17d1ce96c5ceb5828da",
+  "packages": {
+    "minimal": {
+      "file": "cef_binary_150.0.11+gb887805+chromium-150.0.7871.115_macosarm64_minimal.tar.bz2",
+      "url": "https://cef-builds.spotifycdn.com/cef_binary_150.0.11%2Bgb887805%2Bchromium-150.0.7871.115_macosarm64_minimal.tar.bz2",
+      "sha1": "295e90b6af96c5e4a63508f6954f4164cbc09b05",
+      "sha256": "eb76e2e77541f829a680f750d982361237dcb9941c9f3a6812129fc58cee9991"
+    },
+    "standard": {
+      "file": "cef_binary_150.0.11+gb887805+chromium-150.0.7871.115_macosarm64.tar.bz2",
+      "url": "https://cef-builds.spotifycdn.com/cef_binary_150.0.11%2Bgb887805%2Bchromium-150.0.7871.115_macosarm64.tar.bz2",
+      "sha1": "d4ad036deeea6531773a7190fceff2b45d75647b",
+      "sha256": "fbd7652b5ac4224e446fdde909fa2fcd88ac75c173ef042363738a86d5ad3f0a"
+    }
+  },
+  "license": "BSD-3-Clause",
+  "source": "https://cef-builds.spotifycdn.com/index.json",
+  "pinned_at": "2026-07-13"
+}

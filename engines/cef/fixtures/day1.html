@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saccade Day 1 Fixture</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px system-ui, sans-serif; color: #172229; background: #edf3f1; }
+  header { padding: 20px 28px; color: white; background: #163f47; }
+  main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 24px; }
+  section { min-width: 0; padding: 18px; border: 1px solid #b8cac8; background: white; }
+  canvas { display: block; width: 100%; height: 240px; background: #07171d; }
+  input, button { min-height: 42px; padding: 8px 12px; font: inherit; }
+  #status { font-weight: 700; }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; } }
+</style>
+<header><strong>Saccade CEF Day 1</strong> <span id="status">starting</span></header>
+<main>
+  <section>
+    <h1>Resize and input</h1>
+    <input id="text" value="ordinary value" aria-label="Ordinary value">
+    <button id="persist">Persist marker</button>
+    <p id="marker"></p>
+  </section>
+  <section>
+    <h2>WebGL</h2>
+    <canvas id="gl" width="800" height="480"></canvas>
+    <p id="gpu"></p>
+  </section>
+</main>
+<script>
+  const marker = localStorage.getItem('saccade-day1') || '';
+  document.querySelector('#marker').textContent = marker ? `restored: ${marker}` : 'fresh profile';
+  document.querySelector('#persist').onclick = () => {
+    localStorage.setItem('saccade-day1', 'normal-profile-ok');
+    document.querySelector('#marker').textContent = 'saved: normal-profile-ok';
+  };
+  const canvas = document.querySelector('#gl');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (gl) {
+    let frame = 0;
+    const draw = () => {
+      frame += 1;
+      gl.clearColor(0.05, 0.35 + Math.sin(frame / 30) * 0.1, 0.45, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      requestAnimationFrame(draw);
+    };
+    draw();
+    document.querySelector('#gpu').textContent = `WebGL OK: ${gl.getParameter(gl.VERSION)}`;
+    document.querySelector('#status').textContent = 'ready';
+  } else {
+    document.querySelector('#gpu').textContent = 'WebGL unavailable';
+    document.querySelector('#status').textContent = 'failed';
+  }
+  window.__saccadeDay1 = {
+    ready: Boolean(gl),
+    marker,
+    columns: getComputedStyle(document.querySelector('main')).gridTemplateColumns,
+    dpr: devicePixelRatio
+  };
+</script>
+</html>

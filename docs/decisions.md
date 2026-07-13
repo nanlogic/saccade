@@ -2055,3 +2055,25 @@
   and test adapter and is prohibited from the production reflex loop.
 - Old builds, evidence, profiles, and source paths are retired only through the
   evidence-aware sequence in `docs/CEF_MIGRATION_AND_CLEANUP_PLAN.md`.
+
+## DECISION_ENGINE_056 - Preserve the official CEF macOS lifecycle for Day 1
+
+- The pinned official standard CEF `cefsimple` target launches, renders, and
+  quits cleanly when its outer app bundle is branded Saccade. Several custom
+  target/package variants rendered but hung in `CefShutdown()` after their
+  helper processes exited.
+- Day 1 therefore stages the official app target and retains upstream internal
+  executable/helper names. The custom CEF host begins only when Day 2 needs the
+  engine adapter, and every host change must retain the clean-shutdown gate.
+- Named Chromium `user-data-dir` paths passed normal persistence and disposable
+  incognito isolation. Setting CEF `cache_path` or `root_cache_path` in the
+  sample triggered a macOS Keychain shutdown hang, so those experimental
+  patches were removed. Ad-hoc re-signing also made shutdown hang with fresh
+  and existing profiles, so signing remains a final-identity Day 5 gate. The
+  remaining CEF default-root warning is explicit Day 2 work; concurrent named
+  profiles are not yet claimed.
+- Release evidence covers the HiDPI responsive fixture, WebGL 2, GitHub public,
+  Blend or Die, get.webgl.org, normal restart, incognito cleanup, and orderly
+  one-second exits. CDP was enabled only for measurement and is absent from the
+  default launch path.
+- Evidence: `docs/cef_day1_report.md`.

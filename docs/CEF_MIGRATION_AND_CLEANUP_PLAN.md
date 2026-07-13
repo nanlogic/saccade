@@ -112,8 +112,11 @@ Blink-internal truth source.
 
 ### Day 1: Direct CEF boot
 
+Status: complete on 2026-07-13. Evidence: `docs/cef_day1_report.md`.
+
 - Pin one official macOS CEF binary distribution and checksum.
-- Start from the official minimal project structure.
+- Start from the official standard sample target and complete macOS bundle;
+  defer minimal/custom host packaging until its lifecycle matches upstream.
 - Build `Saccade.app` plus the required renderer/GPU helper app bundles.
 - Open local fixtures, GitHub public, the local game, and one WebGL page in a
   visible window with GPU acceleration and clean resize.
