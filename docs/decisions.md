@@ -2037,3 +2037,21 @@
   renderer/browser IPC implementation must pass the same 3x100 gate without a
   CDP dependency. Servo remains the deeper engine/research path.
 - Evidence: `docs/chrome_engine_truth_reflex_poc.md`.
+
+## DECISION_ENGINE_055 - Ship direct CEF first, preserve adapters
+
+- Saccade will use an official CEF binary distribution directly as its default
+  human-facing product engine. It will not build Chromium from source or make a
+  community Rust CEF wrapper a critical dependency.
+- The CEF browser/helper layer stays thin C++/Objective-C++ around the official
+  C/C++ API. Rust owns the versioned engine adapter schema, grants, policy,
+  redaction classification, verification, replay, and MCP host contract.
+- CEF facts are labeled `cef_renderer_observed` until a stronger native engine
+  source is implemented. Page semantics remain untrusted; renderer facts cannot
+  grant authority or confirm consequential actions.
+- AI-036 is the only migration implementation mainline. Existing FORMMAX,
+  safety, agreement, WebGL/game, profile, and GitHub work become parity gates.
+- Servo remains an explicit research adapter. Chrome/CDP remains a reference
+  and test adapter and is prohibited from the production reflex loop.
+- Old builds, evidence, profiles, and source paths are retired only through the
+  evidence-aware sequence in `docs/CEF_MIGRATION_AND_CLEANUP_PLAN.md`.

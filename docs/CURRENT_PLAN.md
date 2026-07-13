@@ -1,7 +1,12 @@
 # Saccade Current Plan
 
-Date: 2026-06-16
-Status: active source of truth
+Date: 2026-07-13
+Status: historical execution context
+
+The canonical active engine plan is now
+`docs/CEF_MIGRATION_AND_CLEANUP_PLAN.md`; the short execution queue remains
+`docs/CURRENT_ACTION_ITEMS.md`. This file preserves the earlier Servo milestones
+and evidence but no longer decides product-engine priority.
 
 ## One Sentence
 

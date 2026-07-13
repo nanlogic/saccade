@@ -3,6 +3,12 @@
 Date: 2026-07-11
 Status: execution plan
 
+Direction update, 2026-07-13: Saccade now plans to ship an official CEF-based
+human browser as its default product engine while keeping the integration
+contract engine-neutral. The local-tool path remains useful for vendor trials;
+the embedded-runtime path is now active product work under AI-036 rather than a
+speculative later option. See `docs/CEF_MIGRATION_AND_CLEANUP_PLAN.md`.
+
 ## Objective
 
 Convince an AI product team that it can add Saccade to an existing agent without
@@ -27,12 +33,13 @@ Saccade must prove four things:
 | --- | --- | --- | --- |
 | A. Local tool | Saccade MCP server plus a user-granted current-tab bridge | Fastest trial. The agent receives redacted truth, field inventory, verified safe actions, and replay artifacts. | Primary path |
 | B. Computer-use companion | Vendor computer-use agent calls Saccade for form inspection, deterministic fill, and action verification while it keeps its own model/browser loop. | Reduces repeated screenshots and isolates sensitive fields. | Design after A is proven |
-| C. Embedded runtime | Vendor embeds the Saccade/ServoShell control protocol behind its own browser product. | Lowest latency and strongest engine-level control. | Long-term; no commitment before A/B demand |
+| C. Embedded runtime | Saccade ships a direct CEF runtime; a vendor may embed the same versioned engine adapter in its Chromium host or another engine. | Mainstream web compatibility with low-latency browser-process control and the same safety/replay contract. | Active under AI-036 |
 
-We do not ask a vendor to replace Chrome, Atlas, Chromium, or its existing
-computer-use model. Saccade earns adoption as the browser control and safety
-layer for workflows where its proof is stronger: long forms, PDF forms, mixed
-human/agent completion, and verified action replay.
+We do not require a vendor to replace Chrome, Atlas, Chromium, or its existing
+computer-use model. Saccade can ship as its own CEF browser or as the browser
+control and safety layer inside the vendor's engine. It earns adoption where
+its proof is stronger: long forms, PDF forms, mixed human/agent completion, and
+verified action replay.
 
 ## What Exists Today
 
@@ -185,21 +192,24 @@ engineering questions from the package without a bespoke presentation.
 
 | Order | Work | Reason |
 | --- | --- | --- |
-| 1 | AI-033 adversarial suite and confirmation protocol | Safety claims must survive hostile web content before wider dogfood. |
-| 2 | AI-031 live form drafts | Forms give Saccade a concrete, repeated user benefit. |
-| 3 | AI-032 AcroForm product path | PDFs widen the same ownership model without changing the core promise. |
+| 1 | AI-036 bounded CEF migration | Establish the compatibility-first product engine without changing the host contract. |
+| 2 | AI-033 security parity on CEF | Safety claims must survive hostile web content on the shipping engine. |
+| 3 | AI-031 live form parity | Forms give Saccade a concrete, repeated user benefit. |
 | 4 | V3 protocol/SDK/release contract | A vendor cannot evaluate an undocumented local bridge. |
-| 5 | V4 benchmark report | The comparison must measure value, tokens, reliability, and limits. |
-| 6 | V5 ten-user pilot | Real correction and trust data determines whether the wedge is real. |
-| 7 | V6 vendor package and design partners | Outreach begins after the evidence can survive scrutiny. |
+| 5 | AI-032 AcroForm product path | PDFs widen the same ownership model after the browser contract is stable. |
+| 6 | V4 benchmark report | The comparison must measure value, tokens, reliability, and limits. |
+| 7 | V5 ten-user pilot | Real correction and trust data determines whether the wedge is real. |
+| 8 | V6 vendor package and design partners | Outreach begins after the evidence can survive scrutiny. |
 
 ## Work We Will Not Prioritize First
 
-- building a full Chrome replacement;
+- building Chromium from source or copying Google Chrome's proprietary UI and
+  services;
 - defeating CAPTCHAs, anti-bot challenges, or provider access controls;
 - automatic payment, signing, publish, delete, release, credential, OTP, or
   identity actions;
-- broad claims that every website works in Servo;
+- broad claims that every Chrome site, codec, DRM path, or provider challenge
+  works in CEF;
 - a permanent Servo fork before the local-tool adoption path proves demand.
 
 ## Why This Fits the Market
