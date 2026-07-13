@@ -2021,3 +2021,19 @@
   verified actions, and value-free replay remain engine-neutral.
 - Evidence: `docs/ai027_github_ui_canary.md` and `BP-024` in
   `docs/browser_compat_ledger.md`.
+
+## DECISION_ENGINE_054 - Saccade is the truth/action contract, not one rendering engine
+
+- A bounded Chrome/CDP proof passed three independent 100-target runs with
+  300/300 hits, zero misses, zero protected-value leaks, and combined full-loop
+  latency of 3.8 ms p95.
+- The host motor begins dispatch in 0.024 ms p95. Rare 24-64 ms outliers occur
+  primarily while CDP carries renderer truth to the host, so DevTools is not
+  the intended strict reflex transport.
+- Product architecture should keep the engine-neutral grant, redaction,
+  policy, action, verification, and replay contract. Servo and Chromium/CEF are
+  adapters behind that contract.
+- Before Chromium becomes the compatibility-first human browser engine, a CEF
+  renderer/browser IPC implementation must pass the same 3x100 gate without a
+  CDP dependency. Servo remains the deeper engine/research path.
+- Evidence: `docs/chrome_engine_truth_reflex_poc.md`.
