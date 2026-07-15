@@ -13,13 +13,17 @@ SACCADE_CODESIGN_TIMESTAMP=${SACCADE_CODESIGN_TIMESTAMP:-none} \
   "$SCRIPT_DIR/build_macos.sh"
 codesign --verify --strict --verbose=2 "$APP"
 
-mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/licenses"
+mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/licenses" "$OUT/tools"
 ditto "$APP" "$OUT/Saccade.app"
 cp "$REPO_ROOT/engines/cef/release/open-saccade" "$OUT/bin/open-saccade"
 cp "$REPO_ROOT/engines/cef/release/current-agent-grant" \
   "$OUT/bin/current-agent-grant"
 cp "$REPO_ROOT/engines/cef/release/profile-status" "$OUT/bin/profile-status"
+cp "$REPO_ROOT/engines/cef/release/run-local-game-gate" \
+  "$OUT/bin/run-local-game-gate"
 chmod 755 "$OUT/bin/"*
+cp "$REPO_ROOT/scripts/probe_cef_local_game.py" "$OUT/tools/"
+cp "$REPO_ROOT/scripts/probe_cef_truth_reflex.py" "$OUT/tools/"
 cp "$REPO_ROOT/engines/cef/cef.lock.json" "$OUT/docs/cef.lock.json"
 cp "$REPO_ROOT/docs/integration_contract_v1.md" "$OUT/docs/"
 cp "$REPO_ROOT/docs/cef_day5_dogfood_release_report.md" "$OUT/docs/"
@@ -65,6 +69,10 @@ owner-only bridge. To locate that grant, run:
   bin/current-agent-grant
 
 Opening Saccade.app directly does not start or grant an agent session.
+
+With the local Blend or Die server running, rerun the fact-bound Canvas motor
+gate with:
+  bin/run-local-game-gate http://127.0.0.1:4173/
 
 The returned owner-only grant contains the engine-neutral endpoint and
 capability. Do not copy it into chat or logs. The agent never receives raw

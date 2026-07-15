@@ -35,10 +35,11 @@ std::string JsonString(CefRefPtr<CefValue> value) {
 
 CefRefPtr<CefListValue> CapabilityList() {
   auto list = CefListValue::Create();
-  const std::array<const char*, 20> capabilities = {
+  const std::array<const char*, 21> capabilities = {
       "ping",        "shell_status", "navigate",    "pause",
       "close",       "truth",        "actions",     "next_fact",
-      "act",         "next_receipt", "reflex_start", "form_inventory",
+      "act",         "act_drag",     "next_receipt", "reflex_start",
+      "form_inventory",
       "inspect_fields", "form_compile_plan", "form_execute_plan",
       "screenshot_policy", "screenshot_audit", "form_reveal_more",
       "article_text", "type_field_text"};
@@ -483,7 +484,7 @@ bool SaccadeAdapter::OnRendererMessage(
     fact.renderer_epoch_ms = arguments->GetDouble(7);
     if (fact.action_id.empty() || fact.action_id.size() > 128 ||
         (fact.role != "target" && fact.role != "button" &&
-         fact.role != "link") ||
+         fact.role != "link" && fact.role != "surface") ||
         fact.label.size() > 128 ||
         !std::isfinite(fact.left) || !std::isfinite(fact.top) ||
         !std::isfinite(fact.width) || !std::isfinite(fact.height) ||
@@ -791,6 +792,9 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
   if (method == "act") {
     return ActResponse(id, request->GetDictionary("params"));
   }
+  if (method == "act_drag") {
+    return DragResponse(id, request->GetDictionary("params"));
+  }
   if (method == "form_inventory") {
     return FormCommandResponse(id, "inventory",
                                request->GetDictionary("params"));
@@ -955,7 +959,9 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::ActionsResult() {
   for (const auto& [action_id, fact] : actions_) {
     auto action = CefDictionaryValue::Create();
     action->SetString("action_id", action_id);
-    action->SetString("kind", "pointer_click");
+    action->SetString("kind",
+                      fact.role == "surface" ? "pointer_drag"
+                                             : "pointer_click");
     action->SetString("role", fact.role);
     action->SetString("label", fact.label);
     action->SetDouble("basis_page_revision",
@@ -1020,6 +1026,10 @@ std::string SaccadeAdapter::NextReceiptResponse(int id, int timeout_ms) {
   result->SetInt("misses", receipt.misses);
   result->SetBool("finished", receipt.finished);
   result->SetDouble("renderer_epoch_ms", receipt.renderer_epoch_ms);
+  result->SetBool("values_logged", false);
+  AppendValueFreeReplay("pointer_applied", result,
+                        receipt.basis_page_revision,
+                        receipt.observed_page_revision);
   return Response(id, result);
 }
 
@@ -1030,6 +1040,7 @@ std::string SaccadeAdapter::ActResponse(
       params ? params->GetString("action_id").ToString() : "";
   const uint64_t basis_page_revision = RequestRevision(params);
   TargetFact fact;
+  int browser_id = 0;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     if (paused_) {
@@ -1049,14 +1060,95 @@ std::string SaccadeAdapter::ActResponse(
                            "action id is already awaiting a receipt");
     }
     fact = action->second;
+    browser_id = browser_ ? browser_->GetIdentifier() : 0;
+    if (browser_id == 0) {
+      dispatched_actions_.erase(action_id);
+      return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                           "visible browser is unavailable");
+    }
   }
   const int x = static_cast<int>(std::lround(fact.left + fact.width / 2.0));
   const int y = static_cast<int>(std::lround(fact.top + fact.height / 2.0));
   CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::DispatchPointerOnUi,
-                                    base::Unretained(this), x, y));
+                                    base::Unretained(this), x, y, action_id,
+                                    browser_id, basis_page_revision));
   auto result = CefDictionaryValue::Create();
   result->SetString("action_id", action_id);
   result->SetString("status", "accepted");
+  result->SetDouble("basis_page_revision",
+                    static_cast<double>(basis_page_revision));
+  return Response(id, result);
+}
+
+std::string SaccadeAdapter::DragResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  const std::string action_id =
+      params ? params->GetString("action_id").ToString() : "";
+  const std::string direction =
+      params ? params->GetString("direction").ToString() : "";
+  if (direction != "north" && direction != "south" &&
+      direction != "east" && direction != "west") {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "drag direction must be north, south, east, or west");
+  }
+  const uint64_t basis_page_revision = RequestRevision(params);
+  TargetFact fact;
+  int browser_id = 0;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (paused_) {
+      return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
+    }
+    if (basis_page_revision == 0 || basis_page_revision != page_revision_) {
+      return ErrorResponse(id, "STALE_PAGE_REVISION",
+                           "action basis does not match current page");
+    }
+    const auto action = actions_.find(action_id);
+    if (action == actions_.end() ||
+        action->second.page_revision != basis_page_revision) {
+      return ErrorResponse(id, "INVALID_ARGUMENT", "unknown action id");
+    }
+    if (action->second.role != "surface") {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "drag action requires a visible surface fact");
+    }
+    if (!dispatched_actions_.insert(action_id).second) {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "action id is already awaiting a receipt");
+    }
+    fact = action->second;
+    browser_id = browser_ ? browser_->GetIdentifier() : 0;
+    if (browser_id == 0) {
+      dispatched_actions_.erase(action_id);
+      return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                           "visible browser is unavailable");
+    }
+  }
+
+  const int start_x =
+      static_cast<int>(std::lround(fact.left + fact.width / 2.0));
+  const int start_y =
+      static_cast<int>(std::lround(fact.top + fact.height / 2.0));
+  int end_x = start_x;
+  int end_y = start_y;
+  if (direction == "north") {
+    end_y -= static_cast<int>(std::lround(fact.height * 0.3));
+  } else if (direction == "south") {
+    end_y += static_cast<int>(std::lround(fact.height * 0.3));
+  } else if (direction == "east") {
+    end_x += static_cast<int>(std::lround(fact.width * 0.3));
+  } else {
+    end_x -= static_cast<int>(std::lround(fact.width * 0.3));
+  }
+  CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::DispatchDragOnUi,
+                                    base::Unretained(this), start_x, start_y,
+                                    end_x, end_y, action_id, browser_id,
+                                    basis_page_revision));
+  auto result = CefDictionaryValue::Create();
+  result->SetString("action_id", action_id);
+  result->SetString("status", "accepted");
+  result->SetString("direction", direction);
   result->SetDouble("basis_page_revision",
                     static_cast<double>(basis_page_revision));
   return Response(id, result);
@@ -1609,14 +1701,24 @@ void SaccadeAdapter::OnScreenshotResult(int message_id,
   screenshot_cv_.notify_all();
 }
 
-void SaccadeAdapter::DispatchPointerOnUi(int x, int y) {
+void SaccadeAdapter::DispatchPointerOnUi(int x,
+                                         int y,
+                                         std::string action_id,
+                                         int browser_id,
+                                         uint64_t page_revision) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    browser = browser_;
+    const auto found = browsers_.find(browser_id);
+    if (found != browsers_.end() && browser_ && browser_->IsSame(found->second) &&
+        page_revision_ == page_revision) {
+      browser = found->second;
+    }
   }
   if (!browser) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    dispatched_actions_.erase(action_id);
     return;
   }
   CefMouseEvent event;
@@ -1627,6 +1729,68 @@ void SaccadeAdapter::DispatchPointerOnUi(int x, int y) {
   host->SendMouseMoveEvent(event, false);
   host->SendMouseClickEvent(event, MBT_LEFT, false, 1);
   host->SendMouseClickEvent(event, MBT_LEFT, true, 1);
+}
+
+void SaccadeAdapter::DispatchDragOnUi(int start_x,
+                                      int start_y,
+                                      int end_x,
+                                      int end_y,
+                                      std::string action_id,
+                                      int browser_id,
+                                      uint64_t page_revision) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto found = browsers_.find(browser_id);
+    if (found != browsers_.end() && browser_ && browser_->IsSame(found->second) &&
+        page_revision_ == page_revision) {
+      browser = found->second;
+    }
+  }
+  if (!browser) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    dispatched_actions_.erase(action_id);
+    return;
+  }
+  auto host = browser->GetHost();
+  CefMouseEvent start;
+  start.x = start_x;
+  start.y = start_y;
+  start.modifiers = 0;
+  host->SendMouseMoveEvent(start, false);
+  host->SendMouseClickEvent(start, MBT_LEFT, false, 1);
+
+  CefMouseEvent end;
+  end.x = end_x;
+  end.y = end_y;
+  end.modifiers = EVENTFLAG_LEFT_MOUSE_BUTTON;
+  host->SendMouseMoveEvent(end, false);
+  CefPostDelayedTask(
+      TID_UI,
+      base::BindOnce(&SaccadeAdapter::ReleaseDragOnUi,
+                     base::Unretained(this), end_x, end_y, browser_id),
+      250);
+}
+
+void SaccadeAdapter::ReleaseDragOnUi(int end_x, int end_y, int browser_id) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto found = browsers_.find(browser_id);
+    if (found != browsers_.end()) {
+      browser = found->second;
+    }
+  }
+  if (!browser) {
+    return;
+  }
+  CefMouseEvent end;
+  end.x = end_x;
+  end.y = end_y;
+  end.modifiers = 0;
+  browser->GetHost()->SendMouseClickEvent(end, MBT_LEFT, true, 1);
 }
 
 void SaccadeAdapter::CloseOnUi() {

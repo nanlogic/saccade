@@ -117,6 +117,7 @@ class SaccadeAdapter {
   std::string NextFactResponse(int id, int timeout_ms);
   std::string NextReceiptResponse(int id, int timeout_ms);
   std::string ActResponse(int id, CefRefPtr<CefDictionaryValue> params);
+  std::string DragResponse(int id, CefRefPtr<CefDictionaryValue> params);
   std::string FormCommandResponse(int id,
                                   const std::string& command,
                                   CefRefPtr<CefDictionaryValue> params);
@@ -142,7 +143,19 @@ class SaccadeAdapter {
                           bool success,
                           const void* result,
                           size_t result_size);
-  void DispatchPointerOnUi(int x, int y);
+  void DispatchPointerOnUi(int x,
+                           int y,
+                           std::string action_id,
+                           int browser_id,
+                           uint64_t page_revision);
+  void DispatchDragOnUi(int start_x,
+                        int start_y,
+                        int end_x,
+                        int end_y,
+                        std::string action_id,
+                        int browser_id,
+                        uint64_t page_revision);
+  void ReleaseDragOnUi(int end_x, int end_y, int browser_id);
   void CloseOnUi();
   bool WriteGrant();
   void AppendValueFreeReplay(const std::string& event,

@@ -46,7 +46,7 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   const matches = Function.call.bind(Element.prototype.matches);
   const addEvent = Function.call.bind(EventTarget.prototype.addEventListener);
   const styleFor = Function.call.bind(window.getComputedStyle, window);
-  const actionSelector = '.target:not(.hit), button, a[href], [role="button"], input[type="button"], input[type="submit"]';
+  const actionSelector = '.target:not(.hit), button, a[href], canvas, [role="button"], input[type="button"], input[type="submit"]';
   let pendingInput = null;
 
   const scanControls = () => {
@@ -105,7 +105,9 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
           style.pointerEvents === 'none' || Number(style.opacity) === 0) continue;
       const role = matches(element, '.target:not(.hit)')
           ? 'target'
-          : (matches(element, 'a[href]') ? 'link' : 'button');
+          : (matches(element, 'a[href]')
+              ? 'link'
+              : (matches(element, 'canvas') ? 'surface' : 'button'));
       const label = redactActionLabel(
           element.getAttribute('aria-label') || element.getAttribute('title') ||
           element.innerText || element.textContent || element.value ||

@@ -13,7 +13,9 @@ under `dist/saccade-cef-dogfood-<stamp>/` and updates
 - owner-only saved/incognito profile and current-tab grant launchers;
 - exact source/engine metadata, CEF license, Chromium credits, and portable
   SHA-256 checksums;
-- the integration contract and Day 5 measured report.
+- the integration contract and Day 5 measured report;
+- `bin/run-local-game-gate`, which reruns the fact-bound Canvas drag and
+  guarded-render validation against an already-running local game server.
 
 The artifact is deliberately marked `notarized=false` and
 `public_distribution_ready=false`.

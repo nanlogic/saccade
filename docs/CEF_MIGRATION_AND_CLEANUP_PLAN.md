@@ -197,9 +197,9 @@ The agent did not submit the Gist. Evidence:
 
 ### Day 5: Human browser and dogfood release
 
-Status: engineering gate complete on 2026-07-15; stable signed-profile login
-restart and the currently offline local-game action rerun remain final human/
-external acceptance. See `docs/cef_day5_dogfood_release_report.md`.
+Status: complete on 2026-07-15. Signed-profile login restart, local Canvas game,
+WebGL runtime, and post-surface MouseAccuracy regression all pass. See
+`docs/cef_day5_dogfood_release_report.md`.
 
 - Preserve CEF Chrome Runtime's native toolbar, tabs, address field, and browser
   recovery behavior. Add only a thin native profile and trusted Agent

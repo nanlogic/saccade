@@ -185,6 +185,20 @@ def main() -> int:
         actions, link = wait_until(
             recovery_action, args.timeout_sec, "child-tab action was not discovered"
         )
+        try:
+            first_control.call(
+                "act_drag",
+                {
+                    "action_id": link["action_id"],
+                    "basis_page_revision": int(actions["page_revision"]),
+                    "direction": "east",
+                },
+            )
+        except RuntimeError as error:
+            if "visible surface" not in str(error):
+                raise
+        else:
+            raise AssertionError("ordinary link was accepted as a drag surface")
         first_control.call(
             "act",
             {
@@ -269,6 +283,7 @@ def main() -> int:
                 "main_role_verified": True,
                 "popup_role_verified": True,
                 "opener_relation_verified": True,
+                "non_surface_drag_rejected": True,
             },
             "values_logged": False,
             "duration_sec": round(time.monotonic() - started, 3),

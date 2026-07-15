@@ -2226,6 +2226,24 @@
   expose inactive URLs, cookies, storage, or protected values.
 - CEF marks an ordinary user-opened `target=_blank` tab as a popup. Therefore
   `IsPopup()` is diagnostic evidence, not authority to close a window. Automatic
-  cleanup requires flow-specific proof that an auth/password child completed.
+  cleanup would require flow-specific proof that an auth/password child
+  completed. Until an initiating host supplies that proof, Saccade preserves
+  the window and requires an explicit close.
 - Evidence: `runs/cef_day5/product_profile_github_restart_20260715/report.json`
   and `runs/cef_day5/session_popup_roles/report.json`.
+
+## DECISION_ENGINE_065 - Bind Canvas drags to renderer surface facts
+
+- A visible Canvas is emitted as a `surface` action with browser-owned geometry
+  and page revision. The caller supplies only its action id, revision, and one
+  of `north`, `south`, `east`, or `west`; it cannot inject screen coordinates.
+- The browser resolves the direction within the current surface, performs a
+  250 ms native CEF pointer drag, and accepts success only after a matching
+  renderer receipt. Pointer replay records remain value-free.
+- Blend or Die passed 8/8 drags with command-acceptance p95 0.827 ms and a
+  nonblank dynamic render. The WebGL fixture separately passed context, shader,
+  texture, readPixels, and no-error markers plus 4/4 surface receipts.
+- Guarded screenshots verify nonblank/dynamic rendering only. They are not the
+  truth route and never select motor coordinates.
+- Evidence: `runs/cef_day5/local_game_final/report.json` and
+  `runs/cef_day5/webgl_final/report.json`.

@@ -114,6 +114,18 @@ field values. The browser adapter resolves action ids to coordinates and uses
 native CEF pointer input. See `docs/cef_day3_truth_reflex_report.md` for the
 measured boundary and explicit non-claims.
 
+Visible Canvas elements are emitted as revision-bound `surface` actions.
+`act_drag` accepts only the action id and an allowlisted cardinal direction;
+the browser resolves coordinates within the current surface and requires a
+matching renderer receipt. With the local Blend or Die server running:
+
+```sh
+python3 scripts/probe_cef_local_game.py \
+  --url http://127.0.0.1:4173/ \
+  --output-dir runs/cef_day5/local_game_final \
+  --headed
+```
+
 ## Day 4 form and safety gate
 
 The current-tab grant additionally advertises fixed form inventory, inspect,

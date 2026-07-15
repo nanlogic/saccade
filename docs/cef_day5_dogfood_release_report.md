@@ -1,7 +1,7 @@
 # CEF Day 5 Dogfood Release Report
 
 Date: 2026-07-15
-Status: engineering gates passed; live Gist collaboration passed
+Status: CEF migration and local dogfood gates passed
 
 ## What shipped
 
@@ -16,6 +16,9 @@ Status: engineering gates passed; live Gist collaboration passed
 - Agent grants follow the focused CEF tab. Opening a child tab creates a new
   tab identity; closing it returns control to the remaining visible tab without
   killing the bridge.
+- Visible Canvas elements are renderer-owned `surface` facts. The fixed drag
+  motor accepts only a revision-bound action id and one of four directions;
+  callers cannot supply screen coordinates.
 - Normal profiles persist outside the repository. Incognito profiles are
   disposable. The official CEF `root_cache_path` and `cache_path` are set from
   the selected user-data directory.
@@ -38,6 +41,9 @@ Status: engineering gates passed; live Gist collaboration passed
 | Signed product-profile auth restart | PASS: authenticated GitHub profile survived a graceful close/reopen; one main browser, zero popups, zero repeated Keychain dialogs, no mock Keychain | `runs/cef_day5/product_profile_github_restart_20260715/report.json` |
 | Public article | PASS: 9,360 redacted characters and headings, no CDP or screenshot | `runs/cef_day5/public_article/report.json` |
 | Logged-in Gist collaboration | PASS: 25 DOM controls reduced to seven visible fields; description, filename, and rich-editor body verified; Wayne confirmed the same visible draft and retained submit control | `runs/cef_day5/gist_live_rich_editor_20260715/report.json` |
+| Local Canvas game | PASS: 8/8 fact-bound native drags with renderer receipts; command acceptance p95 0.827 ms; nonblank dynamic render; no CDP/WebDriver | `runs/cef_day5/local_game_final/report.json` |
+| WebGL runtime | PASS: context, shader, texture, readPixels, and no-error markers observed; 4/4 native surface receipts; nonblank WebGL texture | `runs/cef_day5/webgl_final/report.json` |
+| MouseAccuracy surface regression | PASS: 12/12 live targets, p95 8.6 ms after Canvas surface support | `runs/cef_day5/mouseaccuracy_surface_regression/report.json` |
 
 ## Keychain behavior
 
@@ -55,14 +61,16 @@ usage descriptions so macOS asks for permission instead of terminating the
 process. Touch ID passkey support is not claimed until the required WebAuthn
 keychain-access-group entitlement is provisioned and retested.
 
-## Remaining acceptance
+## Window policy
 
-1. Finish a flow-aware OAuth/password child-window policy. CEF reports ordinary
-   user-opened `target=_blank` tabs as popups too, so `IsPopup()` alone is not
-   sufficient evidence for automatic closure.
-2. Start the local game at `http://127.0.0.1:4173/` and rerun the CEF reflex
-   gate. The server was not running during this Day 5 closeout, so no new CEF
-   game-action result is claimed here.
+CEF reports ordinary user-opened `target=_blank` tabs as popups too. Saccade
+therefore does not auto-close a window based on `IsPopup()`, opener id, URL, or
+provider guesses. Browser roles remain visible in diagnostics, while the human
+or an owner-authorized host explicitly closes the current child window. This
+preserves legitimate tabs and avoids inspecting cookies or auth secrets.
+
+The bounded CEF migration gates are complete. Remaining public-release work is
+distribution work, not hidden browser acceptance.
 
 This is a signed local macOS dogfood build, not a notarized public release.
 Public distribution still requires a project-license decision, hardened-runtime

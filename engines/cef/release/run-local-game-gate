@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+URL=${1:-http://127.0.0.1:4173/}
+NAME=${2:-local_game_$(date +%Y%m%d-%H%M%S)}
+OUTPUT=${SACCADE_GATE_OUTPUT:-$ROOT/runs/$NAME}
+
+curl -fsS --max-time 3 "$URL" >/dev/null || {
+  echo "Local game is not available at $URL" >&2
+  exit 2
+}
+mkdir -p "$OUTPUT"
+exec python3 "$ROOT/tools/probe_cef_local_game.py" \
+  --app "$ROOT/Saccade.app" \
+  --url "$URL" \
+  --output-dir "$OUTPUT" \
+  --headed
