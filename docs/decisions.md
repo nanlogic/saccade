@@ -2215,3 +2215,17 @@
   remained available; the agent did not submit.
 - Evidence: `runs/cef_day5/form_safety_native_rich_editor_final/report.json`
   and `runs/cef_day5/gist_live_rich_editor_20260715/report.json`.
+
+## DECISION_ENGINE_064 - Persist signed profiles and observe popup roles before cleanup
+
+- A real authenticated GitHub session now survives a graceful product-profile
+  close and reopen from the same fixed-signature app. The reopened browser has
+  one main browser, zero popups, an authenticated Dashboard action, no Sign in
+  action, no mock Keychain, and no repeated SecurityAgent prompt.
+- The bridge records only browser count, popup role, and opener id. It does not
+  expose inactive URLs, cookies, storage, or protected values.
+- CEF marks an ordinary user-opened `target=_blank` tab as a popup. Therefore
+  `IsPopup()` is diagnostic evidence, not authority to close a window. Automatic
+  cleanup requires flow-specific proof that an auth/password child completed.
+- Evidence: `runs/cef_day5/product_profile_github_restart_20260715/report.json`
+  and `runs/cef_day5/session_popup_roles/report.json`.

@@ -90,6 +90,11 @@ class SaccadeAdapter {
     bool ok = false;
   };
 
+  struct BrowserRole {
+    bool is_popup = false;
+    int opener_id = 0;
+  };
+
   friend class SaccadeScreenshotObserver;
   friend class SaccadeTextInsertObserver;
 
@@ -149,6 +154,7 @@ class SaccadeAdapter {
   std::mutex grant_mutex_;
   CefRefPtr<CefBrowser> browser_;
   std::map<int, CefRefPtr<CefBrowser>> browsers_;
+  std::map<int, BrowserRole> browser_roles_;
   std::string current_url_;
   std::string current_title_;
   uint64_t page_revision_ = 1;

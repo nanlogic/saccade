@@ -142,6 +142,13 @@ def main() -> int:
         )
         truth = wait_for_collector(first_control, args.timeout_sec)
         first_tab = truth["tab_id"]
+        initial_status = first_control.call("shell_status")
+        if (
+            initial_status.get("browser_count") != 1
+            or initial_status.get("popup_count") != 0
+            or initial_status.get("current_is_popup") is not False
+        ):
+            raise AssertionError(f"main browser role was wrong: {initial_status}")
 
         stage = "persist_ordinary_value"
         revision = int(truth["page_revision"])
@@ -195,6 +202,14 @@ def main() -> int:
         child_tab = child["tab_id"]
         if child_tab == first_tab:
             raise AssertionError("new tab reused the original tab identity")
+        child_status = first_control.call("shell_status")
+        if (
+            child_status.get("browser_count") != 2
+            or child_status.get("popup_count") != 1
+            or child_status.get("current_is_popup") is not True
+            or int(child_status.get("current_opener_id", 0)) <= 0
+        ):
+            raise AssertionError(f"child browser role was wrong: {child_status}")
 
         stage = "close_child_recover_parent"
         first_control.call("close")
@@ -208,6 +223,15 @@ def main() -> int:
         )
         if recovered["tab_id"] != first_tab:
             raise AssertionError("bridge recovered the wrong tab identity")
+        recovered_status = first_control.call("shell_status")
+        if (
+            recovered_status.get("browser_count") != 1
+            or recovered_status.get("popup_count") != 0
+            or recovered_status.get("current_is_popup") is not False
+        ):
+            raise AssertionError(
+                f"parent browser role did not recover: {recovered_status}"
+            )
         stop(first, first_control)
         first = None
         first_control = None
@@ -242,6 +266,9 @@ def main() -> int:
                 "distinct_identity": True,
                 "visible_child_followed": True,
                 "close_recovered_parent": True,
+                "main_role_verified": True,
+                "popup_role_verified": True,
+                "opener_relation_verified": True,
             },
             "values_logged": False,
             "duration_sec": round(time.monotonic() - started, 3),

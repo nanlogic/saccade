@@ -35,6 +35,7 @@ Status: engineering gates passed; live Gist collaboration passed
 | Forms, safety, rich editor, screenshot, replay | PASS: hidden controls filtered, ordinary fields verified, protected writes rejected, rich editor visible/backing surfaces agreed, sensitive screenshot blocked, sentinel scan clean | `runs/cef_day5/form_safety_native_rich_editor_final/report.json` |
 | Physical human input | PASS: macOS CoreGraphics HID click plus focused typing, with no browser input API | `runs/cef_day5/human_input_final/report.json` |
 | Tabs and profile restart | PASS three consecutive times; child-tab focus, close recovery, and local state persistence | `runs/cef_day5/session_consistency_1/report.json` through `_3/report.json` |
+| Signed product-profile auth restart | PASS: authenticated GitHub profile survived a graceful close/reopen; one main browser, zero popups, zero repeated Keychain dialogs, no mock Keychain | `runs/cef_day5/product_profile_github_restart_20260715/report.json` |
 | Public article | PASS: 9,360 redacted characters and headings, no CDP or screenshot | `runs/cef_day5/public_article/report.json` |
 | Logged-in Gist collaboration | PASS: 25 DOM controls reduced to seven visible fields; description, filename, and rich-editor body verified; Wayne confirmed the same visible draft and retained submit control | `runs/cef_day5/gist_live_rich_editor_20260715/report.json` |
 
@@ -56,12 +57,10 @@ keychain-access-group entitlement is provisioned and retested.
 
 ## Remaining acceptance
 
-1. Re-run the same saved GitHub/Gist product profile from one stable signed app
-   path without the test-only mock Keychain flag, then confirm login persistence
-   and zero repeated Keychain prompts.
-2. Close OAuth/password child windows automatically after their flow completes;
-   the live Gist test left stale `Discover gists` and password windows.
-3. Start the local game at `http://127.0.0.1:4173/` and rerun the CEF reflex
+1. Finish a flow-aware OAuth/password child-window policy. CEF reports ordinary
+   user-opened `target=_blank` tabs as popups too, so `IsPopup()` alone is not
+   sufficient evidence for automatic closure.
+2. Start the local game at `http://127.0.0.1:4173/` and rerun the CEF reflex
    gate. The server was not running during this Day 5 closeout, so no new CEF
    game-action result is claimed here.
 

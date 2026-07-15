@@ -259,7 +259,12 @@ void SaccadeAdapter::OnBrowserCreated(CefRefPtr<CefBrowser> browser) {
   CEF_REQUIRE_UI_THREAD();
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    browsers_[browser->GetIdentifier()] = browser;
+    const int browser_id = browser->GetIdentifier();
+    browsers_[browser_id] = browser;
+    browser_roles_[browser_id] = {
+        .is_popup = browser->IsPopup(),
+        .opener_id = browser->GetHost()->GetOpenerIdentifier(),
+    };
     if (!browser_) {
       browser_ = browser;
       if (browser->GetMainFrame()) {
@@ -547,6 +552,7 @@ void SaccadeAdapter::OnBrowserClosed(CefRefPtr<CefBrowser> browser) {
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     browsers_.erase(browser->GetIdentifier());
+    browser_roles_.erase(browser->GetIdentifier());
     if (browser_ && browser_->IsSame(browser)) {
       browser_ = browsers_.empty() ? nullptr : browsers_.begin()->second;
       next_frame = browser_ ? browser_->GetMainFrame() : nullptr;
@@ -893,6 +899,23 @@ std::string SaccadeAdapter::StatusJson() {
   result->SetBool("collector_ready", collector_ready_);
   result->SetString("collector_error", collector_error_);
   result->SetString("tab_identity", CurrentTabIdLocked());
+  result->SetInt("browser_count", static_cast<int>(browsers_.size()));
+  int popup_count = 0;
+  for (const auto& [browser_id, role] : browser_roles_) {
+    if (role.is_popup) {
+      ++popup_count;
+    }
+  }
+  result->SetInt("popup_count", popup_count);
+  const int current_id = browser_ ? browser_->GetIdentifier() : 0;
+  const auto current_role = browser_roles_.find(current_id);
+  result->SetBool("current_is_popup",
+                  current_role != browser_roles_.end() &&
+                      current_role->second.is_popup);
+  result->SetInt("current_opener_id",
+                 current_role == browser_roles_.end()
+                     ? 0
+                     : current_role->second.opener_id);
   auto value = CefValue::Create();
   value->SetDictionary(result);
   return JsonString(value);
