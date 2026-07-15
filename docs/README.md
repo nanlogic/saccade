@@ -7,14 +7,16 @@ Use this file as the navigation entry point.
 
 Read these first:
 
-1. `docs/CURRENT_ACTION_ITEMS.md` - the canonical short execution queue.
-2. `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md` - product strengths,
+1. `docs/PRODUCT_CONTRACT.md` - the engine-neutral product definition and six
+   non-negotiable guarantees.
+2. `docs/CURRENT_ACTION_ITEMS.md` - the canonical short execution queue.
+3. `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md` - product strengths,
    evidence status, improvement queue, release gates, and claim boundaries.
-3. `docs/CURRENT_PLAN.md` - the broad product plan; milestone labels may lag the
+4. `docs/CURRENT_PLAN.md` - the broad product plan; milestone labels may lag the
    execution queue.
-4. `docs/next_plan_v5_tracker.md` - normalized historical status and evidence map.
-5. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
-6. `docs/decisions.md` - append-only decision ledger.
+5. `docs/next_plan_v5_tracker.md` - normalized historical status and evidence map.
+6. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
+7. `docs/decisions.md` - append-only decision ledger.
 
 ## Current Active Direction
 
@@ -44,6 +46,7 @@ when it blocks these workflows; unsupported routes remain explicit.
 
 ### Product Plan
 
+- `docs/PRODUCT_CONTRACT.md`
 - `docs/CURRENT_PLAN.md`
 - `docs/CURRENT_ACTION_ITEMS.md`
 - `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md`

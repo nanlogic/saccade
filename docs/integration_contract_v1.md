@@ -6,6 +6,10 @@ Status: implementable local-tool contract. The transport is MCP stdio JSON-RPC; 
 
 Saccade lets a host agent work in a user-granted visible tab without receiving cookies, browser storage, the local bridge capability, sensitive field values, or sensitive-page screenshots. The supported wedge is: inspect redacted truth, compile a no-submit ordinary-field plan, execute it, leave protected steps to the user, and retain a value-free replay.
 
+This transport contract implements the engine-neutral guarantees in
+`docs/PRODUCT_CONTRACT.md`. An engine name, rendering success, or screenshot is
+never a substitute for the fact/action/receipt and privacy requirements.
+
 ## Negotiation
 
 1. Send MCP `initialize` and then `tools/list`.

@@ -11,6 +11,9 @@ default human-facing engine and exposes browser-integrated, redacted facts,
 revision-bound actions, verification, and value-free replay through a
 versioned engine-neutral contract.
 
+The product invariants are defined in `docs/PRODUCT_CONTRACT.md`. This plan
+migrates those invariants; it does not redefine them around CEF.
+
 CEF is the first product engine, not the product boundary. Servo remains a
 supported research adapter. A vendor may use Saccade's CEF runtime, attach the
 Saccade adapter to its own Chromium host, or implement the same adapter
