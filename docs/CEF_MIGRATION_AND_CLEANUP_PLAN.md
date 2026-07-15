@@ -98,9 +98,12 @@ These rules block the migration if violated:
    or user-filled pages, never the primary truth channel, and require an
    explicit guarded capture path.
 8. **Production has no DevTools backdoor.** Remote debugging is disabled in
-   release builds. CDP is not a truth, form, or action adapter. The one bounded
-   exception is CEF's in-process `Page.captureScreenshot` call after the
-   screenshot policy gate; pixels never become the normal truth route.
+   release builds, and no arbitrary CDP method is exposed over the Saccade
+   contract. Two fixed in-process CEF methods are allowlisted: guarded
+   `Page.captureScreenshot` for optional audit evidence, and `Input.insertText`
+   after a policy-approved rich editor has been focused. Text insertion succeeds
+   only when the visible editor and its form backing both match; neither text nor
+   pixels become the normal truth route or enter replay.
 9. **CEF sandbox and process separation stay enabled.** A test-only bypass may
    not enter a release manifest.
 10. **Supply chain is pinned.** Record CEF and Chromium revisions, SHA-256,
@@ -183,6 +186,14 @@ tracked separately and is not implied by this status.
 
 Gate: ordinary draft fill verifies; protected fields expose completion only;
 cross-tab/stale/forged requests fail closed; reports contain no sentinels.
+
+The CEF rich-editor route passed both the local CodeMirror-like fixture and a
+logged-in GitHub Gist draft on 2026-07-15. Hidden controls are excluded from the
+public inventory, direct backing-field assignment is prohibited, and the fixed
+`Input.insertText` motor requires visible-editor plus backing-value agreement.
+The agent did not submit the Gist. Evidence:
+`runs/cef_day5/form_safety_native_rich_editor_final/report.json` and
+`runs/cef_day5/gist_live_rich_editor_20260715/report.json`.
 
 ### Day 5: Human browser and dogfood release
 

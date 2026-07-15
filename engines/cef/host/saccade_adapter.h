@@ -18,6 +18,7 @@
 #include "include/cef_process_message.h"
 
 class SaccadeScreenshotObserver;
+class SaccadeTextInsertObserver;
 
 // Browser-process lifecycle adapter. It intentionally exposes no CEF type on
 // the wire and never reads cookies or storage. Values and audit screenshots
@@ -90,6 +91,7 @@ class SaccadeAdapter {
   };
 
   friend class SaccadeScreenshotObserver;
+  friend class SaccadeTextInsertObserver;
 
   SaccadeAdapter() = default;
   ~SaccadeAdapter();
@@ -113,6 +115,8 @@ class SaccadeAdapter {
   std::string FormCommandResponse(int id,
                                   const std::string& command,
                                   CefRefPtr<CefDictionaryValue> params);
+  std::string TypeFieldTextResponse(
+      int id, CefRefPtr<CefDictionaryValue> params);
   std::string ScreenshotAuditResponse(
       int id,
       CefRefPtr<CefDictionaryValue> params);
@@ -121,6 +125,13 @@ class SaccadeAdapter {
   void DispatchFormCommandOnUi(int request_id,
                                std::string command,
                                std::string input_json);
+  void DispatchTextOnUi(std::u16string text,
+                        int browser_id,
+                        uint64_t page_revision);
+  void OnTextInsertResult(int message_id,
+                          bool success,
+                          const void* result,
+                          size_t result_size);
   void CaptureScreenshotOnUi();
   void OnScreenshotResult(int message_id,
                           bool success,
@@ -164,6 +175,13 @@ class SaccadeAdapter {
   std::string screenshot_error_;
   std::vector<unsigned char> screenshot_bytes_;
   CefRefPtr<CefRegistration> screenshot_registration_;
+  std::condition_variable text_insert_cv_;
+  bool text_insert_pending_ = false;
+  bool text_insert_done_ = false;
+  bool text_insert_ok_ = false;
+  int text_insert_message_id_ = 0;
+  std::string text_insert_error_;
+  CefRefPtr<CefRegistration> text_insert_registration_;
 
   std::string socket_path_;
   std::string grant_path_;

@@ -14,6 +14,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <utility>
 
@@ -34,18 +35,29 @@ std::string JsonString(CefRefPtr<CefValue> value) {
 
 CefRefPtr<CefListValue> CapabilityList() {
   auto list = CefListValue::Create();
-  const std::array<const char*, 19> capabilities = {
+  const std::array<const char*, 20> capabilities = {
       "ping",        "shell_status", "navigate",    "pause",
       "close",       "truth",        "actions",     "next_fact",
       "act",         "next_receipt", "reflex_start", "form_inventory",
       "inspect_fields", "form_compile_plan", "form_execute_plan",
       "screenshot_policy", "screenshot_audit", "form_reveal_more",
-      "article_text"};
+      "article_text", "type_field_text"};
   list->SetSize(capabilities.size());
   for (size_t index = 0; index < capabilities.size(); ++index) {
     list->SetString(index, capabilities[index]);
   }
   return list;
+}
+
+std::string Fnv1aUtf16(const std::u16string& value) {
+  uint32_t result = 2166136261U;
+  for (char16_t character : value) {
+    result ^= static_cast<uint32_t>(character);
+    result *= 16777619U;
+  }
+  char output[9] = {};
+  std::snprintf(output, sizeof(output), "%08x", result);
+  return output;
 }
 
 std::string Response(int id, CefRefPtr<CefDictionaryValue> result) {
@@ -213,6 +225,25 @@ class SaccadeScreenshotObserver : public CefDevToolsMessageObserver {
  private:
   SaccadeAdapter* const adapter_;
   IMPLEMENT_REFCOUNTING(SaccadeScreenshotObserver);
+};
+
+class SaccadeTextInsertObserver : public CefDevToolsMessageObserver {
+ public:
+  explicit SaccadeTextInsertObserver(SaccadeAdapter* adapter)
+      : adapter_(adapter) {}
+
+  void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser,
+                              int message_id,
+                              bool success,
+                              const void* result,
+                              size_t result_size) override {
+    CEF_REQUIRE_UI_THREAD();
+    adapter_->OnTextInsertResult(message_id, success, result, result_size);
+  }
+
+ private:
+  SaccadeAdapter* const adapter_;
+  IMPLEMENT_REFCOUNTING(SaccadeTextInsertObserver);
 };
 
 SaccadeAdapter* SaccadeAdapter::GetInstance() {
@@ -626,6 +657,7 @@ void SaccadeAdapter::Stop() {
   receipt_cv_.notify_all();
   form_cv_.notify_all();
   screenshot_cv_.notify_all();
+  text_insert_cv_.notify_all();
   const int listener = listener_fd_.exchange(-1);
   if (listener >= 0) {
     shutdown(listener, SHUT_RDWR);
@@ -768,6 +800,9 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
   if (method == "form_execute_plan") {
     return FormCommandResponse(id, "execute",
                                request->GetDictionary("params"));
+  }
+  if (method == "type_field_text") {
+    return TypeFieldTextResponse(id, request->GetDictionary("params"));
   }
   if (method == "form_reveal_more") {
     return FormCommandResponse(id, "reveal_more",
@@ -1100,6 +1135,145 @@ std::string SaccadeAdapter::FormCommandResponse(
   return Response(id, result);
 }
 
+std::string SaccadeAdapter::TypeFieldTextResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  const std::string field_id =
+      params ? params->GetString("field_id").ToString() : "";
+  const std::string text = params ? params->GetString("text").ToString() : "";
+  if (field_id.empty() || field_id.size() > 256 || text.empty()) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "type_field_text requires field_id and non-empty text");
+  }
+  const std::u16string characters = CefString(text).ToString16();
+  if (characters.empty() || characters.size() > 16384) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "type_field_text exceeds the 16384 character limit");
+  }
+
+  auto focus_params = CefDictionaryValue::Create();
+  focus_params->SetString("field_id", field_id);
+  focus_params->SetDouble("basis_page_revision",
+                          static_cast<double>(RequestRevision(params)));
+  const std::string focus_response =
+      FormCommandResponse(id, "focus_native_type", focus_params);
+  auto focus_value = CefParseJSON(focus_response, JSON_PARSER_RFC);
+  auto focus_root = focus_value && focus_value->GetType() == VTYPE_DICTIONARY
+                        ? focus_value->GetDictionary()
+                        : nullptr;
+  if (!focus_root || !focus_root->GetBool("ok")) {
+    return focus_response;
+  }
+  auto focus_result = focus_root->GetDictionary("result");
+  if (!focus_result || !focus_result->GetBool("native_type_ready")) {
+    return ErrorResponse(id, "POLICY_BLOCKED",
+                         focus_result
+                             ? focus_result->GetString("reason").ToString()
+                             : "rich editor is not ready for native typing");
+  }
+
+  int target_browser_id = 0;
+  const uint64_t target_revision = RequestRevision(params);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (text_insert_pending_) {
+      return ErrorResponse(id, "CONFLICT", "another text insert is active");
+    }
+    if (!browser_ || page_revision_ != target_revision) {
+      return ErrorResponse(id, "STALE_PAGE_REVISION",
+                           "rich-editor target changed before text insertion");
+    }
+    target_browser_id = browser_->GetIdentifier();
+    text_insert_pending_ = true;
+    text_insert_done_ = false;
+    text_insert_ok_ = false;
+    text_insert_message_id_ = 0;
+    text_insert_error_.clear();
+    text_insert_registration_ = nullptr;
+  }
+  CefPostTask(TID_UI,
+              base::BindOnce(&SaccadeAdapter::DispatchTextOnUi,
+                             base::Unretained(this), characters,
+                             target_browser_id, target_revision));
+
+  {
+    std::unique_lock<std::mutex> lock(state_mutex_);
+    if (!text_insert_cv_.wait_for(lock, std::chrono::seconds(5), [this] {
+          return stopping_ || text_insert_done_;
+        })) {
+      text_insert_pending_ = false;
+      text_insert_registration_ = nullptr;
+      return ErrorResponse(id, "TIMEOUT", "CEF Input.insertText timed out");
+    }
+    text_insert_pending_ = false;
+    text_insert_registration_ = nullptr;
+    if (!text_insert_ok_) {
+      return ErrorResponse(id, "FORM_COMMAND_FAILED",
+                           text_insert_error_.empty()
+                               ? "CEF Input.insertText failed"
+                               : text_insert_error_);
+    }
+  }
+
+  auto verify_params = CefDictionaryValue::Create();
+  verify_params->SetString("field_id", field_id);
+  verify_params->SetDouble("basis_page_revision",
+                           static_cast<double>(RequestRevision(params)));
+  verify_params->SetInt("expected_length",
+                        static_cast<int>(characters.size()));
+  verify_params->SetString("expected_hash", Fnv1aUtf16(characters));
+  verify_params->SetString(
+      "visible_hash_before",
+      focus_result->GetString("visible_hash_before").ToString());
+
+  bool backing_match = false;
+  bool visible_changed = false;
+  int observed_length = 0;
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    if (attempt > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    const std::string verify_response =
+        FormCommandResponse(id, "verify_native_type", verify_params);
+    auto verify_value = CefParseJSON(verify_response, JSON_PARSER_RFC);
+    auto verify_root =
+        verify_value && verify_value->GetType() == VTYPE_DICTIONARY
+            ? verify_value->GetDictionary()
+            : nullptr;
+    if (!verify_root || !verify_root->GetBool("ok")) {
+      return verify_response;
+    }
+    auto verify_result = verify_root->GetDictionary("result");
+    if (verify_result) {
+      backing_match = verify_result->GetBool("backing_match");
+      visible_changed = verify_result->GetBool("visible_changed");
+      observed_length = verify_result->GetInt("value_length");
+    }
+    if (verify_result && verify_result->GetBool("verified")) {
+      auto result = CefDictionaryValue::Create();
+      result->SetString("field_id", field_id);
+      result->SetString("status", "filled_verified");
+      result->SetString("method", "cef_devtools_input_insert_text");
+      result->SetInt("chars_requested", static_cast<int>(characters.size()));
+      result->SetBool("backing_match", true);
+      result->SetBool("visible_changed", true);
+      result->SetBool("receipt_verified", true);
+      result->SetBool("values_logged", false);
+      const uint64_t revision = RequestRevision(params);
+      AppendValueFreeReplay("native_text_typed", result, revision, revision);
+      return Response(id, result);
+    }
+  }
+  char detail[192] = {};
+  std::snprintf(detail, sizeof(detail),
+                "native typing postcondition failed "
+                "(backing_match=%s, visible_changed=%s, observed_length=%d)",
+                backing_match ? "true" : "false",
+                visible_changed ? "true" : "false", observed_length);
+  return ErrorResponse(id, "POSTCONDITION_FAILED",
+                       detail);
+}
+
 std::string SaccadeAdapter::ScreenshotAuditResponse(
     int id,
     CefRefPtr<CefDictionaryValue> params) {
@@ -1252,6 +1426,73 @@ void SaccadeAdapter::DispatchFormCommandOnUi(int request_id,
   arguments->SetString(1, command);
   arguments->SetString(2, input_json);
   browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
+}
+
+void SaccadeAdapter::DispatchTextOnUi(std::u16string text,
+                                      int browser_id,
+                                      uint64_t page_revision) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto target = browsers_.find(browser_id);
+    if (!browser_ || target == browsers_.end() ||
+        !browser_->IsSame(target->second) || page_revision_ != page_revision) {
+      text_insert_done_ = true;
+      text_insert_ok_ = false;
+      text_insert_error_ = "rich-editor tab or page changed before insertion";
+      text_insert_cv_.notify_all();
+      return;
+    }
+    browser = target->second;
+  }
+  if (!browser) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    text_insert_done_ = true;
+    text_insert_ok_ = false;
+    text_insert_error_ = "browser closed before Input.insertText";
+    text_insert_cv_.notify_all();
+    return;
+  }
+  browser->GetHost()->SetFocus(true);
+  auto host = browser->GetHost();
+  auto observer =
+      CefRefPtr<SaccadeTextInsertObserver>(new SaccadeTextInsertObserver(this));
+  auto registration = host->AddDevToolsMessageObserver(observer);
+  auto params = CefDictionaryValue::Create();
+  params->SetString("text", CefString(text));
+  const int message_id =
+      host->ExecuteDevToolsMethod(0, "Input.insertText", params);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!registration || message_id == 0) {
+      text_insert_done_ = true;
+      text_insert_ok_ = false;
+      text_insert_error_ = "CEF rejected Input.insertText";
+      text_insert_registration_ = nullptr;
+    } else {
+      text_insert_registration_ = registration;
+      text_insert_message_id_ = message_id;
+    }
+  }
+  text_insert_cv_.notify_all();
+}
+
+void SaccadeAdapter::OnTextInsertResult(int message_id,
+                                        bool success,
+                                        const void* result,
+                                        size_t result_size) {
+  CEF_REQUIRE_UI_THREAD();
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (message_id != text_insert_message_id_) {
+    return;
+  }
+  text_insert_done_ = true;
+  text_insert_ok_ = success;
+  text_insert_error_ = success ? "" : "CEF Input.insertText returned failure";
+  text_insert_message_id_ = 0;
+  text_insert_registration_ = nullptr;
+  text_insert_cv_.notify_all();
 }
 
 void SaccadeAdapter::CaptureScreenshotOnUi() {

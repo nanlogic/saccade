@@ -61,6 +61,15 @@
       <div id="summary" name="summary" contenteditable="true" aria-labelledby="summary-label" data-sensitive="none"></div>
     </div>
 
+    <div class="field cm-editor">
+      <span class="cm-placeholder">Editor contents</span>
+      <textarea id="cm-backing" placeholder="Editor contents" hidden></textarea>
+      <div id="cm-editor" class="cm-content" contenteditable="true" data-sensitive="none">
+        <span class="cm-announced" aria-hidden="true">Keyboard instructions</span>
+        <div class="cm-line"><br></div>
+      </div>
+    </div>
+
     <input id="disabled-field" name="disabled_field" aria-label="Disabled field" disabled data-sensitive="none">
     <input id="file-upload" name="file_upload" type="file" aria-label="Supporting file" data-sensitive="none">
     <input name="duplicate" aria-label="Duplicate one" data-sensitive="none">
@@ -73,6 +82,9 @@
   </form>
   <script>
     document.getElementById("capacity-form").addEventListener("submit", (event) => event.preventDefault());
+    document.getElementById("cm-editor").addEventListener("input", (event) => {
+      document.getElementById("cm-backing").value = event.currentTarget.innerText;
+    });
   </script>
 </body>
 </html>

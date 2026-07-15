@@ -1,7 +1,7 @@
 # CEF Day 5 Dogfood Release Report
 
 Date: 2026-07-15
-Status: engineering gates passed; passkey and one saved-login human retest remain
+Status: engineering gates passed; live Gist collaboration passed
 
 ## What shipped
 
@@ -32,11 +32,11 @@ Status: engineering gates passed; passkey and one saved-login human retest remai
 | No-CDP reflex | PASS: 300/300, zero misses; run p95 3.1-3.4 ms | `runs/cef_day5/day3_3x100/aggregate.json` |
 | Original MouseAccuracy | PASS: START plus 12/12 live targets; 10.6 ms p95 | `runs/cef_day5/mouseaccuracy/report.json` |
 | FORMMAX | PASS: 672 verified fills, 3 protected fields blocked, 2 page receipts, no values logged | `runs/cef_day5/formmax/report.json` |
-| Forms, safety, screenshot, replay | PASS: 17 controls, six safe fills, four unsafe writes rejected, sensitive screenshot blocked, sentinel scan clean | `runs/cef_day5/form_safety_article2/report.json` |
+| Forms, safety, rich editor, screenshot, replay | PASS: hidden controls filtered, ordinary fields verified, protected writes rejected, rich editor visible/backing surfaces agreed, sensitive screenshot blocked, sentinel scan clean | `runs/cef_day5/form_safety_native_rich_editor_final/report.json` |
 | Physical human input | PASS: macOS CoreGraphics HID click plus focused typing, with no browser input API | `runs/cef_day5/human_input_final/report.json` |
 | Tabs and profile restart | PASS three consecutive times; child-tab focus, close recovery, and local state persistence | `runs/cef_day5/session_consistency_1/report.json` through `_3/report.json` |
 | Public article | PASS: 9,360 redacted characters and headings, no CDP or screenshot | `runs/cef_day5/public_article/report.json` |
-| Public Gist | OBSERVED: collector ready, 24 actions, no cookie/storage read and no submit; profile was logged out | `runs/cef_day5/github_gist/report.json` |
+| Logged-in Gist collaboration | PASS: 25 DOM controls reduced to seven visible fields; description, filename, and rich-editor body verified; Wayne confirmed the same visible draft and retained submit control | `runs/cef_day5/gist_live_rich_editor_20260715/report.json` |
 
 ## Keychain behavior
 
@@ -56,11 +56,11 @@ keychain-access-group entitlement is provisioned and retested.
 
 ## Remaining acceptance
 
-1. Open the packaged signed app from one stable path, log into GitHub/Gist once,
-   quit, reopen, and confirm the login remains without another Keychain prompt.
-   Then fill a harmless draft without submitting it.
-2. Select GitHub's passkey route and confirm that macOS permission handling no
-   longer terminates Saccade. Touch ID success is a separate entitlement gate.
+1. Re-run the same saved GitHub/Gist product profile from one stable signed app
+   path without the test-only mock Keychain flag, then confirm login persistence
+   and zero repeated Keychain prompts.
+2. Close OAuth/password child windows automatically after their flow completes;
+   the live Gist test left stale `Discover gists` and password windows.
 3. Start the local game at `http://127.0.0.1:4173/` and rerun the CEF reflex
    gate. The server was not running during this Day 5 closeout, so no new CEF
    game-action result is claimed here.

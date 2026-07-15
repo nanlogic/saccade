@@ -126,6 +126,7 @@ def main() -> int:
                 "inspect_fields",
                 "form_compile_plan",
                 "form_execute_plan",
+                "type_field_text",
                 "screenshot_policy",
                 "screenshot_audit",
                 "article_text",
@@ -162,13 +163,14 @@ def main() -> int:
             inspected_fields = inspected["fields"]
             user_note = field_by_id(inspected_fields, "id:user-note")
             inspected_password = field_by_id(inspected_fields, "id:password")
-            hidden_token = field_by_id(inspected_fields, "id:hidden-token")
+            if any(field.get("field_id") == "id:hidden-token" for field in fields):
+                raise AssertionError("hidden control was exposed in form inventory")
             if user_note.get("value") != "Keep this exact note.":
                 raise AssertionError("non-sensitive human value was not inspectable")
             if inspected_password.get("value_redacted") is not True or "value" in inspected_password:
                 raise AssertionError("sensitive password crossed the collaboration boundary")
-            if hidden_token.get("value_redacted") is not True or "value" in hidden_token:
-                raise AssertionError("hidden control value crossed the collaboration boundary")
+            if any(field.get("field_id") == "id:hidden-token" for field in inspected_fields):
+                raise AssertionError("hidden control was exposed by default inspection")
             assert_no_sensitive_values(inspected, "inspect_fields")
 
             stage = "sensitive_article_text"
@@ -192,6 +194,7 @@ def main() -> int:
                 "id:password": "correct-horse-battery",
                 "id:include-staging": True,
                 "id:summary": "Capacity for a blue-green launch rehearsal.",
+                "id:cm-editor": "Structured editor draft.",
             }
             stage = "compile_plan"
             compiled = control.call(
@@ -218,6 +221,7 @@ def main() -> int:
                 "id:project-code",
                 "id:ssn",
                 "id:password",
+                "id:cm-editor",
             }.issubset(rejected_ids):
                 raise AssertionError(f"unsafe fields were not rejected: {compiled}")
             assert_no_sensitive_values(compiled, "compiled plan")
@@ -243,6 +247,19 @@ def main() -> int:
             refreshed_truth = wait_for_collector(control, args.timeout_sec)
             if int(refreshed_truth["page_revision"]) != final_revision:
                 raise AssertionError("post-fill collector advanced unexpectedly")
+            stage = "native_rich_editor_type"
+            native_typed = control.call(
+                "type_field_text",
+                {
+                    "basis_page_revision": final_revision,
+                    "field_id": "id:cm-editor",
+                    "text": "Structured editor draft.",
+                },
+            )
+            if native_typed.get("receipt_verified") is not True:
+                raise AssertionError(f"native rich-editor typing failed: {native_typed}")
+            if native_typed.get("method") != "cef_devtools_input_insert_text":
+                raise AssertionError(f"unexpected rich-editor motor route: {native_typed}")
             stage = "post_fill_inspection"
             final_inspection = control.call(
                 "inspect_fields",
@@ -255,6 +272,7 @@ def main() -> int:
                         "id:project-code",
                         "id:ssn",
                         "id:password",
+                        "id:cm-editor",
                     ],
                 },
             )
@@ -264,6 +282,8 @@ def main() -> int:
                 raise AssertionError("human non-sensitive value was overwritten")
             if field_by_id(final_inspection["fields"], "id:project-code").get("value") != "USER-42":
                 raise AssertionError("existing user value was overwritten")
+            if field_by_id(final_inspection["fields"], "id:cm-editor").get("value") != "Structured editor draft.":
+                raise AssertionError("native rich-editor text was not visible")
             for field_id in ("id:ssn", "id:password"):
                 field = field_by_id(final_inspection["fields"], field_id)
                 if field.get("value_redacted") is not True or "value" in field:
@@ -326,7 +346,8 @@ def main() -> int:
                 "form": {
                     "field_count": inventory["field_count"],
                     "sensitive_count": inventory["sensitive_count"],
-                    "filled_verified": len(executed["filled"]),
+                    "filled_verified": len(executed["filled"]) + 1,
+                    "native_rich_editor_verified": True,
                     "unsafe_rejected": len(compiled["rejected"]),
                     "existing_values_preserved": len(executed["preserved"]),
                 },

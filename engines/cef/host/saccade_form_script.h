@@ -25,6 +25,22 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     const rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   };
+  const editorBacking = (el) => {
+    if (!el || !el.isContentEditable) return null;
+    let root = el.parentElement;
+    for (let depth = 0; root && root !== document.body && depth < 16;
+         depth += 1, root = root.parentElement) {
+      const candidates = Array.from(root.querySelectorAll('textarea'))
+          .filter(candidate => candidate !== el && !visible(candidate));
+      const editors = Array.from(root.querySelectorAll(
+          '[contenteditable="true"],[role="textbox"]'))
+          .filter(candidate => visible(candidate));
+      if (candidates.length === 1 && editors.length === 1 && editors[0] === el) {
+        return candidates[0];
+      }
+    }
+    return null;
+  };
   const label = (el) => {
     if (el.id) {
       const exact = Array.from(document.querySelectorAll('label'))
@@ -38,6 +54,18 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     if (wrapping && text(wrapping.innerText || wrapping.textContent)) {
       return {text: text(wrapping.innerText || wrapping.textContent),
               source: 'label_wrap', confidence: 0.95};
+    }
+    if (el.isContentEditable && el.matches('.cm-content')) {
+      const editor = el.closest('.cm-editor');
+      const placeholder = editor && editor.querySelector('.cm-placeholder');
+      const value = text(placeholder && placeholder.textContent);
+      if (value) return {text: value, source: 'editor_placeholder', confidence: 0.85};
+    }
+    const backing = editorBacking(el);
+    const backingPlaceholder = text(backing && backing.getAttribute('placeholder'));
+    if (backingPlaceholder) {
+      return {text: backingPlaceholder, source: 'editor_backing_placeholder',
+              confidence: 0.85};
     }
     const labelledBy = text(el.getAttribute('aria-labelledby'));
     if (labelledBy) {
@@ -92,7 +120,19 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
   };
   const internalValue = (el, type) => {
     if (type === 'checkbox' || type === 'radio') return Boolean(el.checked);
-    if (el.isContentEditable || type === 'role_textbox') return String(el.textContent || '');
+    if (el.isContentEditable || type === 'role_textbox') {
+      const backing = editorBacking(el);
+      if (backing) return String(backing.value || '');
+      if (el.matches('.cm-content')) {
+        const lines = Array.from(el.querySelectorAll(':scope > .cm-line'));
+        if (lines.length) {
+          return lines.map(line => String(line.textContent || '')).join('\n');
+        }
+      }
+      // innerText follows the rendered surface and ignores screen-reader
+      // helpers that commonly live inside rich editors. textContent does not.
+      return String(el.innerText || '');
+    }
     return String(el.value || '');
   };
   const hasValue = (el, type) => type === 'checkbox' || type === 'radio'
@@ -132,6 +172,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       const supported = el.isContentEditable || tag === 'select' || tag === 'textarea' ||
         ['text','email','tel','url','number','date','month','week','time',
          'datetime-local','search','checkbox','radio'].includes(type);
+      const nativeTypingRequired = Boolean(editorBacking(el));
       const blocked = [];
       if (!stable) blocked.push('unstable_identity');
       if (!isVisible) blocked.push('not_visible');
@@ -142,7 +183,11 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       if (owner === 'human') blocked.push('human_owned');
       if (present) blocked.push('preserve_existing_value');
       if (fieldLabel.confidence < 0.55) blocked.push('ambiguous_label');
+      if (nativeTypingRequired && blocked.length === 0) {
+        blocked.push('requires_native_typing');
+      }
       return {
+        element_index: index,
         field_id: fieldId,
         selector_hash: hash(selectorHint),
         tag, type,
@@ -153,6 +198,9 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
         owner, sensitivity: fieldSensitivity,
         required: Boolean(el.required) || el.getAttribute('aria-required') === 'true',
         visible: isVisible, enabled, readonly, stable_identity: stable,
+        native_typing_required: nativeTypingRequired,
+        native_type_eligible: nativeTypingRequired &&
+          blocked.every(reason => reason === 'requires_native_typing'),
         option_count: tag === 'select' ? el.options.length : null,
         value_state: fieldSensitivity === 'none'
           ? (present ? 'present_redacted' : 'empty')
@@ -161,15 +209,60 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
         blocked_reasons: blocked
       };
     });
+    const visibleFields = fields.filter(field => field.visible);
     return {
-      field_count: fields.length,
-      eligible_count: fields.filter(field => field.eligible).length,
+      dom_control_count: fields.length,
+      hidden_control_count: fields.length - visibleFields.length,
+      field_count: visibleFields.length,
+      eligible_count: visibleFields.filter(field => field.eligible).length,
       sensitive_count: fields.filter(field => field.sensitivity !== 'none').length,
-      existing_value_count: fields.filter(field =>
+      existing_value_count: visibleFields.filter(field =>
         field.value_state === 'present_redacted' ||
         field.value_state === 'completed_without_value').length,
-      fields
+      fields: visibleFields
     };
+  };
+  const publicInventory = (snapshot) => ({...snapshot,
+    fields: snapshot.fields.map(({element_index, ...field}) => field)});
+  const focusNativeType = () => {
+    const fieldId = String(input.field_id || '');
+    const snapshot = inventory();
+    const field = snapshot.fields.find(candidate => candidate.field_id === fieldId);
+    if (!field || !field.native_type_eligible) {
+      return {native_type_ready: false, field_id: fieldId,
+        reason: !field ? 'not_found' :
+          ((field.blocked_reasons || []).find(reason =>
+            reason !== 'requires_native_typing') || 'not_native_type_eligible'),
+        values_logged: false};
+    }
+    const el = controls()[field.element_index];
+    el.focus();
+    if (typeof document.execCommand === 'function') {
+      document.execCommand('selectAll', false, null);
+    }
+    return {native_type_ready: document.activeElement === el,
+      field_id: fieldId, type: field.type,
+      before_length: String(internalValue(el, field.type)).length,
+      visible_hash_before: hash(String(el.innerText || '').replace(/\u200b/g, '')),
+      values_logged: false};
+  };
+  const verifyNativeType = () => {
+    const fieldId = String(input.field_id || '');
+    const snapshot = inventory();
+    const field = snapshot.fields.find(candidate => candidate.field_id === fieldId);
+    if (!field) return {field_id: fieldId, verified: false,
+      reason: 'not_found', values_logged: false};
+    const el = controls()[field.element_index];
+    const value = String(internalValue(el, field.type));
+    const visibleHash = hash(String(el.innerText || '').replace(/\u200b/g, ''));
+    return {field_id: fieldId,
+      verified: value.length === Number(input.expected_length) &&
+        hash(value) === String(input.expected_hash || '') &&
+        visibleHash !== String(input.visible_hash_before || ''),
+      backing_match: value.length === Number(input.expected_length) &&
+        hash(value) === String(input.expected_hash || ''),
+      visible_changed: visibleHash !== String(input.visible_hash_before || ''),
+      value_length: value.length, values_logged: false};
   };
   const compile = (assignments) => {
     const snapshot = inventory();
@@ -207,7 +300,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       const inspectable = field.sensitivity === 'none' && field.visible &&
         !(field.blocked_reasons || []).includes('unsupported_type');
       if (inspectable) {
-        record.value = internalValue(elements[index], field.type);
+        record.value = internalValue(elements[field.element_index], field.type);
         record.value_returned = true;
       } else {
         record.value_redacted = true;
@@ -231,8 +324,8 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     }
     const elements = controls();
     const snapshot = inventory();
-    const entries = new Map(snapshot.fields.map((field, index) =>
-      [field.field_id, {field, el: elements[index]}]));
+    const entries = new Map(snapshot.fields.map(field =>
+      [field.field_id, {field, el: elements[field.element_index]}]));
     const filled = [];
     const failed = [];
     const preservedBefore = new Map();
@@ -271,9 +364,19 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
           writes += 1; entry.el.selectedIndex = optionIndex; dispatch(entry.el);
           verified = entry.el.selectedIndex === optionIndex; method = 'select_option_match';
         } else if (planned.type === 'contenteditable' || planned.type === 'role_textbox') {
-          writes += 1; entry.el.textContent = String(value); dispatch(entry.el);
-          verified = String(entry.el.textContent || '') === String(value);
-          method = 'contenteditable_text';
+          writes += 1;
+          entry.el.focus();
+          if (typeof document.execCommand === 'function') {
+            document.execCommand('selectAll', false, null);
+          }
+          const inserted = typeof document.execCommand === 'function' &&
+            document.execCommand('insertText', false, String(value));
+          if (!inserted) {
+            entry.el.textContent = String(value);
+            dispatch(entry.el);
+          } else entry.el.dispatchEvent(new Event('change', {bubbles: true}));
+          verified = String(internalValue(entry.el, planned.type)) === String(value);
+          method = inserted ? 'contenteditable_insert_text' : 'contenteditable_text';
         } else {
           writes += 1; entry.el.value = String(value); dispatch(entry.el);
           verified = String(entry.el.value || '') === String(value);
@@ -339,7 +442,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
   };
 
   let result;
-  if (command === 'inventory') result = inventory();
+  if (command === 'inventory') result = publicInventory(inventory());
   else if (command === 'inspect') result = inspect();
   else if (command === 'compile') result = compile(input.assignments || {});
   else if (command === 'execute') result = execute(
@@ -370,6 +473,8 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       values_logged: false};
   }
   else if (command === 'article_text') result = articleText();
+  else if (command === 'focus_native_type') result = focusNativeType();
+  else if (command === 'verify_native_type') result = verifyNativeType();
   else throw new Error('unsupported fixed form command');
   return JSON.stringify(result);
 }

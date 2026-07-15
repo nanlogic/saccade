@@ -2194,3 +2194,24 @@
 - Evidence: `docs/cef_day5_dogfood_release_report.md`,
   `runs/cef_day5/public_article/report.json`, and
   `runs/cef_day5/form_safety_article2/report.json`.
+
+## DECISION_ENGINE_063 - Verify both surfaces of paired rich editors
+
+- Hidden form controls remain browser-internal evidence and are excluded from
+  the default agent inventory. A visible rich editor may be paired with a
+  hidden textarea only when one ancestor contains exactly one visible editor
+  and one hidden backing control.
+- Ordinary property assignment is prohibited for paired rich editors. The
+  fixed `type_field_text` motor focuses the visible editor and uses CEF's
+  in-process Chromium `Input.insertText` method. Remote debugging and arbitrary
+  DevTools commands remain unavailable.
+- Success requires the expected length/hash in the backing control and a change
+  on the visible editor surface. The inserted text is never returned, logged,
+  or written to replay. A mismatch is `POSTCONDITION_FAILED`, not a successful
+  receipt.
+- The local CodeMirror-like fixture passed, followed by a logged-in GitHub Gist
+  draft with 25 DOM controls reduced to seven visible fields. Wayne confirmed
+  the description, filename, and body were visible and that human submit
+  remained available; the agent did not submit.
+- Evidence: `runs/cef_day5/form_safety_native_rich_editor_final/report.json`
+  and `runs/cef_day5/gist_live_rich_editor_20260715/report.json`.
