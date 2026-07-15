@@ -39,7 +39,9 @@ mv -f "$CURRENT.tmp" "$CURRENT"
 
 export SACCADE_ENGINE_SOCKET="$SESSION/control.sock"
 export SACCADE_ENGINE_GRANT_PATH="$GRANT"
-export SACCADE_ENGINE_GRANT_CURRENT_TAB=0
+# Invoking open-saccade is the user's explicit request for a collaborative
+# browser session. Direct app launches do not set this grant.
+export SACCADE_ENGINE_GRANT_CURRENT_TAB=1
 export SACCADE_PROFILE_MODE="$MODE"
 export SACCADE_PROFILE_NAME="$NAME"
 

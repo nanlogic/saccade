@@ -2158,22 +2158,26 @@
 - Evidence: `docs/cef_mouseaccuracy_live_report.md` and
   `runs/cef_mouseaccuracy_live/live_20260715-085447/report.json`.
 
-## DECISION_ENGINE_061 - Keep Chromium browser UI and add a bounded Saccade trust strip
+## DECISION_ENGINE_061 - Keep Chromium BrowserView as the direct macOS window child
 
 - CEF Chrome Runtime already owns mature tabs, address editing, navigation,
   menus, focus, and browser recovery. Saccade does not replace that surface
   with a second custom toolbar.
-- A small native overlay exposes only profile mode/name and Agent Off/On/Paused.
-  Clicking it grants or pauses the currently focused tab; bearer capabilities,
-  socket paths, cookies, and browser storage are never displayed.
+- A physical-input regression gate proved that both a Views overlay and a
+  nested panel could render normally while swallowing real page mouse input.
+  BrowserView therefore remains the direct `CefWindow` child on macOS.
+- `bin/open-saccade` is the explicit collaboration action. It grants the
+  visible tab to an owner-only local bridge; opening the app directly grants
+  nothing. Bearer capabilities, socket paths, cookies, and browser storage are
+  never displayed or passed through page DOM.
 - Each CEF browser receives a stable `cef:<browser_id>` identity. Focus follows
   the visible tab, a child tab gets a distinct grant basis, and closing it
   recovers the remaining tab without stopping the adapter.
-- A first sibling-view implementation interfered with CEF page screenshot
-  completion. The final strip uses `CefWindow::AddOverlayView`, preserving the
-  BrowserView as the sole main child and restoring the guarded screenshot gate.
+- The non-interfering visible status treatment remains a product UI task. It
+  must pass physical mouse, focused typing, guarded screenshot, and resize
+  gates before returning to the browser chrome.
 - Evidence: `docs/cef_day5_dogfood_release_report.md` and
-  `runs/cef_day5/session_consistency_1/report.json` through `_3/report.json`.
+  `runs/cef_day5/human_input_final/report.json`.
 
 ## DECISION_ENGINE_062 - Use official CEF profile roots and fixed readers
 

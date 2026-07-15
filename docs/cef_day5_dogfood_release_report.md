@@ -1,14 +1,18 @@
 # CEF Day 5 Dogfood Release Report
 
 Date: 2026-07-15
-Status: engineering gate passed; two human/external retests remain
+Status: engineering gates passed; passkey and one saved-login human retest remain
 
 ## What shipped
 
 - The official CEF Chrome Runtime remains the human browser surface, including
   its tabs, address bar, navigation controls, menus, and Chromium renderer.
-  Saccade adds only a thin native trust strip for the active profile and Agent
-  Off/On/Paused state.
+  Chromium's BrowserView remains the direct macOS window child. The first
+  trust-strip implementation was removed after a physical-input gate proved
+  that both overlay and nested-panel variants swallowed page mouse events.
+- `bin/open-saccade` is the explicit collaboration entry point and grants only
+  its visible tab to the owner-only bridge. Opening `Saccade.app` directly does
+  not start or grant an agent session.
 - Agent grants follow the focused CEF tab. Opening a child tab creates a new
   tab identity; closing it returns control to the remaining visible tab without
   killing the bridge.
@@ -29,6 +33,7 @@ Status: engineering gate passed; two human/external retests remain
 | Original MouseAccuracy | PASS: START plus 12/12 live targets; 10.6 ms p95 | `runs/cef_day5/mouseaccuracy/report.json` |
 | FORMMAX | PASS: 672 verified fills, 3 protected fields blocked, 2 page receipts, no values logged | `runs/cef_day5/formmax/report.json` |
 | Forms, safety, screenshot, replay | PASS: 17 controls, six safe fills, four unsafe writes rejected, sensitive screenshot blocked, sentinel scan clean | `runs/cef_day5/form_safety_article2/report.json` |
+| Physical human input | PASS: macOS CoreGraphics HID click plus focused typing, with no browser input API | `runs/cef_day5/human_input_final/report.json` |
 | Tabs and profile restart | PASS three consecutive times; child-tab focus, close recovery, and local state persistence | `runs/cef_day5/session_consistency_1/report.json` through `_3/report.json` |
 | Public article | PASS: 9,360 redacted characters and headings, no CDP or screenshot | `runs/cef_day5/public_article/report.json` |
 | Public Gist | OBSERVED: collector ready, 24 actions, no cookie/storage read and no submit; profile was logged out | `runs/cef_day5/github_gist/report.json` |
@@ -43,12 +48,20 @@ path was used. Saccade does not use CEF's test-only mock Keychain in saved-profi
 product runs, and the agent bridge never receives the Keychain secret or raw
 cookies.
 
+Choosing a nearby passkey/security-key route may make Chromium enumerate
+Bluetooth authenticators. The signed app now declares the required Bluetooth
+usage descriptions so macOS asks for permission instead of terminating the
+process. Touch ID passkey support is not claimed until the required WebAuthn
+keychain-access-group entitlement is provisioned and retested.
+
 ## Remaining acceptance
 
 1. Open the packaged signed app from one stable path, log into GitHub/Gist once,
    quit, reopen, and confirm the login remains without another Keychain prompt.
    Then fill a harmless draft without submitting it.
-2. Start the local game at `http://127.0.0.1:4173/` and rerun the CEF reflex
+2. Select GitHub's passkey route and confirm that macOS permission handling no
+   longer terminates Saccade. Touch ID success is a separate entitlement gate.
+3. Start the local game at `http://127.0.0.1:4173/` and rerun the CEF reflex
    gate. The server was not running during this Day 5 closeout, so no new CEF
    game-action result is claimed here.
 

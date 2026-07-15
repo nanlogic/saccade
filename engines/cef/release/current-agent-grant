@@ -12,7 +12,7 @@ case "$GRANT" in
   *) echo "Invalid Saccade agent session pointer." >&2; exit 2 ;;
 esac
 [ -f "$GRANT" ] || {
-  echo "Saccade is open. Click Agent Off in the visible browser to grant this tab." >&2
+  echo "No granted tab. Launch the collaborative session with bin/open-saccade." >&2
   exit 3
 }
 printf '%s\n' "$GRANT"

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HUMAN_INPUT_BOOT</title>
+  <style>
+    body { font: 20px system-ui, sans-serif; margin: 0; background: #f6f8fa; }
+    button, input { position: fixed; left: 240px; width: 440px; box-sizing: border-box; }
+    button { top: 180px; height: 140px; font: inherit; }
+    input { top: 380px; height: 64px; padding: 12px; font: inherit; }
+  </style>
+</head>
+<body>
+  <button id="human-click-target" type="button">Human click target</button>
+  <input id="human-type-target" aria-label="Human typing target" autocomplete="off">
+  <script>
+    const geometryTitle = () => [
+      'HUMAN_INPUT_READY',
+      Math.round(window.screenX),
+      Math.round(window.screenY),
+      Math.round(window.outerHeight),
+      Math.round(window.innerHeight)
+    ].join(':');
+    document.title = geometryTitle();
+    document.querySelector('#human-click-target').addEventListener('click', () => {
+      document.title = 'HUMAN_CLICK_PASS';
+    });
+    document.querySelector('#human-type-target').addEventListener('input', event => {
+      if (event.target.value.length === 6) document.title = 'HUMAN_TYPE_PASS';
+    });
+  </script>
+</body>
+</html>

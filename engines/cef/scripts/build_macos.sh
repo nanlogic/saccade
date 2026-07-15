@@ -45,6 +45,22 @@ ditto "$SOURCE_APP" "$APP"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Saccade' \
   "$APP/Contents/Info.plist" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Saccade' "$APP/Contents/Info.plist"
+
+set_plist_string() {
+  KEY=$1
+  VALUE=$2
+  /usr/libexec/PlistBuddy -c "Add :$KEY string $VALUE" \
+    "$APP/Contents/Info.plist" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Set :$KEY $VALUE" "$APP/Contents/Info.plist"
+}
+
+# Chromium may enumerate nearby security keys after a user explicitly chooses
+# a passkey. Without this key macOS terminates the browser instead of showing a
+# permission prompt.
+set_plist_string NSBluetoothAlwaysUsageDescription \
+  'Saccade uses Bluetooth only when you choose a nearby passkey or security key.'
+set_plist_string NSBluetoothPeripheralUsageDescription \
+  'Saccade uses Bluetooth only when you choose a nearby passkey or security key.'
 cp "$CEF_ROOT/LICENSE.txt" "$APP/Contents/Resources/CEF_LICENSE.txt"
 cp "$CEF_ROOT/CREDITS.html" "$APP/Contents/Resources/CHROMIUM_CREDITS.html"
 

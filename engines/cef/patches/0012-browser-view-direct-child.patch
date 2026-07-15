@@ -1,0 +1,7 @@
+--- a/tests/cefsimple/simple_app.cc
++++ b/tests/cefsimple/simple_app.cc
+@@ -41 +41,3 @@
+-    // Add the browser view and show the window.
++    // Keep BrowserView as the direct window child. On macOS, nesting or
++    // overlaying Chromium-style BrowserView can render correctly while
++    // silently dropping physical mouse input.

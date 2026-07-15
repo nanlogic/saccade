@@ -60,8 +60,11 @@ Open a saved normal profile:
 Open a disposable private profile:
   SACCADE_PROFILE_MODE=incognito bin/open-saccade https://example.com
 
-To attach an agent, click "Agent Off" in the visible browser. Then run:
+Opening with bin/open-saccade explicitly grants the visible tab to the
+owner-only bridge. To locate that grant, run:
   bin/current-agent-grant
+
+Opening Saccade.app directly does not start or grant an agent session.
 
 The returned owner-only grant contains the engine-neutral endpoint and
 capability. Do not copy it into chat or logs. The agent never receives raw
