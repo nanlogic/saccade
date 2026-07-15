@@ -141,8 +141,9 @@ navigate one granted tab, pause, and close without knowing the engine name.
 
 ### Day 3: Truth and reflex
 
-Status: complete for the bounded no-CDP DOM-target gate. See
-`docs/cef_day3_truth_reflex_report.md`. Keyboard dispatch is intentionally
+Status: complete for the no-CDP fixture gate and the original MouseAccuracy
+visible-action gate. See `docs/cef_day3_truth_reflex_report.md` and
+`docs/cef_mouseaccuracy_live_report.md`. Keyboard dispatch is intentionally
 held for Day 4 so focused-field ownership and sensitive-field policy ship with
 the primitive that could otherwise type into a protected control.
 
@@ -155,7 +156,10 @@ the primitive that could otherwise type into a protected control.
 
 Gate: three independent 100-target release runs each achieve 100/100 hits,
 zero value leaks, and fact-to-page-receipt latency at or below 20 ms p95,
-without CDP.
+without CDP. The real-site extension must also discover and click the visible
+MouseAccuracy `START` link, follow the same-document route to `/game`, and
+produce verified receipts for live targets without screenshots or coordinates
+supplied by the host.
 
 ### Day 4: Safety, forms, and replay
 

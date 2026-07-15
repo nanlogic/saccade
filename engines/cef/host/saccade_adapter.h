@@ -44,6 +44,8 @@ class SaccadeAdapter {
 
   struct TargetFact {
     std::string action_id;
+    std::string role;
+    std::string label;
     double left = 0;
     double top = 0;
     double width = 0;
@@ -95,6 +97,7 @@ class SaccadeAdapter {
   bool paused_ = false;
   bool started_ = false;
   bool collector_ready_ = false;
+  std::string collector_error_;
   std::vector<ControlFact> controls_;
   std::deque<TargetFact> pending_facts_;
   std::map<std::string, TargetFact> actions_;

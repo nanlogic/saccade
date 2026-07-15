@@ -184,6 +184,7 @@ void SaccadeAdapter::OnAddressChanged(CefRefPtr<CefBrowser> browser,
       current_url_ = url.ToString();
       ++page_revision_;
       collector_ready_ = false;
+      collector_error_.clear();
       controls_.clear();
       pending_facts_.clear();
       actions_.clear();
@@ -195,6 +196,8 @@ void SaccadeAdapter::OnAddressChanged(CefRefPtr<CefBrowser> browser,
   if (refresh_grant) {
     WriteGrant();
   }
+  auto refresh = CefProcessMessage::Create("saccade.collector.refresh_v1");
+  frame->SendProcessMessage(PID_RENDERER, refresh);
 }
 
 void SaccadeAdapter::OnTitleChanged(CefRefPtr<CefBrowser> browser,
@@ -236,6 +239,16 @@ bool SaccadeAdapter::OnRendererMessage(
     return true;
   }
 
+  if (name == "saccade.renderer.collector_error_v1" &&
+      arguments->GetSize() == 2) {
+    const std::string stage = arguments->GetString(0).ToString();
+    if (!stage.empty() && stage.size() <= 64) {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      collector_error_ = stage;
+    }
+    return true;
+  }
+
   if (name == "saccade.renderer.control_v1" && arguments->GetSize() == 5) {
     ControlFact fact;
     fact.fact_id = arguments->GetString(0).ToString();
@@ -259,15 +272,20 @@ bool SaccadeAdapter::OnRendererMessage(
     return true;
   }
 
-  if (name == "saccade.renderer.target_v1" && arguments->GetSize() == 6) {
+  if (name == "saccade.renderer.action_v1" && arguments->GetSize() == 8) {
     TargetFact fact;
     fact.action_id = arguments->GetString(0).ToString();
-    fact.left = arguments->GetDouble(1);
-    fact.top = arguments->GetDouble(2);
-    fact.width = arguments->GetDouble(3);
-    fact.height = arguments->GetDouble(4);
-    fact.renderer_epoch_ms = arguments->GetDouble(5);
+    fact.role = arguments->GetString(1).ToString();
+    fact.label = arguments->GetString(2).ToString();
+    fact.left = arguments->GetDouble(3);
+    fact.top = arguments->GetDouble(4);
+    fact.width = arguments->GetDouble(5);
+    fact.height = arguments->GetDouble(6);
+    fact.renderer_epoch_ms = arguments->GetDouble(7);
     if (fact.action_id.empty() || fact.action_id.size() > 128 ||
+        (fact.role != "target" && fact.role != "button" &&
+         fact.role != "link") ||
+        fact.label.size() > 128 ||
         !std::isfinite(fact.left) || !std::isfinite(fact.top) ||
         !std::isfinite(fact.width) || !std::isfinite(fact.height) ||
         !std::isfinite(fact.renderer_epoch_ms) || fact.width <= 0 ||
@@ -278,10 +296,13 @@ bool SaccadeAdapter::OnRendererMessage(
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       fact.page_revision = page_revision_;
-      if (pending_facts_.size() >= 256) {
-        pending_facts_.pop_front();
+      const bool is_new = actions_.find(fact.action_id) == actions_.end();
+      if (is_new) {
+        if (pending_facts_.size() >= 256) {
+          pending_facts_.pop_front();
+        }
+        pending_facts_.push_back(fact);
       }
-      pending_facts_.push_back(fact);
       actions_[fact.action_id] = fact;
       while (actions_.size() > 256) {
         actions_.erase(actions_.begin());
@@ -565,6 +586,7 @@ std::string SaccadeAdapter::StatusJson() {
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
   result->SetBool("paused", paused_);
   result->SetBool("collector_ready", collector_ready_);
+  result->SetString("collector_error", collector_error_);
   result->SetString("tab_identity", "visible-primary");
   auto value = CefValue::Create();
   value->SetDictionary(result);
@@ -579,6 +601,7 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::TruthResult() {
   result->SetString("url", current_url_);
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
   result->SetBool("collector_ready", collector_ready_);
+  result->SetString("collector_error", collector_error_);
   result->SetBool("sensitive_values_exposed", false);
   fields->SetSize(controls_.size());
   for (size_t index = 0; index < controls_.size(); ++index) {
@@ -605,7 +628,8 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::ActionsResult() {
     auto action = CefDictionaryValue::Create();
     action->SetString("action_id", action_id);
     action->SetString("kind", "pointer_click");
-    action->SetString("role", "target");
+    action->SetString("role", fact.role);
+    action->SetString("label", fact.label);
     action->SetDouble("basis_page_revision",
                       static_cast<double>(fact.page_revision));
     actions->SetDictionary(index++, action);
@@ -633,7 +657,8 @@ std::string SaccadeAdapter::NextFactResponse(int id, int timeout_ms) {
   auto result = CefDictionaryValue::Create();
   result->SetString("fact_id", fact.action_id);
   result->SetString("kind", "semantic_object");
-  result->SetString("role", "target");
+  result->SetString("role", fact.role);
+  result->SetString("label", fact.label);
   result->SetString("action_id", fact.action_id);
   result->SetDouble("page_revision", static_cast<double>(fact.page_revision));
   result->SetDouble("renderer_epoch_ms", fact.renderer_epoch_ms);

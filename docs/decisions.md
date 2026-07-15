@@ -2136,3 +2136,24 @@
   notarization, stapling, and clean-machine installation remain public-release
   gates.
 - Evidence: `docs/cef_macos_signing_keychain_report.md`.
+
+## DECISION_ENGINE_060 - Accept visible links and real-site actions in the CEF reflex core
+
+- A page rendering successfully is not a Saccade product gate. The required
+  chain is renderer fact, action map, native browser input, renderer receipt,
+  and observable page-state change.
+- The CEF collector now inventories visible buttons, links, and DOM targets
+  with stable action ids, semantic labels, current geometry, and page revision.
+  It refreshes after same-document navigation and isolates scan failures by
+  stage instead of silently disabling the whole collector.
+- The original `https://mouseaccuracy.com/` page exposed `START` as a Vue
+  RouterLink rather than a button. The owner bridge discovered and clicked it,
+  observed navigation to `/game`, then produced matching verified receipts for
+  12 live targets. Median fact-to-receipt latency was 4.55 ms and p95 was
+  6.2 ms. CDP, WebDriver, screenshots, and host-supplied coordinates were not
+  used.
+- This closes the CEF pointer reflex migration for visible top-frame DOM
+  actions. Keyboard/form policy, cross-frame facts, action invalidation for
+  hidden same-page controls, and replay remain Day 4 work.
+- Evidence: `docs/cef_mouseaccuracy_live_report.md` and
+  `runs/cef_mouseaccuracy_live/live_20260715-085447/report.json`.
