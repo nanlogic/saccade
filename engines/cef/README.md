@@ -31,6 +31,30 @@ Normal browser state lives under
 isolated temporary user-data directory that is removed after clean exit.
 Neither profile reads Chrome, Servo, or another Saccade profile's storage.
 
+### macOS signing and Keychain
+
+Normal profiles use the macOS Keychain-backed Chromium Safe Storage key to
+encrypt cookies and login state. Public or login-bearing builds must have a
+stable signing identity; an ad-hoc build has a changing designated requirement
+and can repeatedly prompt for Keychain access after rebuilds.
+
+Build and sign with the first available Developer ID identity:
+
+```sh
+SACCADE_CODESIGN_IDENTITY=auto engines/cef/scripts/build_macos.sh
+```
+
+Or sign an existing staged app with an explicit certificate SHA-1:
+
+```sh
+SACCADE_CODESIGN_IDENTITY=<certificate-sha1> \
+  engines/cef/scripts/sign_macos.sh target/cef-release/Saccade.app
+```
+
+`--use-mock-keychain` is restricted to automated tests and temporary profiles
+that never receive real credentials. It uses a test encryption key and must not
+be used for GitHub, payments, government sites, or other human login sessions.
+
 `--remote-debugging-port` is accepted by CEF for local tests, but the build and
 launch scripts never enable it by default. It is not part of the product
 agent interface.

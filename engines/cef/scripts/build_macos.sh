@@ -32,5 +32,9 @@ ditto "$SOURCE_APP" "$APP"
 cp "$CEF_ROOT/LICENSE.txt" "$APP/Contents/Resources/CEF_LICENSE.txt"
 cp "$CEF_ROOT/CREDITS.html" "$APP/Contents/Resources/CHROMIUM_CREDITS.html"
 
+if [ -n "${SACCADE_CODESIGN_IDENTITY:-}" ]; then
+  "$SCRIPT_DIR/sign_macos.sh" "$APP"
+fi
+
 [ -x "$APP/Contents/MacOS/cefsimple" ] || { echo "Missing $APP" >&2; exit 1; }
 printf '%s\n' "$APP"

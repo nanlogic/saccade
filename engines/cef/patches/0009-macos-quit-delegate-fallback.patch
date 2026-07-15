@@ -1,0 +1,23 @@
+diff --git a/tests/cefsimple/cefsimple_mac.mm b/tests/cefsimple/cefsimple_mac.mm
+index 1533df4..eaf3bed 100644
+--- a/tests/cefsimple/cefsimple_mac.mm
++++ b/tests/cefsimple/cefsimple_mac.mm
+@@ -78,8 +78,15 @@ using its |-tryToTerminateApplication:| method.
+ // leading to it must be redirected.
+ - (void)terminate:(id)sender {
+-  SimpleAppDelegate* delegate =
+-      static_cast<SimpleAppDelegate*>([NSApp delegate]);
+-  [delegate tryToTerminateApplication:self];
++  id delegate = [NSApp delegate];
++  if ([delegate respondsToSelector:@selector(tryToTerminateApplication:)]) {
++    [static_cast<SimpleAppDelegate*>(delegate)
++        tryToTerminateApplication:self];
++  } else {
++    SimpleHandler* handler = SimpleHandler::GetInstance();
++    if (handler && !handler->IsClosing()) {
++      handler->CloseAllBrowsers(false);
++    }
++  }
+   // Return, don't exit. The application is responsible for exiting on its own.
+ }
+ @end

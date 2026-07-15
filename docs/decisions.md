@@ -2118,3 +2118,21 @@
   stays disabled until Day 4 can enforce focused-field ownership and protected
   control policy.
 - Evidence: `docs/cef_day3_truth_reflex_report.md`.
+
+## DECISION_ENGINE_059 - Require stable signing for login-bearing CEF profiles
+
+- Normal CEF profiles use macOS Keychain-backed Chromium Safe Storage for the
+  encryption key protecting cookies, login state, and saved credentials.
+- Ad-hoc/linker signatures are prohibited for login-bearing dogfood builds
+  because their designated requirement changes with each build and causes
+  repeated Keychain authorization prompts.
+- The macOS build accepts `SACCADE_CODESIGN_IDENTITY` and signs leaf framework
+  libraries, the CEF framework, five helper apps, and the main Saccade bundle
+  before strict verification. Mock Keychain remains test-only.
+- A narrow CEF 150 quit fallback preserves orderly browser close when Chrome
+  Runtime replaces the sample delegate with an `AppController` that lacks
+  `tryToTerminateApplication:`.
+- Local Developer ID and normal-profile Keychain gates pass. Hardened runtime,
+  notarization, stapling, and clean-machine installation remain public-release
+  gates.
+- Evidence: `docs/cef_macos_signing_keychain_report.md`.

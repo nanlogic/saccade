@@ -80,5 +80,6 @@ claim Saccade's millisecond truth/action loop.
 The unchanged CEF sample still warns that `root_cache_path` uses its default
 on ordinary normal-profile launches. Earlier attempts to set it caused a
 macOS Keychain/shutdown hang, so concurrent named profiles are not claimed.
-Final app identity, Developer ID signing, normal-profile Keychain behavior,
-and that profile-root follow-up remain release hardening work.
+Developer ID signing and repeated normal-profile Keychain access now pass in
+`docs/cef_macos_signing_keychain_report.md`. Profile-root hardening and public
+notarization remain release work.

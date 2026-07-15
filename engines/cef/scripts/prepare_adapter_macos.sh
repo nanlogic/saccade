@@ -34,3 +34,6 @@ fi
 if ! grep -q 'GetSwitchValue("window-size")' "$SIMPLE_ROOT/simple_app.cc"; then
   patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0008-window-size-views.patch"
 fi
+if ! grep -q 'respondsToSelector:@selector(tryToTerminateApplication:)' "$SIMPLE_ROOT/cefsimple_mac.mm"; then
+  patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0009-macos-quit-delegate-fallback.patch"
+fi
