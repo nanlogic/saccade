@@ -1,0 +1,8 @@
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -26,0 +27,5 @@
++  bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
++                                CefRefPtr<CefFrame> frame,
++                                CefProcessId source_process,
++                                CefRefPtr<CefProcessMessage> message) override;
++

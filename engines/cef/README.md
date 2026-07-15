@@ -57,10 +57,11 @@ under an owner-only temporary directory:
 engines/cef/scripts/run_adapter_macos.sh normal https://example.com
 ```
 
-The adapter advertises only `ping`, `shell_status`, `navigate`, `pause`, and
-`close`. Closing the granted tab removes the socket, bearer capability, grant,
-and private session directory. The ordinary `run_macos.sh` path does not start
-an agent transport.
+Day 2 starts with `ping`, `shell_status`, `navigate`, `pause`, and `close`.
+Day 3 adds `truth`, `actions`, `next_fact`, `act`, `next_receipt`, and
+`reflex_start` for the bounded renderer truth/reflex path. Closing the granted
+tab removes the socket, bearer capability, grant, and private session
+directory. The ordinary `run_macos.sh` path does not start an agent transport.
 
 Run the engine-neutral Python and TypeScript lifecycle gate with:
 
@@ -73,3 +74,18 @@ keychain. It cannot read or modify the user's normal browser credentials and
 does not produce macOS Keychain prompts. Normal profiles keep the platform
 credential store; the mock keychain switch is never enabled by product launch
 scripts.
+
+## Truth/reflex gate
+
+The no-CDP CEF kill gate uses the unchanged Chrome POC fixture and three
+independent 100-target Release runs:
+
+```sh
+engines/cef/scripts/test_day3_macos.sh
+```
+
+The renderer collector emits allowlisted target geometry, semantic identity,
+page revision, control kind/completion, and input receipts. It never exports
+field values. The browser adapter resolves action ids to coordinates and uses
+native CEF pointer input. See `docs/cef_day3_truth_reflex_report.md` for the
+measured boundary and explicit non-claims.

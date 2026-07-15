@@ -1,0 +1,12 @@
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -45,0 +46,9 @@
++bool SimpleHandler::OnProcessMessageReceived(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    CefProcessId source_process,
++    CefRefPtr<CefProcessMessage> message) {
++  CEF_REQUIRE_UI_THREAD();
++  return SaccadeAdapter::GetInstance()->OnRendererMessage(
++      browser, frame, source_process, message);
++}

@@ -1,0 +1,5 @@
+--- a/tests/cefsimple/CMakeLists.txt
++++ b/tests/cefsimple/CMakeLists.txt
+@@ -47,0 +48,2 @@
++  saccade_renderer.cc
++  saccade_renderer.h

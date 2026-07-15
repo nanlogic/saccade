@@ -2097,3 +2097,24 @@
   credential storage; distribution signing and profile-root hardening remain
   separate release gates.
 - Evidence: `docs/cef_day2_engine_adapter_report.md`.
+
+## DECISION_ENGINE_058 - Accept the CEF no-CDP truth/reflex gate
+
+- The official pinned CEF Release build passed three independent 100-target
+  runs with 300/300 hits, zero misses, zero protected-value leaks, and no CDP,
+  WebDriver, screenshot, or extension path.
+- Full renderer-fact-to-page-receipt p95 was 3.2 ms in all three runs. The
+  largest measured sample was 5.8 ms.
+- The collector is installed from `CefRenderProcessHandler::OnContextCreated`
+  before page scripts. Its native emitter is captured in a closure and removed
+  from the global object; it does not mutate the DOM. Browser IPC accepts only
+  fixed target, control, ready, and receipt message shapes.
+- Sensitive controls export kind and completion only. The host receives an
+  action id and exact page revision; geometry remains inside the browser
+  adapter, which dispatches native CEF pointer events and waits for a renderer
+  receipt.
+- This is a bounded DOM-target result. Canvas/WebGL truth, hostile pages,
+  forms, replay, and cross-frame handling are not implied. Keyboard dispatch
+  stays disabled until Day 4 can enforce focused-field ownership and protected
+  control policy.
+- Evidence: `docs/cef_day3_truth_reflex_report.md`.

@@ -141,10 +141,16 @@ navigate one granted tab, pause, and close without knowing the engine name.
 
 ### Day 3: Truth and reflex
 
+Status: complete for the bounded no-CDP DOM-target gate. See
+`docs/cef_day3_truth_reflex_report.md`. Keyboard dispatch is intentionally
+held for Day 4 so focused-field ownership and sensitive-field policy ship with
+the primitive that could otherwise type into a protected control.
+
 - Install the renderer-side allowlisted fact collector before page scripts.
 - Emit redacted control, geometry, semantic-object, and revision facts through
   CEF renderer/browser IPC.
-- Dispatch pointer/keyboard primitives through CEF browser input APIs.
+- Dispatch pointer primitives through CEF browser input APIs; add keyboard
+  only with the Day 4 form-safety guard.
 - Port the Chrome truth/reflex fixture unchanged.
 
 Gate: three independent 100-target release runs each achieve 100/100 hits,

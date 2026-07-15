@@ -1,0 +1,8 @@
+--- a/tests/cefsimple/process_helper_mac.cc
++++ b/tests/cefsimple/process_helper_mac.cc
+@@ -6,0 +7 @@
++#include "tests/cefsimple/saccade_renderer.h"
+@@ -36 +37,2 @@
+-  return CefExecuteProcess(main_args, nullptr, nullptr);
++  CefRefPtr<SaccadeRendererApp> app(new SaccadeRendererApp);
++  return CefExecuteProcess(main_args, app, nullptr);

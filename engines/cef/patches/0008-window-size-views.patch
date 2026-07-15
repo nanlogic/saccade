@@ -1,0 +1,19 @@
+--- a/tests/cefsimple/simple_app.cc
++++ b/tests/cefsimple/simple_app.cc
+@@ -7,0 +8 @@
++#include <cstdio>
+@@ -54,3 +55,11 @@
+-  CefSize GetPreferredSize(CefRefPtr<CefView> view) override {
+-    return CefSize(800, 600);
+-  }
++  CefSize GetPreferredSize(CefRefPtr<CefView> view) override {
++    const std::string value =
++        CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("window-size");
++    int width = 800;
++    int height = 600;
++    if (std::sscanf(value.c_str(), "%d,%d", &width, &height) == 2 &&
++        width >= 640 && width <= 7680 && height >= 480 && height <= 4320) {
++      return CefSize(width, height);
++    }
++    return CefSize(800, 600);
++  }

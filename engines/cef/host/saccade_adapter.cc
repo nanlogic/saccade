@@ -12,6 +12,8 @@
 #include <unistd.h>
 
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstring>
 #include <utility>
 
@@ -31,8 +33,10 @@ std::string JsonString(CefRefPtr<CefValue> value) {
 
 CefRefPtr<CefListValue> CapabilityList() {
   auto list = CefListValue::Create();
-  const std::array<const char*, 5> capabilities = {
-      "ping", "shell_status", "navigate", "pause", "close"};
+  const std::array<const char*, 11> capabilities = {
+      "ping",        "shell_status", "navigate",    "pause",
+      "close",       "truth",        "actions",     "next_fact",
+      "act",         "next_receipt", "reflex_start"};
   list->SetSize(capabilities.size());
   for (size_t index = 0; index < capabilities.size(); ++index) {
     list->SetString(index, capabilities[index]);
@@ -106,6 +110,40 @@ bool WriteAll(int fd, const std::string& text) {
   return true;
 }
 
+int RequestTimeoutMs(CefRefPtr<CefDictionaryValue> params) {
+  if (!params || !params->HasKey("timeout_ms")) {
+    return 2000;
+  }
+  int timeout_ms = 0;
+  if (params->GetType("timeout_ms") == VTYPE_INT) {
+    timeout_ms = params->GetInt("timeout_ms");
+  } else if (params->GetType("timeout_ms") == VTYPE_DOUBLE) {
+    timeout_ms = static_cast<int>(params->GetDouble("timeout_ms"));
+  }
+  if (timeout_ms < 1) {
+    return 1;
+  }
+  return timeout_ms > 5000 ? 5000 : timeout_ms;
+}
+
+uint64_t RequestRevision(CefRefPtr<CefDictionaryValue> params) {
+  if (!params || !params->HasKey("basis_page_revision")) {
+    return 0;
+  }
+  if (params->GetType("basis_page_revision") == VTYPE_INT) {
+    const int revision = params->GetInt("basis_page_revision");
+    return revision > 0 ? static_cast<uint64_t>(revision) : 0;
+  }
+  if (params->GetType("basis_page_revision") == VTYPE_DOUBLE) {
+    const double revision = params->GetDouble("basis_page_revision");
+    if (std::isfinite(revision) && revision >= 1 &&
+        revision <= 9007199254740991.0) {
+      return static_cast<uint64_t>(revision);
+    }
+  }
+  return 0;
+}
+
 }  // namespace
 
 SaccadeAdapter* SaccadeAdapter::GetInstance() {
@@ -145,6 +183,12 @@ void SaccadeAdapter::OnAddressChanged(CefRefPtr<CefBrowser> browser,
     if (browser_ && browser_->IsSame(browser)) {
       current_url_ = url.ToString();
       ++page_revision_;
+      collector_ready_ = false;
+      controls_.clear();
+      pending_facts_.clear();
+      actions_.clear();
+      dispatched_actions_.clear();
+      pending_receipts_.clear();
       refresh_grant = started_;
     }
   }
@@ -160,6 +204,124 @@ void SaccadeAdapter::OnTitleChanged(CefRefPtr<CefBrowser> browser,
   if (browser_ && browser_->IsSame(browser)) {
     current_title_ = title.ToString();
   }
+}
+
+bool SaccadeAdapter::OnRendererMessage(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    CefProcessId source_process,
+    CefRefPtr<CefProcessMessage> message) {
+  CEF_REQUIRE_UI_THREAD();
+  if (source_process != PID_RENDERER || !frame || !frame->IsMain() ||
+      !browser_ || !browser_->IsSame(browser) || !message ||
+      !message->IsValid()) {
+    return false;
+  }
+
+  const std::string name = message->GetName().ToString();
+  if (name.rfind("saccade.renderer.", 0) != 0) {
+    return false;
+  }
+  auto arguments = message->GetArgumentList();
+  if (!arguments) {
+    return true;
+  }
+
+  if (name == "saccade.renderer.ready_v1" && arguments->GetSize() == 1) {
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      collector_ready_ = true;
+    }
+    fact_cv_.notify_all();
+    return true;
+  }
+
+  if (name == "saccade.renderer.control_v1" && arguments->GetSize() == 5) {
+    ControlFact fact;
+    fact.fact_id = arguments->GetString(0).ToString();
+    fact.kind = arguments->GetString(1).ToString();
+    fact.sensitive = arguments->GetBool(2);
+    fact.complete = arguments->GetBool(3);
+    if (fact.fact_id.empty() || fact.fact_id.size() > 128 ||
+        fact.kind.empty() || fact.kind.size() > 64) {
+      return true;
+    }
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    for (auto& current : controls_) {
+      if (current.fact_id == fact.fact_id) {
+        current = std::move(fact);
+        return true;
+      }
+    }
+    if (controls_.size() < 256) {
+      controls_.push_back(std::move(fact));
+    }
+    return true;
+  }
+
+  if (name == "saccade.renderer.target_v1" && arguments->GetSize() == 6) {
+    TargetFact fact;
+    fact.action_id = arguments->GetString(0).ToString();
+    fact.left = arguments->GetDouble(1);
+    fact.top = arguments->GetDouble(2);
+    fact.width = arguments->GetDouble(3);
+    fact.height = arguments->GetDouble(4);
+    fact.renderer_epoch_ms = arguments->GetDouble(5);
+    if (fact.action_id.empty() || fact.action_id.size() > 128 ||
+        !std::isfinite(fact.left) || !std::isfinite(fact.top) ||
+        !std::isfinite(fact.width) || !std::isfinite(fact.height) ||
+        !std::isfinite(fact.renderer_epoch_ms) || fact.width <= 0 ||
+        fact.height <= 0 || fact.width > 4096 || fact.height > 4096 ||
+        std::abs(fact.left) > 100000 || std::abs(fact.top) > 100000) {
+      return true;
+    }
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      fact.page_revision = page_revision_;
+      if (pending_facts_.size() >= 256) {
+        pending_facts_.pop_front();
+      }
+      pending_facts_.push_back(fact);
+      actions_[fact.action_id] = fact;
+      while (actions_.size() > 256) {
+        actions_.erase(actions_.begin());
+      }
+    }
+    fact_cv_.notify_one();
+    return true;
+  }
+
+  if (name == "saccade.renderer.receipt_v1" &&
+      arguments->GetSize() == 7) {
+    ReflexReceipt receipt;
+    receipt.action_id = arguments->GetString(0).ToString();
+    receipt.client_x = arguments->GetDouble(1);
+    receipt.client_y = arguments->GetDouble(2);
+    receipt.hits = arguments->GetInt(3);
+    receipt.misses = arguments->GetInt(4);
+    receipt.finished = arguments->GetBool(5);
+    receipt.renderer_epoch_ms = arguments->GetDouble(6);
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      const auto action = actions_.find(receipt.action_id);
+      if (action == actions_.end() || !std::isfinite(receipt.client_x) ||
+          !std::isfinite(receipt.client_y) ||
+          !std::isfinite(receipt.renderer_epoch_ms) ||
+          dispatched_actions_.erase(receipt.action_id) != 1) {
+        return true;
+      }
+      receipt.basis_page_revision = action->second.page_revision;
+      receipt.observed_page_revision = page_revision_;
+      if (pending_receipts_.size() >= 256) {
+        pending_receipts_.pop_front();
+      }
+      pending_receipts_.push_back(receipt);
+    }
+    receipt_cv_.notify_one();
+    return true;
+  }
+
+  return true;
 }
 
 void SaccadeAdapter::OnBrowserClosed(CefRefPtr<CefBrowser> browser) {
@@ -202,6 +364,8 @@ void SaccadeAdapter::Stop() {
     return;
   }
   stopping_ = true;
+  fact_cv_.notify_all();
+  receipt_cv_.notify_all();
   const int listener = listener_fd_.exchange(-1);
   if (listener >= 0) {
     shutdown(listener, SHUT_RDWR);
@@ -313,6 +477,39 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
     CefRefPtr<CefValue> status = CefParseJSON(StatusJson(), JSON_PARSER_RFC);
     return Response(id, status->GetDictionary());
   }
+  if (method == "truth") {
+    return Response(id, TruthResult());
+  }
+  if (method == "actions") {
+    return Response(id, ActionsResult());
+  }
+  if (method == "next_fact") {
+    return NextFactResponse(id, RequestTimeoutMs(request->GetDictionary("params")));
+  }
+  if (method == "next_receipt") {
+    return NextReceiptResponse(
+        id, RequestTimeoutMs(request->GetDictionary("params")));
+  }
+  if (method == "act") {
+    return ActResponse(id, request->GetDictionary("params"));
+  }
+  if (method == "reflex_start") {
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (paused_) {
+        return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
+      }
+      if (!collector_ready_) {
+        return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                             "renderer collector is not ready");
+      }
+    }
+    CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::StartReflexOnUi,
+                                      base::Unretained(this)));
+    auto result = CefDictionaryValue::Create();
+    result->SetBool("started", true);
+    return Response(id, result);
+  }
   if (method == "navigate") {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
@@ -367,10 +564,149 @@ std::string SaccadeAdapter::StatusJson() {
   result->SetString("title", current_title_);
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
   result->SetBool("paused", paused_);
+  result->SetBool("collector_ready", collector_ready_);
   result->SetString("tab_identity", "visible-primary");
   auto value = CefValue::Create();
   value->SetDictionary(result);
   return JsonString(value);
+}
+
+CefRefPtr<CefDictionaryValue> SaccadeAdapter::TruthResult() {
+  auto result = CefDictionaryValue::Create();
+  auto fields = CefListValue::Create();
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  result->SetString("tab_id", "visible-primary");
+  result->SetString("url", current_url_);
+  result->SetDouble("page_revision", static_cast<double>(page_revision_));
+  result->SetBool("collector_ready", collector_ready_);
+  result->SetBool("sensitive_values_exposed", false);
+  fields->SetSize(controls_.size());
+  for (size_t index = 0; index < controls_.size(); ++index) {
+    auto field = CefDictionaryValue::Create();
+    field->SetString("fact_id", controls_[index].fact_id);
+    field->SetString("kind", controls_[index].kind);
+    field->SetBool("sensitive", controls_[index].sensitive);
+    field->SetBool("complete", controls_[index].complete);
+    fields->SetDictionary(index, field);
+  }
+  result->SetList("fields", fields);
+  return result;
+}
+
+CefRefPtr<CefDictionaryValue> SaccadeAdapter::ActionsResult() {
+  auto result = CefDictionaryValue::Create();
+  auto actions = CefListValue::Create();
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  result->SetString("tab_id", "visible-primary");
+  result->SetDouble("page_revision", static_cast<double>(page_revision_));
+  actions->SetSize(actions_.size());
+  size_t index = 0;
+  for (const auto& [action_id, fact] : actions_) {
+    auto action = CefDictionaryValue::Create();
+    action->SetString("action_id", action_id);
+    action->SetString("kind", "pointer_click");
+    action->SetString("role", "target");
+    action->SetDouble("basis_page_revision",
+                      static_cast<double>(fact.page_revision));
+    actions->SetDictionary(index++, action);
+  }
+  result->SetList("actions", actions);
+  return result;
+}
+
+std::string SaccadeAdapter::NextFactResponse(int id, int timeout_ms) {
+  std::unique_lock<std::mutex> lock(state_mutex_);
+  if (!fact_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] {
+        return stopping_ || !pending_facts_.empty();
+      }) || pending_facts_.empty()) {
+    return ErrorResponse(id, "TIMEOUT", "no renderer fact before timeout");
+  }
+  TargetFact fact = std::move(pending_facts_.front());
+  pending_facts_.pop_front();
+  lock.unlock();
+
+  auto rect = CefDictionaryValue::Create();
+  rect->SetDouble("left", fact.left);
+  rect->SetDouble("top", fact.top);
+  rect->SetDouble("width", fact.width);
+  rect->SetDouble("height", fact.height);
+  auto result = CefDictionaryValue::Create();
+  result->SetString("fact_id", fact.action_id);
+  result->SetString("kind", "semantic_object");
+  result->SetString("role", "target");
+  result->SetString("action_id", fact.action_id);
+  result->SetDouble("page_revision", static_cast<double>(fact.page_revision));
+  result->SetDouble("renderer_epoch_ms", fact.renderer_epoch_ms);
+  result->SetDictionary("rect", rect);
+  return Response(id, result);
+}
+
+std::string SaccadeAdapter::NextReceiptResponse(int id, int timeout_ms) {
+  std::unique_lock<std::mutex> lock(state_mutex_);
+  if (!receipt_cv_.wait_for(
+          lock, std::chrono::milliseconds(timeout_ms),
+          [this] { return stopping_ || !pending_receipts_.empty(); }) ||
+      pending_receipts_.empty()) {
+    return ErrorResponse(id, "TIMEOUT", "no input receipt before timeout");
+  }
+  ReflexReceipt receipt = std::move(pending_receipts_.front());
+  pending_receipts_.pop_front();
+  lock.unlock();
+
+  auto result = CefDictionaryValue::Create();
+  result->SetString("action_id", receipt.action_id);
+  result->SetString("status", "applied");
+  result->SetBool("verified", true);
+  result->SetDouble("basis_page_revision",
+                    static_cast<double>(receipt.basis_page_revision));
+  result->SetDouble("observed_page_revision",
+                    static_cast<double>(receipt.observed_page_revision));
+  result->SetDouble("client_x", receipt.client_x);
+  result->SetDouble("client_y", receipt.client_y);
+  result->SetInt("hits", receipt.hits);
+  result->SetInt("misses", receipt.misses);
+  result->SetBool("finished", receipt.finished);
+  result->SetDouble("renderer_epoch_ms", receipt.renderer_epoch_ms);
+  return Response(id, result);
+}
+
+std::string SaccadeAdapter::ActResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  const std::string action_id =
+      params ? params->GetString("action_id").ToString() : "";
+  const uint64_t basis_page_revision = RequestRevision(params);
+  TargetFact fact;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (paused_) {
+      return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
+    }
+    if (basis_page_revision == 0 || basis_page_revision != page_revision_) {
+      return ErrorResponse(id, "STALE_PAGE_REVISION",
+                           "action basis does not match current page");
+    }
+    const auto action = actions_.find(action_id);
+    if (action == actions_.end() ||
+        action->second.page_revision != basis_page_revision) {
+      return ErrorResponse(id, "INVALID_ARGUMENT", "unknown action id");
+    }
+    if (!dispatched_actions_.insert(action_id).second) {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "action id is already awaiting a receipt");
+    }
+    fact = action->second;
+  }
+  const int x = static_cast<int>(std::lround(fact.left + fact.width / 2.0));
+  const int y = static_cast<int>(std::lround(fact.top + fact.height / 2.0));
+  CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::DispatchPointerOnUi,
+                                    base::Unretained(this), x, y));
+  auto result = CefDictionaryValue::Create();
+  result->SetString("action_id", action_id);
+  result->SetString("status", "accepted");
+  result->SetDouble("basis_page_revision",
+                    static_cast<double>(basis_page_revision));
+  return Response(id, result);
 }
 
 void SaccadeAdapter::NavigateOnUi(std::string url) {
@@ -385,6 +721,39 @@ void SaccadeAdapter::NavigateOnUi(std::string url) {
   if (browser && browser->GetMainFrame()) {
     browser->GetMainFrame()->LoadURL(url);
   }
+}
+
+void SaccadeAdapter::StartReflexOnUi() {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    browser = browser_;
+  }
+  if (browser && browser->GetMainFrame()) {
+    auto message = CefProcessMessage::Create("saccade.reflex.start_v1");
+    browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
+  }
+}
+
+void SaccadeAdapter::DispatchPointerOnUi(int x, int y) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    browser = browser_;
+  }
+  if (!browser) {
+    return;
+  }
+  CefMouseEvent event;
+  event.x = x;
+  event.y = y;
+  event.modifiers = 0;
+  auto host = browser->GetHost();
+  host->SendMouseMoveEvent(event, false);
+  host->SendMouseClickEvent(event, MBT_LEFT, false, 1);
+  host->SendMouseClickEvent(event, MBT_LEFT, true, 1);
 }
 
 void SaccadeAdapter::CloseOnUi() {
