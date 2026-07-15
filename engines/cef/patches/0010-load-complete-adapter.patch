@@ -1,0 +1,29 @@
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -46,4 +46,8 @@
+   // CefLoadHandler methods:
++  void OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
++                            bool isLoading,
++                            bool canGoBack,
++                            bool canGoForward) override;
+   void OnLoadError(CefRefPtr<CefBrowser> browser,
+                    CefRefPtr<CefFrame> frame,
+                    ErrorCode errorCode,
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -125,5 +125,14 @@
+ }
+-
++void SimpleHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
++                                         bool isLoading,
++                                         bool canGoBack,
++                                         bool canGoForward) {
++  CEF_REQUIRE_UI_THREAD();
++  if (!isLoading) {
++    SaccadeAdapter::GetInstance()->OnLoadCompleted(browser);
++  }
++}
++
+ void SimpleHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
+                                 CefRefPtr<CefFrame> frame,
+                                 ErrorCode errorCode,

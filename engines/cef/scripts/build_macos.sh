@@ -7,15 +7,31 @@ CEF_ROOT=${CEF_ROOT:-$($SCRIPT_DIR/fetch_macos.sh)}
 $SCRIPT_DIR/prepare_adapter_macos.sh
 BUILD_DIR=${SACCADE_CEF_BUILD_DIR:-$REPO_ROOT/target/cef-release}
 UPSTREAM_BUILD="$BUILD_DIR/upstream"
+SOURCE_APP="$UPSTREAM_BUILD/tests/cefsimple/Release/cefsimple.app"
 
 cmake -G Ninja \
   -DPROJECT_ARCH=arm64 \
   -DCMAKE_BUILD_TYPE=Release \
   -S "$CEF_ROOT" \
   -B "$UPSTREAM_BUILD"
+
 cmake --build "$UPSTREAM_BUILD" --target cefsimple -j "${SACCADE_BUILD_JOBS:-8}"
 
-SOURCE_APP="$UPSTREAM_BUILD/tests/cefsimple/Release/cefsimple.app"
+# CEF's macOS framework packaging macro is not idempotent. On an incremental
+# build, ln(1) can follow existing directory symlinks and create nested links
+# such as Resources/Resources. Normalize the generated framework after every
+# build; -h replaces the link itself instead of following its directory target.
+SOURCE_FRAMEWORK="$SOURCE_APP/Contents/Frameworks/Chromium Embedded Framework.framework"
+rm -f \
+  "$SOURCE_FRAMEWORK/Versions/A/Resources/Resources" \
+  "$SOURCE_FRAMEWORK/Versions/A/Libraries/Libraries" \
+  "$SOURCE_FRAMEWORK/Versions/A/A"
+ln -s -h -f "Versions/A/Chromium Embedded Framework" \
+  "$SOURCE_FRAMEWORK/Chromium Embedded Framework"
+ln -s -h -f "Versions/A/Libraries" "$SOURCE_FRAMEWORK/Libraries"
+ln -s -h -f "Versions/A/Resources" "$SOURCE_FRAMEWORK/Resources"
+ln -s -h -f "A" "$SOURCE_FRAMEWORK/Versions/Current"
+
 APP="$BUILD_DIR/Saccade.app"
 [ -x "$SOURCE_APP/Contents/MacOS/cefsimple" ] || {
   echo "Missing upstream app: $SOURCE_APP" >&2

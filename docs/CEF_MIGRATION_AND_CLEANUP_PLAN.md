@@ -98,7 +98,9 @@ These rules block the migration if violated:
    or user-filled pages, never the primary truth channel, and require an
    explicit guarded capture path.
 8. **Production has no DevTools backdoor.** Remote debugging is disabled in
-   release builds. CDP remains a reference/test adapter only.
+   release builds. CDP is not a truth, form, or action adapter. The one bounded
+   exception is CEF's in-process `Page.captureScreenshot` call after the
+   screenshot policy gate; pixels never become the normal truth route.
 9. **CEF sandbox and process separation stay enabled.** A test-only bypass may
    not enter a release manifest.
 10. **Supply chain is pinned.** Record CEF and Chromium revisions, SHA-256,
@@ -165,6 +167,11 @@ produce verified receipts for live targets without screenshots or coordinates
 supplied by the host.
 
 ### Day 4: Safety, forms, and replay
+
+Status: complete for product contract sections 2, 3, 4, and 6 on the bounded
+form, FORMMAX, screenshot, and replay gates. See
+`docs/cef_day4_forms_safety_report.md`. The remaining hostile-page matrix is
+tracked separately and is not implied by this status.
 
 - Reuse the current grant, policy, ownership, stale-basis, verification, and
   replay semantics.

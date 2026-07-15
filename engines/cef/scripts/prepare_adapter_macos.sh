@@ -9,6 +9,7 @@ cp "$REPO_ROOT/engines/cef/host/saccade_adapter.h" "$SIMPLE_ROOT/saccade_adapter
 cp "$REPO_ROOT/engines/cef/host/saccade_adapter.cc" "$SIMPLE_ROOT/saccade_adapter.cc"
 cp "$REPO_ROOT/engines/cef/host/saccade_renderer.h" "$SIMPLE_ROOT/saccade_renderer.h"
 cp "$REPO_ROOT/engines/cef/host/saccade_renderer.cc" "$SIMPLE_ROOT/saccade_renderer.cc"
+cp "$REPO_ROOT/engines/cef/host/saccade_form_script.h" "$SIMPLE_ROOT/saccade_form_script.h"
 
 if ! grep -q 'saccade_adapter.cc' "$SIMPLE_ROOT/CMakeLists.txt"; then
   patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0001-engine-adapter-cmake.patch"
@@ -36,4 +37,7 @@ if ! grep -q 'GetSwitchValue("window-size")' "$SIMPLE_ROOT/simple_app.cc"; then
 fi
 if ! grep -q 'respondsToSelector:@selector(tryToTerminateApplication:)' "$SIMPLE_ROOT/cefsimple_mac.mm"; then
   patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0009-macos-quit-delegate-fallback.patch"
+fi
+if ! grep -q 'OnLoadingStateChange' "$SIMPLE_ROOT/simple_handler.h"; then
+  patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0010-load-complete-adapter.patch"
 fi

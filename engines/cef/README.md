@@ -113,3 +113,27 @@ page revision, control kind/completion, and input receipts. It never exports
 field values. The browser adapter resolves action ids to coordinates and uses
 native CEF pointer input. See `docs/cef_day3_truth_reflex_report.md` for the
 measured boundary and explicit non-claims.
+
+## Day 4 form and safety gate
+
+The current-tab grant additionally advertises fixed form inventory, inspect,
+compile, execute, lazy reveal, screenshot-policy, and screenshot-audit
+commands. These commands are revision scoped and do not expose a general page
+evaluation primitive.
+
+```sh
+python3 scripts/probe_cef_form_safety.py \
+  --output-dir runs/cef_day4_form_safety
+
+python3 scripts/probe_cef_formmax.py \
+  --output-dir runs/cef_formmax
+```
+
+The first gate verifies ordinary controls, human/agent preservation, sensitive
+redaction, pre-capture blocking, a permitted non-sensitive screenshot, and
+value-free replay. The second fills the 96-row, two-page lazy FORMMAX fixture.
+See `docs/cef_day4_forms_safety_report.md`.
+
+The screenshot audit uses CEF's internal structured DevTools method only after
+policy approval. Remote debugging remains disabled, no screenshot bytes enter
+truth or replay, and truth/actions/forms do not use CDP.

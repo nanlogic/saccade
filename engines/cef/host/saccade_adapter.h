@@ -17,8 +17,11 @@
 #include "include/cef_browser.h"
 #include "include/cef_process_message.h"
 
+class SaccadeScreenshotObserver;
+
 // Browser-process lifecycle adapter. It intentionally exposes no CEF type on
-// the wire and never reads page values, cookies, storage, or screenshots.
+// the wire and never reads cookies or storage. Values and audit screenshots
+// cross only their fixed, policy-gated command surfaces.
 class SaccadeAdapter {
  public:
   static SaccadeAdapter* GetInstance();
@@ -28,6 +31,7 @@ class SaccadeAdapter {
                         CefRefPtr<CefFrame> frame,
                         const CefString& url);
   void OnTitleChanged(CefRefPtr<CefBrowser> browser, const CefString& title);
+  void OnLoadCompleted(CefRefPtr<CefBrowser> browser);
   void OnBrowserClosed(CefRefPtr<CefBrowser> browser);
   bool OnRendererMessage(CefRefPtr<CefBrowser> browser,
                          CefRefPtr<CefFrame> frame,
@@ -66,6 +70,17 @@ class SaccadeAdapter {
     uint64_t observed_page_revision = 0;
   };
 
+  struct FormCommandState {
+    std::string command;
+    std::string payload;
+    std::string error;
+    uint64_t basis_page_revision = 0;
+    bool done = false;
+    bool ok = false;
+  };
+
+  friend class SaccadeScreenshotObserver;
+
   SaccadeAdapter() = default;
   ~SaccadeAdapter();
 
@@ -82,11 +97,29 @@ class SaccadeAdapter {
   std::string NextFactResponse(int id, int timeout_ms);
   std::string NextReceiptResponse(int id, int timeout_ms);
   std::string ActResponse(int id, CefRefPtr<CefDictionaryValue> params);
+  std::string FormCommandResponse(int id,
+                                  const std::string& command,
+                                  CefRefPtr<CefDictionaryValue> params);
+  std::string ScreenshotAuditResponse(
+      int id,
+      CefRefPtr<CefDictionaryValue> params);
   void NavigateOnUi(std::string url);
   void StartReflexOnUi();
+  void DispatchFormCommandOnUi(int request_id,
+                               std::string command,
+                               std::string input_json);
+  void CaptureScreenshotOnUi();
+  void OnScreenshotResult(int message_id,
+                          bool success,
+                          const void* result,
+                          size_t result_size);
   void DispatchPointerOnUi(int x, int y);
   void CloseOnUi();
   bool WriteGrant();
+  void AppendValueFreeReplay(const std::string& event,
+                             CefRefPtr<CefDictionaryValue> result,
+                             uint64_t basis_page_revision,
+                             uint64_t observed_page_revision);
 
   std::mutex state_mutex_;
   std::mutex grant_mutex_;
@@ -105,10 +138,23 @@ class SaccadeAdapter {
   std::deque<ReflexReceipt> pending_receipts_;
   std::condition_variable fact_cv_;
   std::condition_variable receipt_cv_;
+  std::condition_variable form_cv_;
+  std::map<int, FormCommandState> form_commands_;
+  std::atomic<int> next_form_request_id_{1};
+  std::condition_variable screenshot_cv_;
+  bool screenshot_pending_ = false;
+  bool screenshot_done_ = false;
+  bool screenshot_ok_ = false;
+  int screenshot_message_id_ = 0;
+  std::string screenshot_error_;
+  std::vector<unsigned char> screenshot_bytes_;
+  CefRefPtr<CefRegistration> screenshot_registration_;
 
   std::string socket_path_;
   std::string grant_path_;
+  std::string replay_path_;
   std::string capability_;
+  std::mutex replay_mutex_;
   std::atomic<bool> stopping_{false};
   std::atomic<int> listener_fd_{-1};
   std::thread server_thread_;

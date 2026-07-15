@@ -10,12 +10,15 @@
 #include "include/cef_process_message.h"
 #include "include/cef_v8.h"
 #include "include/wrapper/cef_helpers.h"
+#include "tests/cefsimple/saccade_form_script.h"
 
 namespace {
 
 constexpr char kNativeEmitName[] = "__saccadeEmitNative";
 constexpr char kStartMessage[] = "saccade.reflex.start_v1";
 constexpr char kRefreshMessage[] = "saccade.collector.refresh_v1";
+constexpr char kFormRequestMessage[] = "saccade.form.request_v1";
+constexpr char kFormResponseMessage[] = "saccade.renderer.form_response_v1";
 
 constexpr char kCollectorScript[] = R"SACCADE_JS(
 (() => {
@@ -47,6 +50,7 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   let pendingInput = null;
 
   const scanControls = () => {
+    nativeEmit('controls_reset', epochNow());
     for (const element of queryAll(document, 'input, textarea, select, [contenteditable="true"]')) {
       const type = String(element.getAttribute('type') || element.tagName || 'control').toLowerCase();
       const identity = String(element.getAttribute('id') || element.getAttribute('name') || type).slice(0, 128);
@@ -60,6 +64,31 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
       const complete = typeof element.value === 'string' ? element.value.length > 0 : false;
       nativeEmit('control', identity, type, sensitive, complete, epochNow());
     }
+  };
+
+  const sensitiveControlValues = () => {
+    const values = [];
+    for (const element of queryAll(document, 'input, textarea, select')) {
+      const type = String(element.getAttribute('type') || '').toLowerCase();
+      if (type === 'checkbox' || type === 'radio') continue;
+      const markers = [type, element.getAttribute('autocomplete') || '',
+        element.getAttribute('name') || '', element.getAttribute('id') || '',
+        element.getAttribute('data-sensitive') || ''].join(' ').toLowerCase();
+      if (!/password|passcode|otp|one[-_ ]?time|ssn|social.security|credit|card|cvv|cvc|government|passport|tax.id|signature/.test(markers)) continue;
+      const value = String(element.value || '');
+      if (value && (value.length >= 4 || type === 'password')) values.push(value);
+    }
+    return values;
+  };
+
+  const redactActionLabel = raw => {
+    let value = String(raw || '');
+    for (const protectedValue of sensitiveControlValues()) {
+      value = value.split(protectedValue).join('[redacted]');
+    }
+    return value
+      .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[redacted]')
+      .replace(/\b(?:\d[ -]*?){13,19}\b/g, '[redacted]');
   };
 
   const scanActions = () => {
@@ -77,7 +106,7 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
       const role = matches(element, '.target:not(.hit)')
           ? 'target'
           : (matches(element, 'a[href]') ? 'link' : 'button');
-      const label = String(
+      const label = redactActionLabel(
           element.getAttribute('aria-label') || element.getAttribute('title') ||
           element.innerText || element.textContent || element.value ||
           element.getAttribute('id') ||
@@ -96,7 +125,6 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   const attach = () => {
     if (attached || !document.documentElement) return;
     attached = true;
-    nativeEmit('ready', epochNow());
     const observer = new MutationObserver(() => safeRun('scan_actions', scanActions));
     observer.observe(document.documentElement, {
       childList: true,
@@ -106,12 +134,13 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
     });
     safeRun('scan_controls', scanControls);
     safeRun('scan_actions', scanActions);
+    nativeEmit('ready', epochNow());
   };
 
   globalThis.__saccadeCollectorRefresh = () => {
-    nativeEmit('ready', epochNow());
     safeRun('scan_controls', scanControls);
     safeRun('scan_actions', scanActions);
+    nativeEmit('ready', epochNow());
     return true;
   };
 
@@ -172,6 +201,9 @@ class EmitHandler : public CefV8Handler {
     if (kind == "ready" && arguments.size() == 2 &&
         NumberArgument(arguments, 1)) {
       output->SetDouble(0, arguments[1]->GetDoubleValue());
+    } else if (kind == "controls_reset" && arguments.size() == 2 &&
+               NumberArgument(arguments, 1)) {
+      output->SetDouble(0, arguments[1]->GetDoubleValue());
     } else if (kind == "control" && arguments.size() == 6 &&
                arguments[1]->IsString() && arguments[2]->IsString() &&
                arguments[3]->IsBool() && arguments[4]->IsBool() &&
@@ -227,6 +259,52 @@ class EmitHandler : public CefV8Handler {
   IMPLEMENT_REFCOUNTING(EmitHandler);
 };
 
+void RunFormCommand(CefRefPtr<CefFrame> frame,
+                    int request_id,
+                    const std::string& command,
+                    const std::string& input_json) {
+  auto response = CefProcessMessage::Create(kFormResponseMessage);
+  auto output = response->GetArgumentList();
+  output->SetInt(0, request_id);
+
+  auto context = frame->GetV8Context();
+  if (!context || !context->Enter()) {
+    output->SetBool(1, false);
+    output->SetString(2, "renderer context unavailable");
+    frame->SendProcessMessage(PID_BROWSER, response);
+    return;
+  }
+
+  CefRefPtr<CefV8Value> function;
+  CefRefPtr<CefV8Exception> exception;
+  const bool evaluated = context->Eval(
+      kSaccadeFormCommandScript, "saccade://renderer/form_command.js", 1,
+      function, exception);
+  if (!evaluated || !function || !function->IsFunction()) {
+    output->SetBool(1, false);
+    output->SetString(2, exception ? exception->GetMessage()
+                                  : "fixed form command did not compile");
+    context->Exit();
+    frame->SendProcessMessage(PID_BROWSER, response);
+    return;
+  }
+
+  CefV8ValueList arguments;
+  arguments.push_back(CefV8Value::CreateString(command));
+  arguments.push_back(CefV8Value::CreateString(input_json));
+  CefRefPtr<CefV8Value> result =
+      function->ExecuteFunctionWithContext(context, nullptr, arguments);
+  if (!result || !result->IsString()) {
+    output->SetBool(1, false);
+    output->SetString(2, "fixed form command failed");
+  } else {
+    output->SetBool(1, true);
+    output->SetString(2, result->GetStringValue());
+  }
+  context->Exit();
+  frame->SendProcessMessage(PID_BROWSER, response);
+}
+
 }  // namespace
 
 void SaccadeRendererApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
@@ -234,7 +312,12 @@ void SaccadeRendererApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
                                           CefRefPtr<CefV8Context> context) {
   CEF_REQUIRE_RENDERER_THREAD();
   const char* reflex_gate = std::getenv("SACCADE_REFLEX_GATE");
-  if (!frame->IsMain() || !reflex_gate || std::string(reflex_gate) != "1") {
+  const char* current_tab_grant =
+      std::getenv("SACCADE_ENGINE_GRANT_CURRENT_TAB");
+  const bool enabled =
+      (reflex_gate && std::string(reflex_gate) == "1") ||
+      (current_tab_grant && std::string(current_tab_grant) == "1");
+  if (!frame->IsMain() || !enabled) {
     return;
   }
 
@@ -255,9 +338,21 @@ bool SaccadeRendererApp::OnProcessMessageReceived(
     CefProcessId source_process,
     CefRefPtr<CefProcessMessage> message) {
   CEF_REQUIRE_RENDERER_THREAD();
-  if (source_process != PID_BROWSER || !frame->IsMain() ||
-      (message->GetName() != kStartMessage &&
-       message->GetName() != kRefreshMessage)) {
+  if (source_process != PID_BROWSER || !frame->IsMain()) {
+    return false;
+  }
+  if (message->GetName() == kFormRequestMessage) {
+    auto arguments = message->GetArgumentList();
+    if (!arguments || arguments->GetSize() != 3) {
+      return true;
+    }
+    RunFormCommand(frame, arguments->GetInt(0),
+                   arguments->GetString(1).ToString(),
+                   arguments->GetString(2).ToString());
+    return true;
+  }
+  if (message->GetName() != kStartMessage &&
+      message->GetName() != kRefreshMessage) {
     return false;
   }
   auto context = frame->GetV8Context();

@@ -18,6 +18,7 @@
 #include <utility>
 
 #include "include/base/cef_callback.h"
+#include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
@@ -33,10 +34,12 @@ std::string JsonString(CefRefPtr<CefValue> value) {
 
 CefRefPtr<CefListValue> CapabilityList() {
   auto list = CefListValue::Create();
-  const std::array<const char*, 11> capabilities = {
+  const std::array<const char*, 18> capabilities = {
       "ping",        "shell_status", "navigate",    "pause",
       "close",       "truth",        "actions",     "next_fact",
-      "act",         "next_receipt", "reflex_start"};
+      "act",         "next_receipt", "reflex_start", "form_inventory",
+      "inspect_fields", "form_compile_plan", "form_execute_plan",
+      "screenshot_policy", "screenshot_audit", "form_reveal_more"};
   list->SetSize(capabilities.size());
   for (size_t index = 0; index < capabilities.size(); ++index) {
     list->SetString(index, capabilities[index]);
@@ -144,7 +147,72 @@ uint64_t RequestRevision(CefRefPtr<CefDictionaryValue> params) {
   return 0;
 }
 
+bool ValidAssignments(CefRefPtr<CefDictionaryValue> params) {
+  if (!params || params->GetType("assignments") != VTYPE_DICTIONARY) {
+    return false;
+  }
+  auto assignments = params->GetDictionary("assignments");
+  CefDictionaryValue::KeyList keys;
+  if (!assignments || !assignments->GetKeys(keys) || keys.size() > 5000) {
+    return false;
+  }
+  for (const auto& key : keys) {
+    if (key.empty() || key.length() > 256) {
+      return false;
+    }
+    const cef_value_type_t type = assignments->GetType(key);
+    if (type != VTYPE_BOOL && type != VTYPE_INT && type != VTYPE_DOUBLE &&
+        type != VTYPE_STRING) {
+      return false;
+    }
+    if (type == VTYPE_STRING && assignments->GetString(key).length() > 16384) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool ValidInspectFields(CefRefPtr<CefDictionaryValue> params) {
+  if (!params || !params->HasKey("field_ids")) {
+    return true;
+  }
+  if (params->GetType("field_ids") != VTYPE_LIST) {
+    return false;
+  }
+  auto fields = params->GetList("field_ids");
+  if (!fields || fields->GetSize() > 500) {
+    return false;
+  }
+  for (size_t index = 0; index < fields->GetSize(); ++index) {
+    if (fields->GetType(index) != VTYPE_STRING ||
+        fields->GetString(index).empty() ||
+        fields->GetString(index).length() > 256) {
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
+
+class SaccadeScreenshotObserver : public CefDevToolsMessageObserver {
+ public:
+  explicit SaccadeScreenshotObserver(SaccadeAdapter* adapter)
+      : adapter_(adapter) {}
+
+  void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser,
+                              int message_id,
+                              bool success,
+                              const void* result,
+                              size_t result_size) override {
+    CEF_REQUIRE_UI_THREAD();
+    adapter_->OnScreenshotResult(message_id, success, result, result_size);
+  }
+
+ private:
+  SaccadeAdapter* const adapter_;
+  IMPLEMENT_REFCOUNTING(SaccadeScreenshotObserver);
+};
 
 SaccadeAdapter* SaccadeAdapter::GetInstance() {
   static SaccadeAdapter adapter;
@@ -190,14 +258,20 @@ void SaccadeAdapter::OnAddressChanged(CefRefPtr<CefBrowser> browser,
       actions_.clear();
       dispatched_actions_.clear();
       pending_receipts_.clear();
+      for (auto& [request_id, command] : form_commands_) {
+        if (!command.done) {
+          command.done = true;
+          command.ok = false;
+          command.error = "page changed while form command was pending";
+        }
+      }
       refresh_grant = started_;
     }
   }
+  form_cv_.notify_all();
   if (refresh_grant) {
     WriteGrant();
   }
-  auto refresh = CefProcessMessage::Create("saccade.collector.refresh_v1");
-  frame->SendProcessMessage(PID_RENDERER, refresh);
 }
 
 void SaccadeAdapter::OnTitleChanged(CefRefPtr<CefBrowser> browser,
@@ -206,6 +280,23 @@ void SaccadeAdapter::OnTitleChanged(CefRefPtr<CefBrowser> browser,
   std::lock_guard<std::mutex> lock(state_mutex_);
   if (browser_ && browser_->IsSame(browser)) {
     current_title_ = title.ToString();
+  }
+}
+
+void SaccadeAdapter::OnLoadCompleted(CefRefPtr<CefBrowser> browser) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefFrame> frame;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!browser_ || !browser_->IsSame(browser)) {
+      return;
+    }
+    frame = browser_->GetMainFrame();
+  }
+  if (frame) {
+    frame->SendProcessMessage(
+        PID_RENDERER,
+        CefProcessMessage::Create("saccade.collector.refresh_v1"));
   }
 }
 
@@ -230,12 +321,62 @@ bool SaccadeAdapter::OnRendererMessage(
     return true;
   }
 
+  if (name == "saccade.renderer.form_response_v1" &&
+      arguments->GetSize() == 3) {
+    const int request_id = arguments->GetInt(0);
+    const bool ok = arguments->GetBool(1);
+    const std::string payload = arguments->GetString(2).ToString();
+    bool refresh = false;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      auto pending = form_commands_.find(request_id);
+      if (pending == form_commands_.end() || pending->second.done) {
+        return true;
+      }
+      pending->second.done = true;
+      pending->second.ok = ok;
+      if (ok && payload.size() <= 1024 * 1024) {
+        pending->second.payload = payload;
+        if (pending->second.command == "execute" ||
+            pending->second.command == "reveal_more") {
+          auto parsed = CefParseJSON(payload, JSON_PARSER_RFC);
+          const char* counter = pending->second.command == "execute"
+                                    ? "write_attempted_count"
+                                    : "changed_scrollers";
+          if (parsed && parsed->GetType() == VTYPE_DICTIONARY &&
+              parsed->GetDictionary()->GetInt(counter) > 0) {
+            ++page_revision_;
+            refresh = true;
+          }
+        }
+      } else {
+        pending->second.ok = false;
+        pending->second.error = ok ? "renderer form response was too large"
+                                   : "fixed renderer form command failed";
+      }
+    }
+    form_cv_.notify_all();
+    if (refresh) {
+      frame->SendProcessMessage(
+          PID_RENDERER,
+          CefProcessMessage::Create("saccade.collector.refresh_v1"));
+    }
+    return true;
+  }
+
   if (name == "saccade.renderer.ready_v1" && arguments->GetSize() == 1) {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       collector_ready_ = true;
     }
     fact_cv_.notify_all();
+    return true;
+  }
+
+  if (name == "saccade.renderer.controls_reset_v1" &&
+      arguments->GetSize() == 1) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    controls_.clear();
     return true;
   }
 
@@ -353,7 +494,13 @@ void SaccadeAdapter::OnBrowserClosed(CefRefPtr<CefBrowser> browser) {
       return;
     }
     browser_ = nullptr;
+    if (screenshot_pending_) {
+      screenshot_done_ = true;
+      screenshot_ok_ = false;
+      screenshot_error_ = "browser closed during screenshot audit";
+    }
   }
+  screenshot_cv_.notify_all();
   Stop();
 }
 
@@ -371,6 +518,10 @@ void SaccadeAdapter::StartIfRequested() {
   }
   socket_path_ = socket_path;
   grant_path_ = grant_path;
+  const char* replay_path = getenv("SACCADE_ENGINE_REPLAY_PATH");
+  replay_path_ = replay_path && replay_path[0] != '\0'
+                     ? replay_path
+                     : grant_path_ + ".replay.jsonl";
   capability_ = RandomCapability();
   if (capability_.empty()) {
     return;
@@ -387,6 +538,8 @@ void SaccadeAdapter::Stop() {
   stopping_ = true;
   fact_cv_.notify_all();
   receipt_cv_.notify_all();
+  form_cv_.notify_all();
+  screenshot_cv_.notify_all();
   const int listener = listener_fd_.exchange(-1);
   if (listener >= 0) {
     shutdown(listener, SHUT_RDWR);
@@ -513,6 +666,33 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
   }
   if (method == "act") {
     return ActResponse(id, request->GetDictionary("params"));
+  }
+  if (method == "form_inventory") {
+    return FormCommandResponse(id, "inventory",
+                               request->GetDictionary("params"));
+  }
+  if (method == "inspect_fields") {
+    return FormCommandResponse(id, "inspect",
+                               request->GetDictionary("params"));
+  }
+  if (method == "form_compile_plan") {
+    return FormCommandResponse(id, "compile",
+                               request->GetDictionary("params"));
+  }
+  if (method == "form_execute_plan") {
+    return FormCommandResponse(id, "execute",
+                               request->GetDictionary("params"));
+  }
+  if (method == "form_reveal_more") {
+    return FormCommandResponse(id, "reveal_more",
+                               request->GetDictionary("params"));
+  }
+  if (method == "screenshot_policy") {
+    return FormCommandResponse(id, "screenshot_policy",
+                               request->GetDictionary("params"));
+  }
+  if (method == "screenshot_audit") {
+    return ScreenshotAuditResponse(id, request->GetDictionary("params"));
   }
   if (method == "reflex_start") {
     {
@@ -734,14 +914,209 @@ std::string SaccadeAdapter::ActResponse(
   return Response(id, result);
 }
 
+std::string SaccadeAdapter::FormCommandResponse(
+    int id,
+    const std::string& command,
+    CefRefPtr<CefDictionaryValue> params) {
+  if ((command == "compile" || command == "execute") &&
+      !ValidAssignments(params)) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "form command requires scalar assignments");
+  }
+  if (command == "inspect" && !ValidInspectFields(params)) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "inspect field_ids must be a bounded string list");
+  }
+  if (command == "execute") {
+    const std::string expected =
+        params ? params->GetString("expected_plan_id").ToString() : "";
+    if (expected.empty() || expected.size() > 128) {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "execute requires expected_plan_id");
+    }
+  }
+
+  const bool revision_required = command != "inventory";
+  const uint64_t basis_page_revision = RequestRevision(params);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (paused_) {
+      return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
+    }
+    if (!collector_ready_) {
+      return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                           "renderer collector is not ready");
+    }
+    if (revision_required &&
+        (basis_page_revision == 0 || basis_page_revision != page_revision_)) {
+      return ErrorResponse(id, "STALE_PAGE_REVISION",
+                           "form basis does not match current page");
+    }
+  }
+
+  auto input = CefValue::Create();
+  input->SetDictionary(params ? params->Copy(false)
+                              : CefDictionaryValue::Create());
+  const std::string input_json = JsonString(input);
+  const int request_id = next_form_request_id_.fetch_add(1);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    FormCommandState state;
+    state.command = command;
+    state.basis_page_revision = revision_required ? basis_page_revision
+                                                  : page_revision_;
+    form_commands_[request_id] = std::move(state);
+  }
+  CefPostTask(TID_UI,
+              base::BindOnce(&SaccadeAdapter::DispatchFormCommandOnUi,
+                             base::Unretained(this), request_id, command,
+                             input_json));
+
+  std::unique_lock<std::mutex> lock(state_mutex_);
+  if (!form_cv_.wait_for(lock, std::chrono::seconds(5), [this, request_id] {
+        const auto pending = form_commands_.find(request_id);
+        return stopping_ ||
+               (pending != form_commands_.end() && pending->second.done);
+      })) {
+    form_commands_.erase(request_id);
+    return ErrorResponse(id, "TIMEOUT", "renderer form command timed out");
+  }
+  auto pending = form_commands_.find(request_id);
+  if (pending == form_commands_.end()) {
+    return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                         "renderer form command disappeared");
+  }
+  FormCommandState state = std::move(pending->second);
+  form_commands_.erase(pending);
+  const uint64_t observed_revision = page_revision_;
+  lock.unlock();
+  if (!state.ok) {
+    return ErrorResponse(id, "FORM_COMMAND_FAILED",
+                         state.error.empty() ? "fixed form command failed"
+                                             : state.error);
+  }
+  auto parsed = CefParseJSON(state.payload, JSON_PARSER_RFC);
+  if (!parsed || parsed->GetType() != VTYPE_DICTIONARY) {
+    return ErrorResponse(id, "FORM_COMMAND_FAILED",
+                         "renderer returned invalid fixed form result");
+  }
+  auto result = parsed->GetDictionary();
+  result->SetDouble("basis_page_revision",
+                    static_cast<double>(state.basis_page_revision));
+  result->SetDouble("page_revision", static_cast<double>(observed_revision));
+  result->SetBool("sensitive_values_exposed", false);
+  AppendValueFreeReplay("form_" + command, result,
+                        state.basis_page_revision, observed_revision);
+  return Response(id, result);
+}
+
+std::string SaccadeAdapter::ScreenshotAuditResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  const std::string policy_response =
+      FormCommandResponse(id, "screenshot_policy", params);
+  auto parsed_policy = CefParseJSON(policy_response, JSON_PARSER_RFC);
+  if (!parsed_policy || parsed_policy->GetType() != VTYPE_DICTIONARY) {
+    return ErrorResponse(id, "SCREENSHOT_FAILED",
+                         "screenshot policy returned invalid data");
+  }
+  auto policy_root = parsed_policy->GetDictionary();
+  if (!policy_root->GetBool("ok")) {
+    return policy_response;
+  }
+  auto result = policy_root->GetDictionary("result");
+  if (!result || !result->GetBool("capture_allowed")) {
+    return policy_response;
+  }
+  const uint64_t basis_page_revision = RequestRevision(params);
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (screenshot_pending_) {
+      return ErrorResponse(id, "SCREENSHOT_BUSY",
+                           "another screenshot audit is pending");
+    }
+    screenshot_pending_ = true;
+    screenshot_done_ = false;
+    screenshot_ok_ = false;
+    screenshot_message_id_ = 0;
+    screenshot_error_.clear();
+    screenshot_bytes_.clear();
+  }
+  CefPostTask(TID_UI,
+              base::BindOnce(&SaccadeAdapter::CaptureScreenshotOnUi,
+                             base::Unretained(this)));
+
+  std::unique_lock<std::mutex> lock(state_mutex_);
+  if (!screenshot_cv_.wait_for(lock, std::chrono::seconds(10), [this] {
+        return stopping_ || screenshot_done_;
+      })) {
+    screenshot_pending_ = false;
+    screenshot_registration_ = nullptr;
+    return ErrorResponse(id, "TIMEOUT", "CEF screenshot audit timed out");
+  }
+  const bool ok = screenshot_ok_;
+  const std::string error = screenshot_error_;
+  const uint64_t observed_revision = page_revision_;
+  std::vector<unsigned char> bytes = std::move(screenshot_bytes_);
+  screenshot_pending_ = false;
+  screenshot_done_ = false;
+  lock.unlock();
+  if (!ok) {
+    return ErrorResponse(id, "SCREENSHOT_FAILED",
+                         error.empty() ? "CEF screenshot audit failed" : error);
+  }
+  if (basis_page_revision != observed_revision) {
+    return ErrorResponse(id, "STALE_PAGE_REVISION",
+                         "page changed during screenshot audit");
+  }
+  if (bytes.empty() || bytes.size() > 32 * 1024 * 1024) {
+    return ErrorResponse(id, "SCREENSHOT_FAILED",
+                         "CEF returned an invalid screenshot size");
+  }
+
+  const std::string screenshot_path = replay_path_ + ".audit.png";
+  const int fd = open(screenshot_path.c_str(),
+                      O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+  if (fd < 0) {
+    return ErrorResponse(id, "SCREENSHOT_FAILED",
+                         "could not create owner-only screenshot artifact");
+  }
+  fchmod(fd, 0600);
+  size_t written = 0;
+  while (written < bytes.size()) {
+    const ssize_t count =
+        write(fd, bytes.data() + written, bytes.size() - written);
+    if (count < 0 && errno == EINTR) {
+      continue;
+    }
+    if (count <= 0) {
+      break;
+    }
+    written += static_cast<size_t>(count);
+  }
+  const bool saved = written == bytes.size() && fsync(fd) == 0;
+  close(fd);
+  if (!saved) {
+    unlink(screenshot_path.c_str());
+    return ErrorResponse(id, "SCREENSHOT_FAILED",
+                         "owner-only screenshot artifact was incomplete");
+  }
+  result->SetString("screenshot_path", screenshot_path);
+  result->SetInt("screenshot_bytes", static_cast<int>(bytes.size()));
+  result->SetString("capture_backend", "cef_page_capture_audit");
+  result->SetBool("truth_route_used", false);
+  AppendValueFreeReplay("screenshot_saved", result,
+                        basis_page_revision, observed_revision);
+  return Response(id, result);
+}
+
 void SaccadeAdapter::NavigateOnUi(std::string url) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     browser = browser_;
-    current_url_ = url;
-    ++page_revision_;
   }
   if (browser && browser->GetMainFrame()) {
     browser->GetMainFrame()->LoadURL(url);
@@ -759,6 +1134,118 @@ void SaccadeAdapter::StartReflexOnUi() {
     auto message = CefProcessMessage::Create("saccade.reflex.start_v1");
     browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
   }
+}
+
+void SaccadeAdapter::DispatchFormCommandOnUi(int request_id,
+                                             std::string command,
+                                             std::string input_json) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    browser = browser_;
+  }
+  if (!browser || !browser->GetMainFrame()) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    auto pending = form_commands_.find(request_id);
+    if (pending != form_commands_.end()) {
+      pending->second.done = true;
+      pending->second.ok = false;
+      pending->second.error = "browser closed before form command";
+    }
+    form_cv_.notify_all();
+    return;
+  }
+  auto message = CefProcessMessage::Create("saccade.form.request_v1");
+  auto arguments = message->GetArgumentList();
+  arguments->SetInt(0, request_id);
+  arguments->SetString(1, command);
+  arguments->SetString(2, input_json);
+  browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
+}
+
+void SaccadeAdapter::CaptureScreenshotOnUi() {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    browser = browser_;
+  }
+  if (!browser) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    screenshot_done_ = true;
+    screenshot_ok_ = false;
+    screenshot_error_ = "browser closed before screenshot audit";
+    screenshot_cv_.notify_all();
+    return;
+  }
+  auto host = browser->GetHost();
+  auto observer =
+      CefRefPtr<SaccadeScreenshotObserver>(new SaccadeScreenshotObserver(this));
+  auto registration = host->AddDevToolsMessageObserver(observer);
+  auto params = CefDictionaryValue::Create();
+  params->SetString("format", "png");
+  params->SetBool("fromSurface", true);
+  params->SetBool("captureBeyondViewport", false);
+  const int message_id =
+      host->ExecuteDevToolsMethod(0, "Page.captureScreenshot", params);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    screenshot_registration_ = registration;
+    screenshot_message_id_ = message_id;
+    if (!registration || message_id == 0) {
+      screenshot_done_ = true;
+      screenshot_ok_ = false;
+      screenshot_error_ = "CEF rejected Page.captureScreenshot";
+      screenshot_registration_ = nullptr;
+    }
+  }
+  if (!registration || message_id == 0) {
+    screenshot_cv_.notify_all();
+  }
+}
+
+void SaccadeAdapter::OnScreenshotResult(int message_id,
+                                        bool success,
+                                        const void* result,
+                                        size_t result_size) {
+  CEF_REQUIRE_UI_THREAD();
+  std::vector<unsigned char> decoded;
+  std::string error;
+  if (!success || !result || result_size == 0 || result_size > 48 * 1024 * 1024) {
+    error = "CEF screenshot method returned an error";
+  } else {
+    const std::string json(static_cast<const char*>(result), result_size);
+    auto parsed = CefParseJSON(json, JSON_PARSER_RFC);
+    auto dictionary = parsed && parsed->GetType() == VTYPE_DICTIONARY
+                          ? parsed->GetDictionary()
+                          : nullptr;
+    const CefString encoded = dictionary ? dictionary->GetString("data") : "";
+    auto binary = encoded.empty() ? nullptr : CefBase64Decode(encoded);
+    const size_t size = binary ? binary->GetSize() : 0;
+    if (!binary || size == 0 || size > 32 * 1024 * 1024) {
+      error = "CEF screenshot payload was invalid";
+    } else {
+      decoded.resize(size);
+      if (binary->GetData(decoded.data(), size, 0) != size) {
+        decoded.clear();
+        error = "CEF screenshot payload was truncated";
+      }
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!screenshot_pending_ || message_id != screenshot_message_id_) {
+      return;
+    }
+    screenshot_done_ = true;
+    screenshot_ok_ = error.empty();
+    screenshot_error_ = error;
+    screenshot_bytes_ = std::move(decoded);
+    screenshot_registration_ = nullptr;
+  }
+  screenshot_cv_.notify_all();
 }
 
 void SaccadeAdapter::DispatchPointerOnUi(int x, int y) {
@@ -828,6 +1315,10 @@ bool SaccadeAdapter::WriteGrant() {
   grant->SetDictionary("engine_adapter", adapter);
   grant->SetDictionary("control_endpoint", endpoint);
   grant->SetDictionary("control_capability", session_capability);
+  auto artifacts = CefDictionaryValue::Create();
+  artifacts->SetString("replay", replay_path_);
+  artifacts->SetBool("values_logged", false);
+  grant->SetDictionary("artifacts", artifacts);
 
   auto value = CefValue::Create();
   value->SetDictionary(grant);
@@ -846,4 +1337,54 @@ bool SaccadeAdapter::WriteGrant() {
     return false;
   }
   return true;
+}
+
+void SaccadeAdapter::AppendValueFreeReplay(
+    const std::string& event,
+    CefRefPtr<CefDictionaryValue> result,
+    uint64_t basis_page_revision,
+    uint64_t observed_page_revision) {
+  if (replay_path_.empty() || !result) {
+    return;
+  }
+  auto record = CefDictionaryValue::Create();
+  record->SetString("schema", "saccade-cef-value-free-replay-v1");
+  record->SetString("event", event);
+  record->SetString("status", "ok");
+  record->SetDouble("basis_page_revision",
+                    static_cast<double>(basis_page_revision));
+  record->SetDouble("page_revision", static_cast<double>(observed_page_revision));
+  record->SetBool("values_logged", false);
+  for (const char* key : {"field_count", "eligible_count", "sensitive_count",
+                          "existing_value_count", "write_attempted_count",
+                          "changed_scrollers"}) {
+    if (result->HasKey(key) && result->GetType(key) == VTYPE_INT) {
+      record->SetInt(key, result->GetInt(key));
+    }
+  }
+  for (const char* key : {"fields", "eligible", "rejected", "filled",
+                          "preserved", "failed"}) {
+    if (result->GetType(key) == VTYPE_LIST) {
+      record->SetInt(std::string(key) + "_count",
+                     static_cast<int>(result->GetList(key)->GetSize()));
+    }
+  }
+  if (result->HasKey("capture_allowed")) {
+    record->SetBool("capture_allowed", result->GetBool("capture_allowed"));
+    record->SetString("reason", result->GetString("reason"));
+  }
+  auto value = CefValue::Create();
+  value->SetDictionary(record);
+  const std::string line = JsonString(value) + "\n";
+
+  std::lock_guard<std::mutex> lock(replay_mutex_);
+  const int fd = open(replay_path_.c_str(),
+                      O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+  if (fd < 0) {
+    return;
+  }
+  fchmod(fd, 0600);
+  WriteAll(fd, line);
+  fsync(fd);
+  close(fd);
 }

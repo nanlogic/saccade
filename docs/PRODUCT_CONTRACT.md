@@ -92,6 +92,8 @@ same visible tab
 ```
 
 Current CEF evidence covers visible top-frame button, link, and DOM-target
-pointer reflex. Keyboard/form safety, complete human-agent form parity,
-guarded screenshots, cross-frame facts, and replay remain migration gates and
-must not be inferred from the pointer result.
+pointer reflex; structured ordinary form/table fill; non-sensitive same-tab
+inspection; sensitive completion-only truth; guarded screenshot audit; and
+value-free replay. See `docs/cef_day4_forms_safety_report.md`. Cross-origin
+frame enumeration, PDF forms, and broader custom-control/public-site coverage
+remain measured gates and must not be inferred from these local results.
