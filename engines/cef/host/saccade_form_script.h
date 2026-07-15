@@ -303,6 +303,41 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       values_logged: false};
   };
 
+  const articleText = () => {
+    const root = document.querySelector(
+        'article, main, [role="main"]') || document.body;
+    let value = String(root ? (root.innerText || root.textContent || '') : '');
+    for (const el of controls()) {
+      const fieldLabel = label(el);
+      if (sensitivity(el, fieldLabel.text) === 'none') continue;
+      const protectedValue = String(internalValue(el, typeOf(el)) || '');
+      if (protectedValue.length >= 3) {
+        value = value.split(protectedValue).join('[redacted]');
+      }
+    }
+    value = value
+      .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[redacted]')
+      .replace(/\b(?:\d[ -]*?){13,19}\b/g, '[redacted]')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+      .slice(0, 250000);
+    const headings = Array.from((root || document).querySelectorAll(
+        'h1, h2, h3'))
+      .map(node => text(node.innerText || node.textContent, 240))
+      .filter(Boolean)
+      .slice(0, 100);
+    return {
+      title: text(document.title, 500),
+      text: value,
+      article_text_length: value.length,
+      headings,
+      truncated: value.length === 250000,
+      sensitive_values_exposed: false,
+      values_logged: false
+    };
+  };
+
   let result;
   if (command === 'inventory') result = inventory();
   else if (command === 'inspect') result = inspect();
@@ -333,7 +368,9 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       scope: 'local_fixture_only',
       sensitive_count: snapshot.sensitive_count,
       values_logged: false};
-  } else throw new Error('unsupported fixed form command');
+  }
+  else if (command === 'article_text') result = articleText();
+  else throw new Error('unsupported fixed form command');
   return JSON.stringify(result);
 }
 )SACCADE_FORM_JS";

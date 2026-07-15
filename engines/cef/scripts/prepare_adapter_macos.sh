@@ -41,3 +41,12 @@ fi
 if ! grep -q 'OnLoadingStateChange' "$SIMPLE_ROOT/simple_handler.h"; then
   patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0010-load-complete-adapter.patch"
 fi
+if ! grep -q 'OnGotFocus' "$SIMPLE_ROOT/simple_handler.h"; then
+  patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0011-visible-tab-focus.patch"
+fi
+if ! grep -q 'kAgentButtonId' "$SIMPLE_ROOT/simple_app.cc"; then
+  patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0012-trusted-strip.patch"
+fi
+if ! grep -q 'settings.root_cache_path' "$SIMPLE_ROOT/cefsimple_mac.mm"; then
+  patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0013-profile-root-cache.patch"
+fi

@@ -72,7 +72,10 @@ class EngineControl:
             "capability": self.capability,
         }
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
-            stream.settimeout(7.0)
+            # Screenshot audit has a bounded 10 second server-side deadline.
+            # Keep the client deadline longer so typed server errors are not
+            # collapsed into an unhelpful socket timeout.
+            stream.settimeout(12.0)
             stream.connect(str(self.socket_path))
             stream.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
             response_bytes = b""

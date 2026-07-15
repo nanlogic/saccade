@@ -34,12 +34,13 @@ std::string JsonString(CefRefPtr<CefValue> value) {
 
 CefRefPtr<CefListValue> CapabilityList() {
   auto list = CefListValue::Create();
-  const std::array<const char*, 18> capabilities = {
+  const std::array<const char*, 19> capabilities = {
       "ping",        "shell_status", "navigate",    "pause",
       "close",       "truth",        "actions",     "next_fact",
       "act",         "next_receipt", "reflex_start", "form_inventory",
       "inspect_fields", "form_compile_plan", "form_execute_plan",
-      "screenshot_policy", "screenshot_audit", "form_reveal_more"};
+      "screenshot_policy", "screenshot_audit", "form_reveal_more",
+      "article_text"};
   list->SetSize(capabilities.size());
   for (size_t index = 0; index < capabilities.size(); ++index) {
     list->SetString(index, capabilities[index]);
@@ -227,15 +228,47 @@ void SaccadeAdapter::OnBrowserCreated(CefRefPtr<CefBrowser> browser) {
   CEF_REQUIRE_UI_THREAD();
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (browser_) {
+    browsers_[browser->GetIdentifier()] = browser;
+    if (!browser_) {
+      browser_ = browser;
+      if (browser->GetMainFrame()) {
+        current_url_ = browser->GetMainFrame()->GetURL().ToString();
+      }
+    }
+  }
+  ConfigureIfRequested();
+}
+
+void SaccadeAdapter::OnBrowserFocused(CefRefPtr<CefBrowser> browser) {
+  CEF_REQUIRE_UI_THREAD();
+  bool refresh_grant = false;
+  CefRefPtr<CefFrame> frame;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!browser || browsers_.find(browser->GetIdentifier()) == browsers_.end() ||
+        (browser_ && browser_->IsSame(browser))) {
       return;
     }
     browser_ = browser;
-    if (browser->GetMainFrame()) {
-      current_url_ = browser->GetMainFrame()->GetURL().ToString();
-    }
+    frame = browser->GetMainFrame();
+    current_url_ = frame ? frame->GetURL().ToString() : "";
+    current_title_.clear();
+    ++page_revision_;
+    ResetPageStateLocked("visible tab changed while command was pending");
+    refresh_grant = started_;
   }
-  StartIfRequested();
+  fact_cv_.notify_all();
+  receipt_cv_.notify_all();
+  form_cv_.notify_all();
+  screenshot_cv_.notify_all();
+  if (refresh_grant) {
+    WriteGrant();
+  }
+  if (frame) {
+    frame->SendProcessMessage(
+        PID_RENDERER,
+        CefProcessMessage::Create("saccade.collector.refresh_v1"));
+  }
 }
 
 void SaccadeAdapter::OnAddressChanged(CefRefPtr<CefBrowser> browser,
@@ -251,20 +284,7 @@ void SaccadeAdapter::OnAddressChanged(CefRefPtr<CefBrowser> browser,
     if (browser_ && browser_->IsSame(browser)) {
       current_url_ = url.ToString();
       ++page_revision_;
-      collector_ready_ = false;
-      collector_error_.clear();
-      controls_.clear();
-      pending_facts_.clear();
-      actions_.clear();
-      dispatched_actions_.clear();
-      pending_receipts_.clear();
-      for (auto& [request_id, command] : form_commands_) {
-        if (!command.done) {
-          command.done = true;
-          command.ok = false;
-          command.error = "page changed while form command was pending";
-        }
-      }
+      ResetPageStateLocked("page changed while form command was pending");
       refresh_grant = started_;
     }
   }
@@ -346,6 +366,8 @@ bool SaccadeAdapter::OnRendererMessage(
           if (parsed && parsed->GetType() == VTYPE_DICTIONARY &&
               parsed->GetDictionary()->GetInt(counter) > 0) {
             ++page_revision_;
+            ResetPageStateLocked(
+                "page changed while form command was pending");
             refresh = true;
           }
         }
@@ -488,47 +510,111 @@ bool SaccadeAdapter::OnRendererMessage(
 
 void SaccadeAdapter::OnBrowserClosed(CefRefPtr<CefBrowser> browser) {
   CEF_REQUIRE_UI_THREAD();
+  bool stop = false;
+  bool refresh_grant = false;
+  CefRefPtr<CefFrame> next_frame;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!browser_ || !browser_->IsSame(browser)) {
-      return;
+    browsers_.erase(browser->GetIdentifier());
+    if (browser_ && browser_->IsSame(browser)) {
+      browser_ = browsers_.empty() ? nullptr : browsers_.begin()->second;
+      next_frame = browser_ ? browser_->GetMainFrame() : nullptr;
+      current_url_ = next_frame ? next_frame->GetURL().ToString() : "";
+      current_title_.clear();
+      ++page_revision_;
+      ResetPageStateLocked("visible tab closed while command was pending");
+      refresh_grant = started_ && browser_;
     }
-    browser_ = nullptr;
-    if (screenshot_pending_) {
-      screenshot_done_ = true;
-      screenshot_ok_ = false;
-      screenshot_error_ = "browser closed during screenshot audit";
-    }
+    stop = browsers_.empty();
   }
+  fact_cv_.notify_all();
+  receipt_cv_.notify_all();
+  form_cv_.notify_all();
   screenshot_cv_.notify_all();
-  Stop();
+  if (refresh_grant) {
+    WriteGrant();
+  }
+  if (next_frame) {
+    next_frame->SendProcessMessage(
+        PID_RENDERER,
+        CefProcessMessage::Create("saccade.collector.refresh_v1"));
+  }
+  if (stop) {
+    Stop();
+  }
 }
 
-void SaccadeAdapter::StartIfRequested() {
+void SaccadeAdapter::ConfigureIfRequested() {
   const char* socket_path = getenv("SACCADE_ENGINE_SOCKET");
   const char* grant_path = getenv("SACCADE_ENGINE_GRANT_PATH");
-  const char* granted = getenv("SACCADE_ENGINE_GRANT_CURRENT_TAB");
-  if (!socket_path || !grant_path || !granted || std::string(granted) != "1") {
+  if (!socket_path || !grant_path) {
     return;
   }
+  bool auto_grant = false;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!configured_) {
+      socket_path_ = socket_path;
+      grant_path_ = grant_path;
+      const char* replay_path = getenv("SACCADE_ENGINE_REPLAY_PATH");
+      replay_path_ = replay_path && replay_path[0] != '\0'
+                         ? replay_path
+                         : grant_path_ + ".replay.jsonl";
+      configured_ = true;
+    }
+    const char* granted = getenv("SACCADE_ENGINE_GRANT_CURRENT_TAB");
+    auto_grant = granted && std::string(granted) == "1";
+  }
+  if (auto_grant) {
+    StartBridge();
+  }
+}
 
+void SaccadeAdapter::StartBridge() {
   std::lock_guard<std::mutex> lock(state_mutex_);
-  if (started_) {
+  if (!configured_ || started_ || !browser_) {
     return;
   }
-  socket_path_ = socket_path;
-  grant_path_ = grant_path;
-  const char* replay_path = getenv("SACCADE_ENGINE_REPLAY_PATH");
-  replay_path_ = replay_path && replay_path[0] != '\0'
-                     ? replay_path
-                     : grant_path_ + ".replay.jsonl";
   capability_ = RandomCapability();
-  if (capability_.empty()) {
-    return;
+  if (!capability_.empty()) {
+    paused_ = false;
+    started_ = true;
+    stopping_ = false;
+    server_thread_ = std::thread(&SaccadeAdapter::Serve, this);
   }
-  started_ = true;
-  stopping_ = false;
-  server_thread_ = std::thread(&SaccadeAdapter::Serve, this);
+}
+
+SaccadeAdapter::AgentUiState SaccadeAdapter::ToggleAgentForVisibleTab() {
+  CEF_REQUIRE_UI_THREAD();
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!configured_ || !browser_) {
+      return AgentUiState::kUnavailable;
+    }
+    if (started_) {
+      paused_ = !paused_;
+      return paused_ ? AgentUiState::kPaused : AgentUiState::kOn;
+    }
+  }
+  StartBridge();
+  return GetAgentUiState();
+}
+
+SaccadeAdapter::AgentUiState SaccadeAdapter::GetAgentUiState() {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (!configured_) {
+    return getenv("SACCADE_ENGINE_SOCKET") &&
+                   getenv("SACCADE_ENGINE_GRANT_PATH")
+               ? AgentUiState::kOff
+               : AgentUiState::kUnavailable;
+  }
+  if (!browser_) {
+    return AgentUiState::kUnavailable;
+  }
+  if (!started_) {
+    return AgentUiState::kOff;
+  }
+  return paused_ ? AgentUiState::kPaused : AgentUiState::kOn;
 }
 
 void SaccadeAdapter::Stop() {
@@ -694,6 +780,10 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
   if (method == "screenshot_audit") {
     return ScreenshotAuditResponse(id, request->GetDictionary("params"));
   }
+  if (method == "article_text") {
+    return FormCommandResponse(id, "article_text",
+                               request->GetDictionary("params"));
+  }
   if (method == "reflex_start") {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
@@ -767,7 +857,7 @@ std::string SaccadeAdapter::StatusJson() {
   result->SetBool("paused", paused_);
   result->SetBool("collector_ready", collector_ready_);
   result->SetString("collector_error", collector_error_);
-  result->SetString("tab_identity", "visible-primary");
+  result->SetString("tab_identity", CurrentTabIdLocked());
   auto value = CefValue::Create();
   value->SetDictionary(result);
   return JsonString(value);
@@ -777,7 +867,7 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::TruthResult() {
   auto result = CefDictionaryValue::Create();
   auto fields = CefListValue::Create();
   std::lock_guard<std::mutex> lock(state_mutex_);
-  result->SetString("tab_id", "visible-primary");
+  result->SetString("tab_id", CurrentTabIdLocked());
   result->SetString("url", current_url_);
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
   result->SetBool("collector_ready", collector_ready_);
@@ -800,7 +890,7 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::ActionsResult() {
   auto result = CefDictionaryValue::Create();
   auto actions = CefListValue::Create();
   std::lock_guard<std::mutex> lock(state_mutex_);
-  result->SetString("tab_id", "visible-primary");
+  result->SetString("tab_id", CurrentTabIdLocked());
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
   actions->SetSize(actions_.size());
   size_t index = 0;
@@ -1191,18 +1281,22 @@ void SaccadeAdapter::CaptureScreenshotOnUi() {
       host->ExecuteDevToolsMethod(0, "Page.captureScreenshot", params);
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    screenshot_registration_ = registration;
-    screenshot_message_id_ = message_id;
     if (!registration || message_id == 0) {
       screenshot_done_ = true;
       screenshot_ok_ = false;
       screenshot_error_ = "CEF rejected Page.captureScreenshot";
       screenshot_registration_ = nullptr;
+    } else if (screenshot_message_id_ == 0) {
+      screenshot_registration_ = registration;
+      screenshot_message_id_ = message_id;
+    } else if (screenshot_message_id_ != message_id) {
+      screenshot_done_ = true;
+      screenshot_ok_ = false;
+      screenshot_error_ = "CEF returned an unexpected screenshot request id";
+      screenshot_registration_ = nullptr;
     }
   }
-  if (!registration || message_id == 0) {
-    screenshot_cv_.notify_all();
-  }
+  screenshot_cv_.notify_all();
 }
 
 void SaccadeAdapter::OnScreenshotResult(int message_id,
@@ -1236,9 +1330,12 @@ void SaccadeAdapter::OnScreenshotResult(int message_id,
 
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!screenshot_pending_ || message_id != screenshot_message_id_) {
+    if (!screenshot_pending_ ||
+        (screenshot_message_id_ != 0 &&
+         message_id != screenshot_message_id_)) {
       return;
     }
+    screenshot_message_id_ = message_id;
     screenshot_done_ = true;
     screenshot_ok_ = error.empty();
     screenshot_error_ = error;
@@ -1311,6 +1408,7 @@ bool SaccadeAdapter::WriteGrant() {
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     grant->SetString("url", current_url_);
+    grant->SetString("tab_id", CurrentTabIdLocked());
   }
   grant->SetDictionary("engine_adapter", adapter);
   grant->SetDictionary("control_endpoint", endpoint);
@@ -1337,6 +1435,32 @@ bool SaccadeAdapter::WriteGrant() {
     return false;
   }
   return true;
+}
+
+void SaccadeAdapter::ResetPageStateLocked(const std::string& reason) {
+  collector_ready_ = false;
+  collector_error_.clear();
+  controls_.clear();
+  pending_facts_.clear();
+  actions_.clear();
+  dispatched_actions_.clear();
+  pending_receipts_.clear();
+  for (auto& [request_id, command] : form_commands_) {
+    if (!command.done) {
+      command.done = true;
+      command.ok = false;
+      command.error = reason;
+    }
+  }
+  if (screenshot_pending_) {
+    screenshot_done_ = true;
+    screenshot_ok_ = false;
+    screenshot_error_ = reason;
+  }
+}
+
+std::string SaccadeAdapter::CurrentTabIdLocked() const {
+  return browser_ ? "cef:" + std::to_string(browser_->GetIdentifier()) : "";
 }
 
 void SaccadeAdapter::AppendValueFreeReplay(

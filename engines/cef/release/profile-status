@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+NAME=${SACCADE_PROFILE_NAME:-default}
+case "$NAME" in
+  *[!A-Za-z0-9_-]*|'') echo "Invalid SACCADE_PROFILE_NAME." >&2; exit 2 ;;
+esac
+PROFILE="$HOME/Library/Application Support/Saccade/CEF/Profiles/$NAME"
+if [ -d "$PROFILE" ]; then
+  BYTES=$(du -sk "$PROFILE" | awk '{print $1 * 1024}')
+  printf 'mode=normal\nname=%s\npersistent=true\nexists=true\nbytes=%s\n' "$NAME" "$BYTES"
+else
+  printf 'mode=normal\nname=%s\npersistent=true\nexists=false\nbytes=0\n' "$NAME"
+fi
+printf 'cookies_exposed_to_agent=false\nstorage_exposed_to_agent=false\n'

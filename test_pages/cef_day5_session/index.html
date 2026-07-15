@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saccade Day 5 Session</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 48px; max-width: 720px; }
+    label, input, a { display: block; margin-top: 18px; }
+    input { box-sizing: border-box; padding: 10px; width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Session recovery fixture</h1>
+  <label for="persisted-note">Persistent ordinary note</label>
+  <input id="persisted-note" name="persisted-note" autocomplete="off">
+  <a id="open-child" href="child.html" target="_blank">Open recovery tab</a>
+  <script>
+    const input = document.querySelector('#persisted-note');
+    input.value = localStorage.getItem('saccade-day5-note') || '';
+    input.addEventListener('input', () => {
+      localStorage.setItem('saccade-day5-note', input.value);
+    });
+  </script>
+</body>
+</html>

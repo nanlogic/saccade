@@ -186,8 +186,13 @@ cross-tab/stale/forged requests fail closed; reports contain no sentinels.
 
 ### Day 5: Human browser and dogfood release
 
-- Add a small native toolbar: back, forward, reload/stop, address, profile,
-  trusted Agent grant/status, tabs, and clear error/recovery state.
+Status: engineering gate complete on 2026-07-15; stable signed-profile login
+restart and the currently offline local-game action rerun remain final human/
+external acceptance. See `docs/cef_day5_dogfood_release_report.md`.
+
+- Preserve CEF Chrome Runtime's native toolbar, tabs, address field, and browser
+  recovery behavior. Add only a thin native profile and trusted Agent
+  grant/status strip so Saccade does not replace mature Chromium browser UI.
 - Run the local game reflex, original MouseAccuracy, FORMMAX, public reading,
   GitHub/Gist read and harmless draft, profile restart, and tab-close recovery.
 - Package one local macOS release with license inventory and rerun commands.

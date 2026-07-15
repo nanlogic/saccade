@@ -1,0 +1,49 @@
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -8,11 +8,13 @@
+ #include <list>
+ 
+ #include "include/cef_client.h"
++#include "include/cef_focus_handler.h"
+ 
+ class SimpleHandler : public CefClient,
+                       public CefDisplayHandler,
+                       public CefLifeSpanHandler,
+-                      public CefLoadHandler {
++                      public CefLoadHandler,
++                      public CefFocusHandler {
+  public:
+   explicit SimpleHandler(bool is_alloy_style);
+   ~SimpleHandler() override;
+@@ -24,6 +26,7 @@
+   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
++  CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
+                                 CefRefPtr<CefFrame> frame,
+                                 CefProcessId source_process,
+@@ -53,6 +56,9 @@
+                    const CefString& errorText,
+                    const CefString& failedUrl) override;
+ 
++  // CefFocusHandler methods:
++  void OnGotFocus(CefRefPtr<CefBrowser> browser) override;
++
+   void ShowMainWindow();
+ 
+   // Request that all existing browser windows close.
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -161,6 +161,11 @@
+   frame->LoadURL(GetDataURI(ss.str(), "text/html"));
+ }
+ 
++void SimpleHandler::OnGotFocus(CefRefPtr<CefBrowser> browser) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnBrowserFocused(browser);
++}
++
+ void SimpleHandler::ShowMainWindow() {
+   if (!CefCurrentlyOn(TID_UI)) {
+     // Execute on the UI thread.

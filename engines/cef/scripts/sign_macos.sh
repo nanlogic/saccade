@@ -23,7 +23,11 @@ fi
 }
 
 sign_path() {
-  codesign --force --sign "$IDENTITY" --timestamp "$1"
+  if [ "${SACCADE_CODESIGN_TIMESTAMP:-apple}" = none ]; then
+    codesign --force --sign "$IDENTITY" --timestamp=none "$1"
+  else
+    codesign --force --sign "$IDENTITY" --timestamp "$1"
+  fi
 }
 
 FRAMEWORK="$APP/Contents/Frameworks/Chromium Embedded Framework.framework"

@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+CURRENT="$HOME/Library/Application Support/Saccade/CEF/Agent/current-grant-path"
+[ -f "$CURRENT" ] || {
+  echo "No running Saccade agent session." >&2
+  exit 1
+}
+GRANT=$(cat "$CURRENT")
+case "$GRANT" in
+  "$HOME/Library/Application Support/Saccade/CEF/Agent/"*/grant.json) ;;
+  *) echo "Invalid Saccade agent session pointer." >&2; exit 2 ;;
+esac
+[ -f "$GRANT" ] || {
+  echo "Saccade is open. Click Agent Off in the visible browser to grant this tab." >&2
+  exit 3
+}
+printf '%s\n' "$GRANT"

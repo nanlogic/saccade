@@ -2157,3 +2157,36 @@
   hidden same-page controls, and replay remain Day 4 work.
 - Evidence: `docs/cef_mouseaccuracy_live_report.md` and
   `runs/cef_mouseaccuracy_live/live_20260715-085447/report.json`.
+
+## DECISION_ENGINE_061 - Keep Chromium browser UI and add a bounded Saccade trust strip
+
+- CEF Chrome Runtime already owns mature tabs, address editing, navigation,
+  menus, focus, and browser recovery. Saccade does not replace that surface
+  with a second custom toolbar.
+- A small native overlay exposes only profile mode/name and Agent Off/On/Paused.
+  Clicking it grants or pauses the currently focused tab; bearer capabilities,
+  socket paths, cookies, and browser storage are never displayed.
+- Each CEF browser receives a stable `cef:<browser_id>` identity. Focus follows
+  the visible tab, a child tab gets a distinct grant basis, and closing it
+  recovers the remaining tab without stopping the adapter.
+- A first sibling-view implementation interfered with CEF page screenshot
+  completion. The final strip uses `CefWindow::AddOverlayView`, preserving the
+  BrowserView as the sole main child and restoring the guarded screenshot gate.
+- Evidence: `docs/cef_day5_dogfood_release_report.md` and
+  `runs/cef_day5/session_consistency_1/report.json` through `_3/report.json`.
+
+## DECISION_ENGINE_062 - Use official CEF profile roots and fixed readers
+
+- The selected normal profile is assigned to both CEF `root_cache_path` and
+  `cache_path`; session cookies persist, while incognito uses a disposable root.
+- Saved profiles require the fixed `ai.saccade.browser` Developer ID signature.
+  Ad-hoc debug builds are rejected before they can touch login-bearing profile
+  state and trigger repeated Keychain prompts. Test-only mock Keychain remains
+  excluded from product runs.
+- The bridge adds a fixed `article_text` reader instead of arbitrary script
+  execution. It returns bounded visible article/main/body text and headings,
+  removes sensitive control values, redacts SSN/card patterns, and does not log
+  the returned body in evidence.
+- Evidence: `docs/cef_day5_dogfood_release_report.md`,
+  `runs/cef_day5/public_article/report.json`, and
+  `runs/cef_day5/form_safety_article2/report.json`.

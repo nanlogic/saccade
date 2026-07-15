@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+APP="$ROOT/Saccade.app"
+EXE="$APP/Contents/MacOS/cefsimple"
+VERSION="$ROOT/VERSION.json"
+MODE=${SACCADE_PROFILE_MODE:-normal}
+URL=${1:-https://example.com}
+NAME=${SACCADE_PROFILE_NAME:-default}
+
+[ -x "$EXE" ] || { echo "Saccade.app is missing from this release." >&2; exit 1; }
+[ -f "$VERSION" ] || { echo "VERSION.json is missing from this release." >&2; exit 1; }
+EXPECTED_TEAM=$(sed -n 's/.*"codesign_team": "\([A-Z0-9][A-Z0-9]*\)".*/\1/p' "$VERSION")
+SIGNATURE=$(codesign -dvv "$APP" 2>&1 || true)
+echo "$SIGNATURE" | grep -q '^Identifier=ai.saccade.browser$' &&
+  echo "$SIGNATURE" | grep -q '^Authority=Developer ID Application:' &&
+  [ -n "$EXPECTED_TEAM" ] &&
+  echo "$SIGNATURE" | grep -q "^TeamIdentifier=$EXPECTED_TEAM\$" || {
+    echo "This Saccade.app is not signed with the expected release identity." >&2
+    exit 3
+  }
+case "$NAME" in
+  *[!A-Za-z0-9_-]*|'') echo "Invalid SACCADE_PROFILE_NAME." >&2; exit 2 ;;
+esac
+case "$MODE" in normal|incognito) ;; *) echo "Use normal or incognito mode." >&2; exit 2 ;; esac
+
+umask 077
+SUPPORT="$HOME/Library/Application Support/Saccade/CEF"
+AGENT_ROOT="$SUPPORT/Agent"
+mkdir -p "$AGENT_ROOT"
+chmod 700 "$SUPPORT" "$AGENT_ROOT"
+SESSION=$(mktemp -d "$AGENT_ROOT/session.XXXXXX")
+CURRENT="$AGENT_ROOT/current-grant-path"
+GRANT="$SESSION/grant.json"
+printf '%s\n' "$GRANT" > "$CURRENT.tmp"
+chmod 600 "$CURRENT.tmp"
+mv -f "$CURRENT.tmp" "$CURRENT"
+
+export SACCADE_ENGINE_SOCKET="$SESSION/control.sock"
+export SACCADE_ENGINE_GRANT_PATH="$GRANT"
+export SACCADE_ENGINE_GRANT_CURRENT_TAB=0
+export SACCADE_PROFILE_MODE="$MODE"
+export SACCADE_PROFILE_NAME="$NAME"
+
+cleanup() {
+  if [ -f "$CURRENT" ] && [ "$(cat "$CURRENT")" = "$GRANT" ]; then
+    rm -f "$CURRENT"
+  fi
+  rm -rf "$SESSION"
+}
+trap cleanup EXIT HUP INT TERM
+
+if [ "$MODE" = normal ]; then
+  PROFILE="$SUPPORT/Profiles/$NAME"
+  mkdir -p "$PROFILE"
+  chmod 700 "$PROFILE"
+  "$EXE" --url="$URL" --user-data-dir="$PROFILE" \
+    --no-first-run --no-default-browser-check --window-size=1440,1000
+else
+  PROFILE="$SESSION/incognito-profile"
+  mkdir -p "$PROFILE"
+  chmod 700 "$PROFILE"
+  "$EXE" --url="$URL" --user-data-dir="$PROFILE" --incognito \
+    --no-first-run --no-default-browser-check --window-size=1440,1000
+fi

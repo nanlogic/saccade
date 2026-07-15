@@ -24,9 +24,17 @@ class SaccadeScreenshotObserver;
 // cross only their fixed, policy-gated command surfaces.
 class SaccadeAdapter {
  public:
+  enum class AgentUiState {
+    kUnavailable,
+    kOff,
+    kOn,
+    kPaused,
+  };
+
   static SaccadeAdapter* GetInstance();
 
   void OnBrowserCreated(CefRefPtr<CefBrowser> browser);
+  void OnBrowserFocused(CefRefPtr<CefBrowser> browser);
   void OnAddressChanged(CefRefPtr<CefBrowser> browser,
                         CefRefPtr<CefFrame> frame,
                         const CefString& url);
@@ -37,6 +45,8 @@ class SaccadeAdapter {
                          CefRefPtr<CefFrame> frame,
                          CefProcessId source_process,
                          CefRefPtr<CefProcessMessage> message);
+  AgentUiState ToggleAgentForVisibleTab();
+  AgentUiState GetAgentUiState();
 
  private:
   struct ControlFact {
@@ -87,8 +97,11 @@ class SaccadeAdapter {
   SaccadeAdapter(const SaccadeAdapter&) = delete;
   SaccadeAdapter& operator=(const SaccadeAdapter&) = delete;
 
-  void StartIfRequested();
+  void ConfigureIfRequested();
+  void StartBridge();
   void Stop();
+  void ResetPageStateLocked(const std::string& reason);
+  std::string CurrentTabIdLocked() const;
   void Serve();
   std::string HandleRequest(const std::string& line);
   std::string StatusJson();
@@ -124,10 +137,12 @@ class SaccadeAdapter {
   std::mutex state_mutex_;
   std::mutex grant_mutex_;
   CefRefPtr<CefBrowser> browser_;
+  std::map<int, CefRefPtr<CefBrowser>> browsers_;
   std::string current_url_;
   std::string current_title_;
   uint64_t page_revision_ = 1;
   bool paused_ = false;
+  bool configured_ = false;
   bool started_ = false;
   bool collector_ready_ = false;
   std::string collector_error_;

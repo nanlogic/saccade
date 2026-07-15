@@ -108,6 +108,7 @@ def main() -> int:
     process: subprocess.Popen[bytes] | None = None
     control: EngineControl | None = None
     report: dict[str, Any]
+    stage = "launch"
     with browser_log_path.open("wb") as browser_log:
         try:
             process = subprocess.Popen(
@@ -117,6 +118,7 @@ def main() -> int:
                 stdout=browser_log,
                 stderr=subprocess.STDOUT,
             )
+            stage = "grant"
             grant = wait_for_grant(grant_path, process, args.timeout_sec)
             advertised = set(grant["engine_adapter"]["capabilities"])
             required = {
@@ -126,6 +128,7 @@ def main() -> int:
                 "form_execute_plan",
                 "screenshot_policy",
                 "screenshot_audit",
+                "article_text",
             }
             if not required.issubset(advertised):
                 raise AssertionError(f"missing CEF Day 4 capabilities: {advertised}")
@@ -135,9 +138,11 @@ def main() -> int:
                 pathlib.Path(grant["control_endpoint"]["path"]),
                 grant["control_capability"]["token"],
             )
+            stage = "collector"
             truth = wait_for_collector(control, args.timeout_sec)
             initial_revision = int(truth["page_revision"])
 
+            stage = "form_inventory"
             inventory = control.call("form_inventory")
             fields = inventory["fields"]
             if inventory["sensitive_count"] != 2:
@@ -150,6 +155,7 @@ def main() -> int:
                 raise AssertionError(f"SSN was eligible for agent fill: {ssn}")
             assert_no_sensitive_values(inventory, "inventory")
 
+            stage = "inspect_fields"
             inspected = control.call(
                 "inspect_fields", {"basis_page_revision": initial_revision}
             )
@@ -165,6 +171,16 @@ def main() -> int:
                 raise AssertionError("hidden control value crossed the collaboration boundary")
             assert_no_sensitive_values(inspected, "inspect_fields")
 
+            stage = "sensitive_article_text"
+            article = control.call(
+                "article_text", {"basis_page_revision": initial_revision}
+            )
+            if article.get("sensitive_values_exposed") is not False:
+                raise AssertionError("article reader did not declare redaction")
+            if article.get("article_text_length", 0) <= 0:
+                raise AssertionError("article reader returned no visible text")
+            assert_no_sensitive_values(article, "article_text")
+
             assignments: dict[str, Any] = {
                 "id:team": "Platform Reliability",
                 "id:region": "west",
@@ -177,6 +193,7 @@ def main() -> int:
                 "id:include-staging": True,
                 "id:summary": "Capacity for a blue-green launch rehearsal.",
             }
+            stage = "compile_plan"
             compiled = control.call(
                 "form_compile_plan",
                 {
@@ -205,6 +222,7 @@ def main() -> int:
                 raise AssertionError(f"unsafe fields were not rejected: {compiled}")
             assert_no_sensitive_values(compiled, "compiled plan")
 
+            stage = "execute_plan"
             executed = control.call(
                 "form_execute_plan",
                 {
@@ -222,6 +240,10 @@ def main() -> int:
             assert_no_sensitive_values(executed, "execution receipt")
 
             final_revision = int(executed["page_revision"])
+            refreshed_truth = wait_for_collector(control, args.timeout_sec)
+            if int(refreshed_truth["page_revision"]) != final_revision:
+                raise AssertionError("post-fill collector advanced unexpectedly")
+            stage = "post_fill_inspection"
             final_inspection = control.call(
                 "inspect_fields",
                 {
@@ -248,6 +270,7 @@ def main() -> int:
                     raise AssertionError(f"sensitive value escaped after fill: {field}")
             assert_no_sensitive_values(final_inspection, "post-fill inspection")
 
+            stage = "sensitive_screenshot_policy"
             screenshot_policy = control.call(
                 "screenshot_policy",
                 {
@@ -259,10 +282,12 @@ def main() -> int:
                 raise AssertionError(f"sensitive screenshot was not blocked: {screenshot_policy}")
 
             screenshot_url = SCREENSHOT_FIXTURE.resolve().as_uri()
+            stage = "screenshot_fixture_navigation"
             control.call("navigate", {"url": screenshot_url})
             screenshot_truth = wait_for_url(
                 control, screenshot_url, args.timeout_sec
             )
+            stage = "non_sensitive_screenshot_audit"
             screenshot_result = control.call(
                 "screenshot_audit",
                 {
@@ -326,6 +351,7 @@ def main() -> int:
             report = {
                 "schema": "saccade-cef-day4-form-safety-v1",
                 "verdict": "FAIL",
+                "stage": stage,
                 "error": str(error),
                 "duration_sec": round(time.monotonic() - started, 3),
             }
