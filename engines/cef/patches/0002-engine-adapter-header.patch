@@ -1,0 +1,6 @@
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -30,0 +31,3 @@
++  void OnAddressChange(CefRefPtr<CefBrowser> browser,
++                       CefRefPtr<CefFrame> frame,
++                       const CefString& url) override;

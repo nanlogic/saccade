@@ -5469,6 +5469,7 @@ dependencies = [
  "anyhow",
  "clap",
  "saccade_core",
+ "saccade_engine_api",
  "serde",
  "serde_json",
  "tiny_http",
@@ -5539,6 +5540,16 @@ dependencies = [
  "saccade_core",
  "saccade_motor",
  "saccade_verify",
+]
+
+[[package]]
+name = "saccade_engine_api"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

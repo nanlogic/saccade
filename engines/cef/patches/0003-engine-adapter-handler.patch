@@ -1,0 +1,18 @@
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -16,0 +17 @@
++#include "tests/cefsimple/saccade_adapter.h"
+@@ -48,0 +50 @@
++  SaccadeAdapter::GetInstance()->OnTitleChanged(browser, title);
+@@ -61,0 +64,7 @@
++void SimpleHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
++                                    CefRefPtr<CefFrame> frame,
++                                    const CefString& url) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnAddressChanged(browser, frame, url);
++}
++
+@@ -70,0 +80 @@
++  SaccadeAdapter::GetInstance()->OnBrowserCreated(browser);
+@@ -90,0 +101 @@
++  SaccadeAdapter::GetInstance()->OnBrowserClosed(browser);

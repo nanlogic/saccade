@@ -46,3 +46,30 @@ The host source begins from the official `cefsimple` structure and preserves
 the upstream BSD notices. Saccade policy, truth, grants, and replay do not
 belong in this directory; later days connect those through the versioned
 engine adapter.
+
+## Engine adapter lifecycle
+
+Day 2 adds a browser-process adapter without CDP or page injection. Launching
+through the explicit grant wrapper creates a one-session Unix socket and grant
+under an owner-only temporary directory:
+
+```sh
+engines/cef/scripts/run_adapter_macos.sh normal https://example.com
+```
+
+The adapter advertises only `ping`, `shell_status`, `navigate`, `pause`, and
+`close`. Closing the granted tab removes the socket, bearer capability, grant,
+and private session directory. The ordinary `run_macos.sh` path does not start
+an agent transport.
+
+Run the engine-neutral Python and TypeScript lifecycle gate with:
+
+```sh
+engines/cef/scripts/test_day2_macos.sh
+```
+
+The gate always uses a hidden incognito profile with Chromium's test-only mock
+keychain. It cannot read or modify the user's normal browser credentials and
+does not produce macOS Keychain prompts. Normal profiles keep the platform
+credential store; the mock keychain switch is never enabled by product launch
+scripts.

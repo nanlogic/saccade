@@ -2077,3 +2077,23 @@
   one-second exits. CDP was enabled only for measurement and is absent from the
   default launch path.
 - Evidence: `docs/cef_day1_report.md`.
+
+## DECISION_ENGINE_057 - Use an owner-only engine-neutral lifecycle adapter
+
+- The browser adapter contract is version `1.0` and names capabilities, tab
+  identity, origin, page revision, facts, actions, receipts, and typed errors.
+  Host integrations feature-test capabilities and do not branch on CEF or
+  Servo names.
+- The production-shaped CEF transport is a per-session Unix socket plus a
+  browser-generated 256-bit bearer capability. Socket, grant, and parent
+  directory permissions are owner-only; close removes the complete session.
+- CEF lifecycle control is implemented inside the browser process without CDP,
+  WebDriver, an extension, or page injection. Day 2 intentionally exposes only
+  ping, status, navigate, pause, and close.
+- Existing Servo and Chrome-reference transports remain accepted as legacy
+  adapters. They were not rewritten during the CEF migration.
+- Automated CEF gates use hidden incognito state and Chromium's test-only mock
+  keychain to avoid user prompts. Normal product profiles retain platform
+  credential storage; distribution signing and profile-root hardening remain
+  separate release gates.
+- Evidence: `docs/cef_day2_engine_adapter_report.md`.

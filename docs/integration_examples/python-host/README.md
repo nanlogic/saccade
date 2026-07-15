@@ -9,3 +9,12 @@ python3 docs/integration_examples/python-host/main.py
 ```
 
 Set `SACCADE_MCP_COMMAND` to a packaged `saccade-mcp` binary when not running from this repository. The host pauses and closes the tab in `finally`, so user cancellation cannot leave an agent with an active grant.
+
+For an engine-neutral lifecycle check without form assignments:
+
+```bash
+export SACCADE_LIFECYCLE_ONLY=1
+export SACCADE_NAVIGATE_URL=file:///absolute/path/to/fixture.html
+export SACCADE_MCP_COMMAND='/absolute/path/to/saccade-mcp serve-stdio'
+python3 docs/integration_examples/python-host/main.py
+```

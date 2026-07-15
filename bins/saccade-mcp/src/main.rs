@@ -13,6 +13,10 @@ use saccade_core::{
     ReadGrant, SitePolicy, TabId, TabInfo, TabOwner, TabVisualMarker,
     classify_site_url_with_owned_domains, site_action_requires_user,
 };
+use saccade_engine_api::{
+    CONTROL_PROTOCOL_VERSION, EngineApiError, EngineErrorCode, EngineGrant, call_control,
+    read_owner_only_grant,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -1774,6 +1778,7 @@ struct DogfoodControlEndpoint {
     port: u16,
     protocol: String,
     capability: String,
+    engine_grant: Option<EngineGrant>,
 }
 
 fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
@@ -1811,7 +1816,20 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
     };
     let (live_truth, attached_via_control) = if let Some(endpoint) = grant.control_endpoint.as_ref()
     {
-        let live_truth = call_dogfood_control(endpoint, "truth", json!({}))?;
+        let initial_method = if same_webview_control_capabilities
+            .iter()
+            .any(|capability| capability == "truth")
+        {
+            "truth"
+        } else if same_webview_control_capabilities
+            .iter()
+            .any(|capability| capability == "shell_status")
+        {
+            "shell_status"
+        } else {
+            bail!("browser control endpoint must advertise truth or shell_status");
+        };
+        let live_truth = call_dogfood_control(endpoint, initial_method, json!({}))?;
         state.dogfood_controls.insert(tab_id.0, endpoint.clone());
         state.dogfood_control_runtimes.insert(
             tab_id.0,
@@ -1939,12 +1957,7 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         .get("grant_path")
         .and_then(Value::as_str)
         .context("grant_path must be a string")?;
-    let grant_path = safe_workspace_path(grant_path_arg)?;
-    let grant: Value = serde_json::from_slice(
-        &fs::read(&grant_path)
-            .with_context(|| format!("failed to read {}", grant_path.display()))?,
-    )
-    .with_context(|| format!("failed to parse {}", grant_path.display()))?;
+    let (grant_path, grant) = read_current_tab_grant(grant_path_arg)?;
 
     if grant.get("status").and_then(Value::as_str) != Some("granted") {
         bail!("grant artifact status is not granted");
@@ -1974,7 +1987,8 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
     let control_endpoint = dogfood_control_endpoint_from_grant(&grant)?;
     let trusted_remote_control_grant =
         is_chrome_compatibility_grant(&grant, control_endpoint.as_ref())
-            || is_official_servoshell_bridge_grant(&grant, control_endpoint.as_ref());
+            || is_official_servoshell_bridge_grant(&grant, control_endpoint.as_ref())
+            || is_engine_adapter_grant(control_endpoint.as_ref());
     if !is_local_dev_url(&url) && !trusted_remote_control_grant {
         bail!(
             "grant artifact URL must be localhost, loopback, file, or an explicit trusted browser-control grant: {url}"
@@ -1995,6 +2009,33 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         grant_path: Some(grant_path.display().to_string()),
         control_endpoint,
     })
+}
+
+fn read_current_tab_grant(path: &str) -> Result<(PathBuf, Value)> {
+    if let Ok(workspace_path) = safe_workspace_path(path) {
+        let mut grant: Value = serde_json::from_slice(
+            &fs::read(&workspace_path)
+                .with_context(|| format!("failed to read {}", workspace_path.display()))?,
+        )
+        .with_context(|| format!("failed to parse {}", workspace_path.display()))?;
+        if grant.get("engine_adapter").is_some() {
+            grant = read_owner_only_grant(&workspace_path)
+                .map_err(|error| anyhow!("failed to read owner-only engine grant: {error}"))?;
+        }
+        return Ok((workspace_path, grant));
+    }
+
+    let owner_path = PathBuf::from(path);
+    if !owner_path.is_absolute() {
+        bail!("owner-only grant path outside the workspace must be absolute");
+    }
+    let grant = read_owner_only_grant(&owner_path)
+        .map_err(|error| anyhow!("failed to read owner-only engine grant: {error}"))?;
+    Ok((owner_path, grant))
+}
+
+fn is_engine_adapter_grant(control_endpoint: Option<&DogfoodControlEndpoint>) -> bool {
+    control_endpoint.is_some_and(|endpoint| endpoint.engine_grant.is_some())
 }
 
 fn is_chrome_compatibility_grant(
@@ -2038,6 +2079,25 @@ fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodCo
         .get("protocol")
         .and_then(Value::as_str)
         .context("control_endpoint must include string protocol")?;
+    if protocol == CONTROL_PROTOCOL_VERSION {
+        let engine_grant: EngineGrant = serde_json::from_value(json!({
+            "engine_adapter": grant.get("engine_adapter").cloned().unwrap_or(Value::Null),
+            "control_endpoint": endpoint,
+            "control_capability": grant.get("control_capability").cloned().unwrap_or(Value::Null),
+        }))
+        .context("failed to parse engine-neutral control grant")?;
+        engine_grant
+            .validate()
+            .map_err(|error| anyhow!("invalid engine-neutral control grant: {error}"))?;
+        let capability = engine_grant.control_capability.token.clone();
+        return Ok(Some(DogfoodControlEndpoint {
+            host: String::new(),
+            port: 0,
+            protocol: protocol.to_string(),
+            capability,
+            engine_grant: Some(engine_grant),
+        }));
+    }
     if protocol != "saccade-dogfood-control-v1" {
         bail!("unsupported control endpoint protocol {protocol:?}");
     }
@@ -2081,6 +2141,7 @@ fn dogfood_control_endpoint_from_grant(grant: &Value) -> Result<Option<DogfoodCo
         port: port as u16,
         protocol: protocol.to_string(),
         capability: capability.to_string(),
+        engine_grant: None,
     }))
 }
 
@@ -2185,6 +2246,15 @@ fn call_dogfood_control(
     method: &str,
     params: Value,
 ) -> Result<Value> {
+    if let Some(grant) = endpoint.engine_grant.as_ref() {
+        let read_timeout = match method {
+            "formmax_live_fill" | "fill_agent_fields" | "inspect_fields" | "form_inventory"
+            | "form_compile_plan" | "form_execute_plan" | "act" => Duration::from_secs(65),
+            _ => Duration::from_secs(5),
+        };
+        return call_control(grant, method, params, read_timeout)
+            .map_err(|error| engine_control_error(method, error));
+    }
     let addr = dogfood_control_socket_addr(endpoint)?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
@@ -2233,7 +2303,24 @@ fn call_dogfood_control(
     Ok(response.get("result").cloned().unwrap_or(Value::Null))
 }
 
+fn engine_control_error(method: &str, error: EngineApiError) -> anyhow::Error {
+    let category = match error.code {
+        EngineErrorCode::InvalidArgument => "invalid engine request",
+        EngineErrorCode::PermissionDenied => "policy denied engine request",
+        EngineErrorCode::UnsupportedCapability => "unsupported engine capability",
+        EngineErrorCode::StalePageRevision => "stale engine page revision",
+        EngineErrorCode::TabNotFound => "engine tab not found",
+        EngineErrorCode::Timeout => "engine control timeout",
+        EngineErrorCode::TransportUnavailable => "engine transport unavailable",
+        EngineErrorCode::Internal => "engine internal error",
+    };
+    anyhow!("{category} for {method}: {}", error.detail)
+}
+
 fn dogfood_control_socket_addr(endpoint: &DogfoodControlEndpoint) -> Result<SocketAddr> {
+    if endpoint.engine_grant.is_some() {
+        bail!("engine-neutral control endpoint does not use a TCP socket address");
+    }
     let ip = match endpoint.host.as_str() {
         "127.0.0.1" | "localhost" => IpAddr::V4(Ipv4Addr::LOCALHOST),
         "::1" => IpAddr::V6(Ipv6Addr::LOCALHOST),
@@ -2291,6 +2378,18 @@ fn tabs_takeover_tool(state: &mut McpSessionState, arguments: Value) -> Result<V
 
 fn tabs_pause_agent_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
+    if state
+        .dogfood_control_capabilities
+        .get(&tab_id.0)
+        .is_some_and(|capabilities| capabilities.iter().any(|item| item == "pause"))
+    {
+        let endpoint = state
+            .dogfood_controls
+            .get(&tab_id.0)
+            .cloned()
+            .with_context(|| format!("tab_id {} has no browser control endpoint", tab_id.0))?;
+        call_dogfood_control(&endpoint, "pause", json!({}))?;
+    }
     let tab = state
         .find_tab_mut(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
@@ -2308,6 +2407,20 @@ fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
     if let Some(mut worker) = state.browser_workers.remove(&tab_id.0) {
         worker.close();
     }
+    let close_result = if state
+        .dogfood_control_capabilities
+        .get(&tab_id.0)
+        .is_some_and(|capabilities| capabilities.iter().any(|item| item == "close"))
+    {
+        state
+            .dogfood_controls
+            .get(&tab_id.0)
+            .cloned()
+            .map(|endpoint| call_dogfood_control(&endpoint, "close", json!({})))
+            .transpose()?
+    } else {
+        None
+    };
     state.dogfood_controls.remove(&tab_id.0);
     state.dogfood_control_runtimes.remove(&tab_id.0);
     state.dogfood_control_capabilities.remove(&tab_id.0);
@@ -2320,6 +2433,7 @@ fn tabs_close_tool(state: &mut McpSessionState, arguments: Value) -> Result<Valu
         "status": "ok",
         "summary": "tab closed in Saccade MCP session state",
         "tab_id": tab_id.0,
+        "browser_close": close_result,
     }))
 }
 
@@ -3954,6 +4068,7 @@ fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
             port: 1,
             protocol: "saccade-dogfood-control-v1".to_string(),
             capability: "test-capability-token-with-sufficient-length".to_string(),
+            engine_grant: None,
         },
     );
     let denied_without_grant = handle_json_rpc(
@@ -4127,6 +4242,7 @@ fn spawn_fake_dogfood_control_once(
             port: addr.port(),
             protocol: "saccade-dogfood-control-v1".to_string(),
             capability: "test-capability-token-with-sufficient-length".to_string(),
+            engine_grant: None,
         },
         handle,
     ))
@@ -6208,6 +6324,7 @@ mod tests {
             port: 49321,
             protocol: "saccade-dogfood-control-v1".to_string(),
             capability: "test-capability-token-with-sufficient-length".to_string(),
+            engine_grant: None,
         };
         assert_eq!(
             dogfood_control_socket_addr(&endpoint)
@@ -6221,6 +6338,7 @@ mod tests {
             port: 49322,
             protocol: "saccade-dogfood-control-v1".to_string(),
             capability: "test-capability-token-with-sufficient-length".to_string(),
+            engine_grant: None,
         };
         assert_eq!(
             dogfood_control_socket_addr(&endpoint)
@@ -6240,6 +6358,7 @@ mod tests {
                 port: 49321,
                 protocol: "saccade-dogfood-control-v1".to_string(),
                 capability: "test-capability-token-with-sufficient-length".to_string(),
+                engine_grant: None,
             },
         );
 
@@ -6254,6 +6373,7 @@ mod tests {
             port: 49323,
             protocol: "saccade-dogfood-control-v1".to_string(),
             capability: "test-capability-token-with-sufficient-length".to_string(),
+            engine_grant: None,
         };
         let grant = json!({
             "runtime": "saccade-chrome-compat-cdp-v0",
@@ -6315,5 +6435,37 @@ mod tests {
             endpoint.capability,
             "test-capability-token-with-sufficient-length"
         );
+    }
+
+    #[test]
+    fn engine_adapter_grant_is_capability_based() {
+        let grant = json!({
+            "engine_adapter": {
+                "contract_version": "1.0",
+                "transport": "owner_only_unix_v1",
+                "provenance": "browser_process",
+                "page_dom_injected": false,
+                "sensitive_values_exposed_to_agent": false,
+                "capabilities": ["ping", "shell_status", "navigate", "pause", "close"]
+            },
+            "control_endpoint": {
+                "protocol": "saccade-engine-control-v1",
+                "scheme": "unix",
+                "path": "/tmp/saccade-test/control.sock"
+            },
+            "control_capability": {
+                "scheme": "saccade_session_bearer_v1",
+                "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            }
+        });
+        let endpoint = dogfood_control_endpoint_from_grant(&grant)
+            .expect("engine-neutral grant should parse")
+            .expect("engine-neutral endpoint should be present");
+        assert_eq!(endpoint.protocol, CONTROL_PROTOCOL_VERSION);
+        assert!(is_engine_adapter_grant(Some(&endpoint)));
+
+        let mut unsafe_grant = grant;
+        unsafe_grant["engine_adapter"]["sensitive_values_exposed_to_agent"] = json!(true);
+        assert!(dogfood_control_endpoint_from_grant(&unsafe_grant).is_err());
     }
 }

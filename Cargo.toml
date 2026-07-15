@@ -7,6 +7,7 @@ members = [
   "crates/saccade_verify",
   "crates/saccade_replay",
   "crates/saccade_browser",
+  "crates/saccade_engine_api",
   "bins/mousemax",
   "bins/saccade-shell",
   "bins/devmax",
@@ -20,6 +21,7 @@ default-members = [
   "crates/saccade_motor",
   "crates/saccade_verify",
   "crates/saccade_replay",
+  "crates/saccade_engine_api",
 ]
 
 [workspace.dependencies]

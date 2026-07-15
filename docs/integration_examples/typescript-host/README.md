@@ -15,3 +15,8 @@ npx tsx docs/integration_examples/typescript-host/index.ts
 ```
 
 The example invokes `cargo run -q -p saccade-mcp -- serve-stdio` by default; set `SACCADE_MCP_COMMAND` to a packaged `saccade-mcp` binary for distribution. On cancellation or error, it pauses then closes the MCP tab.
+
+Set `SACCADE_LIFECYCLE_ONLY=1` and `SACCADE_NAVIGATE_URL` to run only the
+engine-neutral attach, navigate, pause, and close flow. A packaged command may
+include arguments, for example
+`SACCADE_MCP_COMMAND='/path/to/saccade-mcp serve-stdio'`.

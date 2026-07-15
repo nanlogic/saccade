@@ -127,6 +127,8 @@ and preserves only the normal profile.
 
 ### Day 2: Freeze the engine adapter
 
+Status: complete. See `docs/cef_day2_engine_adapter_report.md`.
+
 - Add `saccade_engine_api` with versioned capabilities, tab identity, origin,
   page revision, fact batches, action maps, input receipts, and typed errors.
 - Make engine selection capability-based. Remove Servo-specific assumptions

@@ -1,0 +1,8 @@
+--- a/tests/cefsimple/CMakeLists.txt
++++ b/tests/cefsimple/CMakeLists.txt
+@@ -12,3 +12,5 @@ set(CEFSIMPLE_SRCS
+   simple_handler.cc
+   simple_handler.h
++  saccade_adapter.cc
++  saccade_adapter.h
+   )
