@@ -33,7 +33,9 @@ from formmax_pdf_feasibility import create_acroform_pdf, create_flat_pdf
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DOCMAX = ROOT / "scripts" / "docmax_pdf.py"
+DOCMAX = pathlib.Path(__file__).resolve().with_name("docmax_pdf.py")
+if not DOCMAX.exists():
+    DOCMAX = ROOT / "scripts" / "docmax_pdf.py"
 
 
 def run(*arguments: str) -> None:
