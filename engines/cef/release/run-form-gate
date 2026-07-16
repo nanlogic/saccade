@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+NAME=${1:-form_mcp_$(date +%Y%m%d-%H%M%S)}
+OUTPUT=${SACCADE_GATE_OUTPUT:-$ROOT/runs/$NAME}
+
+mkdir -p "$OUTPUT"
+exec python3 "$ROOT/tools/probe_cef_mcp_form_plan.py" \
+  --app "$ROOT/Saccade.app" \
+  --mcp-bin "$ROOT/bin/saccade-mcp" \
+  --fixture "$ROOT/fixtures/form_plan/index.html" \
+  --output-dir "$OUTPUT" \
+  --headed

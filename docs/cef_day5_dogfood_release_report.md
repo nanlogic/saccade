@@ -44,6 +44,9 @@ Status: CEF migration and local dogfood gates passed
 | Local Canvas game | PASS: 8/8 fact-bound native drags with renderer receipts; command acceptance p95 0.827 ms; nonblank dynamic render; no CDP/WebDriver | `runs/cef_day5/local_game_final/report.json` |
 | WebGL runtime | PASS: context, shader, texture, readPixels, and no-error markers observed; 4/4 native surface receipts; nonblank WebGL texture | `runs/cef_day5/webgl_final/report.json` |
 | MouseAccuracy surface regression | PASS: 12/12 live targets, p95 8.6 ms after Canvas surface support | `runs/cef_day5/mouseaccuracy_surface_regression/report.json` |
+| Public MCP form tools | PASS: owner-granted CEF tab, 6 ordinary fields filled, 2 protected fields blocked, existing human value preserved, no submit/value leak | `runs/cef_day5/mcp_form_product_gate_final/report.json` |
+| DOCMAX | PASS: local AcroForm fills 2 ordinary fields and blocks 3 protected fields; official W-9 inventory reads 27 fields without writing | `runs/docmax/product_gate_final/report.json`; public read-only evidence: `runs/docmax/product_gate_2/report.json` |
+| GitHub complex UI | PASS: New Issue title/body visible in truth; account-menu click receipt verified; dynamic Settings/Sign out actions observed without write or side effect | `runs/cef_day5/github_complex_ui_canary_final/report.json` |
 
 ## Keychain behavior
 

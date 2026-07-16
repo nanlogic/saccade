@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+URL=${1:-https://github.com/servo/servo/issues/new}
+NAME=${2:-github_canary_$(date +%Y%m%d-%H%M%S)}
+OUTPUT=${SACCADE_GATE_OUTPUT:-$ROOT/runs/$NAME}
+
+mkdir -p "$OUTPUT"
+exec python3 "$ROOT/tools/probe_cef_github_canary.py" \
+  --app "$ROOT/Saccade.app" \
+  --url "$URL" \
+  --output-dir "$OUTPUT"

@@ -1,38 +1,57 @@
-# Saccade M11 PDF And Sensitive Gate Report
+# Saccade DOCMAX PDF And Sensitive Gate Report
 
-Date: 2026-06-11
+Date: 2026-07-15
 
 ## Result
 
-M11 adds an offline PDF feasibility harness.
+DOCMAX now has reusable `inspect` and `fill` commands plus a value-free gate.
 
 Command:
 
 ```bash
-scripts/formmax_pdf_feasibility.py
+python3 scripts/probe_docmax.py \
+  --output-dir runs/docmax/product_gate_final
 ```
 
-The harness generates:
+The official blank-form inventory was measured separately without writing:
+
+```bash
+python3 scripts/probe_docmax.py \
+  --output-dir runs/docmax/product_gate_2 \
+  --public-url https://www.irs.gov/pub/irs-pdf/fw9.pdf
+```
+
+The local gate generates:
 
 - a fillable AcroForm PDF,
 - a flat PDF with no form fields,
 - a completed PDF with only non-sensitive fields filled,
 - a result JSON report.
 
-It classifies tax ID, signature, and legal attestation fields as sensitive and verifies they remain empty unless a future user-confirmation layer approves them.
+It fills only `full_name` and `capacity_mw`. Tax ID, signature, and legal
+attestation remain user-owned. The output PDF visually renders both ordinary
+values while all three protected fields remain empty.
 
-## Browser PDF Viewer
+The same inventory path read the official blank IRS W-9 as a six-page
+AcroForm with 27 field nodes. Twenty-four fields lacked reliable semantic
+labels and were conservatively classified `unknown_requires_human`; DOCMAX did
+not write the public form.
 
-The current harness reports browser-surface PDF filling as unsupported. That is intentional. FORMMAX can still use the programmatic AcroForm path for fillable PDFs, and it can report flat or scanned PDFs without faking a fill.
+Flat or scanned PDFs report `no_fillable_fields` rather than faking a fill.
+Browser PDF-viewer automation remains outside this gate; DOCMAX operates on
+the PDF document and returns a verified output artifact.
 
 ## Acceptance
 
-M11 passes when the PDF feasibility command reports `FORMMAX PDF FEASIBILITY PASS` and writes:
+DOCMAX passes when the command reports `DOCMAX_GATE verdict=PASS` and writes:
 
-`/Users/waynema/Documents/GitHub/SACCADE/runs/formmax/pdf_feasibility/result.json`
+`/Users/waynema/Documents/GitHub/SACCADE/runs/docmax/product_gate_final/report.json`
 
 Observed output:
 
 ```text
-FORMMAX PDF FEASIBILITY PASS acroform_fields=5 sensitive_fields=3 result=runs/formmax/pdf_feasibility/result.json
+DOCMAX_GATE verdict=PASS report=runs/docmax/product_gate_final/report.json
 ```
+
+The public W-9 read-only evidence remains in
+`runs/docmax/product_gate_2/report.json`.

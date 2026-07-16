@@ -15,7 +15,10 @@ under `dist/saccade-cef-dogfood-<stamp>/` and updates
   SHA-256 checksums;
 - the integration contract and Day 5 measured report;
 - `bin/run-local-game-gate`, which reruns the fact-bound Canvas drag and
-  guarded-render validation against an already-running local game server.
+  guarded-render validation against an already-running local game server;
+- packaged `saccade-mcp` plus `bin/run-form-gate` for the stable CEF form tools;
+- `bin/docmax`, `bin/run-docmax-gate`, and the no-write GitHub complex-UI
+  canary.
 
 The artifact is deliberately marked `notarized=false` and
 `public_distribution_ready=false`.

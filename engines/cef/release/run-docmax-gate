@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+NAME=${1:-docmax_$(date +%Y%m%d-%H%M%S)}
+PUBLIC_URL=${2:-}
+OUTPUT=${SACCADE_GATE_OUTPUT:-$ROOT/runs/$NAME}
+
+if [ -n "$PUBLIC_URL" ]; then
+  exec python3 "$ROOT/tools/probe_docmax.py" \
+    --output-dir "$OUTPUT" \
+    --public-url "$PUBLIC_URL"
+fi
+exec python3 "$ROOT/tools/probe_docmax.py" --output-dir "$OUTPUT"

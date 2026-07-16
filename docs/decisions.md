@@ -2247,3 +2247,19 @@
   truth route and never select motor coordinates.
 - Evidence: `runs/cef_day5/local_game_final/report.json` and
   `runs/cef_day5/webgl_final/report.json`.
+
+## DECISION_ENGINE_066 - Keep form and PDF plans revision-bound and value-free
+
+- CEF form capabilities are exposed through the stable public MCP inventory,
+  compile, and execute names. MCP accepts CEF's integer-like JSON revisions
+  such as `2.0`, but rejects negative or fractional revisions.
+- DOCMAX fills only fields with a recognized ordinary semantic label. Sensitive
+  fields and unknown PDF field identities remain human-owned; flat PDFs route
+  as non-fillable.
+- GitHub's React account button derives its sanitized action label from native
+  `aria-labelledby` or descendant image `alt` when the button itself has no
+  accessible text. No coordinate guess or site-specific button ID is used.
+- Evidence: `runs/cef_day5/mcp_form_product_gate_final/report.json`,
+  `runs/docmax/product_gate_final/report.json` (plus the public read-only W-9
+  inventory in `runs/docmax/product_gate_2/report.json`), and
+  `runs/cef_day5/github_complex_ui_canary_final/report.json`.

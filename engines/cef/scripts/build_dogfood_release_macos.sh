@@ -6,24 +6,37 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)
 STAMP=${SACCADE_RELEASE_STAMP:-$(date +%Y%m%d-%H%M%S)}
 OUT=${SACCADE_RELEASE_OUT:-$REPO_ROOT/dist/saccade-cef-dogfood-$STAMP}
 APP="$REPO_ROOT/target/cef-release/Saccade.app"
+MCP_BIN="$REPO_ROOT/target/release/saccade-mcp"
 
 [ ! -e "$OUT" ] || { echo "Release path already exists: $OUT" >&2; exit 1; }
 SACCADE_CODESIGN_IDENTITY=${SACCADE_CODESIGN_IDENTITY:-auto} \
 SACCADE_CODESIGN_TIMESTAMP=${SACCADE_CODESIGN_TIMESTAMP:-none} \
   "$SCRIPT_DIR/build_macos.sh"
+cargo build --release -p saccade-mcp --manifest-path "$REPO_ROOT/Cargo.toml"
 codesign --verify --strict --verbose=2 "$APP"
 
-mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/licenses" "$OUT/tools"
+mkdir -p "$OUT/bin" "$OUT/docs" "$OUT/licenses" "$OUT/tools" "$OUT/fixtures"
 ditto "$APP" "$OUT/Saccade.app"
+cp "$MCP_BIN" "$OUT/bin/saccade-mcp"
 cp "$REPO_ROOT/engines/cef/release/open-saccade" "$OUT/bin/open-saccade"
 cp "$REPO_ROOT/engines/cef/release/current-agent-grant" \
   "$OUT/bin/current-agent-grant"
 cp "$REPO_ROOT/engines/cef/release/profile-status" "$OUT/bin/profile-status"
 cp "$REPO_ROOT/engines/cef/release/run-local-game-gate" \
   "$OUT/bin/run-local-game-gate"
+cp "$REPO_ROOT/engines/cef/release/run-form-gate" "$OUT/bin/run-form-gate"
+cp "$REPO_ROOT/engines/cef/release/docmax" "$OUT/bin/docmax"
+cp "$REPO_ROOT/engines/cef/release/run-docmax-gate" "$OUT/bin/run-docmax-gate"
+cp "$REPO_ROOT/engines/cef/release/run-github-canary" "$OUT/bin/run-github-canary"
 chmod 755 "$OUT/bin/"*
 cp "$REPO_ROOT/scripts/probe_cef_local_game.py" "$OUT/tools/"
 cp "$REPO_ROOT/scripts/probe_cef_truth_reflex.py" "$OUT/tools/"
+cp "$REPO_ROOT/scripts/probe_cef_mcp_form_plan.py" "$OUT/tools/"
+cp "$REPO_ROOT/scripts/docmax_pdf.py" "$OUT/tools/"
+cp "$REPO_ROOT/scripts/probe_docmax.py" "$OUT/tools/"
+cp "$REPO_ROOT/scripts/formmax_pdf_feasibility.py" "$OUT/tools/"
+cp "$REPO_ROOT/scripts/probe_cef_github_canary.py" "$OUT/tools/"
+ditto "$REPO_ROOT/test_pages/form_plan" "$OUT/fixtures/form_plan"
 cp "$REPO_ROOT/engines/cef/cef.lock.json" "$OUT/docs/cef.lock.json"
 cp "$REPO_ROOT/docs/integration_contract_v1.md" "$OUT/docs/"
 cp "$REPO_ROOT/docs/cef_day5_dogfood_release_report.md" "$OUT/docs/"
@@ -73,6 +86,18 @@ Opening Saccade.app directly does not start or grant an agent session.
 With the local Blend or Die server running, rerun the fact-bound Canvas motor
 gate with:
   bin/run-local-game-gate http://127.0.0.1:4173/
+
+Rerun the public MCP ordinary-field form gate with:
+  bin/run-form-gate
+
+Inspect or safely fill an AcroForm PDF with value-free evidence:
+  bin/docmax inspect --input blank.pdf --report inventory.json --replay replay.jsonl
+
+Rerun the local DOCMAX gate with:
+  bin/run-docmax-gate
+
+Rerun the no-write GitHub New Issue and account-menu canary with:
+  bin/run-github-canary
 
 The returned owner-only grant contains the engine-neutral endpoint and
 capability. Do not copy it into chat or logs. The agent never receives raw

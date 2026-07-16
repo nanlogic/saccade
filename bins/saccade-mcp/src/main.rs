@@ -2956,7 +2956,7 @@ fn web_form_inventory_tool(state: &mut McpSessionState, arguments: Value) -> Res
         .dogfood_controls
         .get(&tab_id.0)
         .cloned()
-        .context("saccade.web.form_inventory requires a granted ServoShell current tab")?;
+        .context("saccade.web.form_inventory requires a granted browser current tab")?;
     ensure_dogfood_control_capability(state, tab_id, "form_inventory")?;
     let mode = arguments
         .get("mode")
@@ -3002,7 +3002,7 @@ fn web_form_compile_plan_tool(state: &mut McpSessionState, arguments: Value) -> 
         .dogfood_controls
         .get(&tab_id.0)
         .cloned()
-        .context("saccade.web.form_compile_plan requires a granted ServoShell current tab")?;
+        .context("saccade.web.form_compile_plan requires a granted browser current tab")?;
     ensure_dogfood_control_capability(state, tab_id, "form_compile_plan")?;
     let params = json!({
         "basis_page_revision": basis_page_revision,
@@ -3042,7 +3042,7 @@ fn web_form_execute_plan_tool(state: &mut McpSessionState, arguments: Value) -> 
         .dogfood_controls
         .get(&tab_id.0)
         .cloned()
-        .context("saccade.web.form_execute_plan requires a granted ServoShell current tab")?;
+        .context("saccade.web.form_execute_plan requires a granted browser current tab")?;
     ensure_dogfood_control_capability(state, tab_id, "form_execute_plan")?;
     let params = json!({
         "basis_page_revision": basis_page_revision,
@@ -3845,7 +3845,7 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
     if let Some(url) = result.get("url").and_then(Value::as_str) {
         tab.info.url = url.to_string();
     }
-    if let Some(page_revision) = result.get("page_revision").and_then(Value::as_u64) {
+    if let Some(page_revision) = result.get("page_revision").and_then(json_number_u64) {
         tab.info.page_revision = page_revision;
     }
     tab.last_engine = result
@@ -3880,6 +3880,14 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
         .pointer("/artifacts/replay")
         .and_then(Value::as_str)
         .map(ToOwned::to_owned);
+}
+
+fn json_number_u64(value: &Value) -> Option<u64> {
+    value.as_u64().or_else(|| {
+        let number = value.as_f64()?;
+        (number.is_finite() && number >= 0.0 && number <= u64::MAX as f64 && number.fract() == 0.0)
+            .then_some(number as u64)
+    })
 }
 
 fn tab_runtime(state: &McpSessionState, tab_id: TabId) -> String {
@@ -6467,5 +6475,34 @@ mod tests {
         let mut unsafe_grant = grant;
         unsafe_grant["engine_adapter"]["sensitive_values_exposed_to_agent"] = json!(true);
         assert!(dogfood_control_endpoint_from_grant(&unsafe_grant).is_err());
+    }
+
+    #[test]
+    fn cef_integer_like_page_revision_updates_mcp_tab() {
+        assert_eq!(json_number_u64(&json!(2)), Some(2));
+        assert_eq!(json_number_u64(&json!(2.0)), Some(2));
+        assert_eq!(json_number_u64(&json!(2.5)), None);
+        assert_eq!(json_number_u64(&json!(-1.0)), None);
+
+        let mut tab = SessionTab {
+            info: tab(
+                1,
+                TabOwner::Human,
+                ReadGrant::FullTruth,
+                "about:blank",
+                "test",
+            ),
+            paused: false,
+            agent_input_grant: true,
+            grant_reason: None,
+            last_engine: None,
+            last_summary: None,
+            last_report_path: None,
+            last_replay_path: None,
+            last_actions: Vec::new(),
+            last_findings: Vec::new(),
+        };
+        update_session_tab_from_browser_result(&mut tab, &json!({"page_revision": 3.0}));
+        assert_eq!(tab.info.page_revision, 3);
     }
 }

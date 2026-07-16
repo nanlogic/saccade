@@ -12,12 +12,10 @@ Product ordering comes from
 
 ## Now
 
-Product focus is the bounded CEF migration in
-`docs/CEF_MIGRATION_AND_CLEANUP_PLAN.md`. CEF/Chromium becomes the default
+The bounded CEF migration is complete. CEF/Chromium is the default
 human-facing engine while the Saccade grant, truth, policy, action,
-verification, and replay contract remains engine-neutral. FORMMAX, DOCMAX, and
-security work resume on the new adapter as migration gates rather than separate
-feature expansion. Servo remains a supported research adapter.
+verification, and replay contract remains engine-neutral. Servo remains a
+supported research adapter.
 
 Cross-cutting browser quality gate: the user-visible screenshot, exported truth,
 action geometry, and actual hit-test must agree at the same revision. GitHub is
@@ -27,22 +25,18 @@ before task values are collected; a fast screenshot is available as optional
 evidence rather than the default agent input.
 
 Vendor-adoption ordering and the evidence package live in
-`docs/VENDOR_INTEGRATION_READINESS_PLAN.md`. The next adoption gates are
-AI-033 security evaluation, AI-031 live form drafts, and AI-032 DOCMAX.
-
-During the bounded migration week, AI-036 is the only implementation mainline.
-AI-031, AI-033, AI-034, and AI-027 supply acceptance tests for the CEF adapter;
-they do not expand their Servo implementations in parallel.
+`docs/VENDOR_INTEGRATION_READINESS_PLAN.md`. The next adoption gate is the
+AI-033 CEF security evaluation.
 
 | ID | Priority | Status | Owner | Action | Done When |
 | --- | --- | --- | --- | --- | --- |
 | AI-036 | P0 | done | CEF engine migration | Direct official CEF host, versioned adapter, truth/reflex, grants, safety, FORMMAX, replay, saved/incognito profiles, physical input, passkey handling, Gist collaboration, signed login restart, local Canvas game control, WebGL runtime, and packaged dogfood release all pass. Popup roles are diagnostic only; Saccade preserves legitimate user windows and requires explicit close rather than guessing auth completion. | Passed. Evidence is summarized in `docs/cef_day5_dogfood_release_report.md`; local game and WebGL reports are `runs/cef_day5/local_game_final/report.json` and `runs/cef_day5/webgl_final/report.json`. |
-| AI-031 | P0 | adapter complete | FORMMAX product | CEF now filters hidden backing controls, preserves protected and existing values, executes unchanged ordinary-field plans, and routes paired rich editors through fixed Chromium text insertion with visible/backing agreement. The local fixture and a logged-in GitHub Gist draft pass without submit or value leaks. Wire the frozen adapter capabilities through the public MCP names without changing their policy. | The CEF dogfood release exposes the same public MCP tools; one user-granted draft preserves user/sensitive values and produces verified value-free evidence without submit. Evidence: `runs/cef_day5/form_safety_native_rich_editor_final/report.json`, `runs/cef_day5/gist_live_rich_editor_20260715/report.json`. |
+| AI-031 | P0 | done | FORMMAX product | Stable public MCP inventory/compile/execute tools now attach to the owner-granted CEF tab. Six ordinary fields fill, existing human text and two sensitive fields remain untouched, the receipt verifies, and replay is value-free. | Passed in `runs/cef_day5/mcp_form_product_gate_final/report.json`; packaged rerun is `bin/run-form-gate`. |
 | AI-033 | P0 | migration gate | Agent safety | Apply the existing capability, provenance, stale-basis, cross-tab, and sensitive-control adversaries to CEF renderer/browser IPC. Add forged binding and monkeypatched-DOM cases specific to the new collector. | CEF utility, false blocks, attack results, and value leaks are reported; protected-value leaks remain zero and page-controlled text cannot authorize side effects. Existing evidence: `docs/ai033_agent_safety.md`, `runs/safety/ai033_browser_adversaries_20260711-final2/report.json`. |
 | AI-034 | P0 | migration gate | Human/agent agreement | Port structural preflight and optional guarded visual agreement to CEF. Use GitHub as a canary without making it the migration's only success criterion. | CEF facts, geometry, revision, hit result, and optional guarded screenshot agree on the same task surface or produce an explicit route/block. Existing evidence: `docs/ai034_github_human_agent_agreement.md`, `docs/render_preflight.md`. |
-| AI-032 | P0 | queued after AI-036 | DOCMAX PDF | Keep the current AcroForm feasibility work frozen while the browser engine changes. Resume after the CEF contract and release gates pass. | Inspect/fill/verify works on local AcroForm and one public blank form; protected fields remain user-owned; output PDF and redacted replay contain no raw values. |
+| AI-032 | P0 | done | DOCMAX PDF | Reusable AcroForm inspect/fill/verify writes only classified ordinary fields, preserves protected and existing fields, blocks unknown field semantics, and emits value-free report/replay evidence. | Local final output fills 2 ordinary fields and blocks tax ID/signature/attestation in `runs/docmax/product_gate_final/report.json`; official blank IRS W-9 inventory sees 27 fields and writes none in `runs/docmax/product_gate_2/report.json`. |
 | AI-030B | P0 | done | Compatibility adapter | Attach the existing engine-neutral MCP grant/action/replay surface to the headed persistent Chrome compatibility session. | Passed same visible-tab grant, truth/actions, browser-input safe act, navigation, sanitized replay, explicit agent-owned non-sensitive fill, and value-free inspect. Generic third-party fill remains unclaimed. |
-| AI-027 | P1 | migration canary | GitHub UI canary | Freeze Servo-specific workaround expansion. Re-run public/read/draft/menu behavior on CEF and record any remaining workflow-specific failure. | CEF either passes the measured GitHub task or emits an explicit compatibility route with human-visible evidence. |
+| AI-027 | P1 | done | GitHub UI canary | CEF New Issue exposes one visible title and one body editor; a fact-bound account-button click returns a receipt and reveals dynamic Settings/Sign out actions. No write, submit, sign-out, or logged-in screenshot occurs. | Passed in `runs/cef_day5/github_complex_ui_canary_final/report.json`. |
 
 ## Next
 
@@ -56,7 +50,6 @@ they do not expand their Servo implementations in parallel.
 | AI-008B | P1 | done | Canvas/WebGL | Route non-hot diagnostic fixture screenshots to `take_screenshot()` where safe, and keep a separate gate for reflex hot-loop `read_to_image()`. | Default `probe_canvas_reductions.py` uses `take-local` and marks `bare-gradient2-size-1152x648` green in `runs/webgl_runtime/canvas_reductions_1781806451861/report.json`; forced `--saccade-screenshot-mode manual` still marks it red in `runs/webgl_runtime/canvas_reductions_1781806531266/report.json`. |
 | AI-008C | P1 | done | Canvas/WebGL | Add a focused hot-loop/readback gate that tests the actual reflex `read_to_image()` path separately from diagnostic screenshots. | Source ServoShell reflex bridge sample metrics pass `bare-gradient2-size-1152x648` with `readback_foreground_present` in `runs/webgl_runtime/reflex_readback_canvas_1781806982624/report.json`; gradient-only negative control routes `readback_blank_or_flat` in `runs/webgl_runtime/reflex_readback_canvas_1781807000176/report.json`. |
 | AI-008D | P2 | done | Canvas/WebGL | Expand the reflex readback gate from local Canvas2D reduction to the live local game when the game server is running. | `runs/local_game_reflex/ai008d_live_game_release_1781810191/report.json` records `live_game_reflex_readback_green`: 1292/1292 readbacks, 176 semantic facts, 53 commands/receipts, `time_scale=0.989`, `fill_delta=12`, and `hp_delta=0`. |
-| AI-027 | P1 | active | GitHub UI canary | Use GitHub as the current browser-product canary. Public GitHub/Gist read-only smoke is green, the GitHub compat userscript fixes `IntersectionObserver`/`adoptedStyleSheets` API gaps, and the logged-in profile dropdown native hit-test still targets underlying gist content. The local overlay hit-test reduction passes 30/30 across Chrome and source ServoShell, including a Primer-like hierarchy, so this is not a general overlay failure. Added a narrow GitHub account-menu pointer shim; API-only and logged-in dropdown canaries pass with `signOutShimHit=true` while preserving `native signOutHit=false`. | Next slice is optional human dogfood of a harmless account-menu item, then retry the real logged-in GitHub issue/discussion draft gate from AI-026. Evidence: `docs/ai027_github_ui_canary.md`. |
 
 ## Recently Closed
 

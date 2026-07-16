@@ -1,7 +1,24 @@
 # AI-027 GitHub UI Canary
 
-Date: 2026-07-06
-Status: active canary; local overlay reduction complete
+Date: 2026-07-15
+Status: CEF canary passed; legacy Servo measurements retained below
+
+## CEF Product Result
+
+The persistent signed CEF profile reached
+`https://github.com/servo/servo/issues/new` and exposed exactly one visible
+title field and one visible body editor. The CEF inventory contained three
+fields, all three eligible, with no protected value exposure.
+
+The renderer action map initially exposed GitHub's React-generated button ID
+instead of the account button's accessible name. The collector now includes
+native `aria-labelledby` text and descendant image `alt` text in its sanitized
+label fallback. After that change, a fact-bound native click opened the account
+menu, returned a verified renderer receipt, and exposed dynamic `Settings` and
+`Sign out` actions. The canary did not fill fields, create an Issue, click Sign
+out, or capture a logged-in screenshot.
+
+Evidence: `runs/cef_day5/github_complex_ui_canary_final/report.json`.
 
 ## Why This Exists
 
@@ -183,7 +200,7 @@ The shim is scoped to `github.com` / `gist.github.com`, records counters only,
 does not read field values, and does not fire the Sign out action during the
 probe.
 
-## Current Conclusion
+## Legacy Servo Conclusion
 
 GitHub public read-only pages are usable through the current dogfood bridge.
 The Saccade GitHub userscript shim is necessary and effective for the known
@@ -239,7 +256,7 @@ coordinate. Do not treat it as an auth/session failure. Do not block Gist or
 issue draft fill on this account-menu bug, but keep it as a product-quality
 canary.
 
-## Next Slice
+## Legacy Follow-up
 
 1. Treat the local overlay/Primer-like hit-test path as green.
 2. Treat the GitHub account-menu userscript route as a measured workaround,

@@ -41,9 +41,11 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   let attached = false;
 
   const queryAll = Function.call.bind(Document.prototype.querySelectorAll);
+  const getById = Function.call.bind(Document.prototype.getElementById);
   const rectFor = Function.call.bind(Element.prototype.getBoundingClientRect);
   const closest = Function.call.bind(Element.prototype.closest);
   const matches = Function.call.bind(Element.prototype.matches);
+  const queryOne = Function.call.bind(Element.prototype.querySelector);
   const addEvent = Function.call.bind(EventTarget.prototype.addEventListener);
   const styleFor = Function.call.bind(window.getComputedStyle, window);
   const actionSelector = '.target:not(.hit), button, a[href], canvas, [role="button"], input[type="button"], input[type="submit"]';
@@ -108,11 +110,16 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
           : (matches(element, 'a[href]')
               ? 'link'
               : (matches(element, 'canvas') ? 'surface' : 'button'));
+      const labelledBy = String(element.getAttribute('aria-labelledby') || '')
+          .split(/\s+/).filter(Boolean)
+          .map(id => getById(document, id)?.textContent || '').join(' ');
+      const descendantAlt =
+          queryOne(element, 'img[alt]')?.getAttribute('alt') || '';
       const label = redactActionLabel(
-          element.getAttribute('aria-label') || element.getAttribute('title') ||
-          element.innerText || element.textContent || element.value ||
-          element.getAttribute('id') ||
-          element.getAttribute('name') || role)
+          element.getAttribute('aria-label') || labelledBy ||
+          element.getAttribute('title') || element.innerText ||
+          element.textContent || descendantAlt || element.value ||
+          element.getAttribute('id') || element.getAttribute('name') || role)
           .replace(/\s+/g, ' ').trim().slice(0, 128);
       let actionId = ids.get(element);
       if (!actionId) {
