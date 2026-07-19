@@ -1,8 +1,12 @@
 # Saccade Windows Dogfood Plan
 
 Date: 2026-07-18
-Status: next-platform implementation contract
+Status: Windows implementation ready to start; not yet dogfood-ready
 Target: Windows 10/11 x64 first; ARM64 only after x64 parity
+
+Start on the Windows machine with `docs/WINDOWS_DOGFOOD_START_HERE.md`. The
+matching Windows x64 CEF archive is pinned in
+`engines/cef/cef.windows64.lock.json`; W0/W1 must pass before browser dogfood.
 
 ## Product rule
 
