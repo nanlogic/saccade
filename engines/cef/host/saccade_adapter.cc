@@ -11,18 +11,24 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "include/base/cef_callback.h"
 #include "include/cef_devtools_message_observer.h"
+#include "include/cef_id_mappers.h"
 #include "include/cef_parser.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
+#if defined(OS_MAC)
+#include "tests/cefsimple/saccade_agent_switch_mac.h"
+#endif
 
 namespace {
 
@@ -35,19 +41,139 @@ std::string JsonString(CefRefPtr<CefValue> value) {
 
 CefRefPtr<CefListValue> CapabilityList() {
   auto list = CefListValue::Create();
-  const std::array<const char*, 21> capabilities = {
-      "ping",        "shell_status", "navigate",    "pause",
+  std::vector<const char*> capabilities = {
+      "ping",        "shell_status", "navigate",    "reload",
+      "back",        "forward",      "pause",       "resume",
       "close",       "truth",        "actions",     "next_fact",
       "act",         "act_drag",     "next_receipt", "reflex_start",
       "form_inventory",
       "inspect_fields", "form_compile_plan", "form_execute_plan",
       "screenshot_policy", "screenshot_audit", "form_reveal_more",
-      "article_text", "type_field_text"};
+      "article_text", "type_field_text", "render_preflight",
+      "open_agent_tab", "tab_registry", "select_tab", "downloads"};
+#if defined(OS_MAC)
+  capabilities.push_back("protected_fill");
+#endif
   list->SetSize(capabilities.size());
   for (size_t index = 0; index < capabilities.size(); ++index) {
     list->SetString(index, capabilities[index]);
   }
   return list;
+}
+
+bool ValidExpectedSurface(const std::string& expected_surface) {
+  return expected_surface == "page" || expected_surface == "github_issue" ||
+         expected_surface == "github_discussion";
+}
+
+std::string DownloadFileName(CefRefPtr<CefDownloadItem> item) {
+  std::string name = item->GetFullPath().ToString();
+  if (name.empty()) {
+    name = item->GetSuggestedFileName().ToString();
+  }
+  const size_t separator = name.find_last_of("/\\");
+  if (separator != std::string::npos) {
+    name = name.substr(separator + 1);
+  }
+  return name.empty() || name == "." || name == ".." ? "download" : name;
+}
+
+std::string DownloadSourceOrigin(const std::string& url) {
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) {
+    return "unknown";
+  }
+  const std::string scheme = CefString(&parts.scheme).ToString();
+  if (scheme == "file") {
+    return "file://local";
+  }
+  const std::string host = CefString(&parts.host).ToString();
+  if (scheme.empty() || host.empty()) {
+    return "unknown";
+  }
+  std::string origin = scheme + "://" + host;
+  const std::string port = CefString(&parts.port).ToString();
+  if (!port.empty()) {
+    origin.append(":").append(port);
+  }
+  return origin;
+}
+
+bool GithubNewSurface(const std::string& path, const std::string& kind) {
+  std::vector<std::string> segments;
+  size_t start = 0;
+  while (start < path.size()) {
+    while (start < path.size() && path[start] == '/') {
+      ++start;
+    }
+    if (start >= path.size()) {
+      break;
+    }
+    const size_t end = path.find('/', start);
+    segments.push_back(path.substr(start, end == std::string::npos
+                                             ? std::string::npos
+                                             : end - start));
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + 1;
+  }
+  return segments.size() >= 4 && !segments[0].empty() &&
+         !segments[1].empty() && segments[2] == kind &&
+         segments[3] == "new";
+}
+
+bool TaskSurfaceMatches(const std::string& expected_surface,
+                        const std::string& url) {
+  if (expected_surface == "page") {
+    return true;
+  }
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) {
+    return false;
+  }
+  const std::string host = CefString(&parts.host).ToString();
+  const std::string path = CefString(&parts.path).ToString();
+  if (host != "github.com") {
+    return false;
+  }
+  return expected_surface == "github_issue"
+             ? GithubNewSurface(path, "issues")
+             : GithubNewSurface(path, "discussions");
+}
+
+void OverridePreflightRoute(CefRefPtr<CefDictionaryValue> result,
+                            const std::string& route,
+                            const std::string& reason,
+                            const std::string& typed_reason,
+                            bool observation_consistent) {
+  result->SetString("verdict", "red");
+  result->SetString("recommended_route", route);
+  result->SetBool("agent_input_allowed", false);
+  auto reasons = CefListValue::Create();
+  reasons->SetSize(1);
+  reasons->SetString(0, reason);
+  result->SetList("reason_codes", reasons);
+
+  auto observations = result->GetDictionary("observations");
+  if (observations) {
+    observations->SetBool("observation_base_consistent",
+                          observation_consistent);
+  }
+  auto agreement = result->GetDictionary("agreement");
+  if (!agreement) {
+    return;
+  }
+  agreement->SetString("structural_verdict", "red");
+  agreement->SetString("recommended_route", route);
+  auto typed_reasons = CefListValue::Create();
+  typed_reasons->SetSize(1);
+  typed_reasons->SetString(0, typed_reason);
+  agreement->SetList("typed_reason_codes", typed_reasons);
+  auto observation_base = agreement->GetDictionary("observation_base");
+  if (observation_base) {
+    observation_base->SetBool("consistent", observation_consistent);
+  }
 }
 
 std::string Fnv1aUtf16(const std::u16string& value) {
@@ -84,6 +210,23 @@ std::string ErrorResponse(int id,
   auto value = CefValue::Create();
   value->SetDictionary(root);
   return JsonString(value);
+}
+
+std::string TrustedOrigin(const std::string& url) {
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) {
+    return "unknown";
+  }
+  const std::string scheme = CefString(&parts.scheme).ToString();
+  const std::string host = CefString(&parts.host).ToString();
+  const std::string port = CefString(&parts.port).ToString();
+  if (scheme == "file") {
+    return "file://";
+  }
+  if (scheme.empty() || host.empty()) {
+    return "unknown";
+  }
+  return scheme + "://" + host + (port.empty() ? "" : ":" + port);
 }
 
 bool ConstantTimeEqual(const std::string& left, const std::string& right) {
@@ -258,6 +401,9 @@ SaccadeAdapter::~SaccadeAdapter() {
 
 void SaccadeAdapter::OnBrowserCreated(CefRefPtr<CefBrowser> browser) {
   CEF_REQUIRE_UI_THREAD();
+  std::string agent_url;
+  std::string user_url;
+  bool agent_child_opened = false;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     const int browser_id = browser->GetIdentifier();
@@ -266,14 +412,87 @@ void SaccadeAdapter::OnBrowserCreated(CefRefPtr<CefBrowser> browser) {
         .is_popup = browser->IsPopup(),
         .opener_id = browser->GetHost()->GetOpenerIdentifier(),
     };
+    BrowserMetadata metadata;
+    if (browser->GetMainFrame()) {
+      metadata.url = browser->GetMainFrame()->GetURL().ToString();
+    }
+    metadata.page_revision = page_revision_;
+    auto pending_agent_child = std::find_if(
+        pending_agent_child_openers_.begin(),
+        pending_agent_child_openers_.end(),
+        [&metadata](const auto& pending) {
+          return !metadata.url.empty() && pending.second == metadata.url;
+        });
+    if (!pending_agent_tab_urls_.empty()) {
+      agent_url = std::move(pending_agent_tab_urls_.front());
+      pending_agent_tab_urls_.pop_front();
+      agent_granted_browser_ids_.insert(browser_id);
+      agent_created_browser_ids_.insert(browser_id);
+      agent_paused_browser_ids_.erase(browser_id);
+      browser_ = browser;
+      current_url_ = agent_url;
+      current_title_.clear();
+      ++page_revision_;
+      metadata.url = agent_url;
+      metadata.title.clear();
+      metadata.page_revision = page_revision_;
+      ResetPageStateLocked("Agent opened a dedicated browser tab");
+    } else if (!pending_user_tab_urls_.empty()) {
+      user_url = std::move(pending_user_tab_urls_.front());
+      pending_user_tab_urls_.pop_front();
+      browser_ = browser;
+      current_url_ = user_url;
+      current_title_.clear();
+      ++page_revision_;
+      metadata.url = user_url;
+      metadata.title.clear();
+      metadata.page_revision = page_revision_;
+      ResetPageStateLocked("Human opened a browser tab");
+    } else if (pending_agent_child != pending_agent_child_openers_.end()) {
+      pending_agent_child_openers_.erase(pending_agent_child);
+      agent_child_opened = true;
+      agent_granted_browser_ids_.insert(browser_id);
+      agent_created_browser_ids_.insert(browser_id);
+      agent_paused_browser_ids_.erase(browser_id);
+      browser_ = browser;
+      current_url_ = metadata.url;
+      current_title_.clear();
+      ++page_revision_;
+      metadata.title.clear();
+      metadata.page_revision = page_revision_;
+      ResetPageStateLocked("Agent action opened a child browser tab");
+    } else {
+      const char* initial_grant = getenv("SACCADE_ENGINE_INITIAL_TAB_GRANT");
+      if (browsers_.size() == 1 && initial_grant &&
+          std::string(initial_grant) == "1") {
+        agent_granted_browser_ids_.insert(browser_id);
+        agent_created_browser_ids_.insert(browser_id);
+        agent_paused_browser_ids_.erase(browser_id);
+        const char* initial_url = getenv("SACCADE_ENGINE_INITIAL_URL");
+        if (initial_url && initial_url[0] != '\0') {
+          current_url_ = initial_url;
+          metadata.url = initial_url;
+        }
+      }
+    }
+    browser_metadata_[browser_id] = metadata;
     if (!browser_) {
       browser_ = browser;
-      if (browser->GetMainFrame()) {
+      if (current_url_.empty() && browser->GetMainFrame()) {
         current_url_ = browser->GetMainFrame()->GetURL().ToString();
       }
     }
   }
   ConfigureIfRequested();
+  if (started_ && (!agent_url.empty() || agent_child_opened)) {
+    WriteGrant();
+  }
+  RefreshAgentSwitchOnUi();
+  if (!agent_url.empty() && browser->GetMainFrame()) {
+    browser->GetMainFrame()->LoadURL(agent_url);
+  } else if (!user_url.empty() && browser->GetMainFrame()) {
+    browser->GetMainFrame()->LoadURL(user_url);
+  }
 }
 
 void SaccadeAdapter::OnBrowserFocused(CefRefPtr<CefBrowser> browser) {
@@ -288,19 +507,27 @@ void SaccadeAdapter::OnBrowserFocused(CefRefPtr<CefBrowser> browser) {
     }
     browser_ = browser;
     frame = browser->GetMainFrame();
-    current_url_ = frame ? frame->GetURL().ToString() : "";
-    current_title_.clear();
+    const int browser_id = browser_->GetIdentifier();
+    auto& metadata = browser_metadata_[browser_id];
+    if (frame) {
+      metadata.url = frame->GetURL().ToString();
+    }
+    current_url_ = metadata.url;
+    current_title_ = metadata.title;
     ++page_revision_;
+    metadata.page_revision = page_revision_;
     ResetPageStateLocked("visible tab changed while command was pending");
     refresh_grant = started_;
   }
   fact_cv_.notify_all();
+  action_map_cv_.notify_all();
   receipt_cv_.notify_all();
   form_cv_.notify_all();
   screenshot_cv_.notify_all();
   if (refresh_grant) {
     WriteGrant();
   }
+  RefreshAgentSwitchOnUi();
   if (frame) {
     frame->SendProcessMessage(
         PID_RENDERER,
@@ -316,18 +543,49 @@ void SaccadeAdapter::OnAddressChanged(CefRefPtr<CefBrowser> browser,
     return;
   }
   bool refresh_grant = false;
+  bool agent_child_promoted = false;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
+    const int browser_id = browser ? browser->GetIdentifier() : 0;
+    const std::string changed_url = url.ToString();
+    if (browser_id != 0 &&
+        agent_granted_browser_ids_.find(browser_id) ==
+            agent_granted_browser_ids_.end()) {
+      const auto pending_agent_child = std::find_if(
+          pending_agent_child_openers_.begin(),
+          pending_agent_child_openers_.end(),
+          [&changed_url](const auto& pending) {
+            return pending.second == changed_url;
+          });
+      if (pending_agent_child != pending_agent_child_openers_.end()) {
+        pending_agent_child_openers_.erase(pending_agent_child);
+        agent_granted_browser_ids_.insert(browser_id);
+        agent_created_browser_ids_.insert(browser_id);
+        agent_paused_browser_ids_.erase(browser_id);
+        browser_ = browser;
+        agent_child_promoted = true;
+      }
+    }
+    auto& metadata = browser_metadata_[browser_id];
+    human_verification_failures_.erase(browser_id);
+    metadata.url = changed_url;
     if (browser_ && browser_->IsSame(browser)) {
-      current_url_ = url.ToString();
+      current_url_ = metadata.url;
       ++page_revision_;
+      metadata.page_revision = page_revision_;
       ResetPageStateLocked("page changed while form command was pending");
       refresh_grant = started_;
+    } else {
+      ++metadata.page_revision;
     }
   }
   form_cv_.notify_all();
   if (refresh_grant) {
     WriteGrant();
+  }
+  RefreshAgentSwitchOnUi();
+  if (agent_child_promoted) {
+    RefreshCollectorOnUi();
   }
 }
 
@@ -335,6 +593,8 @@ void SaccadeAdapter::OnTitleChanged(CefRefPtr<CefBrowser> browser,
                                     const CefString& title) {
   CEF_REQUIRE_UI_THREAD();
   std::lock_guard<std::mutex> lock(state_mutex_);
+  const int browser_id = browser ? browser->GetIdentifier() : 0;
+  browser_metadata_[browser_id].title = title.ToString();
   if (browser_ && browser_->IsSame(browser)) {
     current_title_ = title.ToString();
   }
@@ -357,6 +617,150 @@ void SaccadeAdapter::OnLoadCompleted(CefRefPtr<CefBrowser> browser) {
   }
 }
 
+void SaccadeAdapter::OnHumanVerificationResourceResult(
+    CefRefPtr<CefBrowser> browser,
+    std::string provider,
+    int http_status,
+    int request_status) {
+  if (!CefCurrentlyOn(TID_UI)) {
+    CefPostTask(
+        TID_UI,
+        base::BindOnce(&SaccadeAdapter::OnHumanVerificationResourceResult,
+                       base::Unretained(this), browser, std::move(provider),
+                       http_status, request_status));
+    return;
+  }
+  CEF_REQUIRE_UI_THREAD();
+  if (!browser || !browser->IsValid()) {
+    return;
+  }
+  const int browser_id = browser->GetIdentifier();
+  const bool succeeded = request_status == UR_SUCCESS && http_status >= 200 &&
+                         http_status < 400;
+  bool notify_user = false;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (browsers_.find(browser_id) == browsers_.end()) {
+      return;
+    }
+    if (succeeded) {
+      human_verification_failures_.erase(browser_id);
+      return;
+    }
+    const auto metadata = browser_metadata_.find(browser_id);
+    const uint64_t revision = metadata == browser_metadata_.end()
+                                  ? page_revision_
+                                  : metadata->second.page_revision;
+    auto& failure = human_verification_failures_[browser_id];
+    const bool new_failure = failure.page_revision != revision ||
+                             failure.provider != provider ||
+                             failure.http_status != http_status ||
+                             failure.request_status != request_status;
+    failure.provider = std::move(provider);
+    failure.http_status = http_status;
+    failure.request_status = request_status;
+    failure.page_revision = revision;
+    if (new_failure || !failure.user_notified) {
+      failure.user_notified = true;
+      notify_user = true;
+    }
+  }
+#if defined(OS_MAC)
+  const char* suppress_alert = getenv("SACCADE_SUPPRESS_HUMAN_VERIFICATION_ALERT");
+  if (notify_user && (!suppress_alert || strcmp(suppress_alert, "1") != 0)) {
+    std::string provider_name;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      const auto failure = human_verification_failures_.find(browser_id);
+      if (failure != human_verification_failures_.end()) {
+        provider_name = failure->second.provider;
+      }
+    }
+    SaccadeShowHumanVerificationFailure(browser, provider_name);
+  }
+#else
+  (void)notify_user;
+#endif
+}
+
+void SaccadeAdapter::RetryHumanVerification(CefRefPtr<CefBrowser> browser) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!browser || !browser->IsValid()) {
+    return;
+  }
+  bool refresh_grant = false;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    human_verification_failures_.erase(browser->GetIdentifier());
+    if (browser_ && browser_->IsSame(browser)) {
+      ++page_revision_;
+      browser_metadata_[browser->GetIdentifier()].page_revision = page_revision_;
+      ResetPageStateLocked("human verification retry reloaded the page");
+      refresh_grant = started_;
+    }
+  }
+  fact_cv_.notify_all();
+  action_map_cv_.notify_all();
+  receipt_cv_.notify_all();
+  form_cv_.notify_all();
+  screenshot_cv_.notify_all();
+  if (refresh_grant) {
+    WriteGrant();
+  }
+  browser->ReloadIgnoreCache();
+}
+
+void SaccadeAdapter::OnDownloadUpdated(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefDownloadItem> download_item) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!browser || !download_item || !download_item->IsValid()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  const int browser_id = browser->GetIdentifier();
+  const uint32_t download_id = download_item->GetId();
+  auto [entry, inserted] = downloads_.try_emplace(download_id);
+  auto& download = entry->second;
+  if (inserted) {
+    download.id = download_id;
+    download.browser_id = browser_id;
+    download.agent_visible_at_start =
+        agent_granted_browser_ids_.find(browser_id) !=
+        agent_granted_browser_ids_.end();
+    const auto metadata = browser_metadata_.find(browser_id);
+    download.page_revision = metadata == browser_metadata_.end()
+                                 ? page_revision_
+                                 : metadata->second.page_revision;
+    std::string source_url = download_item->GetOriginalUrl().ToString();
+    if (source_url.empty()) {
+      source_url = download_item->GetURL().ToString();
+    }
+    download.source_origin = DownloadSourceOrigin(source_url);
+  }
+  download.file_name = DownloadFileName(download_item);
+  download.mime_type = download_item->GetMimeType().ToString();
+  download.percent_complete = download_item->GetPercentComplete();
+  download.received_bytes = download_item->GetReceivedBytes();
+  download.total_bytes = download_item->GetTotalBytes();
+  download.interrupt_reason =
+      static_cast<int>(download_item->GetInterruptReason());
+  if (download_item->IsComplete()) {
+    download.status = "complete";
+  } else if (download_item->IsCanceled()) {
+    download.status = "canceled";
+  } else if (download_item->IsInterrupted()) {
+    download.status = "interrupted";
+  } else if (download_item->IsInProgress()) {
+    download.status = "in_progress";
+  } else {
+    download.status = "starting";
+  }
+  while (downloads_.size() > 128) {
+    downloads_.erase(downloads_.begin());
+  }
+}
+
 bool SaccadeAdapter::OnRendererMessage(
     CefRefPtr<CefBrowser> browser,
     CefRefPtr<CefFrame> frame,
@@ -367,6 +771,13 @@ bool SaccadeAdapter::OnRendererMessage(
       !browser_ || !browser_->IsSame(browser) || !message ||
       !message->IsValid()) {
     return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!CurrentTabActiveLocked()) {
+      return true;
+    }
   }
 
   const std::string name = message->GetName().ToString();
@@ -395,11 +806,12 @@ bool SaccadeAdapter::OnRendererMessage(
       if (ok && payload.size() <= 1024 * 1024) {
         pending->second.payload = payload;
         if (pending->second.command == "execute" ||
+            pending->second.command == "protected_fill" ||
             pending->second.command == "reveal_more") {
           auto parsed = CefParseJSON(payload, JSON_PARSER_RFC);
-          const char* counter = pending->second.command == "execute"
-                                    ? "write_attempted_count"
-                                    : "changed_scrollers";
+          const char* counter = pending->second.command == "reveal_more"
+                                    ? "changed_scrollers"
+                                    : "write_attempted_count";
           if (parsed && parsed->GetType() == VTYPE_DICTIONARY &&
               parsed->GetDictionary()->GetInt(counter) > 0) {
             ++page_revision_;
@@ -429,6 +841,36 @@ bool SaccadeAdapter::OnRendererMessage(
       collector_ready_ = true;
     }
     fact_cv_.notify_all();
+    return true;
+  }
+
+  if (name == "saccade.renderer.layout_changed_v1" &&
+      arguments->GetSize() == 4) {
+    const double width = arguments->GetDouble(0);
+    const double height = arguments->GetDouble(1);
+    const double device_scale = arguments->GetDouble(2);
+    const double renderer_epoch_ms = arguments->GetDouble(3);
+    if (!std::isfinite(width) || !std::isfinite(height) ||
+        !std::isfinite(device_scale) || !std::isfinite(renderer_epoch_ms) ||
+        width <= 0 || height <= 0 || device_scale <= 0) {
+      return true;
+    }
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      ++layout_epoch_;
+      ++page_revision_;
+      last_layout_page_revision_ = page_revision_;
+      if (browser_) {
+        browser_metadata_[browser_->GetIdentifier()].page_revision =
+            page_revision_;
+      }
+      ResetPageStateLocked("layout changed while action was pending");
+    }
+    fact_cv_.notify_all();
+    action_map_cv_.notify_all();
+    receipt_cv_.notify_all();
+    form_cv_.notify_all();
+    screenshot_cv_.notify_all();
     return true;
   }
 
@@ -472,7 +914,19 @@ bool SaccadeAdapter::OnRendererMessage(
     return true;
   }
 
-  if (name == "saccade.renderer.action_v1" && arguments->GetSize() == 8) {
+  if (name == "saccade.renderer.actions_begin_v1" &&
+      arguments->GetSize() == 2) {
+    const int generation = arguments->GetInt(0);
+    if (generation <= 0) {
+      return true;
+    }
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    action_scan_generation_ = generation;
+    staged_actions_.clear();
+    return true;
+  }
+
+  if (name == "saccade.renderer.action_v1" && arguments->GetSize() == 11) {
     TargetFact fact;
     fact.action_id = arguments->GetString(0).ToString();
     fact.role = arguments->GetString(1).ToString();
@@ -481,11 +935,14 @@ bool SaccadeAdapter::OnRendererMessage(
     fact.top = arguments->GetDouble(4);
     fact.width = arguments->GetDouble(5);
     fact.height = arguments->GetDouble(6);
-    fact.renderer_epoch_ms = arguments->GetDouble(7);
+    fact.renderer_epoch_ms = arguments->GetDouble(8);
+    fact.opens_new_context = arguments->GetBool(7);
+    fact.destination_url = arguments->GetString(10).ToString();
+    const int generation = arguments->GetInt(9);
     if (fact.action_id.empty() || fact.action_id.size() > 128 ||
         (fact.role != "target" && fact.role != "button" &&
          fact.role != "link" && fact.role != "surface") ||
-        fact.label.size() > 128 ||
+        fact.label.size() > 128 || fact.destination_url.size() > 2048 ||
         !std::isfinite(fact.left) || !std::isfinite(fact.top) ||
         !std::isfinite(fact.width) || !std::isfinite(fact.height) ||
         !std::isfinite(fact.renderer_epoch_ms) || fact.width <= 0 ||
@@ -495,20 +952,44 @@ bool SaccadeAdapter::OnRendererMessage(
     }
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
-      fact.page_revision = page_revision_;
-      const bool is_new = actions_.find(fact.action_id) == actions_.end();
-      if (is_new) {
-        if (pending_facts_.size() >= 256) {
-          pending_facts_.pop_front();
-        }
-        pending_facts_.push_back(fact);
+      if (generation != action_scan_generation_) {
+        return true;
       }
-      actions_[fact.action_id] = fact;
-      while (actions_.size() > 256) {
-        actions_.erase(actions_.begin());
+      fact.page_revision = page_revision_;
+      fact.layout_epoch = layout_epoch_;
+      if (staged_actions_.size() < 256) {
+        staged_actions_[fact.action_id] = fact;
       }
     }
-    fact_cv_.notify_one();
+    return true;
+  }
+
+  if (name == "saccade.renderer.actions_end_v1" &&
+      arguments->GetSize() == 2) {
+    const int generation = arguments->GetInt(0);
+    bool added = false;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (generation != action_scan_generation_) {
+        return true;
+      }
+      for (const auto& [action_id, fact] : staged_actions_) {
+        if (actions_.find(action_id) == actions_.end()) {
+          if (pending_facts_.size() >= 256) {
+            pending_facts_.pop_front();
+          }
+          pending_facts_.push_back(fact);
+          added = true;
+        }
+      }
+      actions_.swap(staged_actions_);
+      staged_actions_.clear();
+      ++action_map_serial_;
+    }
+    action_map_cv_.notify_all();
+    if (added) {
+      fact_cv_.notify_one();
+    }
     return true;
   }
 
@@ -533,6 +1014,8 @@ bool SaccadeAdapter::OnRendererMessage(
       }
       receipt.basis_page_revision = action->second.page_revision;
       receipt.observed_page_revision = page_revision_;
+      receipt.basis_layout_epoch = action->second.layout_epoch;
+      receipt.observed_layout_epoch = layout_epoch_;
       if (pending_receipts_.size() >= 256) {
         pending_receipts_.pop_front();
       }
@@ -554,23 +1037,40 @@ void SaccadeAdapter::OnBrowserClosed(CefRefPtr<CefBrowser> browser) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     browsers_.erase(browser->GetIdentifier());
     browser_roles_.erase(browser->GetIdentifier());
+    browser_metadata_.erase(browser->GetIdentifier());
+    human_verification_failures_.erase(browser->GetIdentifier());
+    agent_granted_browser_ids_.erase(browser->GetIdentifier());
+    agent_created_browser_ids_.erase(browser->GetIdentifier());
+    agent_paused_browser_ids_.erase(browser->GetIdentifier());
     if (browser_ && browser_->IsSame(browser)) {
       browser_ = browsers_.empty() ? nullptr : browsers_.begin()->second;
       next_frame = browser_ ? browser_->GetMainFrame() : nullptr;
-      current_url_ = next_frame ? next_frame->GetURL().ToString() : "";
-      current_title_.clear();
+      const int next_id = browser_ ? browser_->GetIdentifier() : 0;
+      auto metadata = browser_metadata_.find(next_id);
+      current_url_ = metadata == browser_metadata_.end()
+                         ? (next_frame ? next_frame->GetURL().ToString() : "")
+                         : metadata->second.url;
+      current_title_ =
+          metadata == browser_metadata_.end() ? "" : metadata->second.title;
       ++page_revision_;
+      if (metadata != browser_metadata_.end()) {
+        metadata->second.page_revision = page_revision_;
+      }
       ResetPageStateLocked("visible tab closed while command was pending");
       refresh_grant = started_ && browser_;
     }
     stop = browsers_.empty();
   }
   fact_cv_.notify_all();
+  action_map_cv_.notify_all();
   receipt_cv_.notify_all();
   form_cv_.notify_all();
   screenshot_cv_.notify_all();
   if (refresh_grant) {
     WriteGrant();
+  }
+  if (!stop) {
+    RefreshAgentSwitchOnUi();
   }
   if (next_frame) {
     next_frame->SendProcessMessage(
@@ -588,7 +1088,7 @@ void SaccadeAdapter::ConfigureIfRequested() {
   if (!socket_path || !grant_path) {
     return;
   }
-  bool auto_grant = false;
+  bool enable_broker = false;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     if (!configured_) {
@@ -598,12 +1098,25 @@ void SaccadeAdapter::ConfigureIfRequested() {
       replay_path_ = replay_path && replay_path[0] != '\0'
                          ? replay_path
                          : grant_path_ + ".replay.jsonl";
+      const char* current_pointer = getenv("SACCADE_ENGINE_CURRENT_POINTER");
+      current_pointer_path_ =
+          current_pointer && current_pointer[0] != '\0' ? current_pointer : "";
       configured_ = true;
     }
-    const char* granted = getenv("SACCADE_ENGINE_GRANT_CURRENT_TAB");
-    auto_grant = granted && std::string(granted) == "1";
+    const char* broker = getenv("SACCADE_ENGINE_BROKER");
+    const char* legacy_grant = getenv("SACCADE_ENGINE_GRANT_CURRENT_TAB");
+    enable_broker = (broker && std::string(broker) == "1") ||
+                    (legacy_grant && std::string(legacy_grant) == "1");
+    // The legacy flag grants only the first browser that configures the
+    // bridge. Reapplying it from later OnBrowserCreated calls would silently
+    // turn Human-created tabs On, including native Help tabs.
+    if (!started_ && legacy_grant && std::string(legacy_grant) == "1" &&
+        browser_) {
+      agent_granted_browser_ids_.insert(browser_->GetIdentifier());
+      agent_paused_browser_ids_.erase(browser_->GetIdentifier());
+    }
   }
-  if (auto_grant) {
+  if (enable_broker) {
     StartBridge();
   }
 }
@@ -615,7 +1128,6 @@ void SaccadeAdapter::StartBridge() {
   }
   capability_ = RandomCapability();
   if (!capability_.empty()) {
-    paused_ = false;
     started_ = true;
     stopping_ = false;
     server_thread_ = std::thread(&SaccadeAdapter::Serve, this);
@@ -624,17 +1136,30 @@ void SaccadeAdapter::StartBridge() {
 
 SaccadeAdapter::AgentUiState SaccadeAdapter::ToggleAgentForVisibleTab() {
   CEF_REQUIRE_UI_THREAD();
+  bool enabled = false;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     if (!configured_ || !browser_) {
       return AgentUiState::kUnavailable;
     }
-    if (started_) {
-      paused_ = !paused_;
-      return paused_ ? AgentUiState::kPaused : AgentUiState::kOn;
+    if (!started_) {
+      return AgentUiState::kUnavailable;
+    }
+    const int browser_id = browser_->GetIdentifier();
+    if (agent_granted_browser_ids_.erase(browser_id) == 0) {
+      agent_granted_browser_ids_.insert(browser_id);
+      agent_paused_browser_ids_.erase(browser_id);
+      enabled = true;
+    } else {
+      agent_paused_browser_ids_.erase(browser_id);
+      ResetPageStateLocked("human disabled Agent access for this tab");
     }
   }
-  StartBridge();
+  WriteGrant();
+  RefreshAgentSwitchOnUi();
+  if (enabled) {
+    RefreshCollectorOnUi();
+  }
   return GetAgentUiState();
 }
 
@@ -652,7 +1177,7 @@ SaccadeAdapter::AgentUiState SaccadeAdapter::GetAgentUiState() {
   if (!started_) {
     return AgentUiState::kOff;
   }
-  return paused_ ? AgentUiState::kPaused : AgentUiState::kOn;
+  return CurrentTabGrantedLocked() ? AgentUiState::kOn : AgentUiState::kOff;
 }
 
 void SaccadeAdapter::Stop() {
@@ -661,6 +1186,7 @@ void SaccadeAdapter::Stop() {
   }
   stopping_ = true;
   fact_cv_.notify_all();
+  action_map_cv_.notify_all();
   receipt_cv_.notify_all();
   form_cv_.notify_all();
   screenshot_cv_.notify_all();
@@ -681,6 +1207,7 @@ void SaccadeAdapter::Stop() {
     unlink(grant_path_.c_str());
     unlink((grant_path_ + ".tmp").c_str());
   }
+  RemoveCurrentPointerIfOwned();
   started_ = false;
 }
 
@@ -707,12 +1234,10 @@ void SaccadeAdapter::Serve() {
     unlink(socket_path_.c_str());
     return;
   }
-  bool has_initial_url = false;
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    has_initial_url = !current_url_.empty();
-  }
-  if (has_initial_url && !WriteGrant()) {
+  // Publish broker availability even when the first navigation has not yet
+  // committed. An Off broker contains no URL or tab identity and is not a read
+  // grant; publishing it early lets an LLM reuse the running app safely.
+  if (!WriteGrant()) {
     close(listener);
     listener_fd_ = -1;
     unlink(socket_path_.c_str());
@@ -776,11 +1301,82 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
     CefRefPtr<CefValue> status = CefParseJSON(StatusJson(), JSON_PARSER_RFC);
     return Response(id, status->GetDictionary());
   }
+  if (method == "tab_registry") {
+    CefRefPtr<CefValue> registry =
+        CefParseJSON(TabRegistryJson(), JSON_PARSER_RFC);
+    return Response(id, registry->GetDictionary());
+  }
+  if (method == "select_tab") {
+    return SelectTabResponse(id, request->GetDictionary("params"));
+  }
+  if (method == "open_agent_tab") {
+    auto params = request->GetDictionary("params");
+    const std::string url = params ? params->GetString("url").ToString() : "";
+    CefURLParts parts;
+    if (url.empty() || !CefParseURL(url, parts)) {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "open_agent_tab requires an absolute URL");
+    }
+    const std::string scheme = CefString(&parts.scheme).ToString();
+    if (scheme != "http" && scheme != "https" && scheme != "file") {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "open_agent_tab allows only http, https, or file URLs");
+    }
+    CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::OpenAgentTabOnUi,
+                                      base::Unretained(this), url));
+    auto result = CefDictionaryValue::Create();
+    result->SetBool("opening", true);
+    result->SetString("url", url);
+    result->SetString("initial_agent_state", "on");
+    return Response(id, result);
+  }
+  if (method == "resume") {
+    auto result = CefDictionaryValue::Create();
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (!CurrentTabGrantedLocked()) {
+        return ErrorResponse(id, "CONSENT_REQUIRED", "Agent access is Off");
+      }
+      if (browser_) {
+        agent_paused_browser_ids_.erase(browser_->GetIdentifier());
+      }
+      result->SetBool("agent_enabled", true);
+      result->SetBool("paused", false);
+      result->SetString("agent_activity", "idle");
+      result->SetDouble("page_revision", static_cast<double>(page_revision_));
+    }
+    WriteGrant();
+    CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::RefreshAgentSwitchOnUi,
+                                      base::Unretained(this)));
+    CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::RefreshCollectorOnUi,
+                                      base::Unretained(this)));
+    return Response(id, result);
+  }
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!CurrentTabGrantedLocked()) {
+      return ErrorResponse(
+          id, "CONSENT_REQUIRED",
+          "Agent access is Off for the visible tab; the user must turn it On");
+    }
+    if (CurrentTabPausedLocked()) {
+      return ErrorResponse(id, "AGENT_PAUSED", "agent runtime is paused");
+    }
+  }
   if (method == "truth") {
     return Response(id, TruthResult());
   }
   if (method == "actions") {
+    if (!RefreshActionMap(2000)) {
+      return ErrorResponse(id, "TIMEOUT",
+                           "live action-map refresh timed out");
+    }
     return Response(id, ActionsResult());
+  }
+  if (method == "downloads") {
+    CefRefPtr<CefValue> downloads =
+        CefParseJSON(DownloadsJson(), JSON_PARSER_RFC);
+    return Response(id, downloads->GetDictionary());
   }
   if (method == "next_fact") {
     return NextFactResponse(id, RequestTimeoutMs(request->GetDictionary("params")));
@@ -797,6 +1393,10 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
   }
   if (method == "form_inventory") {
     return FormCommandResponse(id, "inventory",
+                               request->GetDictionary("params"));
+  }
+  if (method == "render_preflight") {
+    return FormCommandResponse(id, "render_preflight",
                                request->GetDictionary("params"));
   }
   if (method == "inspect_fields") {
@@ -829,11 +1429,14 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
     return FormCommandResponse(id, "article_text",
                                request->GetDictionary("params"));
   }
+  if (method == "protected_fill") {
+    return ProtectedFillResponse(id, request->GetDictionary("params"));
+  }
   if (method == "reflex_start") {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
-      if (paused_) {
-        return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
+      if (!CurrentTabGrantedLocked()) {
+        return ErrorResponse(id, "CONSENT_REQUIRED", "Agent access is Off");
       }
       if (!collector_ready_) {
         return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
@@ -849,8 +1452,8 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
   if (method == "navigate") {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
-      if (paused_) {
-        return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
+      if (!CurrentTabGrantedLocked()) {
+        return ErrorResponse(id, "CONSENT_REQUIRED", "Agent access is Off");
       }
     }
     auto params = request->GetDictionary("params");
@@ -872,14 +1475,53 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
     }
     return Response(id, result);
   }
+  if (method == "back" || method == "forward" || method == "reload") {
+    bool changed = false;
+    uint64_t next_revision = 0;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (!browser_) {
+        return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                             "visible browser is unavailable");
+      }
+      changed = method == "reload" ||
+                (method == "back" && browser_->CanGoBack()) ||
+                (method == "forward" && browser_->CanGoForward());
+      if (changed) {
+        ++page_revision_;
+        browser_metadata_[browser_->GetIdentifier()].page_revision =
+            page_revision_;
+        ResetPageStateLocked("browser navigation changed the page");
+      }
+      next_revision = page_revision_;
+    }
+    if (changed) {
+      CefPostTask(TID_UI,
+                  base::BindOnce(&SaccadeAdapter::NavigateHistoryOnUi,
+                                 base::Unretained(this), method));
+    }
+    auto result = CefDictionaryValue::Create();
+    result->SetBool("changed", changed);
+    result->SetString("action", method);
+    result->SetDouble("page_revision", static_cast<double>(next_revision));
+    return Response(id, result);
+  }
   if (method == "pause") {
     auto result = CefDictionaryValue::Create();
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
-      paused_ = true;
+      if (browser_) {
+        agent_paused_browser_ids_.insert(browser_->GetIdentifier());
+      }
+      ResetPageStateLocked("agent runtime paused");
+      result->SetBool("agent_enabled", CurrentTabGrantedLocked());
       result->SetBool("paused", true);
+      result->SetString("agent_activity", "paused");
       result->SetDouble("page_revision", static_cast<double>(page_revision_));
     }
+    WriteGrant();
+    CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::RefreshAgentSwitchOnUi,
+                                      base::Unretained(this)));
     return Response(id, result);
   }
   if (method == "close") {
@@ -896,13 +1538,22 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
 std::string SaccadeAdapter::StatusJson() {
   auto result = CefDictionaryValue::Create();
   std::lock_guard<std::mutex> lock(state_mutex_);
-  result->SetString("url", current_url_);
-  result->SetString("title", current_title_);
+  const bool granted = CurrentTabGrantedLocked();
+  const bool paused = CurrentTabPausedLocked();
+  result->SetString("url", granted ? current_url_ : "");
+  result->SetString("title", granted ? current_title_ : "");
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
-  result->SetBool("paused", paused_);
-  result->SetBool("collector_ready", collector_ready_);
-  result->SetString("collector_error", collector_error_);
-  result->SetString("tab_identity", CurrentTabIdLocked());
+  result->SetDouble("layout_epoch", static_cast<double>(layout_epoch_));
+  result->SetString(
+      "revision_cause",
+      last_layout_page_revision_ == page_revision_ ? "layout" : "page");
+  result->SetBool("paused", !granted || paused);
+  result->SetBool("agent_enabled", granted);
+  result->SetString("agent_activity",
+                    !granted ? "disconnected" : (paused ? "paused" : "idle"));
+  result->SetBool("collector_ready", granted && collector_ready_);
+  result->SetString("collector_error", granted ? collector_error_ : "");
+  result->SetString("tab_identity", granted ? CurrentTabIdLocked() : "");
   result->SetInt("browser_count", static_cast<int>(browsers_.size()));
   int popup_count = 0;
   for (const auto& [browser_id, role] : browser_roles_) {
@@ -912,6 +1563,21 @@ std::string SaccadeAdapter::StatusJson() {
   }
   result->SetInt("popup_count", popup_count);
   const int current_id = browser_ ? browser_->GetIdentifier() : 0;
+  const auto verification_failure =
+      human_verification_failures_.find(current_id);
+  const bool verification_required =
+      granted && verification_failure != human_verification_failures_.end();
+  result->SetBool("human_verification_required", verification_required);
+  result->SetBool("human_verification_retryable", verification_required);
+  result->SetBool("human_verification_content_exposed", false);
+  if (verification_required) {
+    result->SetString("human_verification_provider",
+                      verification_failure->second.provider);
+    result->SetInt("human_verification_http_status",
+                   verification_failure->second.http_status);
+    result->SetInt("human_verification_request_status",
+                   verification_failure->second.request_status);
+  }
   const auto current_role = browser_roles_.find(current_id);
   result->SetBool("current_is_popup",
                   current_role != browser_roles_.end() &&
@@ -925,6 +1591,161 @@ std::string SaccadeAdapter::StatusJson() {
   return JsonString(value);
 }
 
+std::string SaccadeAdapter::TabRegistryJson() {
+  auto result = CefDictionaryValue::Create();
+  auto tabs = CefListValue::Create();
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  const int current_id = browser_ ? browser_->GetIdentifier() : 0;
+  int index = 0;
+  for (const int browser_id : agent_granted_browser_ids_) {
+    const auto browser = browsers_.find(browser_id);
+    if (browser == browsers_.end()) {
+      continue;
+    }
+    const auto role = browser_roles_.find(browser_id);
+    if (role != browser_roles_.end() && role->second.is_popup) {
+      continue;
+    }
+    const auto metadata = browser_metadata_.find(browser_id);
+    const std::string url =
+        metadata == browser_metadata_.end() ? "" : metadata->second.url;
+    const std::string title =
+        metadata == browser_metadata_.end() ? "" : metadata->second.title;
+    const uint64_t revision =
+        metadata == browser_metadata_.end() ? 1 : metadata->second.page_revision;
+    auto tab = CefDictionaryValue::Create();
+    tab->SetString("browser_tab_id", "cef:" + std::to_string(browser_id));
+    tab->SetString("owner",
+                   agent_created_browser_ids_.find(browser_id) ==
+                           agent_created_browser_ids_.end()
+                       ? "human"
+                       : "agent");
+    tab->SetBool("agent_enabled", true);
+    const bool paused =
+        agent_paused_browser_ids_.find(browser_id) != agent_paused_browser_ids_.end();
+    tab->SetBool("paused", paused);
+    tab->SetString("agent_activity", paused ? "paused" : "idle");
+    tab->SetBool("active", browser_id == current_id);
+    tab->SetString("title", title);
+    tab->SetString("origin", TrustedOrigin(url));
+    tab->SetDouble("page_revision", static_cast<double>(revision));
+    tab->SetBool("is_popup", false);
+    tabs->SetSize(index + 1);
+    tabs->SetDictionary(index++, tab);
+  }
+  result->SetString("status", "ok");
+  result->SetString("summary",
+                    "safe registry of Agent On tabs; Agent Off tabs omitted");
+  result->SetInt("browser_count", static_cast<int>(browsers_.size()));
+  result->SetInt("eligible_count", index);
+  result->SetList("tabs", tabs);
+  result->SetBool("agent_off_tabs_omitted", true);
+  result->SetBool("capabilities_exposed", false);
+  result->SetBool("cookies_or_storage_exposed", false);
+  auto value = CefValue::Create();
+  value->SetDictionary(result);
+  return JsonString(value);
+}
+
+std::string SaccadeAdapter::DownloadsJson() {
+  auto result = CefDictionaryValue::Create();
+  auto items = CefListValue::Create();
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  const int current_id = browser_ ? browser_->GetIdentifier() : 0;
+  int index = 0;
+  for (const auto& [download_id, download] : downloads_) {
+    if (download.browser_id != current_id || !download.agent_visible_at_start) {
+      continue;
+    }
+    auto item = CefDictionaryValue::Create();
+    item->SetDouble("download_id", static_cast<double>(download.id));
+    item->SetString("file_name", download.file_name);
+    item->SetString("mime_type", download.mime_type);
+    item->SetString("source_origin", download.source_origin);
+    item->SetString("status", download.status);
+    item->SetInt("percent_complete", download.percent_complete);
+    item->SetDouble("received_bytes",
+                    static_cast<double>(download.received_bytes));
+    item->SetDouble("total_bytes", static_cast<double>(download.total_bytes));
+    item->SetInt("interrupt_reason", download.interrupt_reason);
+    item->SetDouble("basis_page_revision",
+                    static_cast<double>(download.page_revision));
+    item->SetString("download_root", "browser_default");
+    item->SetBool("full_path_exposed", false);
+    item->SetBool("contents_exposed", false);
+    item->SetBool("auto_executed", false);
+    items->SetSize(index + 1);
+    items->SetDictionary(index++, item);
+  }
+  result->SetString("status", "ok");
+  result->SetString("summary",
+                    std::to_string(index) +
+                        " Agent-visible download receipt(s)");
+  result->SetInt("download_count", index);
+  result->SetList("downloads", items);
+  result->SetBool("agent_off_downloads_omitted", true);
+  result->SetBool("full_paths_exposed", false);
+  result->SetBool("contents_exposed", false);
+  result->SetBool("auto_execute_allowed", false);
+  auto value = CefValue::Create();
+  value->SetDictionary(result);
+  return JsonString(value);
+}
+
+std::string SaccadeAdapter::SelectTabResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  const std::string browser_tab_id =
+      params ? params->GetString("browser_tab_id").ToString() : "";
+  constexpr char kPrefix[] = "cef:";
+  if (browser_tab_id.rfind(kPrefix, 0) != 0) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "select_tab requires browser_tab_id like cef:<id>");
+  }
+  char* end = nullptr;
+  const long parsed =
+      strtol(browser_tab_id.c_str() + strlen(kPrefix), &end, 10);
+  if (!end || *end != '\0' || parsed <= 0 ||
+      parsed > std::numeric_limits<int>::max()) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "select_tab received an invalid browser_tab_id");
+  }
+  const int browser_id = static_cast<int>(parsed);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto browser = browsers_.find(browser_id);
+    if (browser == browsers_.end()) {
+      return ErrorResponse(id, "TAB_NOT_FOUND", "tab is not available");
+    }
+    if (agent_granted_browser_ids_.find(browser_id) ==
+        agent_granted_browser_ids_.end()) {
+      return ErrorResponse(id, "CONSENT_REQUIRED",
+                           "Agent access is Off for this tab");
+    }
+    const auto role = browser_roles_.find(browser_id);
+    if (role != browser_roles_.end() && role->second.is_popup) {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "popup windows are not attachable by tab registry");
+    }
+    browser_ = browser->second;
+    agent_paused_browser_ids_.erase(browser_id);
+    const auto metadata = browser_metadata_.find(browser_id);
+    current_url_ = metadata == browser_metadata_.end() ? "" : metadata->second.url;
+    current_title_ =
+        metadata == browser_metadata_.end() ? "" : metadata->second.title;
+    ++page_revision_;
+    browser_metadata_[browser_id].page_revision = page_revision_;
+    ResetPageStateLocked("Agent selected an eligible browser tab");
+  }
+  WriteGrant();
+  CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::RefreshAgentSwitchOnUi,
+                                    base::Unretained(this)));
+  CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::RefreshCollectorOnUi,
+                                    base::Unretained(this)));
+  CefRefPtr<CefValue> status = CefParseJSON(StatusJson(), JSON_PARSER_RFC);
+  return Response(id, status->GetDictionary());
+}
+
 CefRefPtr<CefDictionaryValue> SaccadeAdapter::TruthResult() {
   auto result = CefDictionaryValue::Create();
   auto fields = CefListValue::Create();
@@ -932,9 +1753,18 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::TruthResult() {
   result->SetString("tab_id", CurrentTabIdLocked());
   result->SetString("url", current_url_);
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
+  result->SetDouble("layout_epoch", static_cast<double>(layout_epoch_));
   result->SetBool("collector_ready", collector_ready_);
   result->SetString("collector_error", collector_error_);
   result->SetBool("sensitive_values_exposed", false);
+  auto provenance = CefDictionaryValue::Create();
+  provenance->SetString("page_title", "untrusted_page_content");
+  provenance->SetString("page_text", "untrusted_page_content");
+  provenance->SetString("action_labels", "untrusted_page_content");
+  provenance->SetString("policy_and_side_effect_authorization",
+                        "llm_host_policy");
+  provenance->SetBool("page_content_may_authorize_actions", false);
+  result->SetDictionary("provenance", provenance);
   fields->SetSize(controls_.size());
   for (size_t index = 0; index < controls_.size(); ++index) {
     auto field = CefDictionaryValue::Create();
@@ -954,6 +1784,10 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::ActionsResult() {
   std::lock_guard<std::mutex> lock(state_mutex_);
   result->SetString("tab_id", CurrentTabIdLocked());
   result->SetDouble("page_revision", static_cast<double>(page_revision_));
+  result->SetDouble("layout_epoch", static_cast<double>(layout_epoch_));
+  result->SetString(
+      "revision_cause",
+      last_layout_page_revision_ == page_revision_ ? "layout" : "page");
   actions->SetSize(actions_.size());
   size_t index = 0;
   for (const auto& [action_id, fact] : actions_) {
@@ -964,8 +1798,14 @@ CefRefPtr<CefDictionaryValue> SaccadeAdapter::ActionsResult() {
                                              : "pointer_click");
     action->SetString("role", fact.role);
     action->SetString("label", fact.label);
+    action->SetString("label_provenance", "untrusted_page_content");
+    action->SetString("authorization_source", "llm_host_policy");
+    action->SetBool("requires_user_confirmation", false);
+    action->SetBool("opens_new_context", fact.opens_new_context);
     action->SetDouble("basis_page_revision",
                       static_cast<double>(fact.page_revision));
+    action->SetDouble("basis_layout_epoch",
+                      static_cast<double>(fact.layout_epoch));
     actions->SetDictionary(index++, action);
   }
   result->SetList("actions", actions);
@@ -994,7 +1834,11 @@ std::string SaccadeAdapter::NextFactResponse(int id, int timeout_ms) {
   result->SetString("role", fact.role);
   result->SetString("label", fact.label);
   result->SetString("action_id", fact.action_id);
+  result->SetString("label_provenance", "untrusted_page_content");
+  result->SetString("authorization_source", "llm_host_policy");
+  result->SetBool("requires_user_confirmation", false);
   result->SetDouble("page_revision", static_cast<double>(fact.page_revision));
+  result->SetDouble("layout_epoch", static_cast<double>(fact.layout_epoch));
   result->SetDouble("renderer_epoch_ms", fact.renderer_epoch_ms);
   result->SetDictionary("rect", rect);
   return Response(id, result);
@@ -1020,6 +1864,10 @@ std::string SaccadeAdapter::NextReceiptResponse(int id, int timeout_ms) {
                     static_cast<double>(receipt.basis_page_revision));
   result->SetDouble("observed_page_revision",
                     static_cast<double>(receipt.observed_page_revision));
+  result->SetDouble("basis_layout_epoch",
+                    static_cast<double>(receipt.basis_layout_epoch));
+  result->SetDouble("observed_layout_epoch",
+                    static_cast<double>(receipt.observed_layout_epoch));
   result->SetDouble("client_x", receipt.client_x);
   result->SetDouble("client_y", receipt.client_y);
   result->SetInt("hits", receipt.hits);
@@ -1039,44 +1887,69 @@ std::string SaccadeAdapter::ActResponse(
   const std::string action_id =
       params ? params->GetString("action_id").ToString() : "";
   const uint64_t basis_page_revision = RequestRevision(params);
+  const uint64_t basis_layout_epoch =
+      params && params->HasKey("basis_layout_epoch")
+          ? static_cast<uint64_t>(params->GetDouble("basis_layout_epoch"))
+          : 0;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (CurrentTabHasHumanVerificationFailureLocked()) {
+      return ErrorResponse(
+          id, "PROVIDER_REJECTED",
+          "human verification provider rejected the session; reload the page and let the user complete verification if shown");
+    }
+  }
+  if (!RefreshActionMap(2000)) {
+    return ErrorResponse(id, "TIMEOUT", "live action-map refresh timed out");
+  }
   TargetFact fact;
   int browser_id = 0;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (paused_) {
+    if (!CurrentTabGrantedLocked()) {
       return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
     }
     if (basis_page_revision == 0 || basis_page_revision != page_revision_) {
-      return ErrorResponse(id, "STALE_PAGE_REVISION",
-                           "action basis does not match current page");
+      const bool layout_changed = last_layout_page_revision_ == page_revision_;
+      return ErrorResponse(
+          id, layout_changed ? "STALE_LAYOUT" : "STALE_PAGE_REVISION",
+          layout_changed ? "layout changed after the action map was read"
+                         : "action basis does not match current page");
+    }
+    if (basis_layout_epoch != 0 && basis_layout_epoch != layout_epoch_) {
+      return ErrorResponse(id, "STALE_LAYOUT",
+                           "action layout epoch does not match current layout");
     }
     const auto action = actions_.find(action_id);
     if (action == actions_.end() ||
         action->second.page_revision != basis_page_revision) {
       return ErrorResponse(id, "INVALID_ARGUMENT", "unknown action id");
     }
-    if (!dispatched_actions_.insert(action_id).second) {
-      return ErrorResponse(id, "INVALID_ARGUMENT",
-                           "action id is already awaiting a receipt");
-    }
     fact = action->second;
     browser_id = browser_ ? browser_->GetIdentifier() : 0;
     if (browser_id == 0) {
-      dispatched_actions_.erase(action_id);
       return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
                            "visible browser is unavailable");
+    }
+    if (!dispatched_actions_.insert(action_id).second) {
+      return ErrorResponse(id, "INVALID_ARGUMENT",
+                           "action id is already awaiting a receipt");
     }
   }
   const int x = static_cast<int>(std::lround(fact.left + fact.width / 2.0));
   const int y = static_cast<int>(std::lround(fact.top + fact.height / 2.0));
   CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::DispatchPointerOnUi,
                                     base::Unretained(this), x, y, action_id,
-                                    browser_id, basis_page_revision));
+                                    browser_id, basis_page_revision,
+                                    fact.layout_epoch));
   auto result = CefDictionaryValue::Create();
   result->SetString("action_id", action_id);
   result->SetString("status", "accepted");
+  result->SetBool("opens_new_context", fact.opens_new_context);
   result->SetDouble("basis_page_revision",
                     static_cast<double>(basis_page_revision));
+  result->SetDouble("basis_layout_epoch",
+                    static_cast<double>(fact.layout_epoch));
   return Response(id, result);
 }
 
@@ -1093,16 +1966,38 @@ std::string SaccadeAdapter::DragResponse(
                          "drag direction must be north, south, east, or west");
   }
   const uint64_t basis_page_revision = RequestRevision(params);
+  const uint64_t basis_layout_epoch =
+      params && params->HasKey("basis_layout_epoch")
+          ? static_cast<uint64_t>(params->GetDouble("basis_layout_epoch"))
+          : 0;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (CurrentTabHasHumanVerificationFailureLocked()) {
+      return ErrorResponse(
+          id, "PROVIDER_REJECTED",
+          "human verification provider rejected the session; reload the page and let the user complete verification if shown");
+    }
+  }
+  if (!RefreshActionMap(2000)) {
+    return ErrorResponse(id, "TIMEOUT", "live action-map refresh timed out");
+  }
   TargetFact fact;
   int browser_id = 0;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (paused_) {
+    if (!CurrentTabGrantedLocked()) {
       return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
     }
     if (basis_page_revision == 0 || basis_page_revision != page_revision_) {
-      return ErrorResponse(id, "STALE_PAGE_REVISION",
-                           "action basis does not match current page");
+      const bool layout_changed = last_layout_page_revision_ == page_revision_;
+      return ErrorResponse(
+          id, layout_changed ? "STALE_LAYOUT" : "STALE_PAGE_REVISION",
+          layout_changed ? "layout changed after the action map was read"
+                         : "action basis does not match current page");
+    }
+    if (basis_layout_epoch != 0 && basis_layout_epoch != layout_epoch_) {
+      return ErrorResponse(id, "STALE_LAYOUT",
+                           "action layout epoch does not match current layout");
     }
     const auto action = actions_.find(action_id);
     if (action == actions_.end() ||
@@ -1144,13 +2039,15 @@ std::string SaccadeAdapter::DragResponse(
   CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::DispatchDragOnUi,
                                     base::Unretained(this), start_x, start_y,
                                     end_x, end_y, action_id, browser_id,
-                                    basis_page_revision));
+                                    basis_page_revision, fact.layout_epoch));
   auto result = CefDictionaryValue::Create();
   result->SetString("action_id", action_id);
   result->SetString("status", "accepted");
   result->SetString("direction", direction);
   result->SetDouble("basis_page_revision",
                     static_cast<double>(basis_page_revision));
+  result->SetDouble("basis_layout_epoch",
+                    static_cast<double>(fact.layout_epoch));
   return Response(id, result);
 }
 
@@ -1176,11 +2073,26 @@ std::string SaccadeAdapter::FormCommandResponse(
     }
   }
 
-  const bool revision_required = command != "inventory";
+  std::string expected_surface = "page";
+  if (command == "render_preflight") {
+    expected_surface =
+        params ? params->GetString("expected_surface").ToString() : "page";
+    if (expected_surface.empty()) {
+      expected_surface = "page";
+    }
+    if (!ValidExpectedSurface(expected_surface)) {
+      return ErrorResponse(
+          id, "INVALID_ARGUMENT",
+          "render_preflight expected_surface must be page, github_issue, or github_discussion");
+    }
+  }
+
+  const bool revision_required =
+      command != "inventory" && command != "render_preflight";
   const uint64_t basis_page_revision = RequestRevision(params);
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (paused_) {
+    if (!CurrentTabGrantedLocked()) {
       return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
     }
     if (!collector_ready_) {
@@ -1229,6 +2141,8 @@ std::string SaccadeAdapter::FormCommandResponse(
   FormCommandState state = std::move(pending->second);
   form_commands_.erase(pending);
   const uint64_t observed_revision = page_revision_;
+  const std::string observed_url = current_url_;
+  const std::string observed_title = current_title_;
   lock.unlock();
   if (!state.ok) {
     return ErrorResponse(id, "FORM_COMMAND_FAILED",
@@ -1241,13 +2155,139 @@ std::string SaccadeAdapter::FormCommandResponse(
                          "renderer returned invalid fixed form result");
   }
   auto result = parsed->GetDictionary();
+  if (result->HasKey("fixed_command_error")) {
+    return ErrorResponse(id, "FORM_COMMAND_FAILED",
+                         result->GetString("fixed_command_error"));
+  }
   result->SetDouble("basis_page_revision",
                     static_cast<double>(state.basis_page_revision));
   result->SetDouble("page_revision", static_cast<double>(observed_revision));
   result->SetBool("sensitive_values_exposed", false);
+  if (command == "article_text") {
+    result->SetString("source_url", observed_url);
+    result->SetString("source_title", observed_title);
+    auto provenance = CefDictionaryValue::Create();
+    provenance->SetString("title", "untrusted_page_content");
+    provenance->SetString("text", "untrusted_page_content");
+    provenance->SetString("headings", "untrusted_page_content");
+    provenance->SetBool("page_content_may_authorize_actions", false);
+    result->SetDictionary("provenance", provenance);
+  }
+  if (command == "render_preflight") {
+    const bool observation_consistent =
+        state.basis_page_revision == observed_revision;
+    const bool task_surface_match =
+        TaskSurfaceMatches(expected_surface, observed_url);
+    result->SetString("source_url", observed_url);
+    result->SetString("source_title", observed_title);
+    result->SetString("expected_surface", expected_surface);
+    result->SetBool("task_surface_match", task_surface_match);
+    auto observations = result->GetDictionary("observations");
+    if (observations) {
+      observations->SetDouble(
+          "start_page_revision",
+          static_cast<double>(state.basis_page_revision));
+      observations->SetDouble("end_page_revision",
+                              static_cast<double>(observed_revision));
+      observations->SetBool("observation_base_consistent",
+                            observation_consistent);
+      observations->SetBool("task_surface_match", task_surface_match);
+    }
+    auto agreement = result->GetDictionary("agreement");
+    if (agreement) {
+      auto observation_base = agreement->GetDictionary("observation_base");
+      if (observation_base) {
+        observation_base->SetDouble(
+            "start_page_revision",
+            static_cast<double>(state.basis_page_revision));
+        observation_base->SetDouble("end_page_revision",
+                                    static_cast<double>(observed_revision));
+        observation_base->SetBool("consistent", observation_consistent);
+      }
+    }
+    if (!observation_consistent) {
+      OverridePreflightRoute(
+          result, "refresh_replan",
+          "observation_base_changed_during_preflight",
+          "AGREEMENT_REVISION_MISMATCH", false);
+    } else if (!task_surface_match) {
+      OverridePreflightRoute(result, "navigate_task_surface",
+                             "expected_task_surface_url_mismatch",
+                             "AGREEMENT_TASK_SURFACE_MISMATCH", true);
+    }
+  }
   AppendValueFreeReplay("form_" + command, result,
                         state.basis_page_revision, observed_revision);
   return Response(id, result);
+}
+
+std::string SaccadeAdapter::ProtectedFillResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  const std::string field_id =
+      params ? params->GetString("field_id").ToString() : "";
+  if (field_id.empty() || field_id.size() > 256) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "protected_fill requires a bounded field_id");
+  }
+
+  const std::string prepare_response =
+      FormCommandResponse(id, "protected_prepare", params);
+  auto parsed_prepare = CefParseJSON(prepare_response, JSON_PARSER_RFC);
+  if (!parsed_prepare || parsed_prepare->GetType() != VTYPE_DICTIONARY) {
+    return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                         "protected fill preflight returned invalid data");
+  }
+  auto prepare_root = parsed_prepare->GetDictionary();
+  if (!prepare_root->GetBool("ok")) {
+    return prepare_response;
+  }
+  auto prepared = prepare_root->GetDictionary("result");
+  if (!prepared || !prepared->GetBool("local_fill_allowed")) {
+    const std::string reason =
+        prepared ? prepared->GetString("reason").ToString()
+                 : "protected_local_fill_not_allowed";
+    return ErrorResponse(id, "PERMISSION_DENIED", reason);
+  }
+
+#if defined(OS_MAC)
+  CefRefPtr<CefBrowser> prompt_browser;
+  std::string page_origin;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    prompt_browser = browser_;
+    page_origin = TrustedOrigin(current_url_);
+  }
+  auto prompt = SaccadePromptProtectedValue(
+      prompt_browser, page_origin, prepared->GetString("label").ToString());
+  if (!prompt.confirmed) {
+    auto result = CefDictionaryValue::Create();
+    result->SetString("field_id", field_id);
+    result->SetString("status", "cancelled");
+    result->SetBool("user_confirmed", false);
+    result->SetBool("completed", false);
+    result->SetBool("raw_value_returned", false);
+    result->SetBool("sensitive_values_exposed", false);
+    result->SetBool("values_logged", false);
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      result->SetDouble("page_revision", static_cast<double>(page_revision_));
+    }
+    return Response(id, result);
+  }
+
+  auto fill_params = params ? params->Copy(false) : CefDictionaryValue::Create();
+  fill_params->SetString("local_value", prompt.value);
+  fill_params->SetBool("user_confirmed", true);
+  const std::string fill_response =
+      FormCommandResponse(id, "protected_fill", fill_params);
+  std::fill(prompt.value.begin(), prompt.value.end(), '\0');
+  fill_params->Remove("local_value");
+  return fill_response;
+#else
+  return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                       "protected local fill is not available on this platform");
+#endif
 }
 
 std::string SaccadeAdapter::TypeFieldTextResponse(
@@ -1502,6 +2542,25 @@ void SaccadeAdapter::NavigateOnUi(std::string url) {
   }
 }
 
+void SaccadeAdapter::NavigateHistoryOnUi(std::string action) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    browser = browser_;
+  }
+  if (!browser) {
+    return;
+  }
+  if (action == "back" && browser->CanGoBack()) {
+    browser->GoBack();
+  } else if (action == "forward" && browser->CanGoForward()) {
+    browser->GoForward();
+  } else if (action == "reload") {
+    browser->Reload();
+  }
+}
+
 void SaccadeAdapter::StartReflexOnUi() {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
@@ -1705,15 +2764,23 @@ void SaccadeAdapter::DispatchPointerOnUi(int x,
                                          int y,
                                          std::string action_id,
                                          int browser_id,
-                                         uint64_t page_revision) {
+                                         uint64_t page_revision,
+                                         uint64_t layout_epoch) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
+  bool expects_agent_child = false;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     const auto found = browsers_.find(browser_id);
     if (found != browsers_.end() && browser_ && browser_->IsSame(found->second) &&
-        page_revision_ == page_revision) {
+        page_revision_ == page_revision && layout_epoch_ == layout_epoch) {
       browser = found->second;
+      const auto action = actions_.find(action_id);
+      expects_agent_child =
+          action != actions_.end() && action->second.opens_new_context;
+      if (expects_agent_child) {
+        pending_agent_child_openers_[browser_id] = action->second.destination_url;
+      }
     }
   }
   if (!browser) {
@@ -1729,6 +2796,19 @@ void SaccadeAdapter::DispatchPointerOnUi(int x,
   host->SendMouseMoveEvent(event, false);
   host->SendMouseClickEvent(event, MBT_LEFT, false, 1);
   host->SendMouseClickEvent(event, MBT_LEFT, true, 1);
+  if (expects_agent_child) {
+    CefPostDelayedTask(
+        TID_UI,
+        base::BindOnce(&SaccadeAdapter::ClearPendingAgentChildOpenerOnUi,
+                       base::Unretained(this), browser_id),
+        10000);
+  }
+}
+
+void SaccadeAdapter::ClearPendingAgentChildOpenerOnUi(int browser_id) {
+  CEF_REQUIRE_UI_THREAD();
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  pending_agent_child_openers_.erase(browser_id);
 }
 
 void SaccadeAdapter::DispatchDragOnUi(int start_x,
@@ -1737,14 +2817,15 @@ void SaccadeAdapter::DispatchDragOnUi(int start_x,
                                       int end_y,
                                       std::string action_id,
                                       int browser_id,
-                                      uint64_t page_revision) {
+                                      uint64_t page_revision,
+                                      uint64_t layout_epoch) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     const auto found = browsers_.find(browser_id);
     if (found != browsers_.end() && browser_ && browser_->IsSame(found->second) &&
-        page_revision_ == page_revision) {
+        page_revision_ == page_revision && layout_epoch_ == layout_epoch) {
       browser = found->second;
     }
   }
@@ -1805,6 +2886,93 @@ void SaccadeAdapter::CloseOnUi() {
   }
 }
 
+bool SaccadeAdapter::OpenChromeTabOnUi(std::string url, bool grant_to_agent) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    browser = browser_;
+  }
+  if (!browser) {
+    return false;
+  }
+  CEF_DECLARE_COMMAND_ID(IDC_NEW_TAB);
+  if (!browser->GetHost()->CanExecuteChromeCommand(IDC_NEW_TAB)) {
+    return false;
+  }
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (grant_to_agent) {
+      pending_agent_tab_urls_.push_back(std::move(url));
+    } else {
+      pending_user_tab_urls_.push_back(std::move(url));
+    }
+  }
+  browser->GetHost()->ExecuteChromeCommand(IDC_NEW_TAB,
+                                           CEF_WOD_NEW_FOREGROUND_TAB);
+  return true;
+}
+
+void SaccadeAdapter::OpenUserTabOnUi(std::string url) {
+  CEF_REQUIRE_UI_THREAD();
+  OpenChromeTabOnUi(std::move(url), false);
+}
+
+void SaccadeAdapter::OpenRoutedTabOnUi(std::string url) {
+  CEF_REQUIRE_UI_THREAD();
+  bool agent_requested = false;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto pending = std::find_if(
+        pending_agent_child_openers_.begin(),
+        pending_agent_child_openers_.end(),
+        [&url](const auto& entry) { return entry.second == url; });
+    if (pending != pending_agent_child_openers_.end()) {
+      pending_agent_child_openers_.erase(pending);
+      agent_requested = true;
+    }
+  }
+  OpenChromeTabOnUi(std::move(url), agent_requested);
+}
+
+void SaccadeAdapter::OpenAgentTabOnUi(std::string url) {
+  CEF_REQUIRE_UI_THREAD();
+  OpenChromeTabOnUi(std::move(url), true);
+}
+
+void SaccadeAdapter::RefreshCollectorOnUi() {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefFrame> frame;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    frame = browser_ ? browser_->GetMainFrame() : nullptr;
+  }
+  if (frame) {
+    frame->SendProcessMessage(
+        PID_RENDERER,
+        CefProcessMessage::Create("saccade.collector.refresh_v1"));
+  }
+}
+
+bool SaccadeAdapter::RefreshActionMap(int timeout_ms) {
+  uint64_t initial_serial = 0;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!CurrentTabActiveLocked() || !browser_) {
+      return false;
+    }
+    initial_serial = action_map_serial_;
+  }
+  CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::RefreshCollectorOnUi,
+                                    base::Unretained(this)));
+  std::unique_lock<std::mutex> lock(state_mutex_);
+  const bool completed = action_map_cv_.wait_for(
+      lock, std::chrono::milliseconds(timeout_ms), [this, initial_serial] {
+        return stopping_ || action_map_serial_ > initial_serial;
+      });
+  return completed && !stopping_ && action_map_serial_ > initial_serial;
+}
+
 bool SaccadeAdapter::WriteGrant() {
   std::lock_guard<std::mutex> grant_lock(grant_mutex_);
   auto endpoint = CefDictionaryValue::Create();
@@ -1825,19 +2993,42 @@ bool SaccadeAdapter::WriteGrant() {
   adapter->SetList("capabilities", CapabilityList());
 
   auto grant = CefDictionaryValue::Create();
-  grant->SetString("status", "granted");
-  grant->SetString("grant_type", "current_tab_copilot");
-  grant->SetBool("selected_tab_seen", true);
-  grant->SetBool("grant_required", true);
-  grant->SetBool("grant_given", true);
-  grant->SetString("owner", "Human");
-  grant->SetBool("agent_input_grant", true);
-  grant->SetString("read_grant", "full_truth");
+  bool granted = false;
+  bool agent_created = false;
+  bool paused = false;
+  std::string url;
+  std::string tab_id;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    grant->SetString("url", current_url_);
-    grant->SetString("tab_id", CurrentTabIdLocked());
+    granted = CurrentTabGrantedLocked();
+    const int browser_id = browser_ ? browser_->GetIdentifier() : 0;
+    paused = granted &&
+             agent_paused_browser_ids_.find(browser_id) !=
+                 agent_paused_browser_ids_.end();
+    agent_created = granted &&
+                    agent_created_browser_ids_.find(browser_id) !=
+                        agent_created_browser_ids_.end();
+    if (granted) {
+      url = current_url_;
+      tab_id = CurrentTabIdLocked();
+    }
   }
+  grant->SetString("status", granted ? "granted" : "available");
+  grant->SetString("grant_type", granted
+                                      ? (agent_created ? "agent_created_tab"
+                                                       : "current_tab_copilot")
+                                      : "tab_broker");
+  grant->SetBool("selected_tab_seen", granted);
+  grant->SetBool("grant_required", !agent_created);
+  grant->SetBool("grant_given", granted);
+  grant->SetString("owner", agent_created ? "agent" : "human");
+  grant->SetBool("agent_input_grant", granted);
+  grant->SetBool("paused", paused);
+  grant->SetString("agent_activity",
+                   !granted ? "disconnected" : (paused ? "paused" : "idle"));
+  grant->SetString("read_grant", granted ? "full_truth" : "none");
+  grant->SetString("url", url);
+  grant->SetString("tab_id", tab_id);
   grant->SetDictionary("engine_adapter", adapter);
   grant->SetDictionary("control_endpoint", endpoint);
   grant->SetDictionary("control_capability", session_capability);
@@ -1862,7 +3053,102 @@ bool SaccadeAdapter::WriteGrant() {
     unlink(temporary_path.c_str());
     return false;
   }
+  if (!WriteCurrentPointer()) {
+    unlink(grant_path_.c_str());
+    return false;
+  }
   return true;
+}
+
+bool SaccadeAdapter::CurrentTabGrantedLocked() const {
+  return browser_ &&
+         agent_granted_browser_ids_.find(browser_->GetIdentifier()) !=
+             agent_granted_browser_ids_.end();
+}
+
+bool SaccadeAdapter::CurrentTabPausedLocked() const {
+  return browser_ &&
+         agent_paused_browser_ids_.find(browser_->GetIdentifier()) !=
+             agent_paused_browser_ids_.end();
+}
+
+bool SaccadeAdapter::CurrentTabActiveLocked() const {
+  return CurrentTabGrantedLocked() && !CurrentTabPausedLocked();
+}
+
+bool SaccadeAdapter::CurrentTabHasHumanVerificationFailureLocked() const {
+  return browser_ &&
+         human_verification_failures_.find(browser_->GetIdentifier()) !=
+             human_verification_failures_.end();
+}
+
+void SaccadeAdapter::RefreshAgentSwitchOnUi() {
+  CEF_REQUIRE_UI_THREAD();
+#if defined(OS_MAC)
+  CefRefPtr<CefBrowser> browser;
+  AgentUiState state = AgentUiState::kUnavailable;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    browser = browser_;
+    if (configured_ && started_ && browser_) {
+      state = CurrentTabGrantedLocked() ? AgentUiState::kOn
+                                        : AgentUiState::kOff;
+    }
+  }
+  if (browser) {
+    SaccadeUpdateAgentSwitch(browser, static_cast<int>(state));
+  }
+#endif
+}
+
+bool SaccadeAdapter::WriteCurrentPointer() {
+  if (current_pointer_path_.empty()) {
+    return true;
+  }
+  const std::string contents = grant_path_ + "\n";
+  const std::string temporary_path =
+      current_pointer_path_ + ".tmp." + std::to_string(getpid());
+  const int fd = open(temporary_path.c_str(),
+                      O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+  if (fd < 0) {
+    return false;
+  }
+  fchmod(fd, 0600);
+  const bool wrote = WriteAll(fd, contents) && fsync(fd) == 0;
+  close(fd);
+  if (!wrote || rename(temporary_path.c_str(), current_pointer_path_.c_str()) !=
+                    0) {
+    unlink(temporary_path.c_str());
+    return false;
+  }
+  return true;
+}
+
+void SaccadeAdapter::RemoveCurrentPointerIfOwned() {
+  if (current_pointer_path_.empty()) {
+    return;
+  }
+  const int fd = open(current_pointer_path_.c_str(), O_RDONLY | O_NOFOLLOW);
+  if (fd < 0) {
+    return;
+  }
+  struct stat opened {};
+  std::array<char, 4096> buffer{};
+  const ssize_t count = fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
+                                opened.st_uid == getuid()
+                            ? read(fd, buffer.data(), buffer.size())
+                            : -1;
+  close(fd);
+  const std::string expected = grant_path_ + "\n";
+  if (count != static_cast<ssize_t>(expected.size()) ||
+      std::string(buffer.data(), static_cast<size_t>(count)) != expected) {
+    return;
+  }
+  struct stat current {};
+  if (lstat(current_pointer_path_.c_str(), &current) == 0 &&
+      current.st_dev == opened.st_dev && current.st_ino == opened.st_ino) {
+    unlink(current_pointer_path_.c_str());
+  }
 }
 
 void SaccadeAdapter::ResetPageStateLocked(const std::string& reason) {
@@ -1871,6 +3157,8 @@ void SaccadeAdapter::ResetPageStateLocked(const std::string& reason) {
   controls_.clear();
   pending_facts_.clear();
   actions_.clear();
+  staged_actions_.clear();
+  action_scan_generation_ = 0;
   dispatched_actions_.clear();
   pending_receipts_.clear();
   for (auto& [request_id, command] : form_commands_) {
@@ -1924,6 +3212,10 @@ void SaccadeAdapter::AppendValueFreeReplay(
   if (result->HasKey("capture_allowed")) {
     record->SetBool("capture_allowed", result->GetBool("capture_allowed"));
     record->SetString("reason", result->GetString("reason"));
+  }
+  if (result->GetType("confirmation") == VTYPE_DICTIONARY) {
+    record->SetDictionary("confirmation",
+                          result->GetDictionary("confirmation")->Copy(false));
   }
   auto value = CefValue::Create();
   value->SetDictionary(record);

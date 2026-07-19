@@ -1,0 +1,97 @@
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -8,11 +8,13 @@
+ #include <list>
+ 
+ #include "include/cef_client.h"
++#include "include/cef_download_handler.h"
+ #include "include/cef_focus_handler.h"
+ #include "include/cef_request_handler.h"
+ 
+ class SimpleHandler : public CefClient,
+                       public CefDisplayHandler,
++                      public CefDownloadHandler,
+                       public CefLifeSpanHandler,
+                       public CefLoadHandler,
+                       public CefFocusHandler,
+@@ -24,6 +26,7 @@
+ 
+   // CefClient methods:
+   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
++  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+@@ -34,5 +37,15 @@
+                                 CefRefPtr<CefProcessMessage> message) override;
+ 
++  // CefDownloadHandler methods. Returning false from OnBeforeDownload uses
++  // CEF's Chrome-style download shelf. SACCADE_DOWNLOAD_DIR is a test-only
++  // deterministic destination override.
++  bool OnBeforeDownload(CefRefPtr<CefBrowser> browser,
++                        CefRefPtr<CefDownloadItem> download_item,
++                        const CefString& suggested_name,
++                        CefRefPtr<CefBeforeDownloadCallback> callback) override;
++  void OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
++                         CefRefPtr<CefDownloadItem> download_item,
++                         CefRefPtr<CefDownloadItemCallback> callback) override;
+ 
+   // CefDisplayHandler methods:
+   void OnTitleChange(CefRefPtr<CefBrowser> browser,
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -5,5 +5,6 @@
+ #include "tests/cefsimple/simple_handler.h"
+ 
++#include <cstdlib>
+ #include <sstream>
+ #include <string>
+ 
+@@ -32,4 +33,13 @@
+          disposition == CEF_WOD_NEW_BACKGROUND_TAB;
+ }
+ 
++std::string SafeSuggestedDownloadName(const CefString& suggested_name) {
++  std::string name = suggested_name.ToString();
++  const size_t separator = name.find_last_of("/\\");
++  if (separator != std::string::npos) {
++    name = name.substr(separator + 1);
++  }
++  return name.empty() || name == "." || name == ".." ? "download" : name;
++}
++
+ }  // namespace
+@@ -58,5 +68,33 @@
+       browser, frame, source_process, message);
+ }
+ 
++bool SimpleHandler::OnBeforeDownload(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefDownloadItem> download_item,
++    const CefString& suggested_name,
++    CefRefPtr<CefBeforeDownloadCallback> callback) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnDownloadUpdated(browser, download_item);
++  const char* forced_directory = std::getenv("SACCADE_DOWNLOAD_DIR");
++  if (forced_directory && forced_directory[0] != '\0') {
++    std::string path(forced_directory);
++    if (path.back() != '/') {
++      path.push_back('/');
++    }
++    path.append(SafeSuggestedDownloadName(suggested_name));
++    callback->Continue(path, false);
++    return true;
++  }
++  return false;
++}
++
++void SimpleHandler::OnDownloadUpdated(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefDownloadItem> download_item,
++    CefRefPtr<CefDownloadItemCallback> callback) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnDownloadUpdated(browser, download_item);
++}
++
+ void SimpleHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
+                                   const CefString& title) {

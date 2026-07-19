@@ -2263,3 +2263,348 @@
   `runs/docmax/product_gate_final/report.json` (plus the public read-only W-9
   inventory in `runs/docmax/product_gate_2/report.json`), and
   `runs/cef_day5/github_complex_ui_canary_final/report.json`.
+
+## DECISION_ENGINE_067 - Bind CEF structural agreement to one renderer snapshot
+
+- `render_preflight` is a fixed CEF renderer command, not an arbitrary script
+  evaluator. It measures redacted field facts, editor geometry, and proposed
+  center-point hit results synchronously so ordinary DOM mutation cannot mix
+  separate observations.
+- The browser process supplies the trusted current URL and start/end page
+  revision. A task-surface mismatch routes to `navigate_task_surface`; a
+  revision mismatch routes to `refresh_replan`; a center that hits another
+  surface routes to `block`.
+- Renderer hit results remain `cef_renderer_observed`, not native OS truth and
+  not action authority. Actual browser-input receipts remain separate. Guarded
+  screenshots are optional and were not captured for the logged-in canary.
+- The local gate passed actionable `2/2`, task mismatch routing, and occluded
+  `0/2` blocking. Logged-in GitHub New Issue passed `3/3` plus a separate
+  account-menu pointer receipt with no write, submit, Sign out, or screenshot.
+- Saved-profile canaries now reject an ad-hoc app before launch. Reproduce CEF
+  builds with `SACCADE_CODESIGN_IDENTITY=auto` so `ai.saccade.browser` and Team
+  ID `48KK2UWXQM` remain stable across rebuilds.
+- Evidence: `runs/cef_ai034/local_gate_20260715/report.json` and
+  `runs/cef_ai034/github_canary_20260715_final/report.json`.
+
+## DECISION_ENGINE_068 - Keep CEF authorization and DOM intrinsics browser-owned
+
+- CEF action labels, article text, titles, and headings are untrusted page
+  content. They may conservatively trigger a block, but cannot authorize an
+  action or satisfy human confirmation.
+- Semantic submit plus destructive, auth, payment, signing, and publication
+  labels require a browser-generated confirmation bound to trusted origin,
+  current tab, action id, and page revision. It expires on revision change and
+  requires a fresh human gesture. Page prose is excluded from the object.
+- The renderer deletes its native emission binding before page scripts. A page
+  can recreate the JavaScript name but cannot emit browser IPC. Action and form
+  collectors capture their DOM intrinsics at main-frame context creation;
+  later page prototype monkeypatches cannot hide protected fields or forge
+  geometry/actions through those methods.
+- The bounded CEF gate reports benign utility, attack success, false blocks,
+  protected-value leaks, and capability leaks. All passed at `1.0`, `0.0`,
+  `0.0`, `0`, and `0` respectively.
+- Evidence: `runs/safety/ai033_cef_agent_safety_20260715_release/report.json`.
+
+## DECISION_ENGINE_069 - Discover explicit browser grants inside the MCP handoff
+
+- `bin/open-saccade` remains the only collaboration entrypoint. Direct app
+  launches grant nothing.
+- The packaged stdio MCP server reads only the owner-only current-session
+  pointer when the model calls zero-argument `saccade.tabs.grant_current`.
+  Users and models do not copy capability-bearing grant files into chat or
+  client configuration.
+- The package supplies a client-neutral absolute MCP command snippet but does
+  not silently mutate a specific LLM client's global configuration.
+- Article reading is a public revision-bound MCP tool with a bounded output
+  size. Research remains LLM reasoning over redacted article/truth/action
+  packets; browser page prose cannot authorize side effects.
+- Evidence: `runs/dogfood/ai038_packaged_gate_final_20260715/report.json` and
+  `docs/ai038_conversational_dogfood.md`.
+
+## DECISION_ENGINE_070 - Make pinned CEF native Chrome UI the Saccade default
+
+- The content-only Views window is not a usable dogfood browser even when its
+  renderer and agent bridge work correctly. A human must have visible URL
+  entry, navigation history controls, reload/stop, and tabs.
+- Saccade now defaults to the pinned CEF native Chrome-style window and the
+  collaboration launcher also passes `--use-native` explicitly. This reuses
+  CEF's browser-owned focus, loading, history, and tab state instead of adding
+  a custom overlay that could regress physical page input.
+- Direct app launch remains ungranted; `bin/open-saccade` is still the explicit
+  owner-only current-tab grant. UI availability does not broaden agent
+  authority.
+- Evidence: `docs/ai039_native_browser_chrome.md` and
+  `runs/dogfood/ai039_packaged_native_agent_20260715/report.json`.
+
+## DECISION_PRODUCT_071 - Limit Saccade policy to data isolation and browser execution
+
+- Saccade keeps passwords, OTPs, CVVs, SSNs, payment-card numbers and
+  equivalent secret values outside model context, evidence and screenshots.
+- Passport, driver's-licence and government document numbers use a
+  user-confirmed local fill path. The LLM may request the semantic field and
+  receive completion state, but it does not receive the raw value.
+- The LLM host owns gameplay, purchase, spending, messaging, publication,
+  submission and other site-action policy. Saccade does not decide whether the
+  action matches the user's intent and does not require a second product-policy
+  confirmation.
+- Saccade enforces the Human-controlled Agent On/Off state for the current tab,
+  revision and target binding, protected-value isolation, input validity and a
+  receipt for each attempted action.
+- This decision supersedes the Saccade-owned side-effect authorization portion
+  of DECISION_ENGINE_068. It keeps ENGINE_068's untrusted-page provenance,
+  renderer hardening, capability isolation and stale-action rejection.
+- The v1 MCP contract and CEF adapter were updated together on 2026-07-17:
+  ordinary site actions now report `llm_host_policy`, Saccade adds no second
+  confirmation layer, and Agent On, protected isolation, revision/target
+  binding, input validity and receipts remain browser-enforced.
+- Evidence and trigger: AI-041 SimpleMMO dogfood in
+  `docs/dogfood_simplemmo_review_20260716.md` and Wayne's product boundary on
+  2026-07-16. Implementation evidence:
+  `runs/dogfood/df_r12_host_policy_20260717/report.json` and
+  `runs/dogfood/df_r12_r13_host_policy_navigation_20260717/report.json`.
+
+## DECISION_PRODUCT_072 - Compete with Playwright MCP on the Agent-browser job
+
+- Saccade targets one excellent Chromium-compatible Human/Agent browser. It is
+  not a replacement for Playwright Test's cross-browser CI matrix, and
+  multi-engine coverage is not a product score for this target.
+- Browser capability is split into Agent task primitives and test-framework
+  authority. Saccade must cover or route primitives that complete user tasks;
+  it should not copy network mocking, arbitrary JavaScript, storage mutation,
+  locator generation, or other test-runner breadth into the default Agent
+  contract without a measured task requirement.
+- The architectural comparison favors Saccade's Human-controlled per-tab
+  access, protected-value isolation, revision-bound actions, verified outcomes,
+  and value-free replay. Broader Playwright tooling is not treated as an
+  automatic advantage because it also expands model context, tool choice,
+  authority, and attack surface.
+- Performance and overall task-success claims remain evidence-bound. The
+  recorded dispatch and packaged dogfood gates support scoped Saccade results;
+  a same-model, same-Chromium, same-start-state task corpus is still required
+  before claiming lower end-to-end latency, fewer model tokens, or higher task
+  completion than Playwright MCP.
+- The canonical public-claim and exit criteria live in
+  `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md`. Historical plans may
+  still call Saccade an AI-first Playwright alternative, but they do not
+  override the canonical evidence boundary.
+
+## DECISION_RELEASE_073 - Ship MCP inside the installed app at a stable path
+
+- The macOS release owns its MCP runtime. `saccade-mcp` and its launcher live
+  inside the signed `Saccade.app`; ordinary product use does not depend on a
+  source checkout, package-manager runtime, CEF cache, or versioned dogfood
+  directory.
+- MCP clients configure one stable command:
+  `/Applications/Saccade.app/Contents/MacOS/saccade-current-tab-mcp`.
+  Replacing the app upgrades browser and MCP together without editing the client.
+- A cold `saccade.tabs.open_agent` call creates an owner-only broker session,
+  starts the installed app, waits for broker readiness, and opens only the new
+  Agent-owned tab On. Human-created tabs remain Off by default.
+- Unix-domain sockets use an exclusive owner-only short directory under
+  `/private/tmp`; capabilities, grants and replay data remain under the user's
+  owner-only Application Support session. This respects macOS socket path limits
+  without moving protected session material into model-visible output.
+- Evidence: installed Build A and replacement Build B both passed from a new
+  HOME outside the repository with the same configured command:
+  `runs/dogfood/df_r14_installed_build_a3_20260717/report.json` and
+  `runs/dogfood/df_r14_installed_build_b_20260717/report.json`.
+
+## DECISION_PRODUCT_074 - Keep downloads browser-owned and receipts metadata-only
+
+- Saccade uses CEF's Chrome-style download handling. Human downloads retain the
+  normal Chromium UI and destination behavior instead of a custom file manager.
+- On an Agent On tab, the LLM may trigger a revision-bound verified page action.
+  The browser performs the download; Saccade adds no separate product-policy
+  confirmation for ordinary files.
+- `saccade.downloads.list` returns only file name, MIME type, source origin,
+  byte progress, status and interrupt reason. It never exposes a full local
+  path or file contents and never auto-executes a downloaded file.
+- A download is Agent-visible only if that tab was Agent On when the download
+  began. Turning a previously Off tab On does not reveal earlier download
+  history.
+- Evidence: `runs/dogfood/df_downloads_source_20260717/report.json` and
+  `runs/dogfood/df_downloads_installed_20260717/report.json`.
+
+## DECISION_RELEASE_075 - Advertise only self-contained tools in installed MCP
+
+- Source/developer MCP retains the full diagnostic tool registry. The installed
+  App advertises only tools whose browser runtime and assets are contained in
+  `Saccade.app`; it does not advertise workspace-only `dev.*`, `report.*`,
+  legacy worker-backed tab calls or the Cargo-backed static FORMMAX runner.
+- Runtime filtering is enforced both in `tools/list` and direct `tools/call`, so
+  a client cannot invoke a hidden workspace tool by guessing its old name.
+- Live CEF form inventory is the installed product path. Compact mode has a
+  genuinely reduced field shape and paging; dynamic forms receive a bounded
+  browser-owned wait for fields and stable counts instead of requiring the LLM
+  to invent a sleep.
+- Article text defaults to a compact safety-bound shape. Full headings, counts
+  and provenance diagnostics remain opt-in through `mode=evidence`; compact
+  mode keeps text, trusted source URL/title, page revision, truncation state and
+  the explicit rule that page content cannot authorize actions.
+- `open_agent` owns the tab it creates. Failed attachment attempts close only
+  the matching new Agent tab; a broker that dies during last-tab shutdown is
+  retired and replaced through one cold-start path.
+- Evidence: `runs/dogfood/df_external_report_final_installed_build47_20260718/report.json`
+  plus the form-safety, Agent-safety and download regressions recorded in
+  `docs/work_ledger.md`.
+
+## DECISION_PRODUCT_076 - Count complete model context and image tokens in Agent-browser comparisons
+
+- Agent-browser efficiency benchmarks count complete MCP tool-result envelopes,
+  not hand-picked inner objects. Cold-context results also include every
+  advertised tool schema because tool choice consumes model context.
+- Images are not free transport. When a comparison sends a screenshot to a
+  model, charge the model's documented image-token cost plus non-image result
+  metadata. Do not tokenize base64 as ordinary text and do not pretend
+  Playwright requires screenshots for tasks it can complete structurally.
+- The primary Playwright comparison uses official `@playwright/mcp@latest` with
+  `--snapshot-mode none` and `browser_evaluate`, giving it a low-output
+  structured lane. Default full snapshots and screenshots are reported as
+  separate observations.
+- Signed build 49 wins the scoped `example.com` open/main-text task: 75.1%
+  lower warm p50 wall time, 41.1% fewer median task-result tokens, and 50.0%
+  fewer cold schema-plus-first-task tokens than the optimized Playwright MCP
+  lane. The Playwright 1280x720 screenshot adds 920 GPT-5.6 image tokens and
+  158 result-metadata tokens.
+- This unlocks only the exact measured claim in
+  `docs/ai044_playwright_parity_benchmark.md`. It does not unlock “Saccade
+  always beats Playwright,” higher overall task completion, or cross-browser
+  test-framework replacement claims.
+- Evidence: `runs/benchmarks/playwright_parity_build49_evaluate_20260718/report.json`
+  and `runs/dogfood/df_playwright_parity_build49_cleanroom_20260718/report.json`.
+
+## DECISION_PRODUCT_077 - Rebase surviving actions locally after layout changes
+
+- Coordinate-bearing actions are bound to both page revision and a separate
+  browser-owned layout epoch. Resize, scroll, zoom, device-scale, DOM mutation
+  and observed action-geometry changes advance that epoch.
+- The Agent MCP refreshes the live action map immediately before native input.
+  If the revision changed only because of layout and the same stable semantic
+  action ID still exists, it may rebase locally without a screenshot or another
+  LLM turn. Disappeared, covered or ambiguous targets fail closed before input.
+- Optimistic dispatch success is insufficient. A successful MCP action requires
+  a matching browser-native receipt that verifies the intended action ID and
+  observed outcome.
+- The public Playwright comparison must distinguish DOM locators from vision
+  coordinates. Playwright locators resolve fresh DOM elements at action time;
+  the scoped Saccade advantage applies to browser-pushed invalidation, local
+  semantic rebase and receipts for coordinate/Canvas-surface workflows that
+  would otherwise require a new screenshot observation.
+- Signed Build 57 passed source and packaged native macOS resize matrices. The
+  packaged run measured 5.551 ms for DOM rebase plus receipt and 2.717 ms for
+  stable Canvas-surface rebase plus receipt after invalidation, while a removed
+  target was rejected before input. This does not yet claim semantic discovery
+  inside arbitrary Canvas/WebGL scenes.
+- Evidence: `runs/dogfood/df_build57_layout_epoch_source_20260718/report.json`,
+  `runs/dogfood/df_build57_layout_epoch_packaged_20260718/report.json`, and
+  `runs/dogfood/df_build57_resize_live_simplemmo_20260718/report.json`, plus
+  `docs/ai044_playwright_parity_benchmark.md`.
+
+## DECISION_RELEASE_078 - Use Apache-2.0 to maximize Saccade adoption
+
+- Saccade's primary strategic goal is to become the default Agent-browser
+  runtime and compete directly with Playwright. Broad adoption, independent
+  verification, integrations and reproducible benchmark results take priority
+  over keeping the core implementation proprietary.
+- Saccade source code and the core browser/Agent runtime are licensed under
+  Apache License 2.0. The root LICENSE and NOTICE are the canonical source
+  terms; identical copies ship inside the App and release kit.
+- Apache License 2.0 section 6 does not grant trademark rights. NaN Logic LLC
+  reserves the Saccade name, logo and designation of an official signed release.
+  Modified distributions may truthfully describe compatibility or origin but
+  must use a different product, bundle, icon and signing identity unless written
+  permission is granted.
+- Official manifests identify NaN Logic LLC, `https://nanlogic.com/`, bundle ID
+  `ai.saccade.browser` and Developer ID Team `48KK2UWXQM`. CEF BSD terms and
+  Chromium credits remain separate third-party obligations included in every
+  package.
+- Native Help opens the company site in a new Human-controlled Agent Off
+  Saccade tab. Build 59 exposed a legacy grant reapplication bug; Build 60
+  restricted that legacy grant to initial bridge configuration and passed the
+  runtime Help gate with browser count 1→2 and eligible count 1→1.
+- This license decision closes dogfood item 16. Notarization, Gatekeeper and
+  clean-machine public distribution remain separate release gates.
+- Evidence: `docs/public_release_licensing.md`,
+  `runs/dogfood/df_build60_release_license_company_20260718/report.json`, and
+  `runs/dogfood/df_build60_company_help_20260718/report.json`.
+
+## DECISION_PRODUCT_079 - Transfer consent only to a verified Agent-opened context
+
+- Human-created tabs, ordinary link tabs and Help tabs start Agent Off. URL,
+  opener identity and popup shape never grant access by themselves.
+- Before dispatching an action whose trusted action map says it opens a new
+  context, Saccade records a short-lived browser-owned opener expectation bound
+  to that action. Only the matching child consumes the marker and starts Agent
+  On; every other new tab follows the Human Off default.
+- This keeps a multi-step Agent task inside the browser without asking the human
+  to toggle each expected child, while preserving the hard rule that an
+  unrelated page cannot manufacture Agent consent.
+- Build 62 passed the child-context lifecycle gate, the Human Help-Off gate,
+  tab defaults, two-On/one-Off discovery and activity/permission separation.
+- Evidence: `runs/dogfood/df_build62_tab_profile_20260718/report.json`,
+  `runs/dogfood/df_build62_company_help_20260718/report.json`, and
+  `runs/dogfood/df_build62_multi_tab_registry_20260718/report.json`.
+
+## DECISION_COMPAT_080 - Treat H.264/AAC HLS as an engine capability boundary
+
+- The pinned official CEF macOS binary exposes MSE VP9/Opus, but not H.264,
+  AAC, combined H.264/AAC MSE, native HLS or MP4 H.264. Existing IGN network
+  evidence uses HLS variants with `avc1` video and `mp4a.40.2` audio.
+- Saccade will report this as `pinned_cef_proprietary_codec_gap`, keep ordinary
+  YouTube VP9/Opus as the green control, and route unsupported media to a system
+  browser when needed.
+- Do not add an IGN-specific shim or distribute proprietary codecs without a
+  separate engine-build and licensing decision.
+- Evidence: `runs/dogfood/df_build61_media_capabilities_20260718/report.json`
+  and `runs/chrome_reference/ign_1781476351/chrome_network.json`.
+
+## DECISION_PRODUCT_081 - Installed Saccade owns per-user Codex registration
+
+- Shipping an MCP executable is insufficient because Codex loads its MCP
+  registry when a task starts. Every macOS user must get an entry in that
+  user's own Codex configuration.
+- A direct Saccade launch automatically adds a missing `saccade` entry through
+  Codex's own CLI. It is idempotent and never overwrites a conflicting entry.
+  An explicit Help menu Repair action may replace that named entry.
+- Once the `saccade` MCP is available, it is the required first and only
+  automatic browser route. Failure triggers repair/restart, not silent fallback
+  to Codex Browser, Chrome, Safari, Playwright or CDP.
+- Login secrets remain human-only in an Agent Off Saccade tab. Registration
+  stores only the signed MCP command and a value-free status word.
+
+## DECISION_PRODUCT_082 - Complete authorized ordinary forms by default
+
+- This is a product default for every Saccade MCP host, not a Wayne-only
+  preference. After the user authorizes the task, the Agent fills all known
+  ordinary fields and does not ask the user to perform routine typing/clicking.
+- Ask only for an exact missing value or a materially ambiguous choice. Contact
+  email, company name, ordinary address and URL are ordinary fields. Field fill
+  does not authorize Next, submit, purchase, publish or another later action.
+- The default is supported by Nielsen Norman Group's 2025 EAS guidance
+  (Eliminate, Automate, Simplify), Baymard's current checkout-abandonment data,
+  Chrome/Safari AutoFill product behavior and Google web.dev form guidance:
+  `https://www.nngroup.com/articles/eas-framework-simplify-forms/`,
+  `https://baymard.com/lists/cart-abandonment-rate`,
+  `https://support.google.com/chrome/answer/142893`, and
+  `https://web.dev/articles/autofill-measure`.
+- Saccade does not silently persist new personal-profile data. Passwords, OTPs
+  and CVVs remain unreadable/non-fillable; protected identifiers continue
+  through the local browser prompt without entering model context or evidence.
+
+## DECISION_SECURITY_083 - Treat an explicitly locked login Keychain as an OS boundary
+
+- A signed Build 65 reproduced a `Chromium Safe Storage` prompt after prior
+  prompt-free restarts even though its bundle ID, Team ID, designated
+  requirement and installed/package hashes remained stable.
+- The user unlocked the login Keychain through macOS authentication. The same
+  installed app then passed three complete quit/relaunch cycles with one main
+  process and zero `SecurityAgent` processes each time. Reality therefore
+  identifies Keychain lock state, not application-identity drift, as this
+  recurrence's trigger.
+- Saccade keeps Chromium's real Safe Storage backend. It does not patch the CEF
+  binary, delete or weaken the existing item, allow every application, or use
+  `--use-mock-keychain` for a login-bearing profile.
+- A user who deliberately locks the login Keychain must authenticate again;
+  bypassing that policy is outside the product boundary. Team ID remains
+  insufficient by itself for release: full designated-requirement and strict
+  nested-signature checks still apply to rebuilt packages.

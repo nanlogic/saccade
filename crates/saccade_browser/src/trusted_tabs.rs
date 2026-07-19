@@ -744,7 +744,11 @@ fn safety_visibility(probe: &Value) -> SafetyVisibility {
 }
 
 fn mask_field_for_agent(field: &Value) -> Value {
-    let owner = field.get("owner").and_then(Value::as_str).unwrap_or("");
+    let owner = field
+        .get("owner")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let sensitive = field
         .get("sensitivity")
         .and_then(Value::as_str)

@@ -1,0 +1,57 @@
+{
+  "schema": "saccade-dogfood-cleanup-v1",
+  "created": "2026-07-18",
+  "scope": "dist/saccade-cef-dogfood-* release directories only",
+  "dry_run_reviewed": true,
+  "preserve": [
+    {
+      "path": "dist/saccade-cef-dogfood-nanlogic-complete-build64-20260718",
+      "reason": "current complete signed Hardened Runtime dogfood package"
+    },
+    {
+      "path": "dist/saccade-cef-dogfood-current",
+      "reason": "relative symlink to Build 64"
+    }
+  ],
+  "delete": [
+    "dist/saccade-cef-dogfood-ai038-conversational-final-20260715",
+    "dist/saccade-cef-dogfood-ai039-native-chrome-20260715",
+    "dist/saccade-cef-dogfood-ai040-per-tab-agent-20260716-final",
+    "dist/saccade-cef-dogfood-20260717-080215",
+    "dist/saccade-cef-dogfood-agent-e2e-build50-20260718",
+    "dist/saccade-cef-dogfood-agent-e2e-build51-20260718",
+    "dist/saccade-cef-dogfood-agent-e2e-build52-20260718",
+    "dist/saccade-cef-dogfood-agent-e2e-build53-20260718",
+    "dist/saccade-cef-dogfood-agent-e2e-build54-20260718",
+    "dist/saccade-cef-dogfood-agent-e2e-build55-20260718",
+    "dist/saccade-cef-dogfood-ai041-branding-v010-build41-20260716",
+    "dist/saccade-cef-dogfood-ai041-human-agent-focus-icon-20260716-final",
+    "dist/saccade-cef-dogfood-ai042-tab-routing-20260716",
+    "dist/saccade-cef-dogfood-cookie-controls-build56-20260718",
+    "dist/saccade-cef-dogfood-downloads-20260717",
+    "dist/saccade-cef-dogfood-external-report-final-20260718",
+    "dist/saccade-cef-dogfood-item14-a-20260717",
+    "dist/saccade-cef-dogfood-item14-a2-20260717",
+    "dist/saccade-cef-dogfood-item14-a3-20260717",
+    "dist/saccade-cef-dogfood-item14-b-20260717",
+    "dist/saccade-cef-dogfood-layout-epoch-build57-20260718",
+    "dist/saccade-cef-dogfood-license-apache-build58-20260718",
+    "dist/saccade-cef-dogfood-nanlogic-brand-hardened-build61-20260718",
+    "dist/saccade-cef-dogfood-nanlogic-help-build59-20260718",
+    "dist/saccade-cef-dogfood-nanlogic-help-off-build60-20260718",
+    "dist/saccade-cef-dogfood-playwright-parity-build48-20260718",
+    "dist/saccade-cef-dogfood-playwright-parity-build49-20260718",
+    "dist/saccade-cef-dogfood-report-fixes-20260718",
+    "dist/saccade-cef-dogfood-report-fixes2-20260718",
+    "dist/saccade-cef-dogfood-nanlogic-complete-build62-20260718",
+    "dist/saccade-cef-dogfood-nanlogic-complete-build63-20260718"
+  ],
+  "excluded": [
+    "profiles",
+    "runs",
+    "target",
+    "Library/Application Support/Saccade",
+    "CEF cache"
+  ],
+  "estimated_reclaimed_kib": 10538688
+}

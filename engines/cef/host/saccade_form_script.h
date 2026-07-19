@@ -8,21 +8,43 @@
 // evaluator. Input arrives as JSON and every result is deliberately shaped so
 // sensitive values cannot cross the renderer boundary.
 constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
-(command, inputJson) => {
+(() => {
+  const documentQueryAll =
+    Function.call.bind(Document.prototype.querySelectorAll);
+  const elementQueryAll =
+    Function.call.bind(Element.prototype.querySelectorAll);
+  const queryAll = (root, selector) => root === document
+    ? documentQueryAll(root, selector) : elementQueryAll(root, selector);
+  const documentQueryOne =
+    Function.call.bind(Document.prototype.querySelector);
+  const elementQueryOne =
+    Function.call.bind(Element.prototype.querySelector);
+  const queryOne = (root, selector) => root === document
+    ? documentQueryOne(root, selector) : elementQueryOne(root, selector);
+  const getById = Function.call.bind(Document.prototype.getElementById);
+  const rectFor = Function.call.bind(Element.prototype.getBoundingClientRect);
+  const closest = Function.call.bind(Element.prototype.closest);
+  const matches = Function.call.bind(Element.prototype.matches);
+  const attr = Function.call.bind(Element.prototype.getAttribute);
+  const contains = Function.call.bind(Node.prototype.contains);
+  const pointElement = Function.call.bind(Document.prototype.elementFromPoint);
+  const styleFor = Function.call.bind(window.getComputedStyle, window);
+  return (command, inputJson) => {
+  try {
   const input = JSON.parse(String(inputJson || '{}'));
   const text = (value, limit = 160) => String(value || '')
       .replace(/\s+/g, ' ').trim().slice(0, limit);
-  const controls = () => Array.from(document.querySelectorAll(
+  const controls = () => Array.from(queryAll(document,
       "input,select,textarea,[contenteditable='true'],[role='textbox']"));
   const visible = (el) => {
-    if (!el || !el.getBoundingClientRect) return false;
+    if (!el) return false;
     for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
-      const style = getComputedStyle(cur);
-      if (cur.hidden || cur.getAttribute('aria-hidden') === 'true' ||
+      const style = styleFor(cur);
+      if (cur.hidden || attr(cur, 'aria-hidden') === 'true' ||
           style.display === 'none' || style.visibility === 'hidden' ||
           style.visibility === 'collapse') return false;
     }
-    const rect = el.getBoundingClientRect();
+    const rect = rectFor(el);
     return rect.width > 0 && rect.height > 0;
   };
   const editorBacking = (el) => {
@@ -30,9 +52,9 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     let root = el.parentElement;
     for (let depth = 0; root && root !== document.body && depth < 16;
          depth += 1, root = root.parentElement) {
-      const candidates = Array.from(root.querySelectorAll('textarea'))
+      const candidates = Array.from(queryAll(root, 'textarea'))
           .filter(candidate => candidate !== el && !visible(candidate));
-      const editors = Array.from(root.querySelectorAll(
+      const editors = Array.from(queryAll(root,
           '[contenteditable="true"],[role="textbox"]'))
           .filter(candidate => visible(candidate));
       if (candidates.length === 1 && editors.length === 1 && editors[0] === el) {
@@ -43,66 +65,75 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
   };
   const label = (el) => {
     if (el.id) {
-      const exact = Array.from(document.querySelectorAll('label'))
+      const exact = Array.from(queryAll(document, 'label'))
           .find(candidate => candidate.htmlFor === el.id);
       if (exact && text(exact.innerText || exact.textContent)) {
         return {text: text(exact.innerText || exact.textContent),
                 source: 'label_for', confidence: 1};
       }
     }
-    const wrapping = el.closest('label');
+    const wrapping = closest(el, 'label');
     if (wrapping && text(wrapping.innerText || wrapping.textContent)) {
       return {text: text(wrapping.innerText || wrapping.textContent),
               source: 'label_wrap', confidence: 0.95};
     }
-    if (el.isContentEditable && el.matches('.cm-content')) {
-      const editor = el.closest('.cm-editor');
-      const placeholder = editor && editor.querySelector('.cm-placeholder');
+    if (el.isContentEditable && matches(el, '.cm-content')) {
+      const editor = closest(el, '.cm-editor');
+      const placeholder = editor && queryOne(editor, '.cm-placeholder');
       const value = text(placeholder && placeholder.textContent);
       if (value) return {text: value, source: 'editor_placeholder', confidence: 0.85};
     }
     const backing = editorBacking(el);
-    const backingPlaceholder = text(backing && backing.getAttribute('placeholder'));
+    const backingPlaceholder = text(backing && attr(backing, 'placeholder'));
     if (backingPlaceholder) {
       return {text: backingPlaceholder, source: 'editor_backing_placeholder',
               confidence: 0.85};
     }
-    const labelledBy = text(el.getAttribute('aria-labelledby'));
+    const labelledBy = text(attr(el, 'aria-labelledby'));
     if (labelledBy) {
       const value = labelledBy.split(/\s+/).map(id => {
-        const node = document.getElementById(id);
+        const node = getById(document, id);
         return node ? text(node.innerText || node.textContent) : '';
       }).filter(Boolean).join(' ');
       if (value) return {text: text(value), source: 'aria_labelledby', confidence: 0.95};
     }
-    const aria = text(el.getAttribute('aria-label'));
+    const aria = text(attr(el, 'aria-label'));
     if (aria) return {text: aria, source: 'aria_label', confidence: 0.9};
-    const placeholder = text(el.getAttribute('placeholder'));
+    const placeholder = text(attr(el, 'placeholder'));
     if (placeholder) return {text: placeholder, source: 'placeholder', confidence: 0.65};
-    const cell = el.closest('td,th');
+    const cell = closest(el, 'td,th');
     const row = cell && cell.parentElement;
-    const table = row && row.closest('table');
+    const table = row && closest(row, 'table');
     if (cell && row && table) {
       const cells = Array.from(row.children);
       const column = cells.indexOf(cell);
-      const headers = Array.from(table.querySelectorAll('thead th'));
+      const headers = Array.from(queryAll(table, 'thead th'));
       const rowId = text(cells[0] && (cells[0].innerText || cells[0].textContent));
       const heading = column >= 0 && headers[column]
           ? text(headers[column].innerText || headers[column].textContent) : '';
       if (heading) return {text: text(`${rowId} ${heading}`),
                            source: 'table_header', confidence: 0.9};
     }
-    const fallback = text(el.getAttribute('name') || el.id);
-    if (fallback) return {text: fallback.replace(/[_-]+/g, ' '),
-                          source: 'identifier', confidence: 0.35};
+    const fallback = text(attr(el, 'name') || el.id);
+    if (fallback) {
+      const normalized = fallback.replace(/[\[\]_-]+/g, ' ').trim();
+      const tokens = normalized.toLowerCase().split(/\s+/).filter(Boolean);
+      const semantic = new Set(['name', 'email', 'address', 'city', 'state',
+        'province', 'postal', 'zip', 'country', 'company', 'organization',
+        'organisation', 'phone', 'tel', 'url', 'website', 'title',
+        'description', 'department', 'role']);
+      const meaningful = tokens.length >= 2 && tokens.some(token => semantic.has(token));
+      return {text: normalized, source: 'identifier',
+              confidence: meaningful ? 0.65 : 0.35};
+    }
     return {text: '', source: 'missing', confidence: 0};
   };
   const sensitivity = (el, labelText) => {
-    const explicit = text(el.getAttribute('data-sensitive')).toLowerCase();
+    const explicit = text(attr(el, 'data-sensitive')).toLowerCase();
     if (explicit && explicit !== 'none' && explicit !== 'false') return explicit;
-    const token = [el.getAttribute('type'), el.getAttribute('autocomplete'),
-      el.getAttribute('name'), el.id, el.getAttribute('aria-label'),
-      el.getAttribute('placeholder'), labelText].filter(Boolean).join(' ').toLowerCase();
+    const token = [attr(el, 'type'), attr(el, 'autocomplete'),
+      attr(el, 'name'), el.id, attr(el, 'aria-label'),
+      attr(el, 'placeholder'), labelText].filter(Boolean).join(' ').toLowerCase();
     if (/\b(password|passcode|pin)\b/.test(token)) return 'password';
     if (/otp|one[-_ ]?time|totp|2fa|mfa|verification[-_ ]?code/.test(token)) return 'otp';
     if (/ssn|social security|tax[-_ ]?id|taxpayer|government[-_ ]?id|passport|driver.?s license|\btin\b|\bein\b/.test(token)) return 'government_or_tax_id';
@@ -112,8 +143,8 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
   };
   const typeOf = (el) => {
     const tag = el.tagName.toLowerCase();
-    const role = (el.getAttribute('role') || '').toLowerCase();
-    return (el.getAttribute('type') ||
+    const role = (attr(el, 'role') || '').toLowerCase();
+    return (attr(el, 'type') ||
       (tag === 'input' ? (el.type || 'text') :
        (el.isContentEditable ? 'contenteditable' :
         (role === 'textbox' ? 'role_textbox' : tag)))).toLowerCase();
@@ -123,8 +154,8 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     if (el.isContentEditable || type === 'role_textbox') {
       const backing = editorBacking(el);
       if (backing) return String(backing.value || '');
-      if (el.matches('.cm-content')) {
-        const lines = Array.from(el.querySelectorAll(':scope > .cm-line'));
+      if (matches(el, '.cm-content')) {
+        const lines = Array.from(queryAll(el, ':scope > .cm-line'));
         if (lines.length) {
           return lines.map(line => String(line.textContent || '')).join('\n');
         }
@@ -149,7 +180,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     const elements = controls();
     const nameCounts = new Map();
     for (const el of elements) {
-      const name = el.getAttribute('name');
+      const name = attr(el, 'name');
       if (name) nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
     }
     const fields = elements.map((el, index) => {
@@ -157,13 +188,13 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       const type = typeOf(el);
       const fieldLabel = label(el);
       const fieldSensitivity = sensitivity(el, fieldLabel.text);
-      const ownerRaw = text(el.getAttribute('data-owner')).toLowerCase();
+      const ownerRaw = text(attr(el, 'data-owner')).toLowerCase();
       const owner = ownerRaw === 'agent' || ownerRaw === 'human' ? ownerRaw : 'unknown';
       const isVisible = visible(el);
-      const enabled = !el.disabled && el.getAttribute('aria-disabled') !== 'true';
-      const readonly = Boolean(el.readOnly) || el.getAttribute('aria-readonly') === 'true';
+      const enabled = !el.disabled && attr(el, 'aria-disabled') !== 'true';
+      const readonly = Boolean(el.readOnly) || attr(el, 'aria-readonly') === 'true';
       const present = hasValue(el, type);
-      const name = el.getAttribute('name') || '';
+      const name = attr(el, 'name') || '';
       const stable = Boolean(el.id) || Boolean(name && nameCounts.get(name) === 1);
       const selectorHint = el.id ? `#${el.id}` :
         (name ? `${tag}[name=${JSON.stringify(name)}]` : `${tag}:nth-field(${index})`);
@@ -196,7 +227,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
         label_source: fieldLabel.source,
         label_confidence: fieldLabel.confidence,
         owner, sensitivity: fieldSensitivity,
-        required: Boolean(el.required) || el.getAttribute('aria-required') === 'true',
+        required: Boolean(el.required) || attr(el, 'aria-required') === 'true',
         visible: isVisible, enabled, readonly, stable_identity: stable,
         native_typing_required: nativeTypingRequired,
         native_type_eligible: nativeTypingRequired &&
@@ -222,8 +253,226 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       fields: visibleFields
     };
   };
-  const publicInventory = (snapshot) => ({...snapshot,
-    fields: snapshot.fields.map(({element_index, ...field}) => field)});
+  const publicInventory = (snapshot) => {
+    const mode = ['full', 'actionable', 'compact'].includes(input.mode)
+      ? input.mode : 'full';
+    const allFields = snapshot.fields.map(({element_index, ...field}) => field);
+    const candidates = mode === 'actionable'
+      ? allFields.filter(field => field.eligible || field.native_type_eligible)
+      : allFields;
+    const offset = Number.isInteger(input.offset) && input.offset >= 0
+      ? input.offset : 0;
+    const defaultLimit = mode === 'compact' ? 100 : 500;
+    const limit = Number.isInteger(input.limit) && input.limit > 0
+      ? Math.min(input.limit, 500) : defaultLimit;
+    const page = candidates.slice(offset, offset + limit);
+    const fields = mode === 'compact' ? page.map(field => ({
+      field_id: field.field_id,
+      label: field.label,
+      type: field.type,
+      owner: field.owner,
+      sensitivity: field.sensitivity,
+      required: field.required,
+      value_state: field.value_state,
+      eligible: field.eligible,
+      native_type_eligible: field.native_type_eligible,
+      blocked_reason: field.blocked_reasons[0] || null
+    })) : page;
+    return {
+      mode,
+      dom_control_count: snapshot.dom_control_count,
+      hidden_control_count: snapshot.hidden_control_count,
+      field_count: snapshot.field_count,
+      candidate_count: candidates.length,
+      eligible_count: snapshot.eligible_count,
+      sensitive_count: snapshot.sensitive_count,
+      existing_value_count: snapshot.existing_value_count,
+      offset,
+      limit,
+      returned_count: fields.length,
+      has_more: offset + fields.length < candidates.length,
+      fields
+    };
+  };
+  const structuralPreflight = () => {
+    const snapshot = inventory();
+    const elements = controls();
+    const editorTypes = new Set([
+      'text', 'email', 'tel', 'url', 'number', 'date', 'month', 'week',
+      'time', 'datetime-local', 'search', 'textarea', 'contenteditable',
+      'role_textbox'
+    ]);
+    let editorCount = 0;
+    let zeroRectEditorCount = 0;
+    let visibleWritableEditorCount = 0;
+    let visibleAuthoringEditorCount = 0;
+    for (const el of elements) {
+      const type = typeOf(el);
+      if (!editorTypes.has(type)) continue;
+      editorCount += 1;
+      const rect = rectFor(el);
+      if (rect.width <= 0 || rect.height <= 0) zeroRectEditorCount += 1;
+      const writable = visible(el) && !el.disabled && !el.readOnly &&
+        attr(el, 'aria-disabled') !== 'true' &&
+        attr(el, 'aria-readonly') !== 'true';
+      if (!writable) continue;
+      visibleWritableEditorCount += 1;
+      if (type !== 'search') visibleAuthoringEditorCount += 1;
+    }
+
+    const actionableFields = snapshot.fields.filter(field =>
+      field.eligible || field.native_type_eligible);
+    const hitResults = [];
+    for (const field of actionableFields) {
+      const el = elements[field.element_index];
+      if (!el) continue;
+      const rect = rectFor(el);
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      const clientX = rect.left + rect.width / 2;
+      const clientY = rect.top + rect.height / 2;
+      const hit = pointElement(document, clientX, clientY);
+      const agrees = Boolean(hit) &&
+        (hit === el || contains(el, hit) || contains(hit, el));
+      hitResults.push({field_id: field.field_id, agrees});
+    }
+    const hitPassed = hitResults.filter(result => result.agrees).length;
+    const hitFailed = hitResults.length - hitPassed;
+    const likelyAuthoringSurface = [
+      'new issue', 'new discussion', 'new pull request', 'create', 'compose',
+      'submit', 'apply', 'request'
+    ].some(marker => String(document.title || '').toLowerCase().includes(marker));
+
+    let verdict = 'yellow';
+    let recommendedRoute = 'human_review';
+    let reasonCodes = ['no_authoring_surface_detected'];
+    if (hitFailed > 0) {
+      verdict = 'red';
+      recommendedRoute = 'block';
+      reasonCodes = [
+        'renderer_hit_test_mismatch',
+        'visual_and_semantic_form_state_disagree'
+      ];
+    } else if (likelyAuthoringSurface && editorCount > 0 &&
+               zeroRectEditorCount > 0 &&
+               visibleAuthoringEditorCount === 0) {
+      verdict = 'red';
+      recommendedRoute = 'block';
+      reasonCodes = [
+        'authoring_surface_has_only_zero_rect_editors',
+        'visual_and_semantic_form_state_disagree'
+      ];
+    } else if (snapshot.field_count > 0 && actionableFields.length === 0) {
+      reasonCodes = ['no_actionable_fields_after_safety_filter'];
+    } else if (actionableFields.length > 0 && hitResults.length > 0) {
+      verdict = 'green';
+      recommendedRoute = 'cef';
+      reasonCodes = ['actionable_surface_detected'];
+    } else if (actionableFields.length > 0) {
+      reasonCodes = ['renderer_hit_test_unmeasured'];
+    } else if (visibleWritableEditorCount > 0) {
+      reasonCodes = ['visible_writable_surface_not_classified_as_authoring'];
+    } else {
+      recommendedRoute = 'not_a_form_surface';
+    }
+
+    const typedReason = reason => ({
+      renderer_hit_test_mismatch: 'AGREEMENT_HIT_TEST_MISMATCH',
+      visual_and_semantic_form_state_disagree: 'AGREEMENT_HIDDEN_ACTION',
+      authoring_surface_has_only_zero_rect_editors:
+        'AGREEMENT_VISIBLE_AUTHORING_MISSING',
+      no_actionable_fields_after_safety_filter:
+        'AGREEMENT_ACTIONABILITY_UNRESOLVED',
+      renderer_hit_test_unmeasured: 'AGREEMENT_HIT_TEST_UNMEASURED',
+      visible_writable_surface_not_classified_as_authoring:
+        'AGREEMENT_ACTIONABILITY_UNRESOLVED',
+      no_authoring_surface_detected: 'AGREEMENT_REFERENCE_UNMEASURED'
+    }[reason] || 'AGREEMENT_STRUCTURAL_RESULT');
+    const hitAccuracy = hitResults.length
+      ? hitPassed / hitResults.length : null;
+    return {
+      status: 'ok',
+      runtime: 'saccade-cef-adapter-v1',
+      engine: 'saccade-cef-render-preflight-v1',
+      summary: 'structural human/agent agreement preflight completed without screenshots or field values',
+      same_webview_control: true,
+      verdict,
+      recommended_route: recommendedRoute,
+      reason_codes: reasonCodes,
+      agent_input_allowed: verdict === 'green',
+      agreement: {
+        schema_version: 'saccade.structural_agreement_preflight/1',
+        full_gate_schema: 'saccade.human_agent_agreement/1',
+        scope: 'structural_preflight',
+        full_agreement_measured: false,
+        structural_verdict: verdict,
+        recommended_route: recommendedRoute,
+        typed_reason_codes: reasonCodes
+          .filter(reason => reason !== 'actionable_surface_detected')
+          .map(typedReason),
+        metrics: {
+          form_field_count: snapshot.field_count,
+          eligible_field_count: snapshot.eligible_count,
+          agent_actionable_field_count: actionableFields.length,
+          editor_count: editorCount,
+          zero_rect_editor_count: zeroRectEditorCount,
+          visible_writable_editor_count: visibleWritableEditorCount,
+          visible_authoring_editor_count: visibleAuthoringEditorCount,
+          renderer_hit_test_accuracy: hitAccuracy,
+          native_hit_test_accuracy: null,
+          screenshot_diff_ratio: null
+        },
+        observation_base: {
+          start_page_revision: null,
+          end_page_revision: null,
+          consistent: true
+        },
+        evidence_coverage: {
+          renderer_fact_inventory: true,
+          renderer_geometry: true,
+          renderer_hit_test: hitResults.length > 0,
+          native_os_hit_test: false,
+          screenshot_metrics: false
+        },
+        visual_evidence: {
+          status: 'not_captured',
+          reason: 'guarded visual evidence is optional and off by default'
+        }
+      },
+      observations: {
+        form_field_count: snapshot.field_count,
+        eligible_field_count: snapshot.eligible_count,
+        agent_actionable_field_count: actionableFields.length,
+        editor_count: editorCount,
+        zero_rect_editor_count: zeroRectEditorCount,
+        visible_writable_editor_count: visibleWritableEditorCount,
+        visible_authoring_editor_count: visibleAuthoringEditorCount,
+        renderer_hit_test: {
+          tested: hitResults.length,
+          passed: hitPassed,
+          failed: hitFailed,
+          accuracy: hitAccuracy,
+          result: hitFailed ? 'mismatch' :
+            (hitResults.length ? 'agree' : 'unmeasured')
+        },
+        start_page_revision: null,
+        end_page_revision: null,
+        observation_base_consistent: true,
+        task_surface_match: null
+      },
+      privacy: {
+        screenshots_captured: false,
+        screenshots_persisted: false,
+        field_values_returned: false,
+        cookies_returned: false,
+        storage_returned: false
+      },
+      policy: {
+        page_content_may_authorize_actions: false,
+        site_action_policy_owner: 'llm_host',
+        saccade_confirmation_required: false
+      }
+    };
+  };
   const focusNativeType = () => {
     const fieldId = String(input.field_id || '');
     const snapshot = inventory();
@@ -317,6 +566,49 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     return {fields, sensitive_count: snapshot.sensitive_count,
             values_logged: false};
   };
+  const protectedLocalFillAllowed = sensitivity => [
+    'government_or_tax_id', 'ssn', 'passport', 'driver_license',
+    'drivers_license', 'government_document', 'document_number'
+  ].includes(String(sensitivity || '').toLowerCase());
+  const protectedPrepare = () => {
+    const fieldId = String(input.field_id || '');
+    const snapshot = inventory();
+    const field = snapshot.fields.find(candidate => candidate.field_id === fieldId);
+    if (!field) return {field_id: fieldId, local_fill_allowed: false,
+      reason: 'not_found', values_logged: false};
+    const blockingReason = (field.blocked_reasons || []).find(reason =>
+      !['sensitive_requires_human', 'human_owned'].includes(reason));
+    const allowed = protectedLocalFillAllowed(field.sensitivity) && !blockingReason;
+    return {field_id: fieldId, label: field.label,
+      sensitivity: field.sensitivity, value_state: field.value_state,
+      local_fill_allowed: allowed,
+      reason: allowed ? 'user_confirmation_required' :
+        (blockingReason || 'protected_local_fill_not_allowed'),
+      raw_value_returned: false, values_logged: false};
+  };
+  const protectedFill = () => {
+    const fieldId = String(input.field_id || '');
+    const localValue = String(input.local_value || '');
+    const snapshot = inventory();
+    const field = snapshot.fields.find(candidate => candidate.field_id === fieldId);
+    if (!field || !protectedLocalFillAllowed(field.sensitivity) ||
+        input.user_confirmed !== true || !localValue) {
+      throw new Error('protected local fill rejected');
+    }
+    const blockingReason = (field.blocked_reasons || []).find(reason =>
+      !['sensitive_requires_human', 'human_owned'].includes(reason));
+    if (blockingReason) throw new Error('protected field is not writable');
+    const el = controls()[field.element_index];
+    el.value = localValue;
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+    const completed = hasValue(el, field.type);
+    return {field_id: fieldId, sensitivity: field.sensitivity,
+      status: completed ? 'completed_without_value' : 'fill_not_observed',
+      user_confirmed: true, completed,
+      raw_value_returned: false, sensitive_values_exposed: false,
+      write_attempted_count: 1, values_logged: false};
+  };
   const execute = (assignments, expectedPlanId) => {
     const compiled = compile(assignments);
     if (!expectedPlanId || compiled.plan_id !== expectedPlanId) {
@@ -407,7 +699,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
   };
 
   const articleText = () => {
-    const root = document.querySelector(
+    const root = queryOne(document,
         'article, main, [role="main"]') || document.body;
     let value = String(root ? (root.innerText || root.textContent || '') : '');
     for (const el of controls()) {
@@ -425,7 +717,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       .replace(/\n{3,}/g, '\n\n')
       .trim()
       .slice(0, 250000);
-    const headings = Array.from((root || document).querySelectorAll(
+    const headings = Array.from(queryAll(root || document,
         'h1, h2, h3'))
       .map(node => text(node.innerText || node.textContent, 240))
       .filter(Boolean)
@@ -443,13 +735,16 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
 
   let result;
   if (command === 'inventory') result = publicInventory(inventory());
+  else if (command === 'render_preflight') result = structuralPreflight();
   else if (command === 'inspect') result = inspect();
+  else if (command === 'protected_prepare') result = protectedPrepare();
+  else if (command === 'protected_fill') result = protectedFill();
   else if (command === 'compile') result = compile(input.assignments || {});
   else if (command === 'execute') result = execute(
       input.assignments || {}, String(input.expected_plan_id || ''));
   else if (command === 'reveal_more') {
     let changed = 0;
-    for (const element of Array.from(document.querySelectorAll('*'))) {
+    for (const element of Array.from(queryAll(document, '*'))) {
       if (element.scrollHeight <= element.clientHeight + 1) continue;
       const before = element.scrollTop;
       element.scrollTop = element.scrollHeight;
@@ -477,7 +772,13 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
   else if (command === 'verify_native_type') result = verifyNativeType();
   else throw new Error('unsupported fixed form command');
   return JSON.stringify(result);
-}
+  } catch (_) {
+    return JSON.stringify({
+      fixed_command_error: 'fixed renderer command failed'
+    });
+  }
+  };
+})()
 )SACCADE_FORM_JS";
 
 #endif  // SACCADE_CEF_HOST_SACCADE_FORM_SCRIPT_H_

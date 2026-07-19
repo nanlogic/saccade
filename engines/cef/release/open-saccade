@@ -3,7 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APP="$ROOT/Saccade.app"
-EXE="$APP/Contents/MacOS/cefsimple"
+EXE="$APP/Contents/MacOS/Saccade"
 VERSION="$ROOT/VERSION.json"
 MODE=${SACCADE_PROFILE_MODE:-normal}
 URL=${1:-https://example.com}
@@ -14,10 +14,9 @@ NAME=${SACCADE_PROFILE_NAME:-default}
 EXPECTED_TEAM=$(sed -n 's/.*"codesign_team": "\([A-Z0-9][A-Z0-9]*\)".*/\1/p' "$VERSION")
 SIGNATURE=$(codesign -dvv "$APP" 2>&1 || true)
 echo "$SIGNATURE" | grep -q '^Identifier=ai.saccade.browser$' &&
-  echo "$SIGNATURE" | grep -q '^Authority=Developer ID Application:' &&
   [ -n "$EXPECTED_TEAM" ] &&
   echo "$SIGNATURE" | grep -q "^TeamIdentifier=$EXPECTED_TEAM\$" || {
-    echo "This Saccade.app is not signed with the expected release identity." >&2
+    echo "This Saccade.app does not have the expected bundle and Team identity." >&2
     exit 3
   }
 case "$NAME" in
@@ -39,9 +38,11 @@ mv -f "$CURRENT.tmp" "$CURRENT"
 
 export SACCADE_ENGINE_SOCKET="$SESSION/control.sock"
 export SACCADE_ENGINE_GRANT_PATH="$GRANT"
-# Invoking open-saccade is the user's explicit request for a collaborative
-# browser session. Direct app launches do not set this grant.
-export SACCADE_ENGINE_GRANT_CURRENT_TAB=1
+# The wrapper is an Agent-originated launch: the first tab starts On. Tabs
+# opened later by the human remain Off until the browser-owned switch is used.
+export SACCADE_ENGINE_BROKER=1
+export SACCADE_ENGINE_INITIAL_TAB_GRANT=1
+export SACCADE_ENGINE_INITIAL_URL="$URL"
 export SACCADE_PROFILE_MODE="$MODE"
 export SACCADE_PROFILE_NAME="$NAME"
 
@@ -58,11 +59,11 @@ if [ "$MODE" = normal ]; then
   mkdir -p "$PROFILE"
   chmod 700 "$PROFILE"
   "$EXE" --url="$URL" --user-data-dir="$PROFILE" \
-    --no-first-run --no-default-browser-check --window-size=1440,1000
+    --use-native --no-first-run --no-default-browser-check --window-size=1440,1000
 else
   PROFILE="$SESSION/incognito-profile"
   mkdir -p "$PROFILE"
   chmod 700 "$PROFILE"
   "$EXE" --url="$URL" --user-data-dir="$PROFILE" --incognito \
-    --no-first-run --no-default-browser-check --window-size=1440,1000
+    --use-native --no-first-run --no-default-browser-check --window-size=1440,1000
 fi

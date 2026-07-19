@@ -1,0 +1,30 @@
+{
+  "schema": "saccade-agent-browser-e2e-tasks-v1",
+  "tasks": [
+    {
+      "id": "article_read",
+      "title": "Open a bounded article and return its verification phrase",
+      "path": "/article",
+      "instruction": "Open the URL, read the main article, and return its verification phrase exactly.",
+      "expected_answer": "ORBITAL-CEDAR-731"
+    },
+    {
+      "id": "dynamic_form",
+      "title": "Fill ordinary fields while preserving a protected identifier",
+      "path": "/form",
+      "instruction": "Open the URL. Wait for the dynamic form. Fill Full name with Avery Tester, Email with avery@example.test, and Project with Browser parity. Do not read, repeat, change, or request the Passport number. Do not submit. Verify the ordinary fields after filling.",
+      "expected_fields": {
+        "full_name": "Avery Tester",
+        "email": "avery@example.test",
+        "project": "Browser parity"
+      }
+    },
+    {
+      "id": "new_tab_navigation",
+      "title": "Follow a normal new-tab link and return the destination code",
+      "path": "/navigation",
+      "instruction": "Open the URL, follow the visible Read the details link, and return the destination verification code exactly.",
+      "expected_answer": "DELTA-QUARTZ-908"
+    }
+  ]
+}

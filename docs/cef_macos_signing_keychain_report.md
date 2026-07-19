@@ -1,7 +1,8 @@
 # CEF macOS Signing and Keychain Report
 
 Date: 2026-07-15
-Status: local signed-profile gate passed; public notarization remains open
+Status: local signed-profile and notarization-preflight gates passed; Apple
+submission remains intentionally deferred
 
 ## Result
 
@@ -45,9 +46,44 @@ SACCADE_PROFILE_NAME=cef-signed-keychain \
   engines/cef/scripts/run_macos.sh normal https://example.com
 ```
 
+## Hardened Runtime preparation
+
+Build 62 enables Hardened Runtime and secure timestamps for the main app,
+embedded MCP binaries, CEF framework and helper executables. The helpers used
+for Renderer/GPU work receive only `com.apple.security.cs.allow-jit`, matching
+their Chromium execution role. The no-upload preflight verifies Developer ID,
+runtime flags, timestamps, the absence of `get-task-allow` and every nested
+Mach-O signature.
+
+`engines/cef/scripts/notarize_macos.sh submit` is the explicit release-owner
+path. It notarizes and staples the App before building, signing, notarizing and
+stapling the DMG, then runs App and DMG Gatekeeper assessment. It requires a
+Keychain-stored `notarytool` profile and is never called by dogfood builds.
+
 ## Remaining Boundary
 
 This closes the same-machine signed normal-profile and repeated-Keychain-prompt
-gate. It does not claim a public distribution artifact. Hardened-runtime
-entitlements, notarization, stapling, clean-machine install, and certificate
-rotation tests remain required before public release.
+gate. It does not claim a public distribution artifact. Apple submission,
+stapling, offline clean-machine install and certificate-rotation tests remain
+required before public release.
+
+Build 62 evidence: `runs/dogfood/df_build62_release_complete_20260718/report.json`.
+
+## 2026-07-18 locked-Keychain recurrence
+
+A Keychain prompt recurred even though installed Build 65 matched the packaged
+app and Builds 64/65 had the same bundle ID, Team ID and designated
+requirement. At recurrence, strict verification reported
+`CSSMERR_TP_NOT_TRUSTED` and the login Keychain exposed no valid signing
+identity, while the extracted certificate chain itself still verified.
+
+The user authenticated through the macOS Keychain UI using the system passcode.
+The unchanged installed app then passed three complete quit/relaunch cycles:
+one Saccade main process and zero `SecurityAgent` processes on every run. The
+measured cause was the locked login Keychain, not bundle, Team ID, designated-
+requirement, or package drift.
+
+Saccade keeps the real Chromium Safe Storage backend and does not patch the CEF
+binary or enable `--use-mock-keychain`. macOS authentication after the user
+explicitly locks the login Keychain is an OS security boundary, not a prompt
+that the browser should bypass. Sleep/wake remains a separate release check.

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Saccade Installed Dynamic Form</title>
+  </head>
+  <body>
+    <main>
+      <h1>Dynamic form readiness fixture</h1>
+      <p id="status">Hydrating…</p>
+      <form id="fixture"></form>
+    </main>
+    <script>
+      setTimeout(() => {
+        const form = document.getElementById('fixture');
+        const fields = [
+          ['display-name', 'Display name', 'text'],
+          ['email', 'Email', 'email'],
+          ['website', 'Website', 'url'],
+          ['phone', 'Phone', 'tel'],
+          ['notes', 'Notes', 'text'],
+          ['password', 'Password', 'password']
+        ];
+        for (const [id, labelText, type] of fields) {
+          const label = document.createElement('label');
+          label.htmlFor = id;
+          label.textContent = labelText;
+          const input = document.createElement('input');
+          input.id = id;
+          input.name = id;
+          input.type = type;
+          form.append(label, input, document.createElement('br'));
+        }
+        document.getElementById('status').textContent = 'Ready';
+      }, 1200);
+    </script>
+  </body>
+</html>

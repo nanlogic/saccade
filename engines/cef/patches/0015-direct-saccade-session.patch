@@ -1,0 +1,35 @@
+--- a/tests/cefsimple/cefsimple_mac.mm
++++ b/tests/cefsimple/cefsimple_mac.mm
+@@ -11,6 +11,7 @@
+ #include "include/wrapper/cef_helpers.h"
+ #include "include/wrapper/cef_library_loader.h"
+ #include "tests/cefsimple/simple_app.h"
++#include "tests/cefsimple/saccade_direct_session_mac.h"
+ #include "tests/cefsimple/simple_handler.h"
+ 
+ // Receives notifications from the application.
+@@ -162,11 +163,23 @@ int main(int argc, char* argv[]) {
+     CefRefPtr<CefCommandLine> command_line =
+         CefCommandLine::CreateCommandLine();
+     command_line->InitFromArgv(argc, argv);
++    SaccadeDirectSession direct_session;
++    SaccadeDirectSession::Result direct_session_result =
++        SaccadeDirectSession::Result::kExternallyConfigured;
++    NSString* bundle_identifier = [[NSBundle mainBundle] bundleIdentifier];
++    if ([bundle_identifier isEqualToString:@"ai.saccade.browser"]) {
++      direct_session_result = direct_session.Prepare();
++    }
+ 
+     // Specify CEF global settings here.
+     CefSettings settings;
+-    const std::string profile_path =
++    std::string profile_path =
+         command_line->GetSwitchValue("user-data-dir");
++    if (profile_path.empty() &&
++        direct_session_result ==
++            SaccadeDirectSession::Result::kDirectReady) {
++      profile_path = direct_session.profile_path();
++    }
+     if (!profile_path.empty()) {
+       CefString(&settings.root_cache_path) = profile_path;
+       CefString(&settings.cache_path) = profile_path;

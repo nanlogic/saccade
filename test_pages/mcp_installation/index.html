@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Saccade self-contained MCP fixture</title>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>Self-contained installation</h1>
+      <p>This bundled page proves that Saccade can start, attach, and return
+      bounded browser truth without a source repository or network request.</p>
+    </article>
+    <button id="verify" type="button">Verify installed action</button>
+    <p id="status">Ready.</p>
+    <p id="truth">hits=0 misses=0 finished=false</p>
+  </main>
+  <script>
+    document.getElementById('verify').addEventListener('click', () => {
+      document.getElementById('status').textContent = 'Installed action verified.';
+    });
+  </script>
+</body>
+</html>

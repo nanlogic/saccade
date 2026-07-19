@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LAYOUT_READY</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; font: 16px system-ui, sans-serif; }
+    body { background: #f6f8fc; color: #17213a; overflow: auto; }
+    button { min-width: 180px; min-height: 52px; font: inherit; }
+    #responsive-action { position: absolute; left: 940px; top: 150px; }
+    #desktop-only { position: absolute; left: 940px; top: 230px; }
+    #surface {
+      position: absolute; left: 120px; top: 360px;
+      width: 800px; height: 280px; background: #dbe8ff;
+      border: 4px solid #155eef;
+    }
+    #truth { position: fixed; left: 20px; top: 20px; }
+    @media (max-width: 800px) {
+      #responsive-action { left: 54px; top: 220px; }
+      #desktop-only { display: none; }
+      #surface { left: 54px; top: 360px; width: 560px; height: 220px; }
+    }
+  </style>
+</head>
+<body>
+  <p id="truth">hits=0 misses=0</p>
+  <button id="responsive-action" type="button">Responsive action</button>
+  <button id="desktop-only" type="button">Desktop only action</button>
+  <canvas id="surface" width="800" height="280" aria-label="Canvas center target"></canvas>
+  <script>
+    (() => {
+      const truth = document.getElementById('truth');
+      const canvas = document.getElementById('surface');
+      const context = canvas.getContext('2d');
+      let hits = 0;
+      let misses = 0;
+      const paint = () => {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#155eef';
+        context.beginPath();
+        context.arc(canvas.width / 2, canvas.height / 2, 38, 0, Math.PI * 2);
+        context.fill();
+      };
+      const record = (title, hit) => {
+        hit ? hits += 1 : misses += 1;
+        truth.textContent = `hits=${hits} misses=${misses}`;
+        document.title = title;
+      };
+      document.getElementById('responsive-action').addEventListener('click', () => {
+        record('DOM_LAYOUT_PASS', true);
+      });
+      document.getElementById('desktop-only').addEventListener('click', () => {
+        record('STALE_TARGET_WRONG_CLICK', false);
+      });
+      canvas.addEventListener('click', event => {
+        const rect = canvas.getBoundingClientRect();
+        const x = (event.clientX - rect.left) / rect.width;
+        const y = (event.clientY - rect.top) / rect.height;
+        const centered = Math.abs(x - 0.5) <= 0.08 && Math.abs(y - 0.5) <= 0.12;
+        record(centered ? 'CANVAS_LAYOUT_PASS' : 'CANVAS_LAYOUT_MISS', centered);
+      });
+      paint();
+    })();
+  </script>
+</body>
+</html>

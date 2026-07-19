@@ -66,7 +66,7 @@ def wait_for_url(
 
 def main() -> int:
     args = parse_args()
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     fixture = args.fixture.resolve()
     if not executable.is_file():
         raise SystemExit(f"missing CEF release app: {executable}")

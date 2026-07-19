@@ -1,0 +1,147 @@
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -10,5 +10,6 @@
+ #include "include/cef_client.h"
+ #include "include/cef_download_handler.h"
+ #include "include/cef_focus_handler.h"
+ #include "include/cef_request_handler.h"
++#include "include/cef_resource_request_handler.h"
+ 
+@@ -18,5 +19,6 @@
+                       public CefLifeSpanHandler,
+                       public CefLoadHandler,
+                       public CefFocusHandler,
+-                      public CefRequestHandler {
++                      public CefRequestHandler,
++                      public CefResourceRequestHandler {
+  public:
+@@ -78,10 +80,28 @@
+   // CefRequestHandler methods:
+   bool OnOpenURLFromTab(
+       CefRefPtr<CefBrowser> browser,
+       CefRefPtr<CefFrame> frame,
+       const CefString& target_url,
+       CefRequestHandler::WindowOpenDisposition target_disposition,
+       bool user_gesture) override;
++  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(
++      CefRefPtr<CefBrowser> browser,
++      CefRefPtr<CefFrame> frame,
++      CefRefPtr<CefRequest> request,
++      bool is_navigation,
++      bool is_download,
++      const CefString& request_initiator,
++      bool& disable_default_handling) override;
++
++  // CefResourceRequestHandler methods. Only session-creation requests for
++  // known human-verification providers are observed. Response bodies, request
++  // bodies, headers, cookies, and tokens are never read.
++  void OnResourceLoadComplete(CefRefPtr<CefBrowser> browser,
++                              CefRefPtr<CefFrame> frame,
++                              CefRefPtr<CefRequest> request,
++                              CefRefPtr<CefResponse> response,
++                              URLRequestStatus status,
++                              int64_t received_content_length) override;
+ 
+   // CefLoadHandler methods:
+   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -5,5 +5,7 @@
+ #include "tests/cefsimple/simple_handler.h"
+ 
++#include <algorithm>
++#include <cctype>
+ #include <cstdlib>
+ #include <sstream>
+ #include <string>
+@@ -36,12 +38,42 @@
+ std::string SafeSuggestedDownloadName(const CefString& suggested_name) {
+   std::string name = suggested_name.ToString();
+   const size_t separator = name.find_last_of("/\\");
+   if (separator != std::string::npos) {
+     name = name.substr(separator + 1);
+   }
+   return name.empty() || name == "." || name == ".." ? "download" : name;
+ }
+ 
++bool HostMatchesDomain(const std::string& host, const std::string& domain) {
++  return host == domain ||
++         (host.size() > domain.size() &&
++          host.compare(host.size() - domain.size(), domain.size(), domain) == 0 &&
++          host[host.size() - domain.size() - 1] == '.');
++}
++
++std::string HumanVerificationProviderForRequest(
++    CefRefPtr<CefRequest> request) {
++  if (!request) {
++    return "";
++  }
++  CefURLParts parts;
++  if (!CefParseURL(request->GetURL(), parts)) {
++    return "";
++  }
++  std::string host = CefString(&parts.host).ToString();
++  const std::string path = CefString(&parts.path).ToString();
++  std::transform(host.begin(), host.end(), host.begin(),
++                 [](unsigned char value) { return std::tolower(value); });
++  if (path.find("/fc/gt2/public_key/") == std::string::npos) {
++    return "";
++  }
++  if (HostMatchesDomain(host, "arkoselabs.com") ||
++      HostMatchesDomain(host, "octocaptcha.com")) {
++    return "Arkose Labs";
++  }
++  return "";
++}
++
+ }  // namespace
+ 
+ SimpleHandler::SimpleHandler(bool is_alloy_style)
+@@ -192,16 +224,47 @@
+ bool SimpleHandler::OnOpenURLFromTab(
+     CefRefPtr<CefBrowser> browser,
+     CefRefPtr<CefFrame> frame,
+     const CefString& target_url,
+     CefRequestHandler::WindowOpenDisposition target_disposition,
+     bool user_gesture) {
+   CEF_REQUIRE_UI_THREAD();
+   if (IsSaccadeTabDisposition(target_disposition) &&
+       !target_url.ToString().empty()) {
+     SaccadeAdapter::GetInstance()->OpenRoutedTabOnUi(target_url.ToString());
+     return true;
+   }
+   return false;
+ }
+ 
++CefRefPtr<CefResourceRequestHandler>
++SimpleHandler::GetResourceRequestHandler(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    CefRefPtr<CefRequest> request,
++    bool is_navigation,
++    bool is_download,
++    const CefString& request_initiator,
++    bool& disable_default_handling) {
++  if (!HumanVerificationProviderForRequest(request).empty()) {
++    return this;
++  }
++  return nullptr;
++}
++
++void SimpleHandler::OnResourceLoadComplete(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    CefRefPtr<CefRequest> request,
++    CefRefPtr<CefResponse> response,
++    URLRequestStatus status,
++    int64_t received_content_length) {
++  const std::string provider = HumanVerificationProviderForRequest(request);
++  if (provider.empty()) {
++    return;
++  }
++  const int http_status = response ? response->GetStatus() : 0;
++  SaccadeAdapter::GetInstance()->OnHumanVerificationResourceResult(
++      browser, provider, http_status, static_cast<int>(status));
++}
++
+ void SimpleHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,

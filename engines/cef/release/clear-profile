@@ -1,0 +1,57 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: clear-profile --dry-run | --yes
+
+Clears one persistent Saccade profile. This signs sites out and removes that
+profile's cookies, browser storage, cache, history, and saved site state.
+Raw cookie or storage values are never printed.
+
+Select a profile with SACCADE_PROFILE_NAME (default: default). Saccade must be
+closed before deletion. Incognito profiles are removed automatically on exit.
+EOF
+}
+
+ACTION=${1:-}
+case "$ACTION" in
+  --dry-run|--yes) ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+NAME=${SACCADE_PROFILE_NAME:-default}
+case "$NAME" in
+  *[!A-Za-z0-9_-]*|'') echo "Invalid SACCADE_PROFILE_NAME." >&2; exit 2 ;;
+esac
+
+PROFILE_ROOT="$HOME/Library/Application Support/Saccade/CEF/Profiles"
+PROFILE="$PROFILE_ROOT/$NAME"
+
+if [ -L "$PROFILE" ]; then
+  echo "Refusing to clear a symlinked Saccade profile." >&2
+  exit 3
+fi
+
+if pgrep -x Saccade >/dev/null 2>&1; then
+  echo "Quit Saccade before clearing a persistent profile." >&2
+  exit 4
+fi
+
+if [ ! -d "$PROFILE" ]; then
+  printf 'action=%s\nname=%s\nexists=false\nfiles=0\nbytes=0\nraw_cookies_printed=false\nraw_storage_printed=false\n' \
+    "${ACTION#--}" "$NAME"
+  exit 0
+fi
+
+FILES=$(find "$PROFILE" -type f | wc -l | tr -d ' ')
+BYTES=$(du -sk "$PROFILE" | awk '{print $1 * 1024}')
+
+if [ "$ACTION" = "--yes" ]; then
+  rm -rf -- "$PROFILE"
+fi
+
+printf 'action=%s\nname=%s\nexists=true\nfiles=%s\nbytes=%s\ncleared=%s\nraw_cookies_printed=false\nraw_storage_printed=false\n' \
+  "${ACTION#--}" "$NAME" "$FILES" "$BYTES" \
+  "$([ "$ACTION" = "--yes" ] && printf true || printf false)"

@@ -8,7 +8,7 @@ MODE=${1:-normal}
 [ "$#" -eq 0 ] || shift
 URL=${1:-https://example.com}
 [ "$#" -eq 0 ] || shift
-EXE="$APP/Contents/MacOS/cefsimple"
+EXE="$APP/Contents/MacOS/Saccade"
 
 if [ -n "${SACCADE_ENGINE_SESSION_DIR:-}" ]; then
   SESSION_ROOT=$SACCADE_ENGINE_SESSION_DIR

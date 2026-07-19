@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Saccade Media Capability Probe</title>
+</head>
+<body>
+  <main>
+    <h1>Saccade Media Capability Probe</h1>
+    <pre id="result">MEDIA_CAPABILITY pending=true</pre>
+  </main>
+  <script>
+    const video = document.createElement('video');
+    const supported = (type) => {
+      try {
+        return typeof MediaSource !== 'undefined' &&
+          MediaSource.isTypeSupported(type);
+      } catch (_) {
+        return false;
+      }
+    };
+    const canPlay = (type) => {
+      try {
+        return video.canPlayType(type) || 'no';
+      } catch (_) {
+        return 'no';
+      }
+    };
+    const capabilities = {
+      media_source: typeof MediaSource !== 'undefined',
+      mse_h264: supported('video/mp4; codecs="avc1.64001f"'),
+      mse_aac: supported('audio/mp4; codecs="mp4a.40.2"'),
+      mse_h264_aac: supported(
+        'video/mp4; codecs="avc1.64001f, mp4a.40.2"'),
+      mse_vp9: supported('video/webm; codecs="vp09.00.10.08"'),
+      mse_opus: supported('audio/webm; codecs="opus"'),
+      native_hls: canPlay('application/vnd.apple.mpegurl'),
+      mp4_h264: canPlay('video/mp4; codecs="avc1.64001f"'),
+      webm_vp9: canPlay('video/webm; codecs="vp09.00.10.08"')
+    };
+    document.getElementById('result').textContent = Object.entries(capabilities)
+      .map(([key, value]) => `MEDIA_CAPABILITY ${key}=${value}`)
+      .join('\n');
+  </script>
+</body>
+</html>

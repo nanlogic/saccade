@@ -129,7 +129,7 @@ def main() -> int:
     args = parse_args()
     if args.targets <= 0:
         raise SystemExit("--targets must be positive")
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     if not executable.is_file():
         raise SystemExit(f"missing CEF release app: {executable}")
     fixture = args.fixture.resolve()
@@ -168,7 +168,7 @@ def main() -> int:
         f"--window-size={args.width},{args.height}",
     ]
     if not args.headed:
-        command.append("--initial-show-state=hidden")
+        command.extend(["--use-views", "--initial-show-state=hidden"])
 
     started = time.monotonic()
     process: subprocess.Popen[bytes] | None = None

@@ -35,10 +35,14 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
     }
   };
   const ids = new WeakMap();
+  const canonicalIds = new Map();
   const requestedCount = Math.max(
       1, Number(new URLSearchParams(location.search).get('count') || 30));
   let sequence = 0;
+  let actionScanGeneration = 0;
   let attached = false;
+  let lastLayoutSignature = '';
+  let layoutRefreshPending = false;
 
   const queryAll = Function.call.bind(Document.prototype.querySelectorAll);
   const getById = Function.call.bind(Document.prototype.getElementById);
@@ -46,7 +50,9 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   const closest = Function.call.bind(Element.prototype.closest);
   const matches = Function.call.bind(Element.prototype.matches);
   const queryOne = Function.call.bind(Element.prototype.querySelector);
+  const attr = Function.call.bind(Element.prototype.getAttribute);
   const addEvent = Function.call.bind(EventTarget.prototype.addEventListener);
+  const elementAt = Function.call.bind(Document.prototype.elementFromPoint);
   const styleFor = Function.call.bind(window.getComputedStyle, window);
   const actionSelector = '.target:not(.hit), button, a[href], canvas, [role="button"], input[type="button"], input[type="submit"]';
   let pendingInput = null;
@@ -54,13 +60,13 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   const scanControls = () => {
     nativeEmit('controls_reset', epochNow());
     for (const element of queryAll(document, 'input, textarea, select, [contenteditable="true"]')) {
-      const type = String(element.getAttribute('type') || element.tagName || 'control').toLowerCase();
-      const identity = String(element.getAttribute('id') || element.getAttribute('name') || type).slice(0, 128);
+      const type = String(attr(element, 'type') || element.tagName || 'control').toLowerCase();
+      const identity = String(attr(element, 'id') || attr(element, 'name') || type).slice(0, 128);
       const markers = [
         type,
         identity,
-        element.getAttribute('autocomplete') || '',
-        element.getAttribute('data-sensitive') || ''
+        attr(element, 'autocomplete') || '',
+        attr(element, 'data-sensitive') || ''
       ].join(' ').toLowerCase();
       const sensitive = /password|passcode|ssn|social.security|credit|card|cvv|cvc|government|passport|tax.id/.test(markers);
       const complete = typeof element.value === 'string' ? element.value.length > 0 : false;
@@ -71,11 +77,11 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   const sensitiveControlValues = () => {
     const values = [];
     for (const element of queryAll(document, 'input, textarea, select')) {
-      const type = String(element.getAttribute('type') || '').toLowerCase();
+      const type = String(attr(element, 'type') || '').toLowerCase();
       if (type === 'checkbox' || type === 'radio') continue;
-      const markers = [type, element.getAttribute('autocomplete') || '',
-        element.getAttribute('name') || '', element.getAttribute('id') || '',
-        element.getAttribute('data-sensitive') || ''].join(' ').toLowerCase();
+      const markers = [type, attr(element, 'autocomplete') || '',
+        attr(element, 'name') || '', attr(element, 'id') || '',
+        attr(element, 'data-sensitive') || ''].join(' ').toLowerCase();
       if (!/password|passcode|otp|one[-_ ]?time|ssn|social.security|credit|card|cvv|cvc|government|passport|tax.id|signature/.test(markers)) continue;
       const value = String(element.value || '');
       if (value && (value.length >= 4 || type === 'password')) values.push(value);
@@ -93,9 +99,60 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
       .replace(/\b(?:\d[ -]*?){13,19}\b/g, '[redacted]');
   };
 
-  const scanActions = () => {
+  const stableHash = value => {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  };
+
+  const canonicalActionKey = (element, role, label, rect) => {
+    if (role === 'link') {
+      const href = String(element.href || attr(element, 'href') || '');
+      return `link|${href}|${label.toLowerCase()}`;
+    }
+    const explicit = String(attr(element, 'data-saccade-action-key') ||
+      attr(element, 'id') || attr(element, 'name') || '');
+    if (explicit) return `${role}|explicit|${explicit}`;
+    if (role === 'button' && closest(element, 'form')) {
+      const form = closest(element, 'form');
+      return `button|form|${String(form.action || location.href)}|${label.toLowerCase()}`;
+    }
+    const geometry = [rect.left, rect.top, rect.width, rect.height]
+      .map(value => Math.round(value)).join('|');
+    return `${role}|${label.toLowerCase()}|${geometry}`;
+  };
+
+  const layoutSignature = () => {
+    const viewport = globalThis.visualViewport;
+    const parts = [
+      innerWidth, innerHeight, scrollX, scrollY, devicePixelRatio,
+      viewport ? viewport.width : 0,
+      viewport ? viewport.height : 0,
+      viewport ? viewport.offsetLeft : 0,
+      viewport ? viewport.offsetTop : 0,
+      viewport ? viewport.scale : 1,
+      document.documentElement ? document.documentElement.scrollWidth : 0,
+      document.documentElement ? document.documentElement.scrollHeight : 0
+    ].map(value => Math.round(Number(value || 0) * 100) / 100);
+    let count = 0;
     for (const element of queryAll(document, actionSelector)) {
-      if (element.disabled || element.getAttribute('aria-disabled') === 'true') continue;
+      if (count++ >= 256) break;
+      const rect = rectFor(element);
+      parts.push(element.tagName, Math.round(rect.left), Math.round(rect.top),
+                 Math.round(rect.width), Math.round(rect.height));
+    }
+    return parts.join('|');
+  };
+
+  const scanActions = () => {
+    const generation = ++actionScanGeneration;
+    const seen = new Set();
+    nativeEmit('actions_begin', generation, epochNow());
+    for (const element of queryAll(document, actionSelector)) {
+      if (element.disabled || attr(element, 'aria-disabled') === 'true') continue;
       const rect = rectFor(element);
       if (!Number.isFinite(rect.left) || !Number.isFinite(rect.top) ||
           rect.width <= 0 || rect.height <= 0) continue;
@@ -105,50 +162,97 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
       const style = styleFor(element);
       if (style.display === 'none' || style.visibility === 'hidden' ||
           style.pointerEvents === 'none' || Number(style.opacity) === 0) continue;
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const topmost = elementAt(document, centerX, centerY);
+      if (!topmost || closest(topmost, actionSelector) !== element) continue;
       const role = matches(element, '.target:not(.hit)')
           ? 'target'
           : (matches(element, 'a[href]')
               ? 'link'
               : (matches(element, 'canvas') ? 'surface' : 'button'));
-      const labelledBy = String(element.getAttribute('aria-labelledby') || '')
+      const labelledBy = String(attr(element, 'aria-labelledby') || '')
           .split(/\s+/).filter(Boolean)
           .map(id => getById(document, id)?.textContent || '').join(' ');
       const descendantAlt =
-          queryOne(element, 'img[alt]')?.getAttribute('alt') || '';
+          (queryOne(element, 'img[alt]') &&
+            attr(queryOne(element, 'img[alt]'), 'alt')) || '';
       const label = redactActionLabel(
-          element.getAttribute('aria-label') || labelledBy ||
-          element.getAttribute('title') || element.innerText ||
+          attr(element, 'aria-label') || labelledBy ||
+          attr(element, 'title') || element.innerText ||
           element.textContent || descendantAlt || element.value ||
-          element.getAttribute('id') || element.getAttribute('name') || role)
+          attr(element, 'id') || attr(element, 'name') || role)
           .replace(/\s+/g, ' ').trim().slice(0, 128);
-      let actionId = ids.get(element);
+      const canonicalKey = canonicalActionKey(element, role, label, rect);
+      if (seen.has(canonicalKey)) continue;
+      seen.add(canonicalKey);
+      let actionId = canonicalIds.get(canonicalKey);
       if (!actionId) {
-        actionId = `${role}-${++sequence}`;
-        ids.set(element, actionId);
+        actionId = `${role}-${stableHash(canonicalKey)}-${++sequence}`;
+        canonicalIds.set(canonicalKey, actionId);
       }
+      ids.set(element, actionId);
+      const opensNewContext = role === 'link' &&
+          String(attr(element, 'target') || '').toLowerCase() === '_blank';
+      const destinationUrl = role === 'link'
+          ? String(element.href || attr(element, 'href') || '').slice(0, 2048)
+          : '';
       nativeEmit('action', actionId, role, label, rect.left, rect.top,
-                 rect.width, rect.height, epochNow());
+                 rect.width, rect.height, opensNewContext, epochNow(), generation,
+                 destinationUrl);
     }
+    nativeEmit('actions_end', generation, epochNow());
+  };
+
+  const refreshLayout = () => {
+    const signature = layoutSignature();
+    if (lastLayoutSignature && signature !== lastLayoutSignature) {
+      nativeEmit('layout_changed', innerWidth, innerHeight,
+                 devicePixelRatio, epochNow());
+    }
+    lastLayoutSignature = signature;
+    scanActions();
+  };
+
+  const scheduleLayoutRefresh = () => {
+    if (layoutRefreshPending) return;
+    layoutRefreshPending = true;
+    requestAnimationFrame(() => {
+      layoutRefreshPending = false;
+      safeRun('layout_refresh', refreshLayout);
+      nativeEmit('ready', epochNow());
+    });
   };
 
   const attach = () => {
     if (attached || !document.documentElement) return;
     attached = true;
-    const observer = new MutationObserver(() => safeRun('scan_actions', scanActions));
+    const observer = new MutationObserver(scheduleLayoutRefresh);
     observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
       attributes: true,
       attributeFilter: ['class', 'style']
     });
+    addEvent(window, 'resize', scheduleLayoutRefresh, true);
+    addEvent(window, 'scroll', scheduleLayoutRefresh, true);
+    if (globalThis.visualViewport) {
+      addEvent(globalThis.visualViewport, 'resize', scheduleLayoutRefresh, true);
+      addEvent(globalThis.visualViewport, 'scroll', scheduleLayoutRefresh, true);
+    }
+    if (typeof ResizeObserver === 'function') {
+      const resizeObserver = new ResizeObserver(scheduleLayoutRefresh);
+      resizeObserver.observe(document.documentElement);
+    }
     safeRun('scan_controls', scanControls);
+    lastLayoutSignature = layoutSignature();
     safeRun('scan_actions', scanActions);
     nativeEmit('ready', epochNow());
   };
 
   globalThis.__saccadeCollectorRefresh = () => {
     safeRun('scan_controls', scanControls);
-    safeRun('scan_actions', scanActions);
+    safeRun('layout_refresh', refreshLayout);
     nativeEmit('ready', epochNow());
     return true;
   };
@@ -222,15 +326,29 @@ class EmitHandler : public CefV8Handler {
       output->SetBool(2, arguments[3]->GetBoolValue());
       output->SetBool(3, arguments[4]->GetBoolValue());
       output->SetDouble(4, arguments[5]->GetDoubleValue());
-    } else if (kind == "action" && arguments.size() == 9 &&
+    } else if ((kind == "actions_begin" || kind == "actions_end") &&
+               arguments.size() == 3 && NumberArgument(arguments, 1) &&
+               NumberArgument(arguments, 2)) {
+      output->SetInt(0, arguments[1]->GetIntValue());
+      output->SetDouble(1, arguments[2]->GetDoubleValue());
+    } else if (kind == "layout_changed" && arguments.size() == 5 &&
+               NumberArgument(arguments, 1) && NumberArgument(arguments, 2) &&
+               NumberArgument(arguments, 3) && NumberArgument(arguments, 4)) {
+      output->SetDouble(0, arguments[1]->GetDoubleValue());
+      output->SetDouble(1, arguments[2]->GetDoubleValue());
+      output->SetDouble(2, arguments[3]->GetDoubleValue());
+      output->SetDouble(3, arguments[4]->GetDoubleValue());
+    } else if (kind == "action" && arguments.size() == 12 &&
                arguments[1]->IsString() && arguments[2]->IsString() &&
                arguments[3]->IsString() && NumberArgument(arguments, 4) &&
                NumberArgument(arguments, 5) && NumberArgument(arguments, 6) &&
-               NumberArgument(arguments, 7) && NumberArgument(arguments, 8)) {
+               NumberArgument(arguments, 7) && arguments[8]->IsBool() &&
+               NumberArgument(arguments, 9) && NumberArgument(arguments, 10) &&
+               arguments[11]->IsString()) {
       output->SetString(0, arguments[1]->GetStringValue());
       output->SetString(1, arguments[2]->GetStringValue());
       output->SetString(2, arguments[3]->GetStringValue());
-      for (size_t index = 4; index <= 8; ++index) {
+      for (size_t index = 4; index <= 7; ++index) {
         const double value = arguments[index]->GetDoubleValue();
         if (!std::isfinite(value)) {
           exception = "non-finite Saccade geometry";
@@ -238,6 +356,10 @@ class EmitHandler : public CefV8Handler {
         }
         output->SetDouble(index - 1, value);
       }
+      output->SetBool(7, arguments[8]->GetBoolValue());
+      output->SetDouble(8, arguments[9]->GetDoubleValue());
+      output->SetInt(9, arguments[10]->GetIntValue());
+      output->SetString(10, arguments[11]->GetStringValue());
     } else if (kind == "collector_error" && arguments.size() == 3 &&
                arguments[1]->IsString() && NumberArgument(arguments, 2)) {
       output->SetString(0, arguments[1]->GetStringValue());
@@ -269,6 +391,8 @@ class EmitHandler : public CefV8Handler {
 };
 
 void RunFormCommand(CefRefPtr<CefFrame> frame,
+                    CefRefPtr<CefV8Context> context,
+                    CefRefPtr<CefV8Value> function,
                     int request_id,
                     const std::string& command,
                     const std::string& input_json) {
@@ -276,24 +400,9 @@ void RunFormCommand(CefRefPtr<CefFrame> frame,
   auto output = response->GetArgumentList();
   output->SetInt(0, request_id);
 
-  auto context = frame->GetV8Context();
-  if (!context || !context->Enter()) {
+  if (!context || !function || !function->IsFunction() || !context->Enter()) {
     output->SetBool(1, false);
     output->SetString(2, "renderer context unavailable");
-    frame->SendProcessMessage(PID_BROWSER, response);
-    return;
-  }
-
-  CefRefPtr<CefV8Value> function;
-  CefRefPtr<CefV8Exception> exception;
-  const bool evaluated = context->Eval(
-      kSaccadeFormCommandScript, "saccade://renderer/form_command.js", 1,
-      function, exception);
-  if (!evaluated || !function || !function->IsFunction()) {
-    output->SetBool(1, false);
-    output->SetString(2, exception ? exception->GetMessage()
-                                  : "fixed form command did not compile");
-    context->Exit();
     frame->SendProcessMessage(PID_BROWSER, response);
     return;
   }
@@ -323,9 +432,11 @@ void SaccadeRendererApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
   const char* reflex_gate = std::getenv("SACCADE_REFLEX_GATE");
   const char* current_tab_grant =
       std::getenv("SACCADE_ENGINE_GRANT_CURRENT_TAB");
+  const char* broker = std::getenv("SACCADE_ENGINE_BROKER");
   const bool enabled =
       (reflex_gate && std::string(reflex_gate) == "1") ||
-      (current_tab_grant && std::string(current_tab_grant) == "1");
+      (current_tab_grant && std::string(current_tab_grant) == "1") ||
+      (broker && std::string(broker) == "1");
   if (!frame->IsMain() || !enabled) {
     return;
   }
@@ -339,6 +450,30 @@ void SaccadeRendererApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
   CefRefPtr<CefV8Exception> exception;
   context->Eval(kCollectorScript, "saccade://renderer/collector.js", 1,
                 result, exception);
+  CefRefPtr<CefV8Value> form_function;
+  CefRefPtr<CefV8Exception> form_exception;
+  if (context->Eval(kSaccadeFormCommandScript,
+                    "saccade://renderer/form_command.js", 1,
+                    form_function, form_exception) &&
+      form_function && form_function->IsFunction()) {
+    form_command_closures_[browser->GetIdentifier()] =
+        FormCommandClosure{context, form_function};
+  }
+}
+
+void SaccadeRendererApp::OnContextReleased(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    CefRefPtr<CefV8Context> context) {
+  CEF_REQUIRE_RENDERER_THREAD();
+  if (!frame->IsMain()) {
+    return;
+  }
+  const auto current = form_command_closures_.find(browser->GetIdentifier());
+  if (current != form_command_closures_.end() && current->second.context &&
+      current->second.context->IsSame(context)) {
+    form_command_closures_.erase(current);
+  }
 }
 
 bool SaccadeRendererApp::OnProcessMessageReceived(
@@ -355,7 +490,15 @@ bool SaccadeRendererApp::OnProcessMessageReceived(
     if (!arguments || arguments->GetSize() != 3) {
       return true;
     }
-    RunFormCommand(frame, arguments->GetInt(0),
+    const auto closure = form_command_closures_.find(browser->GetIdentifier());
+    RunFormCommand(frame,
+                   closure == form_command_closures_.end()
+                       ? nullptr
+                       : closure->second.context,
+                   closure == form_command_closures_.end()
+                       ? nullptr
+                       : closure->second.function,
+                   arguments->GetInt(0),
                    arguments->GetString(1).ToString(),
                    arguments->GetString(2).ToString());
     return true;

@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)
 APP=${SACCADE_CEF_APP:-$REPO_ROOT/target/cef-release/Saccade.app}
-EXE="$APP/Contents/MacOS/cefsimple"
+EXE="$APP/Contents/MacOS/Saccade"
 MODE=${1:-normal}
 [ "$#" -eq 0 ] || shift
 URL=${1:-https://example.com}

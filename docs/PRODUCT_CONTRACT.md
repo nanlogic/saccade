@@ -26,6 +26,14 @@ work, scroll and continue across long or multi-page forms, and verify what the
 page accepted. Sensitive, signature, payment, login, and confirmation steps
 remain protected.
 
+Once the user authorizes a form task, the default is completion rather than
+manual handoff: the agent fills all known ordinary fields itself. Contact email,
+company name, ordinary address, URL and similar profile data are ordinary. The
+agent asks only when the exact value is unavailable or a materially different
+choice is genuinely ambiguous. It does not treat field entry as permission to
+click Next, submit, purchase, publish, or cross another user-specified stopping
+point. Saccade does not silently save a new personal profile as a side effect.
+
 The product target is broad form and table reliability. A particular engine is
 not considered ready until the FORMMAX control, long-table, multi-page,
 dropdown, contenteditable, PDF, and sensitive-handoff gates pass on that
@@ -65,16 +73,31 @@ Saccade must not claim visual agreement from DOM structure alone. When
 structured facts conflict with the visible result, the agent reports the
 disagreement and may request the guarded screenshot audit from section 4.
 
-## 6. Sensitive Data Never Crosses The Agent Boundary
+## 6. Protected Values Stay Outside Model Context
 
-Passwords, OTPs, SSNs, government identifiers, payment-card data, tax IDs,
-signatures, and equivalent protected values may remain visible to the human in
-the browser but must not reach agent truth, action labels, logs, replay,
-reports, screenshots, or model context.
+Saccade never returns passwords, OTPs, CVVs, SSNs, payment-card numbers or
+equivalent secret values to an LLM. These values stay out of agent truth,
+action labels, logs, replay, reports, screenshots and model context.
 
-The agent may know the protected field's type, ownership, requirement, and
-completion state. Cookies, browser storage, credentials, and local capability
-tokens remain browser-owned and are never agent data.
+Passport numbers, driver's-licence numbers and government document numbers use
+a user-confirmed local fill path. The LLM may request the named field and learn
+whether the user completed it. The raw value stays inside the browser-owned
+path and remains absent from model context and evidence.
+
+Cookies, browser storage, credentials and local capability tokens remain
+browser-owned. The agent may receive a protected field's type, ownership,
+requirement and completion state.
+
+## 7. The Host Owns Action Policy
+
+Saccade does not decide whether the user or LLM should play a game, redeem a
+reward, buy an item, spend money, send a message, publish or submit. The LLM
+host applies its own user-intent, risk and confirmation policy.
+
+Saccade enforces the visible tab's Human-controlled Agent On/Off permission. It
+binds input to the current action and page revision, blocks stale or invalid
+input, protects the values in section 6 and returns a receipt. Saccade does not
+add a second product-policy approval layer for ordinary site actions.
 
 ## Engine Adapter Gate
 
@@ -97,3 +120,9 @@ inspection; sensitive completion-only truth; guarded screenshot audit; and
 value-free replay. See `docs/cef_day4_forms_safety_report.md`. Cross-origin
 frame enumeration, PDF forms, and broader custom-control/public-site coverage
 remain measured gates and must not be inferred from these local results.
+
+The current v1 integration contract and AI-033 implementation still enforce a
+broader Saccade-owned confirmation policy for submit, payment, publication and
+other side effects. DECISION_PRODUCT_071 marks that behavior as an
+implementation gap against section 7. Tests must continue to describe the
+shipping behavior until the contract and code change together.

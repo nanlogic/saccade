@@ -1,0 +1,114 @@
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -9,12 +9,14 @@
+ 
+ #include "include/cef_client.h"
+ #include "include/cef_focus_handler.h"
++#include "include/cef_request_handler.h"
+ 
+ class SimpleHandler : public CefClient,
+                       public CefDisplayHandler,
+                       public CefLifeSpanHandler,
+                       public CefLoadHandler,
+-                      public CefFocusHandler {
++                      public CefFocusHandler,
++                      public CefRequestHandler {
+  public:
+   explicit SimpleHandler(bool is_alloy_style);
+   ~SimpleHandler() override;
+@@ -27,6 +29,7 @@
+   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
++  CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
+                                 CefRefPtr<CefFrame> frame,
+                                 CefProcessId source_process,
+@@ -44,7 +47,29 @@
+   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
+   bool DoClose(CefRefPtr<CefBrowser> browser) override;
+   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override;
++  bool OnBeforePopup(
++      CefRefPtr<CefBrowser> browser,
++      CefRefPtr<CefFrame> frame,
++      int popup_id,
++      const CefString& target_url,
++      const CefString& target_frame_name,
++      CefLifeSpanHandler::WindowOpenDisposition target_disposition,
++      bool user_gesture,
++      const CefPopupFeatures& popupFeatures,
++      CefWindowInfo& windowInfo,
++      CefRefPtr<CefClient>& client,
++      CefBrowserSettings& settings,
++      CefRefPtr<CefDictionaryValue>& extra_info,
++      bool* no_javascript_access) override;
+ 
++  // CefRequestHandler methods:
++  bool OnOpenURLFromTab(
++      CefRefPtr<CefBrowser> browser,
++      CefRefPtr<CefFrame> frame,
++      const CefString& target_url,
++      CefRequestHandler::WindowOpenDisposition target_disposition,
++      bool user_gesture) override;
++
+   // CefLoadHandler methods:
+   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
+                             bool isLoading,
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -27,6 +27,11 @@
+              .ToString();
+ }
+ 
++bool IsSaccadeTabDisposition(cef_window_open_disposition_t disposition) {
++  return disposition == CEF_WOD_NEW_FOREGROUND_TAB ||
++         disposition == CEF_WOD_NEW_BACKGROUND_TAB;
++}
++
+ }  // namespace
+ 
+ SimpleHandler::SimpleHandler(bool is_alloy_style)
+@@ -124,5 +129,43 @@
+   }
+ }
++bool SimpleHandler::OnBeforePopup(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    int popup_id,
++    const CefString& target_url,
++    const CefString& target_frame_name,
++    CefLifeSpanHandler::WindowOpenDisposition target_disposition,
++    bool user_gesture,
++    const CefPopupFeatures& popupFeatures,
++    CefWindowInfo& windowInfo,
++    CefRefPtr<CefClient>& client,
++    CefBrowserSettings& settings,
++    CefRefPtr<CefDictionaryValue>& extra_info,
++    bool* no_javascript_access) {
++  CEF_REQUIRE_UI_THREAD();
++  if (IsSaccadeTabDisposition(target_disposition) &&
++      !target_url.ToString().empty()) {
++    SaccadeAdapter::GetInstance()->OpenUserTabOnUi(target_url.ToString());
++    return true;
++  }
++  return false;
++}
++
++bool SimpleHandler::OnOpenURLFromTab(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    const CefString& target_url,
++    CefRequestHandler::WindowOpenDisposition target_disposition,
++    bool user_gesture) {
++  CEF_REQUIRE_UI_THREAD();
++  if (IsSaccadeTabDisposition(target_disposition) &&
++      !target_url.ToString().empty()) {
++    SaccadeAdapter::GetInstance()->OpenUserTabOnUi(target_url.ToString());
++    return true;
++  }
++  return false;
++}
++
+ void SimpleHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
+                                          bool isLoading,
+                                          bool canGoBack,

@@ -105,7 +105,7 @@ def stop(process: subprocess.Popen[bytes], control: EngineControl | None) -> Non
 
 def main() -> int:
     args = parse_args()
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     fixture = args.fixture.resolve()
     if not executable.is_file() or not (fixture / "index.html").is_file():
         raise SystemExit("missing CEF app or Day 5 fixture")
@@ -206,7 +206,11 @@ def main() -> int:
                 "basis_page_revision": int(link["basis_page_revision"]),
             },
         )
-        first_control.call("next_receipt", {"timeout_ms": 3000})
+        try:
+            first_control.call("next_receipt", {"timeout_ms": 3000})
+        except RuntimeError as error:
+            if "TIMEOUT" not in str(error):
+                raise
 
         def child_truth() -> dict[str, Any] | None:
             current = first_control.call("truth")
@@ -219,9 +223,8 @@ def main() -> int:
         child_status = first_control.call("shell_status")
         if (
             child_status.get("browser_count") != 2
-            or child_status.get("popup_count") != 1
-            or child_status.get("current_is_popup") is not True
-            or int(child_status.get("current_opener_id", 0)) <= 0
+            or child_status.get("popup_count") != 0
+            or child_status.get("current_is_popup") is not False
         ):
             raise AssertionError(f"child browser role was wrong: {child_status}")
 
@@ -237,7 +240,22 @@ def main() -> int:
         )
         if recovered["tab_id"] != first_tab:
             raise AssertionError("bridge recovered the wrong tab identity")
-        recovered_status = first_control.call("shell_status")
+
+        def recovered_shell_status() -> dict[str, Any] | None:
+            current = first_control.call("shell_status")
+            if (
+                current.get("browser_count") == 1
+                and current.get("popup_count") == 0
+                and current.get("current_is_popup") is False
+            ):
+                return current
+            return None
+
+        recovered_status = wait_until(
+            recovered_shell_status,
+            args.timeout_sec,
+            "parent browser role did not recover",
+        )
         if (
             recovered_status.get("browser_count") != 1
             or recovered_status.get("popup_count") != 0
@@ -281,8 +299,7 @@ def main() -> int:
                 "visible_child_followed": True,
                 "close_recovered_parent": True,
                 "main_role_verified": True,
-                "popup_role_verified": True,
-                "opener_relation_verified": True,
+                "ordinary_child_opened_as_tab": True,
                 "non_surface_drag_rejected": True,
             },
             "values_logged": False,

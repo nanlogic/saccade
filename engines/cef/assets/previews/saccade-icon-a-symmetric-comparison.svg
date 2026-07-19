@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2200 1320" role="img" aria-labelledby="title desc">
+  <title id="title">Saccade symmetric A icon study</title>
+  <desc id="desc">The same mathematically concentric interlocking ribbon mark on dark and light macOS icon backgrounds.</desc>
+
+  <defs>
+    <linearGradient id="board" x1="0" y1="0" x2="0" y2="1320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f7f5f2"/>
+      <stop offset="1" stop-color="#ebe8e4"/>
+    </linearGradient>
+
+    <linearGradient id="darkBase" x1="128" y1="112" x2="896" y2="912" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b254d"/>
+      <stop offset="0.55" stop-color="#111936"/>
+      <stop offset="1" stop-color="#0a1025"/>
+    </linearGradient>
+    <linearGradient id="lightBase" x1="128" y1="112" x2="896" y2="912" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.62" stop-color="#f8f6f1"/>
+      <stop offset="1" stop-color="#eeeae3"/>
+    </linearGradient>
+
+    <linearGradient id="blueRibbon" x1="760" y1="246" x2="356" y2="792" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8293ff"/>
+      <stop offset="0.3" stop-color="#586cff"/>
+      <stop offset="0.72" stop-color="#344bd9"/>
+      <stop offset="1" stop-color="#202f96"/>
+    </linearGradient>
+    <linearGradient id="ivoryRibbon" x1="316" y1="738" x2="740" y2="292" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#cfad7b"/>
+      <stop offset="0.42" stop-color="#ecd8b7"/>
+      <stop offset="0.76" stop-color="#fff2da"/>
+      <stop offset="1" stop-color="#fffaf0"/>
+    </linearGradient>
+
+    <filter id="boardShadow" x="-18%" y="-18%" width="136%" height="145%">
+      <feDropShadow dx="0" dy="28" stdDeviation="30" flood-color="#20243a" flood-opacity="0.2"/>
+    </filter>
+    <filter id="markShadowDark" x="-24%" y="-24%" width="148%" height="152%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#030716" flood-opacity="0.5"/>
+    </filter>
+    <filter id="markShadowLight" x="-24%" y="-24%" width="148%" height="152%">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#182044" flood-opacity="0.24"/>
+    </filter>
+    <filter id="seamShadow" x="-35%" y="-45%" width="170%" height="190%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#070b1e" flood-opacity="0.34"/>
+    </filter>
+
+    <!--
+      Geometry contract for both variants:
+      center = (512, 512), centerline radius = 280, ribbon width = 152.
+      Therefore the negative-space radius is exactly 204 and the outer radius is 356.
+      Both base arcs are exact 180-degree semicircles. The short seam overlays use the
+      same center, radius, and width; they change only paint order to express weaving.
+    -->
+    <g id="symmetricMark">
+      <circle cx="512" cy="512" r="280" fill="none" stroke="#101735" stroke-opacity="0.18" stroke-width="164"/>
+
+      <!-- Ivory: 135deg -> 315deg through left/top. -->
+      <path d="M314.010 709.990 A280 280 0 0 1 709.990 314.010"
+            fill="none" stroke="url(#ivoryRibbon)" stroke-width="152" stroke-linecap="butt"/>
+
+      <!-- Cobalt: 315deg -> 135deg through right/bottom. -->
+      <path d="M709.990 314.010 A280 280 0 0 1 314.010 709.990"
+            fill="none" stroke="url(#blueRibbon)" stroke-width="152" stroke-linecap="butt"/>
+
+      <!-- Top-right seam: ivory passes over cobalt. 288deg -> 330deg. -->
+      <path d="M598.525 245.712 A280 280 0 0 1 754.487 372.000"
+            fill="none" stroke="url(#ivoryRibbon)" stroke-width="152" stroke-linecap="butt"
+            filter="url(#seamShadow)"/>
+
+      <!-- Bottom-left seam: cobalt passes over ivory. 108deg -> 150deg. -->
+      <path d="M425.475 778.288 A280 280 0 0 1 269.513 652.000"
+            fill="none" stroke="url(#blueRibbon)" stroke-width="152" stroke-linecap="butt"
+            filter="url(#seamShadow)"/>
+
+      <!-- Controlled material highlights; geometry remains exactly concentric. -->
+      <path d="M322.768 689.731 A268 268 0 0 1 693.397 314.989"
+            fill="none" stroke="#fffdf7" stroke-opacity="0.44" stroke-width="4" stroke-linecap="round"/>
+      <path d="M699.383 320.343 A268 268 0 0 1 323.852 691.718"
+            fill="none" stroke="#a7b3ff" stroke-opacity="0.38" stroke-width="4" stroke-linecap="round"/>
+    </g>
+
+    <g id="iconDark">
+      <rect x="64" y="64" width="896" height="896" rx="220" fill="url(#darkBase)"/>
+      <rect x="68" y="68" width="888" height="888" rx="216" fill="none" stroke="#6f7db2" stroke-opacity="0.28" stroke-width="4"/>
+      <g filter="url(#markShadowDark)"><use href="#symmetricMark"/></g>
+    </g>
+
+    <g id="iconLight">
+      <rect x="64" y="64" width="896" height="896" rx="220" fill="url(#lightBase)"/>
+      <rect x="68" y="68" width="888" height="888" rx="216" fill="none" stroke="#cfd3df" stroke-width="4"/>
+      <g filter="url(#markShadowLight)"><use href="#symmetricMark"/></g>
+    </g>
+  </defs>
+
+  <rect width="2200" height="1320" fill="url(#board)"/>
+
+  <g transform="translate(80 70) scale(.92)" filter="url(#boardShadow)">
+    <use href="#iconDark"/>
+  </g>
+  <g transform="translate(1178 70) scale(.92)" filter="url(#boardShadow)">
+    <use href="#iconLight"/>
+  </g>
+
+  <text x="551" y="1060" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif"
+        font-size="42" font-weight="650" letter-spacing="5" fill="#252b42">DARK</text>
+  <text x="1649" y="1060" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif"
+        font-size="42" font-weight="650" letter-spacing="5" fill="#252b42">LIGHT</text>
+
+  <g transform="translate(359 1110) scale(.125)"><use href="#iconDark"/></g>
+  <g transform="translate(519 1142) scale(.0625)"><use href="#iconDark"/></g>
+  <g transform="translate(1457 1110) scale(.125)"><use href="#iconLight"/></g>
+  <g transform="translate(1617 1142) scale(.0625)"><use href="#iconLight"/></g>
+
+  <text x="423" y="1280" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif"
+        font-size="28" fill="#596078">128</text>
+  <text x="551" y="1280" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif"
+        font-size="28" fill="#596078">64</text>
+  <text x="1521" y="1280" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif"
+        font-size="28" fill="#596078">128</text>
+  <text x="1649" y="1280" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif"
+        font-size="28" fill="#596078">64</text>
+</svg>

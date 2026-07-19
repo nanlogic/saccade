@@ -1,0 +1,40 @@
+--- a/tests/cefsimple/cefsimple_mac.mm
++++ b/tests/cefsimple/cefsimple_mac.mm
+@@ -10,5 +10,6 @@
+ #include "include/wrapper/cef_library_loader.h"
+ #include "tests/cefsimple/simple_app.h"
++#include "tests/cefsimple/saccade_adapter.h"
+ #include "tests/cefsimple/saccade_direct_session_mac.h"
+ #include "tests/cefsimple/simple_handler.h"
+ 
+@@ -42,6 +43,11 @@
+   [super sendEvent:event];
+ }
+ 
++- (void)showSaccadeHelp:(id)sender {
++  SaccadeAdapter::GetInstance()->OpenUserTabOnUi(
++      "https://nanlogic.com/");
++}
++
+ // |-terminate:| is the entry point for orderly "quit" operations in Cocoa. This
+ // includes the application menu's quit menu item and keyboard equivalent, the
+ // application's dock icon menu's quit menu item, "quit" (not "force quit") in
+--- a/tests/cefsimple/mac/English.lproj/MainMenu.xib
++++ b/tests/cefsimple/mac/English.lproj/MainMenu.xib
+@@ -318,9 +318,9 @@
+                 <menuItem title="Help" id="103" userLabel="1">
+                     <menu key="submenu" title="Help" id="106" userLabel="2">
+                         <items>
+-                            <menuItem title="Saccade Help" keyEquivalent="?" id="111">
++                            <menuItem title="Saccade Help — nanlogic.com" keyEquivalent="?" id="111">
+                                 <connections>
+-                                    <action selector="showHelp:" target="-1" id="360"/>
++                                    <action selector="showSaccadeHelp:" target="-2" id="360"/>
+                                 </connections>
+                             </menuItem>
+                         </items>
+--- a/tests/cefsimple/mac/English.lproj/InfoPlist.strings
++++ b/tests/cefsimple/mac/English.lproj/InfoPlist.strings
+@@ -1 +1 @@
+-NSHumanReadableCopyright = "© 2026 Saccade. Based on Chromium.";
++NSHumanReadableCopyright = "Copyright © 2026 NaN Logic LLC. Based on Chromium.";

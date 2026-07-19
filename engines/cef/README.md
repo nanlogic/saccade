@@ -15,10 +15,10 @@ engines/cef/scripts/fetch_macos.sh
 engines/cef/scripts/build_macos.sh
 ```
 
-The release app is written to `target/cef-release/Saccade.app`. The outer app
-is branded Saccade while the internal executable and helpers retain their
-upstream names. Keeping the tested upstream lifecycle intact is a deliberate
-Day 1 gate, not a product boundary.
+The release app is written to `target/cef-release/Saccade.app`. The app,
+executable and five macOS helper bundles use Saccade product names and
+`ai.saccade.browser` identifiers. The source directory and internal CMake
+target retain the upstream `cefsimple` name.
 
 ```sh
 engines/cef/scripts/run_macos.sh normal https://example.com
@@ -36,7 +36,9 @@ Neither profile reads Chrome, Servo, or another Saccade profile's storage.
 Normal profiles use the macOS Keychain-backed Chromium Safe Storage key to
 encrypt cookies and login state. Public or login-bearing builds must have a
 stable signing identity; an ad-hoc build has a changing designated requirement
-and can repeatedly prompt for Keychain access after rebuilds.
+and can repeatedly prompt for Keychain access after rebuilds. An explicitly
+locked login Keychain also requires macOS authentication even when the signed
+application identity is unchanged.
 
 Build and sign with the first available Developer ID identity:
 

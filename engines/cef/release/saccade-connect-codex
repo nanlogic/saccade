@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+# Register the signed, in-app Saccade MCP launcher with the current user's
+# Codex installation. Automatic mode is deliberately non-destructive: it adds
+# a missing entry but never replaces a conflicting user-owned entry. The
+# explicit --repair mode is available for the Settings/diagnostic flow.
+
+MODE=auto
+case "${1:-}" in
+  "") ;;
+  --repair) MODE=repair ;;
+  *) echo "usage: saccade-connect-codex [--repair]" >&2; exit 2 ;;
+esac
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MCP_COMMAND=${SACCADE_MCP_COMMAND:-$SCRIPT_DIR/saccade-current-tab-mcp}
+STATUS_DIR=${SACCADE_REGISTRATION_STATUS_DIR:-${HOME:?}/Library/Application Support/Saccade/CEF}
+STATUS_FILE="$STATUS_DIR/codex-mcp-registration.status"
+umask 077
+
+write_status() {
+  mkdir -p "$STATUS_DIR"
+  TMP="$STATUS_FILE.$$"
+  printf '%s\n' "$1" > "$TMP"
+  mv -f "$TMP" "$STATUS_FILE"
+}
+
+find_codex() {
+  if [ -n "${SACCADE_CODEX_CLI:-}" ] && [ -x "$SACCADE_CODEX_CLI" ]; then
+    printf '%s\n' "$SACCADE_CODEX_CLI"
+    return 0
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    command -v codex
+    return 0
+  fi
+  for CANDIDATE in \
+    /Applications/ChatGPT.app/Contents/Resources/codex \
+    /Applications/Codex.app/Contents/Resources/codex; do
+    if [ -x "$CANDIDATE" ]; then
+      printf '%s\n' "$CANDIDATE"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! CODEX=$(find_codex); then
+  write_status codex_not_installed
+  exit 0
+fi
+
+EXISTING=$("$CODEX" mcp get saccade --json 2>/dev/null || true)
+if [ -n "$EXISTING" ]; then
+  if printf '%s\n' "$EXISTING" | grep -Fq "\"command\": \"$MCP_COMMAND\"" &&
+     printf '%s\n' "$EXISTING" | grep -Fq '"enabled": true'; then
+    write_status connected
+    exit 0
+  fi
+  if [ "$MODE" != repair ]; then
+    write_status conflict_requires_repair
+    exit 0
+  fi
+  "$CODEX" mcp remove saccade >/dev/null
+fi
+
+if "$CODEX" mcp add saccade -- "$MCP_COMMAND" >/dev/null; then
+  write_status connected_restart_codex
+  exit 0
+fi
+
+write_status registration_failed
+exit 1

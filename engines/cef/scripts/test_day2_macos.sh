@@ -7,7 +7,7 @@ APP=${SACCADE_CEF_APP:-$REPO_ROOT/target/cef-release/Saccade.app}
 MCP="$REPO_ROOT/target/debug/saccade-mcp"
 FIXTURE="file://$REPO_ROOT/fixtures/cef_adapter_lifecycle.html"
 
-[ -x "$APP/Contents/MacOS/cefsimple" ] || {
+[ -x "$APP/Contents/MacOS/Saccade" ] || {
   echo "Missing Day 2 CEF app; run engines/cef/scripts/build_macos.sh" >&2
   exit 1
 }
@@ -21,7 +21,7 @@ run_host() {
   SACCADE_ENGINE_SESSION_DIR="$session" \
     SACCADE_PROFILE_NAME="day2-${host}" \
     "$SCRIPT_DIR/run_adapter_macos.sh" incognito "$FIXTURE" \
-      --use-mock-keychain --initial-show-state=hidden >"$log" 2>&1 &
+      --use-mock-keychain --use-views --initial-show-state=hidden >"$log" 2>&1 &
   browser_pid=$!
 
   ready=false

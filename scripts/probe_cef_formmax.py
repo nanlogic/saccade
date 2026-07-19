@@ -148,7 +148,7 @@ def click_submit(control: EngineControl, revision: int, expected_label: str) -> 
 
 def main() -> int:
     args = parse_args()
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     if not executable.is_file():
         raise SystemExit(f"missing CEF release app: {executable}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +177,7 @@ def main() -> int:
         "--no-first-run",
         "--no-default-browser-check",
         "--use-mock-keychain",
+        "--use-views",
         "--initial-show-state=hidden",
         "--window-size=1440,1000",
     ]

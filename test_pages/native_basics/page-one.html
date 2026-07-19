@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Saccade Basics One</title>
+<h1>Saccade native basics: page one</h1>
+<p id="reload-count"></p>
+<p><a href="page-two.html">Go to page two in this tab</a></p>
+<script>
+  const key = "saccade-native-basics-page-one";
+  const count = Number(sessionStorage.getItem(key) || "0") + 1;
+  sessionStorage.setItem(key, String(count));
+  document.title = `Saccade Basics One r${count}`;
+  document.querySelector("#reload-count").textContent = `Load count: ${count}`;
+</script>

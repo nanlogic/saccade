@@ -24,9 +24,9 @@ Status: CEF migration and local dogfood gates passed
   the selected user-data directory.
 - `article_text` provides a bounded, redacted reading route without exposing
   cookies, storage, sensitive control values, or arbitrary JavaScript.
-- The macOS dogfood builder creates a fixed-identity signed app, exact
-  CEF/Chromium metadata, license inventory, portable SHA-256 checksums, and
-  owner-only launch/grant tools.
+- The macOS dogfood builder creates a fixed-identity Hardened Runtime signed
+  app, exact CEF/Chromium metadata, CycloneDX SBOM, license inventory, portable
+  SHA-256 checksums, and owner-only launch/grant tools.
 
 ## Measured gates
 
@@ -76,5 +76,7 @@ The bounded CEF migration gates are complete. Remaining public-release work is
 distribution work, not hidden browser acceptance.
 
 This is a signed local macOS dogfood build, not a notarized public release.
-Public distribution still requires a project-license decision, hardened-runtime
-and notarization policy, and a clean-machine installation test.
+The project license is now Apache-2.0 with Saccade product identity reserved by
+the trademark policy. Build 62 passes Hardened Runtime and no-upload
+notarization preflight. Public distribution still requires submission,
+stapling, and an offline clean-machine Gatekeeper test.

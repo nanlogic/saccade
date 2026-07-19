@@ -3087,8 +3087,8 @@ fn bridge_copilot_state_for_visible_ui(visible_ui: &str) -> Value {
     json!({
         "status": "granted",
         "badge": "Copilot Granted",
-        "owner": "Human",
-        "read_grant": "FullTruth",
+        "owner": "human",
+        "read_grant": "full_truth",
         "agent_input_grant": true,
         "user_confirmation_required_for_side_effects": true,
         "sensitive_values_visible_to_user": true,
@@ -5025,8 +5025,8 @@ fn write_bridge_grant(
         "selected_tab_seen": true,
         "grant_required": true,
         "grant_given": true,
-        "owner": "Human",
-        "read_grant": "FullTruth",
+        "owner": "human",
+        "read_grant": "full_truth",
         "agent_input_grant": true,
         "copilot": bridge_copilot_state(),
         "url": url,
@@ -6518,8 +6518,8 @@ return (() => {
       rejected.push({ id, reason: "not_found" });
       continue;
     }
-    const owner = el.getAttribute("data-owner") || "";
-    const declaredSensitivity = el.getAttribute("data-sensitive") || "none";
+    const owner = (el.getAttribute("data-owner") || "").toLowerCase();
+    const declaredSensitivity = (el.getAttribute("data-sensitive") || "none").toLowerCase();
     const sensitivity = sensitivityOf(el);
     if (owner !== "agent" || declaredSensitivity !== "none" || sensitivity !== "none") {
       rejected.push({ id, reason: "not_agent_owned_non_sensitive", owner, sensitivity });

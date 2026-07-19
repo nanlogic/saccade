@@ -87,7 +87,12 @@ def main() -> int:
             {"grant_path": str(grant), "reason": "AI-031 postcondition repair gate"},
         )
         tab_id = int(granted["tab"]["tab_id"])
-        inventory = mcp_tool(mcp_proc, 3, "saccade.web.form_inventory", {"tab_id": tab_id})
+        inventory = mcp_tool(
+            mcp_proc,
+            3,
+            "saccade.web.form_inventory",
+            {"tab_id": tab_id, "mode": "full"},
+        )
         plan = mcp_tool(
             mcp_proc, 4, "saccade.web.form_compile_plan",
             {
@@ -127,7 +132,12 @@ def main() -> int:
         if execution.get("policy", {}).get("writes_executed") is not True:
             failures.append("write attempts were not reported")
 
-        post_inventory = mcp_tool(mcp_proc, 6, "saccade.web.form_inventory", {"tab_id": tab_id})
+        post_inventory = mcp_tool(
+            mcp_proc,
+            6,
+            "saccade.web.form_inventory",
+            {"tab_id": tab_id, "mode": "full"},
+        )
         post_fields = {field.get("field_id"): field for field in post_inventory.get("fields", [])}
         if post_fields.get("id:ssn", {}).get("value_state") != "requires_user_input":
             failures.append("sensitive field completion state changed")

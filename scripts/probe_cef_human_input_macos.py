@@ -118,7 +118,7 @@ def main() -> int:
     args = parse_args()
     app = args.app.resolve()
     fixture = args.fixture.resolve()
-    if not (app / "Contents" / "MacOS" / "cefsimple").is_file() or not fixture.is_file():
+    if not (app / "Contents" / "MacOS" / "Saccade").is_file() or not fixture.is_file():
         raise SystemExit("missing signed CEF app or human-input fixture")
 
     output = args.output_dir.resolve()
@@ -138,7 +138,7 @@ def main() -> int:
     )
     wait_until(
         lambda: subprocess.run(
-            ["pgrep", "-f", "Saccade.app/Contents/MacOS/cefsimple"],
+            ["pgrep", "-f", "Saccade.app/Contents/MacOS/Saccade"],
             capture_output=True,
         ).returncode != 0,
         8.0,
@@ -197,7 +197,7 @@ def main() -> int:
                 pass
         time.sleep(1)
         if subprocess.run(
-            ["pgrep", "-f", "Saccade.app/Contents/MacOS/cefsimple"],
+            ["pgrep", "-f", "Saccade.app/Contents/MacOS/Saccade"],
             capture_output=True,
         ).returncode == 0:
             subprocess.run(

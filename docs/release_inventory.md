@@ -1,6 +1,7 @@
 # Saccade V3 Release Inventory
 
-Status: signed local macOS dogfood kit; not a notarized public release.
+Status: signed Hardened Runtime macOS dogfood kit; not a notarized public
+release.
 
 ## CEF dogfood artifact
 
@@ -11,7 +12,8 @@ under `dist/saccade-cef-dogfood-<stamp>/` and updates
 - a fixed-identity signed `Saccade.app` using CEF `150.0.11` and Chromium
   `150.0.7871.115`;
 - owner-only saved/incognito profile and current-tab grant launchers;
-- exact source/engine metadata, CEF license, Chromium credits, and portable
+- exact source/engine metadata, Saccade Apache-2.0 license/NOTICE/trademark
+  policy, CEF license, Chromium credits, CycloneDX 1.6 SBOM, and portable
   SHA-256 checksums;
 - the integration contract and Day 5 measured report;
 - `bin/run-local-game-gate`, which reruns the fact-bound Canvas drag and
@@ -45,10 +47,10 @@ V3's distribution requirement cannot honestly be closed by source changes alone.
 
 | Item | Status | Required owner action |
 | --- | --- | --- |
-| License selection | blocked | Choose and approve a project license. |
-| macOS code signing/notarization | partial | Local Developer ID signing passes. Decide hardened-runtime entitlements, notarize, staple, and test on a clean Mac. |
+| License selection | complete | Apache-2.0 source/core runtime; Saccade trademark and official signed-release identity reserved by NaN Logic LLC. Build 62 package gate passed. |
+| macOS code signing/notarization | prepared | Build 62 enables Hardened Runtime, secure timestamps and least-privilege JIT entitlements; the no-upload notarization preflight passes. Final release action remains: submit the frozen App and DMG, staple, then test offline Gatekeeper on a clean Mac. |
 | Windows/Linux signing | blocked | Provide platform certificates and release channels. |
-| SBOM + dependency/license inventory | pending | Freeze a release commit and choose the output standard/attestation signer. |
+| SBOM + dependency/license inventory | complete for dogfood | Build 62 contains a deterministic CycloneDX 1.6 inventory with 719 unique components plus CEF/Chromium license inventory. Freeze a release commit before final public attestation. |
 | Checksums and hosted artifacts | partial | Local SHA-256 inventory passes. Choose distribution location and release key. |
 
 Until these are complete, distribute only as a signed local engineering

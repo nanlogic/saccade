@@ -11,7 +11,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use saccade_core::{
     ReadGrant, SitePolicy, TabId, TabInfo, TabOwner, TabVisualMarker,
-    classify_site_url_with_owned_domains, site_action_requires_user,
+    classify_site_url_with_owned_domains,
 };
 use saccade_engine_api::{
     CONTROL_PROTOCOL_VERSION, EngineApiError, EngineErrorCode, EngineGrant, call_control,
@@ -22,9 +22,15 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
-const REQUIRED_TOOL_COUNT: usize = 27;
+const REQUIRED_TOOL_COUNT: usize = 31;
 const SACCADE_CONTRACT_VERSION: &str = "1.0";
 const SACCADE_MIN_CONTRACT_VERSION: &str = "1.0";
+const COLLECTOR_READY_TIMEOUT: Duration = Duration::from_secs(12);
+const FORM_INVENTORY_STABILITY_INTERVAL: Duration = Duration::from_millis(200);
+const DEFAULT_FORM_INVENTORY_WAIT_MS: u64 = 5_000;
+const POST_EXECUTE_FORM_INVENTORY_WAIT_MS: u64 = 1_500;
+const POST_EXECUTE_FORM_INVENTORY_MIN_WAIT_MS: u64 = 600;
+const MCP_INSTRUCTIONS: &str = "When the user asks about a Human-created current Saccade tab, first call saccade.tabs.grant_current with no arguments; if its per-tab Agent switch is Off, ask the user to turn it On. When the user asks the LLM to open or start a browsing session, call saccade.tabs.open_agent; it reuses a running Saccade process or starts one, and only that new Agent tab begins On. After open_agent succeeds, use its tab_id and page_revision directly; do not call tabs.list or grant_current first. Use saccade.web.article_text for bounded reading or research. Once the user authorizes a form task, complete ordinary fields and reversible form input directly instead of asking the user to type or click. Contact email, company name, ordinary address, URL, and similar profile data are ordinary fields. Reuse exact values already provided or available in trusted context, and ask only when an exact value is missing or a materially different choice is genuinely ambiguous. Before filling, call form_inventory, then compile and execute one revision-bound plan containing all known authorized ordinary assignments. If form_execute_plan returns follow_up_required=true, use post_execute_inventory to compile and execute the newly revealed ordinary fields, stopping when no follow-up is required. Respect the user's stopping point: filling fields does not authorize Next, submit, purchase, publish, or another later action. A form_execute_plan result with verification_complete=true and follow_up_required=false is final verification; do not inventory or inspect those fields again. Never ask for or accept a raw protected value; request a named protected field through saccade.web.request_protected_fill so only the browser talks to the user. Never read or fill passwords, OTPs, or CVVs. The LLM host owns site-action decisions; Saccade enforces Agent On, protected-value isolation, revision/target validity, input validity, and receipts.";
 
 #[derive(Parser)]
 #[command(name = "saccade-mcp")]
@@ -46,6 +52,7 @@ enum Command {
 enum ToolNamespace {
     System,
     Browser,
+    Downloads,
     Dev,
     Tabs,
     Web,
@@ -185,7 +192,11 @@ fn main() -> Result<()> {
 fn serve_stdio() -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    let mut state = McpSessionState::default();
+    let mut state = McpSessionState {
+        installed_product: std::env::var("SACCADE_MCP_RUNTIME_PROFILE").as_deref()
+            == Ok("installed_product"),
+        ..McpSessionState::default()
+    };
     for line in stdin.lock().lines() {
         let line = line.context("failed to read JSON-RPC line")?;
         if line.trim().is_empty() {
@@ -400,6 +411,15 @@ fn registry() -> ToolRegistry {
                 true,
             ),
             tool(
+                "saccade.downloads.list",
+                ToolNamespace::Downloads,
+                ToolRisk::ReportOnly,
+                "List metadata-only receipts for downloads started while the selected tab was Agent On; never return file contents or full paths.",
+                true,
+                false,
+                true,
+            ),
+            tool(
                 "saccade.tabs.list",
                 ToolNamespace::Tabs,
                 ToolRisk::ReportOnly,
@@ -418,6 +438,15 @@ fn registry() -> ToolRegistry {
                 true,
             ),
             tool(
+                "saccade.tabs.open_agent",
+                ToolNamespace::Tabs,
+                ToolRisk::PolicyGated,
+                "Open an Agent-owned On tab in the running Saccade browser, or start Saccade when it is not running.",
+                true,
+                false,
+                true,
+            ),
+            tool(
                 "saccade.tabs.request_user_login",
                 ToolNamespace::Tabs,
                 ToolRisk::PolicyGated,
@@ -430,7 +459,7 @@ fn registry() -> ToolRegistry {
                 "saccade.tabs.grant_current",
                 ToolNamespace::Tabs,
                 ToolRisk::PolicyGated,
-                "Attach the user-selected current tab to a live co-pilot session after explicit user grant.",
+                "Attach the user-selected current tab after explicit grant; with no arguments, discover the running packaged open-saccade session.",
                 true,
                 true,
                 true,
@@ -472,10 +501,19 @@ fn registry() -> ToolRegistry {
                 true,
             ),
             tool(
+                "saccade.web.article_text",
+                ToolNamespace::Web,
+                ToolRisk::ReportOnly,
+                "Read bounded redacted article/main text from the granted current tab at one page revision.",
+                true,
+                false,
+                true,
+            ),
+            tool(
                 "saccade.web.actions",
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
-                "Return an action map with stable action IDs and page revision basis.",
+                "Refresh and return the live action map with stable action IDs, page revision, and layout epoch.",
                 true,
                 false,
                 true,
@@ -484,7 +522,7 @@ fn registry() -> ToolRegistry {
                 "saccade.web.act",
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
-                "Perform one verified action by action ID and page revision basis.",
+                "Perform one receipt-verified action, locally rebasing the same semantic target after a layout-only change.",
                 true,
                 true,
                 true,
@@ -493,7 +531,7 @@ fn registry() -> ToolRegistry {
                 "saccade.web.fill_agent_fields",
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
-                "Fill explicitly requested Agent-owned non-sensitive fields in a live browser tab.",
+                "Complete authorized ordinary fields directly in a live browser tab; do not hand manual typing back to the user when exact values are known.",
                 true,
                 true,
                 true,
@@ -526,10 +564,19 @@ fn registry() -> ToolRegistry {
                 true,
             ),
             tool(
+                "saccade.web.request_protected_fill",
+                ToolNamespace::Web,
+                ToolRisk::PolicyGated,
+                "Ask the browser to show a user-controlled local fill prompt for one protected identifier; no value is accepted or returned by MCP.",
+                true,
+                true,
+                true,
+            ),
+            tool(
                 "saccade.web.form_compile_plan",
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
-                "Compile a non-writing form plan against a fixed page revision.",
+                "Compile all known authorized ordinary assignments into a non-writing plan against a fixed page revision.",
                 true,
                 true,
                 true,
@@ -538,7 +585,7 @@ fn registry() -> ToolRegistry {
                 "saccade.web.form_execute_plan",
                 ToolNamespace::Web,
                 ToolRisk::PolicyGated,
-                "Execute and verify an unchanged compiled form plan without submitting.",
+                "Execute and verify an unchanged ordinary-field plan without clicking Next or submitting.",
                 true,
                 true,
                 true,
@@ -583,6 +630,18 @@ fn registry() -> ToolRegistry {
     }
 }
 
+fn tool_available_in_runtime(name: &str, installed_product: bool) -> bool {
+    if !installed_product {
+        return true;
+    }
+    !name.starts_with("saccade.dev.")
+        && !name.starts_with("saccade.report.")
+        && !matches!(
+            name,
+            "saccade.tabs.open" | "saccade.tabs.request_user_login" | "saccade.web.fill_form"
+        )
+}
+
 fn tool(
     name: &'static str,
     namespace: ToolNamespace,
@@ -622,6 +681,7 @@ struct ToolCallParams {
 
 #[derive(Debug, Default)]
 struct McpSessionState {
+    installed_product: bool,
     next_tab_id: u64,
     tabs: Vec<SessionTab>,
     browser_workers: BTreeMap<u64, BrowserWorkerClient>,
@@ -808,6 +868,7 @@ fn handle_json_rpc(state: &mut McpSessionState, request: JsonRpcRequest) -> Opti
     let result = match request.method.as_str() {
         "initialize" => Ok(json!({
             "protocolVersion": "2025-11-25",
+            "instructions": MCP_INSTRUCTIONS,
             "capabilities": {
                 "tools": {
                     "listChanged": false
@@ -817,12 +878,13 @@ fn handle_json_rpc(state: &mut McpSessionState, request: JsonRpcRequest) -> Opti
                 "name": "saccade-mcp",
                 "version": "saccade-contract-v1"
             },
-            "saccade": contract_capabilities()
+            "saccade": contract_capabilities(state.installed_product)
         })),
         "tools/list" => Ok(json!({
             "tools": registry()
                 .tools
                 .iter()
+                .filter(|tool| tool_available_in_runtime(tool.name, state.installed_product))
                 .map(mcp_tool_spec)
                 .collect::<Vec<_>>()
         })),
@@ -867,14 +929,40 @@ fn rpc_error(id: Value, code: i64, message: &'static str, detail: String) -> Val
             "data": {
                 "saccade_code": saccade_code,
                 "detail": detail,
-                "retryable": matches!(saccade_code, "SACCADE_STALE_BASIS" | "SACCADE_TIMEOUT")
+                "retryable": matches!(
+                    saccade_code,
+                    "SACCADE_STALE_BASIS"
+                        | "SACCADE_STALE_LAYOUT"
+                        | "SACCADE_TIMEOUT"
+                        | "SACCADE_PROVIDER_REJECTED"
+                ),
+                "requires_human": matches!(
+                    saccade_code,
+                    "SACCADE_CONSENT_REQUIRED"
+                        | "SACCADE_HUMAN_VERIFICATION_REQUIRED"
+                        | "SACCADE_PROVIDER_REJECTED"
+                )
             },
         }
     })
 }
 
 fn saccade_error_code(detail: &str) -> &'static str {
-    if detail.contains("tool arguments")
+    if detail.contains("human verification required")
+        || detail.contains("HUMAN_VERIFICATION_REQUIRED")
+    {
+        "SACCADE_HUMAN_VERIFICATION_REQUIRED"
+    } else if detail.contains("human verification provider rejected")
+        || detail.contains("PROVIDER_REJECTED")
+    {
+        "SACCADE_PROVIDER_REJECTED"
+    } else if detail.contains("CONSENT_REQUIRED") || detail.contains("Agent access is Off") {
+        "SACCADE_CONSENT_REQUIRED"
+    } else if detail.contains("AGENT_PAUSED") || detail.contains("agent runtime is paused") {
+        "SACCADE_AGENT_PAUSED"
+    } else if detail.contains("stale engine layout") || detail.contains("STALE_LAYOUT") {
+        "SACCADE_STALE_LAYOUT"
+    } else if detail.contains("tool arguments")
         || detail.contains("invalid ")
         || detail.contains("requires integer")
     {
@@ -901,7 +989,7 @@ fn rpc_error_detail(error: &Value) -> Option<&str> {
         .or_else(|| data.get("detail").and_then(Value::as_str))
 }
 
-fn contract_capabilities() -> Value {
+fn contract_capabilities(installed_product: bool) -> Value {
     json!({
         "contract_version": SACCADE_CONTRACT_VERSION,
         "min_supported_contract_version": SACCADE_MIN_CONTRACT_VERSION,
@@ -910,7 +998,9 @@ fn contract_capabilities() -> Value {
             "redacted_truth",
             "verified_safe_actions",
             "form_compile_execute",
+            "user_confirmed_local_protected_fill",
             "render_preflight",
+            "download_receipts",
             "value_free_replay",
             "typed_errors"
         ],
@@ -923,10 +1013,19 @@ fn contract_capabilities() -> Value {
         "lifecycle": {
             "cancellation": "host stops issuing work, then calls saccade.tabs.pause_agent or saccade.tabs.close",
             "shutdown": "saccade.tabs.close releases the MCP tab state and its attached worker or bridge",
-            "side_effects": "submit, publish, payment, login, OTP, signing, and destructive actions require user control or confirmation"
+            "site_action_policy": "owned by the LLM host; Saccade adds no second confirmation layer"
         },
+        "runtime_profile": if installed_product { "installed_product" } else { "developer" },
+        "developer_tools_available": !installed_product,
         "data_boundary": {
             "never_returned_by_default": ["cookies", "storage", "control_capability", "sensitive_field_values", "sensitive_page_screenshots"]
+        },
+        "form_behavior": {
+            "authorized_ordinary_fields": "fill_without_manual_handoff",
+            "ask_user_when": "exact_value_missing_or_material_choice_ambiguous",
+            "submission": "respect_explicit_user_stopping_point",
+            "protected_identifiers": "local_browser_prompt_only",
+            "secrets": "never_read_or_fill"
         }
     })
 }
@@ -1000,12 +1099,20 @@ fn input_schema(name: &str) -> Value {
                     "type": "object",
                     "properties": {
                         "same_webview_only": {"type": "boolean", "const": true},
-                        "user_granted_tab_only": {"type": "boolean", "const": true}
+                        "agent_on_tab_only": {"type": "boolean", "const": true}
                     },
                     "additionalProperties": false
                 }
             },
             "required": ["tab_id", "action"],
+            "additionalProperties": false
+        }),
+        "saccade.downloads.list" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"}
+            },
+            "required": ["tab_id"],
             "additionalProperties": false
         }),
         "saccade.tabs.open" => json!({
@@ -1014,6 +1121,14 @@ fn input_schema(name: &str) -> Value {
                 "url": {"type": "string"},
                 "owner": {"type": "string", "enum": ["agent", "human"], "default": "agent"},
                 "read_grant": {"type": "string", "enum": ["none", "visible_summary_only", "full_truth"], "default": "none"}
+            },
+            "required": ["url"],
+            "additionalProperties": false
+        }),
+        "saccade.tabs.open_agent" => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"}
             },
             "required": ["url"],
             "additionalProperties": false
@@ -1032,6 +1147,7 @@ fn input_schema(name: &str) -> Value {
             "properties": {
                 "url": {"type": "string"},
                 "grant_path": {"type": "string"},
+                "browser_tab_id": {"type": "string"},
                 "reason": {"type": "string"},
                 "read_grant": {"type": "string", "enum": ["visible_summary_only", "full_truth"], "default": "full_truth"},
                 "policy": {
@@ -1062,12 +1178,24 @@ fn input_schema(name: &str) -> Value {
             "required": ["tab_id"],
             "additionalProperties": false
         }),
+        "saccade.web.article_text" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "basis_page_revision": {"type": "integer"},
+                "max_chars": {"type": "integer", "minimum": 1000, "maximum": 100000, "default": 20000},
+                "mode": {"type": "string", "enum": ["minimal", "compact", "evidence"], "default": "minimal"}
+            },
+            "required": ["tab_id", "basis_page_revision"],
+            "additionalProperties": false
+        }),
         "saccade.web.act" => json!({
             "type": "object",
             "properties": {
                 "tab_id": {"type": "integer"},
                 "action_id": {"type": "string"},
                 "basis_page_revision": {"type": "integer"},
+                "basis_layout_epoch": {"type": "integer", "description": "Optional layout epoch from the action map; Saccade still refreshes and validates it immediately before input."},
                 "engine": {"type": "string", "enum": ["servo"], "default": "servo"}
             },
             "required": ["tab_id", "action_id", "basis_page_revision"],
@@ -1136,11 +1264,22 @@ fn input_schema(name: &str) -> Value {
             "type": "object",
             "properties": {
                 "tab_id": {"type": "integer"},
-                "mode": {"type": "string", "enum": ["full", "actionable", "compact"], "default": "full"},
+                "mode": {"type": "string", "enum": ["minimal", "full", "actionable", "compact"], "default": "minimal"},
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 500}
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                "wait_for_fields_ms": {"type": "integer", "minimum": 0, "maximum": 10000, "default": 5000}
             },
             "required": ["tab_id"],
+            "additionalProperties": false
+        }),
+        "saccade.web.request_protected_fill" => json!({
+            "type": "object",
+            "properties": {
+                "tab_id": {"type": "integer"},
+                "basis_page_revision": {"type": "integer"},
+                "field_id": {"type": "string", "minLength": 1, "maxLength": 256}
+            },
+            "required": ["tab_id", "basis_page_revision", "field_id"],
             "additionalProperties": false
         }),
         "saccade.web.form_compile_plan" => json!({
@@ -1272,11 +1411,14 @@ fn input_schema(name: &str) -> Value {
 }
 
 fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Result<Value> {
+    if !tool_available_in_runtime(name, state.installed_product) {
+        bail!("tool {name:?} is unsupported in the installed product runtime");
+    }
     match name {
         "saccade.system.capabilities" => Ok(json!({
             "status": "ok",
             "summary": "Saccade contract capabilities",
-            "saccade": contract_capabilities(),
+            "saccade": contract_capabilities(state.installed_product),
         })),
         "saccade.dev.open_local" => open_local_tool(state, arguments),
         "saccade.dev.audit_page" => audit_page_tool(state, arguments),
@@ -1286,20 +1428,24 @@ fn invoke_tool(state: &mut McpSessionState, name: &str, arguments: Value) -> Res
         "saccade.dev.fill_smoke_form" => dev_fill_smoke_form_tool(arguments),
         "saccade.dev.get_report" => dev_get_report_tool(arguments),
         "saccade.browser.navigate" => browser_navigate_tool(state, arguments),
+        "saccade.downloads.list" => downloads_list_tool(state, arguments),
         "saccade.tabs.list" => tabs_list_tool(state),
         "saccade.tabs.open" => tabs_open_tool(state, arguments),
+        "saccade.tabs.open_agent" => tabs_open_agent_tool(state, arguments),
         "saccade.tabs.request_user_login" => tabs_request_user_login_tool(state, arguments),
         "saccade.tabs.grant_current" => tabs_grant_current_tool(state, arguments),
         "saccade.tabs.takeover" => tabs_takeover_tool(state, arguments),
         "saccade.tabs.pause_agent" => tabs_pause_agent_tool(state, arguments),
         "saccade.tabs.close" => tabs_close_tool(state, arguments),
         "saccade.web.truth" => web_truth_tool(state, arguments),
+        "saccade.web.article_text" => web_article_text_tool(state, arguments),
         "saccade.web.actions" => web_actions_tool(state, arguments),
         "saccade.web.act" => web_act_tool(state, arguments),
         "saccade.web.fill_agent_fields" => web_fill_agent_fields_tool(state, arguments),
         "saccade.web.inspect_fields" => web_inspect_fields_tool(state, arguments),
         "saccade.web.render_preflight" => web_render_preflight_tool(state, arguments),
         "saccade.web.form_inventory" => web_form_inventory_tool(state, arguments),
+        "saccade.web.request_protected_fill" => web_request_protected_fill_tool(state, arguments),
         "saccade.web.form_compile_plan" => web_form_compile_plan_tool(state, arguments),
         "saccade.web.form_execute_plan" => web_form_execute_plan_tool(state, arguments),
         "saccade.web.fill_form" => web_fill_form_tool(state, arguments),
@@ -1544,25 +1690,17 @@ fn browser_navigate_tool(state: &mut McpSessionState, arguments: Value) -> Resul
             bail!("saccade.browser.navigate requires same_webview_only=true");
         }
         if policy
-            .get("user_granted_tab_only")
+            .get("agent_on_tab_only")
             .and_then(Value::as_bool)
             .is_some_and(|enabled| !enabled)
         {
-            bail!("saccade.browser.navigate requires user_granted_tab_only=true");
+            bail!("saccade.browser.navigate requires agent_on_tab_only=true");
         }
     }
     let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() else {
         bail!("saccade.browser.navigate requires a same-WebView dogfood control tab");
     };
-    let tab = state
-        .find_tab(tab_id)
-        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
-    if tab.info.owner != TabOwner::Human || !tab.agent_input_grant {
-        bail!("saccade.browser.navigate requires a user-granted Human current tab");
-    }
-    if tab.paused {
-        bail!("agent is paused for tab_id {}", tab_id.0);
-    }
+    ensure_agent_input_allowed(state, tab_id)?;
 
     let (method, params) = match action {
         "status" => ("shell_status", json!({})),
@@ -1582,7 +1720,38 @@ fn browser_navigate_tool(state: &mut McpSessionState, arguments: Value) -> Resul
     };
 
     ensure_dogfood_control_capability(state, tab_id, method)?;
-    let shell_result = call_dogfood_control(&endpoint, method, params)?;
+    let dispatch_result = call_dogfood_control(&endpoint, method, params)?;
+    let changed = dispatch_result
+        .get("changed")
+        .and_then(Value::as_bool)
+        .unwrap_or(action != "status");
+    let target_revision = dispatch_result
+        .get("page_revision")
+        .and_then(json_number_u64)
+        .unwrap_or(0);
+    let mut shell_result = dispatch_result.clone();
+    if action != "status" && changed {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let truth = call_dogfood_control(&endpoint, "truth", json!({}))?;
+            let ready = truth.get("collector_ready").and_then(Value::as_bool) == Some(true);
+            let revision = truth
+                .get("page_revision")
+                .and_then(json_number_u64)
+                .unwrap_or(0);
+            if let Some(tab) = state.find_tab_mut(tab_id) {
+                update_session_tab_from_browser_result(tab, &truth);
+            }
+            if ready && revision >= target_revision {
+                shell_result = call_dogfood_control(&endpoint, "shell_status", json!({}))?;
+                break;
+            }
+            if Instant::now() >= deadline {
+                bail!("browser navigation timed out waiting for collector readiness");
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &shell_result);
     }
@@ -1598,15 +1767,43 @@ fn browser_navigate_tool(state: &mut McpSessionState, arguments: Value) -> Resul
         "url": tab.info.url,
         "title": tab.info.title,
         "page_revision": tab.info.page_revision,
-        "changed": shell_result.get("changed").cloned().unwrap_or(Value::Null),
+        "changed": changed,
+        "dispatch": dispatch_result,
         "shell": shell_result,
         "site_policy": classify_site_url(&tab.info.url),
         "policy": {
             "same_webview_only": true,
-            "user_granted_tab_only": true,
+            "agent_on_tab_only": true,
             "page_dom_injected": false,
         },
     }))
+}
+
+fn downloads_list_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_truth_allowed(state, tab_id)?;
+    let endpoint = state
+        .dogfood_controls
+        .get(&tab_id.0)
+        .cloned()
+        .context("saccade.downloads.list requires a granted Saccade browser tab")?;
+    ensure_dogfood_control_capability(state, tab_id, "downloads")?;
+    let mut result = call_dogfood_control(&endpoint, "downloads", json!({}))?;
+    let page_revision = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .page_revision;
+    let runtime = tab_runtime(state, tab_id);
+    if let Some(object) = result.as_object_mut() {
+        object.insert("tab_id".to_string(), json!(tab_id.0));
+        object.insert("page_revision".to_string(), json!(page_revision));
+        object.insert("runtime".to_string(), json!(runtime));
+        object.insert("file_contents_returned".to_string(), json!(false));
+        object.insert("full_paths_returned".to_string(), json!(false));
+        object.insert("auto_execute_allowed".to_string(), json!(false));
+    }
+    Ok(result)
 }
 
 #[derive(Debug, Clone)]
@@ -1709,15 +1906,311 @@ fn run_devmax_audit(url: &Url, engine: &str, replay: bool) -> Result<DevmaxToolR
 }
 
 fn tabs_list_tool(state: &McpSessionState) -> Result<Value> {
+    if let Ok((_, endpoint)) = current_agent_broker_endpoint() {
+        if call_dogfood_control_ping(&endpoint).is_ok() {
+            match call_dogfood_control(&endpoint, "tab_registry", json!({})) {
+                Ok(registry) => {
+                    return Ok(json!({
+                        "status": "ok",
+                        "summary": "live Saccade Agent On tab registry",
+                        "source": "live_browser_tab_registry",
+                        "tabs": registry.get("tabs").cloned().unwrap_or_else(|| json!([])),
+                        "eligible_count": registry.get("eligible_count").cloned().unwrap_or(Value::Null),
+                        "browser_count": registry.get("browser_count").cloned().unwrap_or(Value::Null),
+                        "agent_off_tabs_omitted": registry.get("agent_off_tabs_omitted").cloned().unwrap_or(Value::Bool(true)),
+                        "capabilities_exposed": false,
+                        "cookies_or_storage_exposed": false,
+                        "session_tabs": state.tabs,
+                    }));
+                }
+                Err(error) => {
+                    return Ok(json!({
+                        "status": "warning",
+                        "summary": "live Saccade broker is running but did not return a tab registry",
+                        "source": "mcp_session_fallback",
+                        "registry_error": error.to_string(),
+                        "tabs": state.tabs,
+                    }));
+                }
+            }
+        }
+    }
     Ok(json!({
         "status": "ok",
         "summary": format!("{} tab(s) in Saccade MCP session state", state.tabs.len()),
+        "source": "mcp_session_state",
         "tabs": state.tabs,
     }))
 }
 
 fn tabs_open_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     open_local_tool(state, arguments)
+}
+
+fn tabs_open_agent_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let url = required_url_arg(&arguments)?;
+    if !matches!(url.scheme(), "http" | "https" | "file") {
+        bail!("open_agent allows only http, https, or file URLs");
+    }
+    let pointer = current_agent_pointer_path()?;
+    let mut was_running = false;
+    let mut previous_browser_tab_id = None;
+    let mut running_endpoint = None;
+
+    if pointer.exists() {
+        let grant_path = current_agent_grant_path()?;
+        let (_, broker) = read_current_tab_grant(&grant_path.display().to_string())?;
+        let endpoint = dogfood_control_endpoint_from_grant(&broker)?
+            .context("running Saccade broker is missing its control endpoint")?;
+        if call_dogfood_control_ping(&endpoint).is_ok() {
+            was_running = true;
+            running_endpoint = Some(endpoint.clone());
+            previous_browser_tab_id = broker
+                .get("tab_id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+            call_dogfood_control(&endpoint, "open_agent_tab", json!({"url": url.as_str()}))?;
+        } else {
+            // A killed/crashed app can leave only its owner-only pointer. It is
+            // not a running broker, so retire the pointer and start cleanly.
+            fs::remove_file(&pointer).with_context(|| {
+                format!(
+                    "failed to retire stale Saccade pointer {}",
+                    pointer.display()
+                )
+            })?;
+        }
+    }
+    if !was_running {
+        let executable = std::env::var_os("SACCADE_APP_EXECUTABLE")
+            .map(PathBuf::from)
+            .context("SACCADE_APP_EXECUTABLE is not configured by the packaged MCP launcher")?;
+        if !executable.is_absolute() || !executable.is_file() {
+            bail!(
+                "configured Saccade app executable is unavailable: {}",
+                executable.display()
+            );
+        }
+        let agent_root = pointer
+            .parent()
+            .context("Saccade broker pointer has no parent directory")?;
+        fs::create_dir_all(agent_root)
+            .with_context(|| format!("failed to create {}", agent_root.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(agent_root, fs::Permissions::from_mode(0o700))?;
+        }
+        let launch_id = format!("{}.{}", std::process::id(), unix_ms()?);
+        let session = agent_root.join(format!("session.mcp.{launch_id}"));
+        fs::create_dir(&session)
+            .with_context(|| format!("failed to create {}", session.display()))?;
+        let socket_session = PathBuf::from("/private/tmp").join(format!("saccade-mcp.{launch_id}"));
+        fs::create_dir(&socket_session)
+            .with_context(|| format!("failed to create {}", socket_session.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&session, fs::Permissions::from_mode(0o700))?;
+            fs::set_permissions(&socket_session, fs::Permissions::from_mode(0o700))?;
+        }
+        let grant_path = session.join("grant.json");
+        let socket_path = socket_session.join("control.sock");
+        let replay_path = session.join("replay.jsonl");
+        let pointer_temp = agent_root.join(format!("current-grant-path.tmp.{launch_id}"));
+        let mut pointer_file = {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&pointer_temp)
+            }
+            #[cfg(not(unix))]
+            {
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&pointer_temp)
+            }
+        }
+        .with_context(|| format!("failed to create {}", pointer_temp.display()))?;
+        writeln!(pointer_file, "{}", grant_path.display())?;
+        pointer_file.sync_all()?;
+        fs::rename(&pointer_temp, &pointer)
+            .with_context(|| format!("failed to publish {}", pointer.display()))?;
+
+        let spawn_result = ProcessCommand::new(&executable)
+            .arg(format!("--url={}", url.as_str()))
+            .args([
+                "--use-native",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--window-size=1440,1000",
+            ])
+            .env("SACCADE_ENGINE_INITIAL_TAB_GRANT", "1")
+            .env("SACCADE_ENGINE_INITIAL_URL", url.as_str())
+            .env("SACCADE_ENGINE_BROKER", "1")
+            .env("SACCADE_ENGINE_SOCKET", &socket_path)
+            .env("SACCADE_ENGINE_GRANT_PATH", &grant_path)
+            .env("SACCADE_ENGINE_REPLAY_PATH", &replay_path)
+            .env("SACCADE_ENGINE_CURRENT_POINTER", &pointer)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        if let Err(error) = spawn_result {
+            let _ = fs::remove_file(&pointer);
+            let _ = fs::remove_dir_all(&session);
+            let _ = fs::remove_dir_all(&socket_session);
+            return Err(error).with_context(|| format!("failed to start {}", executable.display()));
+        }
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut last_running_ping = Instant::now();
+    let grant_path = loop {
+        if pointer.exists() {
+            if let Ok(path) = current_agent_grant_path()
+                && let Ok((_, grant)) = read_current_tab_grant(&path.display().to_string())
+                && grant.get("status").and_then(Value::as_str) == Some("granted")
+                && grant.get("grant_type").and_then(Value::as_str) == Some("agent_created_tab")
+                && grant
+                    .get("tab_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|current| {
+                        !current.is_empty() && previous_browser_tab_id.as_deref() != Some(current)
+                    })
+                && grant
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .and_then(|value| Url::parse(value).ok())
+                    .is_some_and(|current| {
+                        if url.scheme() == "file" {
+                            current == url
+                        } else {
+                            current.scheme() == url.scheme() && current.host_str() == url.host_str()
+                        }
+                    })
+                && dogfood_control_endpoint_from_grant(&grant)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|endpoint| call_dogfood_control_ping(&endpoint).is_ok())
+            {
+                break path;
+            }
+        }
+        if was_running
+            && last_running_ping.elapsed() >= Duration::from_millis(500)
+            && running_endpoint
+                .as_ref()
+                .is_some_and(|endpoint| call_dogfood_control_ping(endpoint).is_err())
+        {
+            let _ = fs::remove_file(&pointer);
+            return tabs_open_agent_tool(state, json!({"url": url.as_str()}));
+        }
+        if last_running_ping.elapsed() >= Duration::from_millis(500) {
+            last_running_ping = Instant::now();
+        }
+        if Instant::now() >= deadline {
+            let cleaned = cleanup_failed_agent_tab(&url, previous_browser_tab_id.as_deref());
+            bail!(
+                "Saccade did not publish the new Agent tab within 12 seconds; cleanup_succeeded={cleaned}"
+            );
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+
+    let attach_result = tabs_grant_current_tool(
+        state,
+        json!({
+            "grant_path": grant_path.display().to_string(),
+            "reason": "LLM opened a dedicated Agent tab",
+        }),
+    );
+    let attached = match attach_result {
+        Ok(attached) => attached,
+        Err(error) => {
+            let cleaned = cleanup_failed_agent_tab(&url, previous_browser_tab_id.as_deref());
+            bail!("failed to attach new Agent tab; cleanup_succeeded={cleaned}: {error}");
+        }
+    };
+    minimal_open_agent_response(&attached, was_running)
+}
+
+fn minimal_open_agent_response(attached: &Value, was_running: bool) -> Result<Value> {
+    let tab = attached
+        .get("tab")
+        .context("attached Agent tab response is missing tab")?;
+    let tab_id = tab
+        .get("tab_id")
+        .cloned()
+        .context("attached Agent tab response is missing tab_id")?;
+    let page_revision = tab
+        .get("page_revision")
+        .cloned()
+        .context("attached Agent tab response is missing page_revision")?;
+    let owner = tab.get("owner").cloned().unwrap_or_else(|| json!("agent"));
+    Ok(json!({
+        "status": "ok",
+        "summary": "Agent tab ready for direct read or action",
+        "ready": attached.get("ready_for_read").and_then(Value::as_bool) == Some(true),
+        "browser_was_running": was_running,
+        "agent_input_grant": true,
+        "tab": {
+            "tab_id": tab_id,
+            "owner": owner,
+            "page_revision": page_revision,
+        }
+    }))
+}
+
+fn cleanup_failed_agent_tab(requested_url: &Url, previous_browser_tab_id: Option<&str>) -> bool {
+    let Ok(grant_path) = current_agent_grant_path() else {
+        return false;
+    };
+    let Ok((_, grant)) = read_current_tab_grant(&grant_path.display().to_string()) else {
+        return false;
+    };
+    if grant.get("status").and_then(Value::as_str) != Some("granted")
+        || grant.get("grant_type").and_then(Value::as_str) != Some("agent_created_tab")
+    {
+        return false;
+    }
+    let Some(tab_id) = grant
+        .get("tab_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    if previous_browser_tab_id == Some(tab_id) {
+        return false;
+    }
+    let Some(current_url) = grant
+        .get("url")
+        .and_then(Value::as_str)
+        .and_then(|value| Url::parse(value).ok())
+    else {
+        return false;
+    };
+    let same_target = if requested_url.scheme() == "file" {
+        current_url == *requested_url
+    } else {
+        current_url.scheme() == requested_url.scheme()
+            && current_url.host_str() == requested_url.host_str()
+    };
+    if !same_target {
+        return false;
+    }
+    let Ok(Some(endpoint)) = dogfood_control_endpoint_from_grant(&grant) else {
+        return false;
+    };
+    call_dogfood_control_ping(&endpoint).is_ok()
+        && call_dogfood_control(&endpoint, "close", json!({})).is_ok()
 }
 
 fn tabs_request_user_login_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
@@ -1767,6 +2260,7 @@ struct CurrentTabGrantRequest {
     url: Url,
     reason: String,
     read_grant: ReadGrant,
+    owner: TabOwner,
     source: &'static str,
     grant_path: Option<String>,
     control_endpoint: Option<DogfoodControlEndpoint>,
@@ -1797,7 +2291,7 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
     let tab_id = state.allocate_tab_id();
     let info = tab(
         tab_id.0,
-        TabOwner::Human,
+        grant.owner,
         grant.read_grant,
         grant.url.as_str(),
         "Current Tab Co-Pilot",
@@ -1816,6 +2310,12 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
     };
     let (live_truth, attached_via_control) = if let Some(endpoint) = grant.control_endpoint.as_ref()
     {
+        if same_webview_control_capabilities
+            .iter()
+            .any(|capability| capability == "resume")
+        {
+            call_dogfood_control(endpoint, "resume", json!({}))?;
+        }
         let initial_method = if same_webview_control_capabilities
             .iter()
             .any(|capability| capability == "truth")
@@ -1829,7 +2329,22 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         } else {
             bail!("browser control endpoint must advertise truth or shell_status");
         };
-        let live_truth = call_dogfood_control(endpoint, initial_method, json!({}))?;
+        let mut live_truth = call_dogfood_control(endpoint, initial_method, json!({}))?;
+        let collector_expected = initial_method == "truth"
+            && same_webview_control_capabilities
+                .iter()
+                .any(|capability| capability == "article_text")
+            && matches!(grant.url.scheme(), "http" | "https" | "file");
+        if collector_expected {
+            let deadline = Instant::now() + COLLECTOR_READY_TIMEOUT;
+            while live_truth.get("collector_ready").and_then(Value::as_bool) != Some(true) {
+                if Instant::now() >= deadline {
+                    bail!("Saccade current-tab collector did not become ready within 12 seconds");
+                }
+                thread::sleep(Duration::from_millis(50));
+                live_truth = call_dogfood_control(endpoint, initial_method, json!({}))?;
+            }
+        }
         state.dogfood_controls.insert(tab_id.0, endpoint.clone());
         state.dogfood_control_runtimes.insert(
             tab_id.0,
@@ -1859,10 +2374,14 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
 
     Ok(json!({
         "status": "ok",
-        "summary": "current Human tab attached to live Saccade co-pilot session after explicit grant",
+        "summary": if grant.owner == TabOwner::Agent {
+            "Agent-created Saccade tab opened On and attached to the live browser session"
+        } else {
+            "current Human tab attached to live Saccade co-pilot session after explicit grant"
+        },
         "runtime": tab_runtime(state, tab_id),
         "selected_tab_seen": true,
-        "grant_required": true,
+        "grant_required": grant.owner == TabOwner::Human,
         "grant_given": true,
         "agent_input_grant": true,
         "reason": grant.reason,
@@ -1871,6 +2390,8 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "same_webview_control_ping": same_webview_control_ping,
         "same_webview_control": same_webview_control.clone(),
         "same_webview_attached": attached_via_control,
+        "collector_ready": live_truth.get("collector_ready").and_then(Value::as_bool),
+        "ready_for_read": live_truth.get("collector_ready").and_then(Value::as_bool) == Some(true),
         "same_webview_capabilities": if attached_via_control {
             json!(advertised_same_webview_capabilities)
         } else {
@@ -1902,9 +2423,97 @@ fn current_tab_grant_from_args(arguments: &Value) -> Result<CurrentTabGrantReque
     validate_current_tab_grant_policy(arguments)?;
     if arguments.get("grant_path").is_some() {
         current_tab_grant_from_artifact(arguments)
+    } else if arguments.get("url").is_none() {
+        current_tab_grant_from_discovery(arguments)
     } else {
         current_tab_grant_from_direct_args(arguments)
     }
+}
+
+fn current_tab_grant_from_discovery(arguments: &Value) -> Result<CurrentTabGrantRequest> {
+    let pointer = current_agent_pointer_path()?;
+    let (grant_path, endpoint) = current_agent_broker_endpoint()?;
+    if let Some(browser_tab_id) = arguments.get("browser_tab_id").and_then(Value::as_str) {
+        call_dogfood_control(
+            &endpoint,
+            "select_tab",
+            json!({"browser_tab_id": browser_tab_id}),
+        )
+        .with_context(|| format!("failed to select Saccade tab {browser_tab_id:?}"))?;
+    }
+    let mut discovered = arguments.clone();
+    let object = discovered
+        .as_object_mut()
+        .context("grant_current arguments must be an object")?;
+    object.insert(
+        "grant_path".to_string(),
+        Value::String(grant_path.display().to_string()),
+    );
+    object.entry("reason".to_string()).or_insert_with(|| {
+        Value::String(if arguments.get("browser_tab_id").is_some() {
+            "agent selected an eligible Agent On Saccade tab".to_string()
+        } else {
+            "user enabled Agent access for the current Saccade tab".to_string()
+        })
+    });
+    object.remove("browser_tab_id");
+    let mut grant = current_tab_grant_from_artifact(&discovered).with_context(|| {
+        format!(
+            "current Saccade tab is not granted; turn on its Agent switch ({})",
+            pointer.display()
+        )
+    })?;
+    grant.source = if arguments.get("browser_tab_id").is_some() {
+        "current_agent_tab_registry"
+    } else {
+        "current_agent_pointer"
+    };
+    Ok(grant)
+}
+
+fn current_agent_broker_endpoint() -> Result<(PathBuf, DogfoodControlEndpoint)> {
+    let grant_path = current_agent_grant_path()?;
+    let (_, broker) = read_current_tab_grant(&grant_path.display().to_string())?;
+    let endpoint = dogfood_control_endpoint_from_grant(&broker)?
+        .context("running Saccade broker is missing its control endpoint")?;
+    Ok((grant_path, endpoint))
+}
+
+fn current_agent_pointer_path() -> Result<PathBuf> {
+    std::env::var_os("SACCADE_CURRENT_AGENT_POINTER")
+        .map(PathBuf::from)
+        .context("packaged Saccade MCP launcher did not configure its broker pointer")
+}
+
+fn current_agent_grant_path() -> Result<PathBuf> {
+    let pointer = current_agent_pointer_path()?;
+    let metadata = fs::symlink_metadata(&pointer).with_context(|| {
+        format!(
+            "no running Saccade collaboration session at {}",
+            pointer.display()
+        )
+    })?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        bail!("Saccade current-agent pointer must be a regular file");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            bail!("Saccade current-agent pointer must be owner-only");
+        }
+    }
+    let raw = fs::read_to_string(&pointer)
+        .with_context(|| format!("failed to read {}", pointer.display()))?;
+    let grant_path = raw.trim();
+    if grant_path.is_empty() || grant_path.len() > 4096 || grant_path.contains('\0') {
+        bail!("Saccade current-agent pointer is invalid");
+    }
+    let grant_path = PathBuf::from(grant_path);
+    if !grant_path.is_absolute() {
+        bail!("Saccade current-agent pointer must contain an absolute grant path");
+    }
+    Ok(grant_path)
 }
 
 fn validate_current_tab_grant_policy(arguments: &Value) -> Result<()> {
@@ -1946,6 +2555,7 @@ fn current_tab_grant_from_direct_args(arguments: &Value) -> Result<CurrentTabGra
         read_grant: read_grant_from_grant_value(
             arguments.get("read_grant").and_then(Value::as_str),
         )?,
+        owner: TabOwner::Human,
         source: "direct_url",
         grant_path: None,
         control_endpoint: None,
@@ -1962,17 +2572,30 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
     if grant.get("status").and_then(Value::as_str) != Some("granted") {
         bail!("grant artifact status is not granted");
     }
-    if grant.get("grant_type").and_then(Value::as_str) != Some("current_tab_copilot") {
-        bail!("grant artifact is not a current_tab_copilot grant");
-    }
+    let grant_type = grant.get("grant_type").and_then(Value::as_str);
+    let owner = match grant_type {
+        Some("current_tab_copilot") => TabOwner::Human,
+        Some("agent_created_tab") => TabOwner::Agent,
+        _ => bail!("grant artifact is not a supported per-tab grant"),
+    };
+    let expected_grant_required = owner == TabOwner::Human;
     if grant.get("selected_tab_seen").and_then(Value::as_bool) != Some(true)
-        || grant.get("grant_required").and_then(Value::as_bool) != Some(true)
+        || grant.get("grant_required").and_then(Value::as_bool) != Some(expected_grant_required)
         || grant.get("grant_given").and_then(Value::as_bool) != Some(true)
     {
         bail!("grant artifact is missing selected-tab grant evidence");
     }
-    if grant.get("owner").and_then(Value::as_str) != Some("Human") {
-        bail!("grant artifact owner must be Human");
+    let expected_owner = if owner == TabOwner::Agent {
+        "agent"
+    } else {
+        "human"
+    };
+    let artifact_owner = grant
+        .get("owner")
+        .and_then(Value::as_str)
+        .map(str::to_ascii_lowercase);
+    if artifact_owner.as_deref() != Some(expected_owner) {
+        bail!("grant artifact owner does not match its grant type");
     }
     if grant.get("agent_input_grant").and_then(Value::as_bool) != Some(true) {
         bail!("grant artifact does not allow agent co-pilot input");
@@ -2005,6 +2628,7 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         url,
         reason: reason.to_string(),
         read_grant,
+        owner,
         source: "grant_artifact",
         grant_path: Some(grant_path.display().to_string()),
         control_endpoint,
@@ -2182,7 +2806,11 @@ fn default_dogfood_control_capabilities() -> Vec<String> {
     [
         "ping",
         "shell_status",
+        "tab_registry",
+        "select_tab",
+        "resume",
         "truth",
+        "article_text",
         "actions",
         "navigate",
         "back",
@@ -2191,6 +2819,7 @@ fn default_dogfood_control_capabilities() -> Vec<String> {
         "fill_agent_fields",
         "inspect_fields",
         "render_preflight",
+        "downloads",
         "act",
         "formmax_live_fill",
     ]
@@ -2248,6 +2877,7 @@ fn call_dogfood_control(
 ) -> Result<Value> {
     if let Some(grant) = endpoint.engine_grant.as_ref() {
         let read_timeout = match method {
+            "protected_fill" => Duration::from_secs(180),
             "formmax_live_fill" | "fill_agent_fields" | "inspect_fields" | "form_inventory"
             | "form_compile_plan" | "form_execute_plan" | "act" => Duration::from_secs(65),
             _ => Duration::from_secs(5),
@@ -2259,6 +2889,7 @@ fn call_dogfood_control(
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .with_context(|| format!("failed to connect dogfood control endpoint {addr}"))?;
     let read_timeout = match method {
+        "protected_fill" => Duration::from_secs(180),
         "formmax_live_fill" | "fill_agent_fields" | "inspect_fields" | "form_inventory"
         | "form_compile_plan" | "form_execute_plan" | "act" => Duration::from_secs(65),
         _ => Duration::from_secs(5),
@@ -2294,11 +2925,19 @@ fn call_dogfood_control(
     let response: Value = serde_json::from_str(&line)
         .with_context(|| format!("failed to parse dogfood control {method} response"))?;
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
-        let error = response
-            .get("error")
+        let error = response.get("error");
+        let code = error
+            .and_then(|value| value.get("code"))
+            .and_then(Value::as_str);
+        let detail = error
+            .and_then(|value| value.get("detail"))
             .and_then(Value::as_str)
+            .or_else(|| error.and_then(Value::as_str))
             .unwrap_or("dogfood control request failed");
-        bail!("{error}");
+        if let Some(code) = code {
+            bail!("{code}: {detail}");
+        }
+        bail!("{detail}");
     }
     Ok(response.get("result").cloned().unwrap_or(Value::Null))
 }
@@ -2307,11 +2946,22 @@ fn engine_control_error(method: &str, error: EngineApiError) -> anyhow::Error {
     let category = match error.code {
         EngineErrorCode::InvalidArgument => "invalid engine request",
         EngineErrorCode::PermissionDenied => "policy denied engine request",
+        EngineErrorCode::ConsentRequired => "CONSENT_REQUIRED",
+        EngineErrorCode::AgentPaused => "AGENT_PAUSED",
         EngineErrorCode::UnsupportedCapability => "unsupported engine capability",
         EngineErrorCode::StalePageRevision => "stale engine page revision",
+        EngineErrorCode::StaleLayout => "stale engine layout",
         EngineErrorCode::TabNotFound => "engine tab not found",
         EngineErrorCode::Timeout => "engine control timeout",
         EngineErrorCode::TransportUnavailable => "engine transport unavailable",
+        EngineErrorCode::Conflict => "engine request conflict",
+        EngineErrorCode::PolicyBlocked => "policy blocked engine request",
+        EngineErrorCode::FormCommandFailed => "engine form command failed",
+        EngineErrorCode::PostconditionFailed => "engine postcondition failed",
+        EngineErrorCode::ScreenshotBusy => "engine screenshot busy",
+        EngineErrorCode::ScreenshotFailed => "engine screenshot failed",
+        EngineErrorCode::HumanVerificationRequired => "HUMAN_VERIFICATION_REQUIRED",
+        EngineErrorCode::ProviderRejected => "PROVIDER_REJECTED",
         EngineErrorCode::Internal => "engine internal error",
     };
     anyhow!("{category} for {method}: {}", error.detail)
@@ -2330,11 +2980,12 @@ fn dogfood_control_socket_addr(endpoint: &DogfoodControlEndpoint) -> Result<Sock
 }
 
 fn read_grant_from_grant_value(value: Option<&str>) -> Result<ReadGrant> {
-    match value.unwrap_or("full_truth") {
-        "visible_summary_only" | "VisibleSummaryOnly" => Ok(ReadGrant::VisibleSummaryOnly),
-        "full_truth" | "FullTruth" => Ok(ReadGrant::FullTruth),
+    let raw = value.unwrap_or("full_truth");
+    match canonical_ascii_token(raw).as_str() {
+        "visiblesummaryonly" | "visible_summary_only" => Ok(ReadGrant::VisibleSummaryOnly),
+        "fulltruth" | "full_truth" => Ok(ReadGrant::FullTruth),
         other => bail!(
-            "unsupported read_grant {other:?}; expected full_truth, FullTruth, visible_summary_only, or VisibleSummaryOnly"
+            "unsupported read_grant {raw:?} ({other:?}); expected full_truth or visible_summary_only"
         ),
     }
 }
@@ -2394,10 +3045,11 @@ fn tabs_pause_agent_tool(state: &mut McpSessionState, arguments: Value) -> Resul
         .find_tab_mut(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
     tab.paused = true;
-    tab.agent_input_grant = false;
     Ok(json!({
         "status": "ok",
-        "summary": "agent paused for tab",
+        "summary": "agent runtime paused for tab; human Agent On permission is unchanged",
+        "agent_permission_unchanged": true,
+        "agent_activity": "paused",
         "tab": tab,
     }))
 }
@@ -2458,13 +3110,6 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
     let site_policy = classify_site_url(&tab.info.url);
-    if !site_policy.agent_read_allowed {
-        bail!(
-            "site policy {:?} blocks agent truth for {}; use human fallback",
-            site_policy.level,
-            tab.info.url
-        );
-    }
 
     let summary_only =
         tab.info.owner == TabOwner::Human && tab.info.read_grant == ReadGrant::VisibleSummaryOnly;
@@ -2491,12 +3136,138 @@ fn web_truth_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value
     }))
 }
 
+fn web_article_text_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_truth_allowed(state, tab_id)?;
+    let basis_page_revision = arguments
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("saccade.web.article_text requires integer basis_page_revision")?;
+    let current_revision = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .page_revision;
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale MCP article basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+    let max_chars = arguments
+        .get("max_chars")
+        .and_then(Value::as_u64)
+        .unwrap_or(20_000)
+        .clamp(1_000, 100_000) as usize;
+    let response_mode = arguments
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("minimal");
+    if !matches!(response_mode, "minimal" | "compact" | "evidence") {
+        bail!("saccade.web.article_text mode must be minimal, compact, or evidence");
+    }
+    let endpoint = state
+        .dogfood_controls
+        .get(&tab_id.0)
+        .cloned()
+        .context("saccade.web.article_text requires a granted browser current tab")?;
+    ensure_dogfood_control_capability(state, tab_id, "article_text")?;
+    let mut result = call_dogfood_control(
+        &endpoint,
+        "article_text",
+        json!({
+            "basis_page_revision": basis_page_revision,
+            "max_chars": max_chars,
+        }),
+    )?;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &result);
+    }
+    let text = result
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let original_chars = text.chars().count();
+    let bounded = text.chars().take(max_chars).collect::<String>();
+    let text_truncated = original_chars > max_chars
+        || result
+            .get("truncated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    if let Some(object) = result.as_object_mut() {
+        object.insert("text".to_string(), Value::String(bounded));
+    }
+    if response_mode == "minimal" {
+        return Ok(minimal_article_response(
+            &result,
+            basis_page_revision,
+            text_truncated,
+        ));
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert(
+            "text_chars_returned".to_string(),
+            json!(original_chars.min(max_chars)),
+        );
+        object.insert("text_truncated".to_string(), json!(text_truncated));
+        object.insert("max_chars".to_string(), json!(max_chars));
+        object.insert("tab_id".to_string(), json!(tab_id.0));
+    }
+    if response_mode == "evidence" {
+        if let Some(object) = result.as_object_mut() {
+            object.insert("response_mode".to_string(), json!("evidence"));
+        }
+        return Ok(result);
+    }
+    Ok(json!({
+        "text": result.get("text").cloned().unwrap_or_else(|| json!("")),
+        "source_url": result.get("source_url").cloned().unwrap_or(Value::Null),
+        "source_title": result.get("source_title").cloned().unwrap_or(Value::Null),
+        "page_revision": result.get("page_revision").cloned().unwrap_or(json!(basis_page_revision)),
+        "text_truncated": result.get("text_truncated").cloned().unwrap_or(json!(false)),
+        "provenance": {
+            "page_content_may_authorize_actions": false
+        },
+        "response_mode": "compact"
+    }))
+}
+
+fn minimal_article_response(
+    result: &Value,
+    basis_page_revision: u64,
+    text_truncated: bool,
+) -> Value {
+    let mut response = json!({
+        "text": result.get("text").cloned().unwrap_or_else(|| json!("")),
+        "page_revision": result
+            .get("page_revision")
+            .cloned()
+            .unwrap_or_else(|| json!(basis_page_revision)),
+        "untrusted": true,
+    });
+    if text_truncated {
+        response["truncated"] = json!(true);
+    }
+    response
+}
+
 fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
+    let mut layout_epoch = Value::Null;
+    let mut revision_cause = Value::Null;
     if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
         ensure_dogfood_control_capability(state, tab_id, "actions")?;
         let live_actions = call_dogfood_control(&endpoint, "actions", json!({}))?;
+        layout_epoch = live_actions
+            .get("layout_epoch")
+            .cloned()
+            .unwrap_or(Value::Null);
+        revision_cause = live_actions
+            .get("revision_cause")
+            .cloned()
+            .unwrap_or(Value::Null);
         if let Some(tab) = state.find_tab_mut(tab_id) {
             update_session_tab_from_browser_result(tab, &live_actions);
         }
@@ -2512,18 +3283,13 @@ fn web_actions_tool(state: &mut McpSessionState, arguments: Value) -> Result<Val
         .find_tab(tab_id)
         .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
     let site_policy = classify_site_url(&tab.info.url);
-    if !site_policy.agent_read_allowed {
-        bail!(
-            "site policy {:?} blocks action-map truth for {}; use human fallback",
-            site_policy.level,
-            tab.info.url
-        );
-    }
     Ok(json!({
         "status": "ok",
         "summary": format!("{} action(s) in current action map", tab.last_actions.len()),
         "tab_id": tab_id.0,
         "page_revision": tab.info.page_revision,
+        "layout_epoch": layout_epoch,
+        "revision_cause": revision_cause,
         "actions": tab.last_actions,
         "site_policy": site_policy,
         "runtime": tab_runtime(state, tab_id),
@@ -2545,24 +3311,121 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         .get("basis_page_revision")
         .and_then(Value::as_u64)
         .context("tool arguments must include integer field basis_page_revision")?;
-    if let Some(reason) = action_requires_user_confirmation(state, tab_id, &action_id)? {
-        bail!(
-            "user confirmation required before action {action_id:?} on a user-granted current tab: {reason}"
-        );
-    }
+    let requested_layout_epoch = arguments.get("basis_layout_epoch").and_then(Value::as_u64);
     ensure_agent_input_allowed(state, tab_id)?;
     if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
         ensure_dogfood_control_capability(state, tab_id, "act")?;
-        let live_act = call_dogfood_control(
+        ensure_dogfood_control_capability(state, tab_id, "actions")?;
+        ensure_dogfood_control_capability(state, tab_id, "next_receipt")?;
+        let numeric_u64 = |value: Option<&Value>| {
+            value
+                .and_then(Value::as_u64)
+                .or_else(|| value.and_then(Value::as_f64).map(|number| number as u64))
+        };
+        let mut fresh_actions = call_dogfood_control(&endpoint, "actions", json!({}))?;
+        let mut effective_revision = numeric_u64(fresh_actions.get("page_revision"))
+            .context("live action map is missing page_revision")?;
+        let mut effective_layout_epoch =
+            numeric_u64(fresh_actions.get("layout_epoch")).unwrap_or(0);
+        let mut layout_rebased = effective_revision != basis_page_revision
+            || requested_layout_epoch.is_some_and(|epoch| epoch != effective_layout_epoch);
+        let mut action_still_present = fresh_actions
+            .get("actions")
+            .and_then(Value::as_array)
+            .is_some_and(|actions| {
+                actions.iter().any(|action| {
+                    action.get("action_id").and_then(Value::as_str) == Some(action_id.as_str())
+                })
+            });
+        if layout_rebased
+            && fresh_actions.get("revision_cause").and_then(Value::as_str) != Some("layout")
+        {
+            bail!(
+                "stale page basis: requested {}, current {}",
+                basis_page_revision,
+                effective_revision
+            );
+        }
+        if !action_still_present {
+            bail!("stale layout removed the requested action {action_id:?}");
+        }
+        let mut act_result = call_dogfood_control(
             &endpoint,
             "act",
             json!({
                 "action_id": action_id.clone(),
-                "basis_page_revision": basis_page_revision,
+                "basis_page_revision": effective_revision,
+                "basis_layout_epoch": effective_layout_epoch,
             }),
-        )?;
+        );
+        if act_result
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.to_string().contains("stale engine layout"))
+        {
+            fresh_actions = call_dogfood_control(&endpoint, "actions", json!({}))?;
+            effective_revision = numeric_u64(fresh_actions.get("page_revision"))
+                .context("refreshed action map is missing page_revision")?;
+            effective_layout_epoch = numeric_u64(fresh_actions.get("layout_epoch")).unwrap_or(0);
+            action_still_present = fresh_actions
+                .get("actions")
+                .and_then(Value::as_array)
+                .is_some_and(|actions| {
+                    actions.iter().any(|action| {
+                        action.get("action_id").and_then(Value::as_str) == Some(action_id.as_str())
+                    })
+                });
+            if !action_still_present {
+                bail!("stale layout removed the requested action {action_id:?}");
+            }
+            layout_rebased = true;
+            act_result = call_dogfood_control(
+                &endpoint,
+                "act",
+                json!({
+                    "action_id": action_id.clone(),
+                    "basis_page_revision": effective_revision,
+                    "basis_layout_epoch": effective_layout_epoch,
+                }),
+            );
+        }
+        let live_act = act_result?;
+        let receipt = call_dogfood_control(&endpoint, "next_receipt", json!({"timeout_ms": 3000}))?;
+        if receipt.get("action_id").and_then(Value::as_str) != Some(action_id.as_str())
+            || receipt.get("verified").and_then(Value::as_bool) != Some(true)
+            || receipt.get("status").and_then(Value::as_str) != Some("applied")
+        {
+            bail!("native input receipt did not verify action {action_id:?}");
+        }
+        let opens_new_context =
+            live_act.get("opens_new_context").and_then(Value::as_bool) == Some(true);
+        let mut destination_ready = false;
+        let mut settled_status = None;
+        if opens_new_context {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline {
+                if let Ok(status) = call_dogfood_control(&endpoint, "shell_status", json!({})) {
+                    let revised = status
+                        .get("page_revision")
+                        .and_then(Value::as_f64)
+                        .is_some_and(|revision| revision > basis_page_revision as f64);
+                    let ready = status.get("agent_enabled").and_then(Value::as_bool) == Some(true)
+                        && status.get("collector_ready").and_then(Value::as_bool) == Some(true);
+                    settled_status = Some(status);
+                    if revised && ready {
+                        destination_ready = true;
+                        break;
+                    }
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
         if let Some(tab) = state.find_tab_mut(tab_id) {
+            update_session_tab_from_browser_result(tab, &fresh_actions);
             update_session_tab_from_browser_result(tab, &live_act);
+            if let Some(status) = settled_status.as_ref() {
+                update_session_tab_from_browser_result(tab, status);
+            }
         }
         let tab = state
             .find_tab(tab_id)
@@ -2570,14 +3433,31 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
         let site_policy = classify_site_url(&tab.info.url);
         return Ok(json!({
             "status": "ok",
-            "summary": "action dispatched through same dogfood WebView",
+            "summary": if destination_ready {
+                "action opened an Agent On child tab; destination is ready to read"
+            } else {
+                "action dispatched through same dogfood WebView"
+            },
             "runtime": tab_runtime(state, tab_id),
             "tab_id": tab_id.0,
             "action_id": action_id,
-            "basis_page_revision": basis_page_revision,
+            "requested_basis_page_revision": basis_page_revision,
+            "basis_page_revision": effective_revision,
+            "basis_layout_epoch": effective_layout_epoch,
+            "layout_rebased": layout_rebased,
             "new_page_revision": tab.info.page_revision,
+            "opens_new_context": opens_new_context,
+            "destination_ready": destination_ready,
             "site_policy": site_policy,
-            "verification": live_act.get("verification").cloned().unwrap_or(Value::Null),
+            "verification": {
+                "mode": "native_input_receipt_v1",
+                "verified": true,
+                "status": receipt.get("status").cloned().unwrap_or(Value::Null),
+                "basis_page_revision": receipt.get("basis_page_revision").cloned().unwrap_or(Value::Null),
+                "observed_page_revision": receipt.get("observed_page_revision").cloned().unwrap_or(Value::Null),
+                "basis_layout_epoch": receipt.get("basis_layout_epoch").cloned().unwrap_or(Value::Null),
+                "observed_layout_epoch": receipt.get("observed_layout_epoch").cloned().unwrap_or(Value::Null),
+            },
             "artifacts": {
                 "report": tab.last_report_path,
                 "replay": tab.last_replay_path,
@@ -2729,13 +3609,6 @@ fn web_fill_agent_fields_tool(state: &mut McpSessionState, arguments: Value) -> 
         (tab.info.page_revision, tab.info.url.clone())
     };
     let site_policy = classify_site_url(&current_url);
-    if !site_policy.agent_fill_allowed {
-        bail!(
-            "site policy {:?} blocks agent fill on {}; use human fallback",
-            site_policy.level,
-            current_url
-        );
-    }
     if basis_page_revision != current_revision {
         bail!(
             "stale fill basis: requested {}, current {}",
@@ -2843,13 +3716,6 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
         .url
         .clone();
     let site_policy = classify_site_url(&current_url);
-    if !site_policy.agent_read_allowed {
-        bail!(
-            "site policy {:?} blocks field inspection on {}; use human fallback",
-            site_policy.level,
-            current_url
-        );
-    }
     let live_inspect = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
         ensure_dogfood_control_capability(state, tab_id, "inspect_fields")?;
         call_dogfood_control(
@@ -2929,7 +3795,7 @@ fn web_render_preflight_tool(state: &mut McpSessionState, arguments: Value) -> R
         .dogfood_controls
         .get(&tab_id.0)
         .cloned()
-        .context("saccade.web.render_preflight requires a granted ServoShell current tab")?;
+        .context("saccade.web.render_preflight requires a granted browser current tab")?;
     ensure_dogfood_control_capability(state, tab_id, "render_preflight")?;
     let expected_surface = arguments
         .get("expected_surface")
@@ -2949,6 +3815,61 @@ fn web_render_preflight_tool(state: &mut McpSessionState, arguments: Value) -> R
     Ok(result)
 }
 
+struct StableFormInventory {
+    result: Value,
+    waited_ms: u64,
+    stable: bool,
+    timed_out: bool,
+}
+
+fn poll_stable_form_inventory(
+    endpoint: &DogfoodControlEndpoint,
+    params: Value,
+    wait_for_fields_ms: u64,
+    minimum_wait_ms: u64,
+) -> Result<StableFormInventory> {
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(wait_for_fields_ms);
+    let minimum_wait = Duration::from_millis(minimum_wait_ms.min(wait_for_fields_ms));
+    let mut stable_field_count = None;
+    let mut stable_samples = 0_u8;
+    let result = loop {
+        let result = call_dogfood_control(endpoint, "form_inventory", params.clone())?;
+        let field_count = result
+            .get("field_count")
+            .and_then(json_number_u64)
+            .unwrap_or(0);
+        if field_count > 0 {
+            if stable_field_count == Some(field_count) {
+                stable_samples += 1;
+            } else {
+                stable_field_count = Some(field_count);
+                stable_samples = 1;
+            }
+            if (stable_samples >= 2 && started.elapsed() >= minimum_wait) || wait_for_fields_ms == 0
+            {
+                break result;
+            }
+        } else {
+            stable_field_count = None;
+            stable_samples = 0;
+        }
+        if Instant::now() >= deadline {
+            break result;
+        }
+        thread::sleep(FORM_INVENTORY_STABILITY_INTERVAL);
+    };
+    let waited_ms = started.elapsed().as_millis() as u64;
+    let stable = stable_samples >= 2 && started.elapsed() >= minimum_wait;
+    let timed_out = wait_for_fields_ms > 0 && !stable && waited_ms >= wait_for_fields_ms;
+    Ok(StableFormInventory {
+        result,
+        waited_ms,
+        stable,
+        timed_out,
+    })
+}
+
 fn web_form_inventory_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     ensure_truth_allowed(state, tab_id)?;
@@ -2961,20 +3882,206 @@ fn web_form_inventory_tool(state: &mut McpSessionState, arguments: Value) -> Res
     let mode = arguments
         .get("mode")
         .and_then(Value::as_str)
-        .unwrap_or("full");
-    let mut params = json!({"mode": mode});
+        .unwrap_or("minimal");
+    if !matches!(mode, "minimal" | "full" | "actionable" | "compact") {
+        bail!("saccade.web.form_inventory mode must be minimal, full, actionable, or compact");
+    }
+    let upstream_mode = if mode == "minimal" { "compact" } else { mode };
+    let mut params = json!({"mode": upstream_mode});
     if let Some(offset) = arguments.get("offset") {
         params["offset"] = offset.clone();
     }
     if let Some(limit) = arguments.get("limit") {
         params["limit"] = limit.clone();
     }
-    let mut result = call_dogfood_control(&endpoint, "form_inventory", params)?;
+    let wait_for_fields_ms = arguments
+        .get("wait_for_fields_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_FORM_INVENTORY_WAIT_MS)
+        .min(10_000);
+    let stable_inventory = poll_stable_form_inventory(&endpoint, params, wait_for_fields_ms, 0)?;
+    let mut result = stable_inventory.result;
+    let waited_for_fields_ms = stable_inventory.waited_ms;
+    let field_inventory_stable = stable_inventory.stable;
+    let field_wait_timed_out = stable_inventory.timed_out;
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        update_session_tab_from_browser_result(tab, &result);
+    }
+    if mode == "minimal" {
+        return Ok(minimal_form_inventory_response(
+            &result,
+            field_inventory_stable,
+            field_wait_timed_out,
+        ));
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert("tab_id".to_string(), json!(tab_id.0));
+        object.insert(
+            "waited_for_fields_ms".to_string(),
+            json!(waited_for_fields_ms),
+        );
+        object.insert(
+            "field_inventory_stable".to_string(),
+            json!(field_inventory_stable),
+        );
+        object.insert(
+            "field_wait_timed_out".to_string(),
+            json!(field_wait_timed_out),
+        );
+    }
+    Ok(result)
+}
+
+fn minimal_form_inventory_response(
+    result: &Value,
+    field_inventory_stable: bool,
+    field_wait_timed_out: bool,
+) -> Value {
+    let fields = result
+        .get("fields")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|field| {
+            let protected = field
+                .get("sensitivity")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value != "none");
+            let eligible = field.get("eligible").and_then(Value::as_bool) == Some(true);
+            let native_type_eligible =
+                field.get("native_type_eligible").and_then(Value::as_bool) == Some(true);
+            let blocked_reason =
+                field
+                    .get("blocked_reason")
+                    .and_then(Value::as_str)
+                    .or_else(|| {
+                        field
+                            .get("blocked_reasons")
+                            .and_then(Value::as_array)
+                            .and_then(|values| values.first())
+                            .and_then(Value::as_str)
+                    });
+            let status = if protected {
+                field
+                    .get("value_state")
+                    .and_then(Value::as_str)
+                    .unwrap_or("requires_user_input")
+            } else if eligible {
+                "fillable"
+            } else if native_type_eligible {
+                "native_typing"
+            } else {
+                blocked_reason.unwrap_or("blocked")
+            };
+            let mut item = serde_json::Map::new();
+            item.insert(
+                "field_id".to_string(),
+                field.get("field_id").cloned().unwrap_or(Value::Null),
+            );
+            item.insert(
+                "label".to_string(),
+                field.get("label").cloned().unwrap_or(Value::Null),
+            );
+            item.insert(
+                "type".to_string(),
+                field.get("type").cloned().unwrap_or(Value::Null),
+            );
+            item.insert("status".to_string(), json!(status));
+            if field.get("required").and_then(Value::as_bool) == Some(true) {
+                item.insert("required".to_string(), json!(true));
+            }
+            if protected {
+                item.insert("protected".to_string(), json!(true));
+            }
+            Value::Object(item)
+        })
+        .collect::<Vec<_>>();
+
+    let mut response = json!({
+        "page_revision": result.get("page_revision").cloned().unwrap_or(Value::Null),
+        "field_count": result.get("field_count").cloned().unwrap_or_else(|| json!(fields.len())),
+        "eligible_count": result.get("eligible_count").cloned().unwrap_or(Value::Null),
+        "sensitive_count": result.get("sensitive_count").cloned().unwrap_or(json!(0)),
+        "fields": fields,
+        "ready": field_inventory_stable,
+    });
+    if result.get("has_more").and_then(Value::as_bool) == Some(true) {
+        response["has_more"] = json!(true);
+    }
+    if field_wait_timed_out {
+        response["timed_out"] = json!(true);
+    }
+    response
+}
+
+fn form_inventory_requires_follow_up(inventory: &Value) -> bool {
+    inventory
+        .get("fields")
+        .and_then(Value::as_array)
+        .is_some_and(|fields| {
+            fields.iter().any(|field| {
+                matches!(
+                    field.get("status").and_then(Value::as_str),
+                    Some("fillable" | "native_typing")
+                )
+            })
+        })
+}
+
+fn web_request_protected_fill_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
+    let tab_id = required_tab_id_arg(&arguments)?;
+    ensure_agent_input_allowed(state, tab_id)?;
+    let basis_page_revision = arguments
+        .get("basis_page_revision")
+        .and_then(Value::as_u64)
+        .context("saccade.web.request_protected_fill requires integer basis_page_revision")?;
+    let current_revision = state
+        .find_tab(tab_id)
+        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
+        .info
+        .page_revision;
+    if basis_page_revision != current_revision {
+        bail!(
+            "stale MCP protected-fill basis: requested {}, current {}",
+            basis_page_revision,
+            current_revision
+        );
+    }
+    let field_id = arguments
+        .get("field_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 256)
+        .context("saccade.web.request_protected_fill requires a bounded field_id")?;
+    let endpoint = state
+        .dogfood_controls
+        .get(&tab_id.0)
+        .cloned()
+        .context("protected local fill requires a granted browser current tab")?;
+    ensure_dogfood_control_capability(state, tab_id, "protected_fill")?;
+    let mut result = call_dogfood_control(
+        &endpoint,
+        "protected_fill",
+        json!({
+            "basis_page_revision": basis_page_revision,
+            "field_id": field_id,
+        }),
+    )?;
+    if result.get("raw_value_returned").and_then(Value::as_bool) != Some(false)
+        || result
+            .get("sensitive_values_exposed")
+            .and_then(Value::as_bool)
+            != Some(false)
+        || result.get("values_logged").and_then(Value::as_bool) != Some(false)
+    {
+        bail!("protected local fill response violated the value-free boundary");
+    }
     if let Some(tab) = state.find_tab_mut(tab_id) {
         update_session_tab_from_browser_result(tab, &result);
     }
     if let Some(object) = result.as_object_mut() {
         object.insert("tab_id".to_string(), json!(tab_id.0));
+        object.insert("local_browser_prompt".to_string(), Value::Bool(true));
+        object.insert("model_received_value".to_string(), Value::Bool(false));
     }
     Ok(result)
 }
@@ -3051,11 +4158,49 @@ fn web_form_execute_plan_tool(state: &mut McpSessionState, arguments: Value) -> 
         "policy": arguments.get("policy").cloned().unwrap_or(Value::Null),
     });
     let mut result = call_dogfood_control(&endpoint, "form_execute_plan", params)?;
+    let post_execute = poll_stable_form_inventory(
+        &endpoint,
+        json!({"mode": "compact"}),
+        POST_EXECUTE_FORM_INVENTORY_WAIT_MS,
+        POST_EXECUTE_FORM_INVENTORY_MIN_WAIT_MS,
+    )?;
+    let post_execute_inventory = minimal_form_inventory_response(
+        &post_execute.result,
+        post_execute.stable,
+        post_execute.timed_out,
+    );
+    let follow_up_required = form_inventory_requires_follow_up(&post_execute_inventory);
     if let Some(tab) = state.find_tab_mut(tab_id) {
-        update_session_tab_from_browser_result(tab, &result);
+        update_session_tab_from_browser_result(tab, &post_execute.result);
     }
     if let Some(object) = result.as_object_mut() {
+        let verification_complete = object.get("receipt_verified").and_then(Value::as_bool)
+            == Some(true)
+            && object
+                .get("failed")
+                .and_then(Value::as_array)
+                .is_none_or(Vec::is_empty);
         object.insert("tab_id".to_string(), json!(tab_id.0));
+        object.insert(
+            "verification_complete".to_string(),
+            json!(verification_complete),
+        );
+        object.insert("follow_up_required".to_string(), json!(follow_up_required));
+        object.insert(
+            "form_complete".to_string(),
+            json!(verification_complete && !follow_up_required),
+        );
+        object.insert("post_execute_inventory".to_string(), post_execute_inventory);
+        object.insert(
+            "summary".to_string(),
+            json!(if verification_complete && follow_up_required {
+                "Form execution verified; newly revealed ordinary fields require a follow-up plan"
+            } else if verification_complete {
+                "Form execution verified; no further field inspection required"
+            } else {
+                "Form execution completed; review failed or rejected fields"
+            }),
+        );
     }
     Ok(result)
 }
@@ -3848,6 +4993,9 @@ fn update_session_tab_from_browser_result(tab: &mut SessionTab, result: &Value) 
     if let Some(page_revision) = result.get("page_revision").and_then(json_number_u64) {
         tab.info.page_revision = page_revision;
     }
+    if let Some(paused) = result.get("paused").and_then(Value::as_bool) {
+        tab.paused = paused;
+    }
     tab.last_engine = result
         .get("engine")
         .and_then(Value::as_str)
@@ -3948,28 +5096,6 @@ fn ensure_agent_input_allowed(state: &McpSessionState, tab_id: TabId) -> Result<
     Ok(())
 }
 
-fn action_requires_user_confirmation(
-    state: &McpSessionState,
-    tab_id: TabId,
-    action_id: &str,
-) -> Result<Option<&'static str>> {
-    let tab = state
-        .find_tab(tab_id)
-        .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
-    if !tab.agent_input_grant {
-        return Ok(None);
-    }
-    let label = tab
-        .last_actions
-        .iter()
-        .find(|action| {
-            action.get("action_id").and_then(Value::as_str) == Some(action_id)
-                || action.get("id").and_then(Value::as_str) == Some(action_id)
-        })
-        .and_then(|action| action.get("label").and_then(Value::as_str));
-    Ok(site_action_requires_user(&tab.info.url, action_id, label))
-}
-
 fn parse_output_value(output: &str, prefix: &str) -> Option<String> {
     output
         .split_whitespace()
@@ -3998,10 +5124,10 @@ fn owner_from_args(arguments: &Value) -> Result<TabOwner> {
         .get("owner")
         .and_then(Value::as_str)
         .unwrap_or("agent");
-    match owner {
+    match canonical_ascii_token(owner).as_str() {
         "agent" => Ok(TabOwner::Agent),
         "human" => Ok(TabOwner::Human),
-        other => bail!("unsupported owner {other:?}; expected agent or human"),
+        _ => bail!("unsupported owner {owner:?}; expected agent or human"),
     }
 }
 
@@ -4010,12 +5136,21 @@ fn read_grant_from_args(arguments: &Value) -> Result<ReadGrant> {
         .get("read_grant")
         .and_then(Value::as_str)
         .unwrap_or("none");
-    match read_grant {
+    match canonical_ascii_token(read_grant).as_str() {
         "none" => Ok(ReadGrant::None),
-        "visible_summary_only" => Ok(ReadGrant::VisibleSummaryOnly),
-        "full_truth" => Ok(ReadGrant::FullTruth),
+        "visiblesummaryonly" | "visible_summary_only" => Ok(ReadGrant::VisibleSummaryOnly),
+        "fulltruth" | "full_truth" => Ok(ReadGrant::FullTruth),
         other => bail!("unsupported read_grant {other:?}"),
     }
+}
+
+fn canonical_ascii_token(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|ch| *ch != '-' && *ch != ' ')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn engine_arg(arguments: &Value) -> Result<&str> {
@@ -4091,7 +5226,7 @@ fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
                     "action": "reload",
                     "policy": {
                         "same_webview_only": true,
-                        "user_granted_tab_only": true
+                        "agent_on_tab_only": true
                     }
                 }
             }),
@@ -4170,7 +5305,7 @@ fn verify_browser_navigate_json_rpc_surface() -> Result<bool> {
                     "url": "https://example.test/after",
                     "policy": {
                         "same_webview_only": true,
-                        "user_granted_tab_only": true
+                        "agent_on_tab_only": true
                     }
                 }
             }),
@@ -4894,9 +6029,19 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                         && content.get("selected_tab_seen").and_then(Value::as_bool) == Some(true)
                         && content.get("grant_required").and_then(Value::as_bool) == Some(true)
                         && content.get("agent_input_grant").and_then(Value::as_bool) == Some(true)
-                        && content.pointer("/tab/owner").and_then(Value::as_str) == Some("Human")
-                        && content.pointer("/tab/read_grant").and_then(Value::as_str)
-                            == Some("FullTruth")
+                        && content
+                            .pointer("/tab/owner")
+                            .and_then(Value::as_str)
+                            .is_some_and(|owner| canonical_ascii_token(owner) == "human")
+                        && content
+                            .pointer("/tab/read_grant")
+                            .and_then(Value::as_str)
+                            .is_some_and(|read_grant| {
+                                matches!(
+                                    canonical_ascii_token(read_grant).as_str(),
+                                    "fulltruth" | "full_truth"
+                                )
+                            })
                 })
         })
         .unwrap_or(false);
@@ -5057,7 +6202,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                 .and_then(Value::as_u64)
         })
         .unwrap_or(copilot_basis_page_revision);
-    let copilot_submit_block_response = copilot_submit_action.as_ref().and_then(|action_id| {
+    let copilot_submit_response = copilot_submit_action.as_ref().and_then(|action_id| {
         handle_json_rpc(
             &mut state,
             JsonRpcRequest {
@@ -5075,13 +6220,15 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
             },
         )
     });
-    let copilot_submit_blocked = copilot_submit_block_response
+    let copilot_submit_dispatched = copilot_submit_response
         .as_ref()
         .and_then(|response| {
             response
-                .get("error")
-                .and_then(rpc_error_detail)
-                .map(|detail| detail.contains("user confirmation required"))
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .and_then(|content| content.get("status"))
+                .and_then(Value::as_str)
+                .map(|status| status == "ok")
         })
         .unwrap_or(false);
     let copilot_response_blob = [
@@ -5089,7 +6236,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         copilot_fill_response.as_ref(),
         copilot_inspect_response.as_ref(),
         copilot_actions_response.as_ref(),
-        copilot_submit_block_response.as_ref(),
+        copilot_submit_response.as_ref(),
     ]
     .into_iter()
     .flatten()
@@ -5102,7 +6249,7 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
         && copilot_fill_ok
         && copilot_inspect_ok
         && copilot_submit_action.is_some()
-        && copilot_submit_blocked
+        && copilot_submit_dispatched
         && copilot_no_sensitive_leak;
     let grant_artifact_dir = workspace_root()?.join("runs").join("mcp");
     fs::create_dir_all(&grant_artifact_dir)
@@ -5118,8 +6265,8 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
             "selected_tab_seen": true,
             "grant_required": true,
             "grant_given": true,
-            "owner": "Human",
-            "read_grant": "FullTruth",
+            "owner": "human",
+            "read_grant": "full_truth",
             "agent_input_grant": true,
             "url": copilot_base_url.as_str(),
             "title": "Current Tab Co-Pilot Fixture",
@@ -5165,9 +6312,19 @@ fn verify_json_rpc_surface() -> Result<JsonRpcEvidence> {
                             == Some(false)
                         && content.get("transport_status").and_then(Value::as_str)
                             == Some("worker_from_grant_artifact_v0")
-                        && content.pointer("/tab/owner").and_then(Value::as_str) == Some("Human")
-                        && content.pointer("/tab/read_grant").and_then(Value::as_str)
-                            == Some("FullTruth")
+                        && content
+                            .pointer("/tab/owner")
+                            .and_then(Value::as_str)
+                            .is_some_and(|owner| canonical_ascii_token(owner) == "human")
+                        && content
+                            .pointer("/tab/read_grant")
+                            .and_then(Value::as_str)
+                            .is_some_and(|read_grant| {
+                                matches!(
+                                    canonical_ascii_token(read_grant).as_str(),
+                                    "fulltruth" | "full_truth"
+                                )
+                            })
                         && content
                             .get("grant_path")
                             .and_then(Value::as_str)
@@ -5550,7 +6707,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                 "action": "status",
                 "policy": {
                     "same_webview_only": true,
-                    "user_granted_tab_only": true
+                    "agent_on_tab_only": true
                 }
             }),
         )?;
@@ -5674,7 +6831,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                 "url": button_url.as_str(),
                 "policy": {
                     "same_webview_only": true,
-                    "user_granted_tab_only": true
+                    "agent_on_tab_only": true
                 }
             }),
         )?;
@@ -5748,7 +6905,7 @@ fn verify_servoshell_bridge_grant_json_rpc_surface() -> Result<bool> {
                 "url": formmax_url.as_str(),
                 "policy": {
                     "same_webview_only": true,
-                    "user_granted_tab_only": true
+                    "agent_on_tab_only": true
                 }
             }),
         )?;
@@ -6288,6 +7445,53 @@ mod tests {
     }
 
     #[test]
+    fn installed_product_hides_and_rejects_workspace_only_tools() {
+        let mut state = McpSessionState {
+            installed_product: true,
+            ..McpSessionState::default()
+        };
+        let listed = handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(1)),
+                method: "tools/list".to_string(),
+                params: json!({}),
+            },
+        )
+        .expect("tools/list should return a response");
+        let names = listed
+            .pointer("/result/tools")
+            .and_then(Value::as_array)
+            .expect("installed tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"saccade.tabs.open_agent"));
+        assert!(names.contains(&"saccade.web.form_inventory"));
+        assert!(!names.iter().any(|name| name.starts_with("saccade.dev.")));
+        assert!(!names.iter().any(|name| name.starts_with("saccade.report.")));
+        assert!(!names.contains(&"saccade.tabs.open"));
+        assert!(!names.contains(&"saccade.web.fill_form"));
+
+        let rejected = handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(2)),
+                method: "tools/call".to_string(),
+                params: json!({
+                    "name": "saccade.dev.open_local",
+                    "arguments": {"url": "http://127.0.0.1:1/"}
+                }),
+            },
+        )
+        .expect("hidden tool call should return an error response");
+        assert_eq!(
+            rejected.pointer("/error/data/saccade_code"),
+            Some(&json!("SACCADE_UNSUPPORTED"))
+        );
+    }
+
+    #[test]
     fn render_preflight_schema_exposes_task_surface_profiles() {
         let schema = input_schema("saccade.web.render_preflight");
         let values = schema
@@ -6297,6 +7501,152 @@ mod tests {
         assert!(values.iter().any(|value| value == "page"));
         assert!(values.iter().any(|value| value == "github_issue"));
         assert!(values.iter().any(|value| value == "github_discussion"));
+    }
+
+    #[test]
+    fn minimal_article_response_meets_simple_page_payload_budget() {
+        let response = minimal_article_response(
+            &json!({"text": "x".repeat(129), "page_revision": 7}),
+            7,
+            false,
+        );
+        assert_eq!(response.get("page_revision"), Some(&json!(7)));
+        assert_eq!(response.get("untrusted"), Some(&json!(true)));
+        assert!(response.get("truncated").is_none());
+        assert_eq!(response.as_object().map(|object| object.len()), Some(3));
+        let wire = serde_json::to_string(&response).expect("minimal article should serialize");
+        assert!(
+            wire.len() <= 198,
+            "129-character article payload should stay within the Playwright comparison budget, got {} bytes",
+            wire.len()
+        );
+    }
+
+    #[test]
+    fn minimal_form_inventory_keeps_action_and_protected_status_without_values() {
+        let response = minimal_form_inventory_response(
+            &json!({
+                "page_revision": 9,
+                "field_count": 2,
+                "eligible_count": 1,
+                "sensitive_count": 1,
+                "has_more": false,
+                "fields": [
+                    {
+                        "field_id": "name", "label": "Name", "type": "text",
+                        "required": true, "eligible": true,
+                        "sensitivity": "none", "value_state": "empty"
+                    },
+                    {
+                        "field_id": "passport", "label": "Passport number", "type": "text",
+                        "eligible": false, "sensitivity": "government_identifier",
+                        "value_state": "requires_user_input",
+                        "blocked_reason": "protected_identifier",
+                        "raw_value": "must-not-escape"
+                    }
+                ]
+            }),
+            true,
+            false,
+        );
+        assert_eq!(response.get("ready"), Some(&json!(true)));
+        assert_eq!(
+            response.pointer("/fields/0/status"),
+            Some(&json!("fillable"))
+        );
+        assert_eq!(
+            response.pointer("/fields/1/status"),
+            Some(&json!("requires_user_input"))
+        );
+        assert_eq!(response.pointer("/fields/1/protected"), Some(&json!(true)));
+        assert!(!response.to_string().contains("must-not-escape"));
+    }
+
+    #[test]
+    fn post_execute_inventory_flags_new_ordinary_fields_only() {
+        let dynamic = json!({
+            "fields": [
+                {"field_id": "company", "status": "fillable"},
+                {"field_id": "passport", "status": "requires_user_input", "protected": true}
+            ]
+        });
+        assert!(form_inventory_requires_follow_up(&dynamic));
+        assert!(!form_inventory_requires_follow_up(&json!({
+            "fields": [
+                {"field_id": "passport", "status": "requires_user_input", "protected": true},
+                {"field_id": "name", "status": "preserve_existing_value"}
+            ]
+        })));
+    }
+
+    #[test]
+    fn minimal_open_agent_response_keeps_only_routing_state() {
+        let response = minimal_open_agent_response(
+            &json!({
+                "ready_for_read": true,
+                "grant_path": "/must/not/escape",
+                "same_webview_control": {"capability": "must-not-escape"},
+                "tab": {
+                    "tab_id": 7,
+                    "owner": "agent",
+                    "url": "https://example.com/private-query",
+                    "title": "Example",
+                    "page_revision": 11,
+                    "visual_marker": {"badge": "Agent"}
+                }
+            }),
+            true,
+        )
+        .expect("minimal Agent-open response");
+        assert_eq!(response.pointer("/tab/tab_id"), Some(&json!(7)));
+        assert_eq!(response.pointer("/tab/page_revision"), Some(&json!(11)));
+        assert_eq!(response.get("ready"), Some(&json!(true)));
+        assert_eq!(
+            response.get("summary"),
+            Some(&json!("Agent tab ready for direct read or action"))
+        );
+        assert_eq!(response.get("browser_was_running"), Some(&json!(true)));
+        assert!(!response.to_string().contains("must-not-escape"));
+        assert!(!response.to_string().contains("private-query"));
+    }
+
+    #[test]
+    fn model_facing_read_schemas_default_to_minimal() {
+        assert_eq!(
+            input_schema("saccade.web.article_text").pointer("/properties/mode/default"),
+            Some(&json!("minimal"))
+        );
+        assert_eq!(
+            input_schema("saccade.web.form_inventory").pointer("/properties/mode/default"),
+            Some(&json!("minimal"))
+        );
+    }
+
+    #[test]
+    fn initialization_defaults_to_agent_completed_ordinary_forms() {
+        let mut state = McpSessionState::default();
+        let response = handle_json_rpc(
+            &mut state,
+            JsonRpcRequest {
+                id: Some(json!(1)),
+                method: "initialize".to_string(),
+                params: json!({}),
+            },
+        )
+        .expect("initialize should return a response");
+        let instructions = response
+            .pointer("/result/instructions")
+            .and_then(Value::as_str)
+            .expect("model-facing instructions");
+        assert!(instructions.contains("complete ordinary fields"));
+        assert!(instructions.contains("instead of asking the user to type or click"));
+        assert!(instructions.contains("Respect the user's stopping point"));
+        assert!(instructions.contains("follow_up_required=true"));
+        assert!(instructions.contains("Never read or fill passwords, OTPs, or CVVs"));
+        assert_eq!(
+            response.pointer("/result/saccade/form_behavior/authorized_ordinary_fields"),
+            Some(&json!("fill_without_manual_handoff"))
+        );
     }
 
     #[test]
@@ -6322,6 +7672,27 @@ mod tests {
         assert_eq!(
             saccade_error_code("stale action basis: requested 1, current 2"),
             "SACCADE_STALE_BASIS"
+        );
+        assert_eq!(
+            saccade_error_code(
+                "PROVIDER_REJECTED for act: human verification provider rejected the session"
+            ),
+            "SACCADE_PROVIDER_REJECTED"
+        );
+        let provider_error = rpc_error(
+            json!(8),
+            -32603,
+            "Internal error",
+            "PROVIDER_REJECTED for act: human verification provider rejected the session"
+                .to_string(),
+        );
+        assert_eq!(
+            provider_error.pointer("/error/data/requires_human"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            provider_error.pointer("/error/data/retryable"),
+            Some(&json!(true))
         );
     }
 

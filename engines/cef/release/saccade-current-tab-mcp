@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$SCRIPT_DIR/saccade-mcp" ] && [ -x "$SCRIPT_DIR/Saccade" ]; then
+  # Installed, self-contained Saccade.app layout.
+  MCP="$SCRIPT_DIR/saccade-mcp"
+  APP_EXECUTABLE="$SCRIPT_DIR/Saccade"
+  export SACCADE_MCP_RUNTIME_PROFILE=installed_product
+else
+  # Uninstalled dogfood-kit layout retained for local diagnostics.
+  ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+  MCP="$ROOT/bin/saccade-mcp"
+  APP_EXECUTABLE="$ROOT/Saccade.app/Contents/MacOS/Saccade"
+fi
+
+[ -x "$MCP" ] || {
+  echo "Packaged saccade-mcp is missing." >&2
+  exit 1
+}
+
+# The pointer contains only the path to the owner-only live grant. The MCP
+# server consumes it internally when the model calls grant_current with no
+# arguments; neither the pointer nor the capability is printed to stdout.
+export SACCADE_CURRENT_AGENT_POINTER=${SACCADE_CURRENT_AGENT_POINTER:-$HOME/Library/Application Support/Saccade/CEF/Agent/current-grant-path}
+export SACCADE_APP_EXECUTABLE=${SACCADE_APP_EXECUTABLE:-$APP_EXECUTABLE}
+exec "$MCP" serve-stdio

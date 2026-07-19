@@ -119,7 +119,8 @@ agent_explains_page=true
 agent_fills_non_sensitive=true
 sensitive_values_exposed=false
 user_can_complete_sensitive=true
-submit_requires_confirmation=true
+site_action_policy_owner=llm_host
+submit_receipt_required=true
 replay_written=true
 ```
 
@@ -132,7 +133,9 @@ replay_written=true
 5. Agent fills ordinary fields.
 6. User fills sensitive fields directly in the browser.
 7. Agent checks only completion/status for sensitive fields.
-8. Submit or external side effects require user confirmation.
+8. The LLM host decides whether to submit or take other site actions; Saccade
+   adds no second confirmation and still requires a revision-bound browser
+   action plus receipt.
 9. Run writes `report.json` and `replay.jsonl`.
 
 ### First Implementation Shape

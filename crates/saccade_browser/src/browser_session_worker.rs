@@ -3241,8 +3241,8 @@ pub(crate) fn fill_agent_fields_script(fields_json: &str) -> String {
       rejected.push({{ id, reason: "not_found" }});
       continue;
     }}
-    const owner = el.getAttribute("data-owner") || "";
-    const declaredSensitivity = el.getAttribute("data-sensitive") || "none";
+    const owner = (el.getAttribute("data-owner") || "").toLowerCase();
+    const declaredSensitivity = (el.getAttribute("data-sensitive") || "none").toLowerCase();
     const sensitivity = sensitivityOf(el);
     if (owner !== "agent" || declaredSensitivity !== "none" || sensitivity !== "none") {{
       rejected.push({{ id, reason: "not_agent_owned_non_sensitive", owner, sensitivity }});

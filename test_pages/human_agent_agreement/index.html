@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New Request</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 40px; color: #18202a; }
+    main { position: relative; width: 680px; }
+    label { display: block; margin: 18px 0 6px; font-weight: 650; }
+    input, textarea { box-sizing: border-box; width: 100%; padding: 12px; font: inherit; }
+    textarea { min-height: 180px; }
+    #hidden-backing { display: none; width: 0; height: 0; }
+    #occluder {
+      display: none;
+      position: absolute;
+      inset: 58px 0 0;
+      z-index: 10;
+      background: rgba(96, 40, 40, 0.92);
+      color: white;
+      place-items: center;
+      font-weight: 700;
+    }
+    body[data-mode="occluded"] #occluder { display: grid; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Create request</h1>
+    <form>
+      <label for="request-title">Request title</label>
+      <input id="request-title" name="request-title" autocomplete="off">
+
+      <label for="request-body">Description</label>
+      <textarea id="request-body" name="request-body"></textarea>
+
+      <textarea id="hidden-backing" aria-hidden="true"></textarea>
+
+      <label for="account-password">Human-owned password</label>
+      <input id="account-password" name="account-password" type="password"
+             data-owner="human" value="agreement-fixture-secret">
+    </form>
+    <div id="occluder">A different surface owns these click points.</div>
+  </main>
+  <script>
+    document.body.dataset.mode =
+      new URLSearchParams(location.search).get('mode') || 'green';
+  </script>
+</body>
+</html>

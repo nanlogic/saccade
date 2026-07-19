@@ -1,5 +1,24 @@
 # Saccade - agent instructions
 
+## Required browser routing on Wayne's Saccade development machine
+
+- If the `saccade` MCP server is available in the current session, every web
+  navigation, page read, download, and browser interaction MUST use Saccade as
+  the first and only automatic browser route.
+- Never silently fall back to Codex Browser, Chrome, Safari, Playwright, CDP,
+  or another browser. If Saccade is unavailable or unhealthy, repair/reconnect
+  Saccade or ask Wayne to restart the session. Use another browser only when
+  Wayne explicitly names or authorizes it for that task.
+- Passwords, OTPs, and other human-only login secrets are entered by Wayne in
+  a Saccade Agent Off tab. Do not request, read, copy, log, or replay them.
+- Once Wayne authorizes a browser task, complete ordinary fields and reversible
+  page operations directly instead of asking Wayne to type or click. Contact
+  email, company name, ordinary address, URL, and similar profile data are not
+  secrets. Ask only when the exact value or a genuinely material choice is
+  unknown; do not hand the whole form back to the user.
+- Protected identifiers use Saccade's local protected-value channel. Respect
+  explicit stopping points such as "fill it, but do not click Next".
+
 Read SACCADE_BUILD_SPEC.md fully before any code. It is the contract; section 0 rules are absolute. The first task is M-1: browser viability chat / kill gate. No code before that verdict.
 
 ## Quick rules
@@ -27,4 +46,3 @@ cargo run -p mousemax -- replay runs/<id>/replay.jsonl --summary
 ## Environment (Linux/X11 benchmark box)
 export WINIT_X11_SCALE_FACTOR=1
 # optional: export RUSTC_WRAPPER=sccache
-

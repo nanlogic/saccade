@@ -1,0 +1,10 @@
+--- a/tests/cefsimple/mac/English.lproj/MainMenu.xib
++++ b/tests/cefsimple/mac/English.lproj/MainMenu.xib
+@@ -12,6 +12,6 @@
+             <items>
+                 <menuItem title="Saccade" id="56">
+-                    <menu key="submenu" title="TestShell" systemMenu="apple" id="57">
++                    <menu key="submenu" title="Saccade" systemMenu="apple" id="57">
+                         <items>
+                             <menuItem title="About Saccade" id="58">
+                                 <modifierMask key="keyEquivalentModifierMask"/>

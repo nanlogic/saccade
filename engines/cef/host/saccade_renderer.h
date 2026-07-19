@@ -4,6 +4,8 @@
 #ifndef SACCADE_CEF_HOST_SACCADE_RENDERER_H_
 #define SACCADE_CEF_HOST_SACCADE_RENDERER_H_
 
+#include <map>
+
 #include "include/cef_app.h"
 #include "include/cef_render_process_handler.h"
 
@@ -19,12 +21,22 @@ class SaccadeRendererApp : public CefApp, public CefRenderProcessHandler {
   void OnContextCreated(CefRefPtr<CefBrowser> browser,
                         CefRefPtr<CefFrame> frame,
                         CefRefPtr<CefV8Context> context) override;
+  void OnContextReleased(CefRefPtr<CefBrowser> browser,
+                         CefRefPtr<CefFrame> frame,
+                         CefRefPtr<CefV8Context> context) override;
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
                                 CefRefPtr<CefFrame> frame,
                                 CefProcessId source_process,
                                 CefRefPtr<CefProcessMessage> message) override;
 
  private:
+  struct FormCommandClosure {
+    CefRefPtr<CefV8Context> context;
+    CefRefPtr<CefV8Value> function;
+  };
+
+  std::map<int, FormCommandClosure> form_command_closures_;
+
   IMPLEMENT_REFCOUNTING(SaccadeRendererApp);
 };
 

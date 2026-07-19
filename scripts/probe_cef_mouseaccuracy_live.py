@@ -57,7 +57,7 @@ def main() -> int:
     args = parse_args()
     if args.hits <= 0:
         raise SystemExit("--hits must be positive")
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     if not executable.is_file():
         raise SystemExit(f"missing CEF release app: {executable}")
 
@@ -89,7 +89,7 @@ def main() -> int:
         "--window-size=1440,1000",
     ]
     if args.hidden:
-        command.append("--initial-show-state=hidden")
+        command.extend(["--use-views", "--initial-show-state=hidden"])
 
     browser_log_path = args.output_dir / "browser.log"
     report_path = args.output_dir / "report.json"

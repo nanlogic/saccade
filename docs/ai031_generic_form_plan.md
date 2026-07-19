@@ -120,11 +120,18 @@ inventory needs a compact/paged mode before broad token-efficiency claims.
 `form_inventory` now accepts `mode=full|actionable|compact`, plus optional
 `offset` and `limit` (`1..500`). `full` preserves the original response;
 `actionable` returns only currently eligible fields; `compact` returns a small
-planning record for each field (`field_id`, type, label confidence, owner,
-sensitivity, required, redacted value state, eligibility, and block reasons).
+planning record for each field (`field_id`, label, type, owner, sensitivity,
+required, redacted value state, eligibility, native-type eligibility, and the
+first block reason).
 Compact mode defaults to the first 100 fields and exposes `candidate_count`,
-`returned_count`, `omitted_count`, and `has_more` so an agent can page without
+`returned_count`, `offset`, `limit`, and `has_more` so an agent can page without
 guessing. No mode returns raw field values or select option contents.
+
+The CEF installed-product implementation was reverified on 2026-07-18 after an
+external-user report found that build 44 ignored `mode`. Build 47 reduced the
+packaged six-field inventory from 2,947 bytes to 1,666 bytes (56.5% of full) and
+automatically waited for a form hydrating after 1.2 seconds. Evidence:
+`runs/dogfood/df_external_report_final_installed_build47_20260718/report.json`.
 
 The local adversarial gate also checks `compact offset=0 limit=3`: it returns
 three of 17 fields, reports `has_more=true`, and contains no selector hashes or

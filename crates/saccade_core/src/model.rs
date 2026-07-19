@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::{CssPoint, CssRect, Ns, ViewportInfo};
 
@@ -35,17 +35,83 @@ pub struct TargetId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TabId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TabOwner {
     Human,
     Agent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+impl Serialize for TabOwner {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(match self {
+            Self::Human => "human",
+            Self::Agent => "agent",
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for TabOwner {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match canonical_token(&value).as_str() {
+            "human" => Ok(Self::Human),
+            "agent" => Ok(Self::Agent),
+            _ => Err(de::Error::unknown_variant(&value, &["human", "agent"])),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadGrant {
     None,
     VisibleSummaryOnly,
     FullTruth,
+}
+
+impl Serialize for ReadGrant {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(match self {
+            Self::None => "none",
+            Self::VisibleSummaryOnly => "visible_summary_only",
+            Self::FullTruth => "full_truth",
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for ReadGrant {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match canonical_token(&value).as_str() {
+            "none" => Ok(Self::None),
+            "visiblesummaryonly" | "visible_summary_only" => Ok(Self::VisibleSummaryOnly),
+            "fulltruth" | "full_truth" => Ok(Self::FullTruth),
+            _ => Err(de::Error::unknown_variant(
+                &value,
+                &["none", "visible_summary_only", "full_truth"],
+            )),
+        }
+    }
+}
+
+fn canonical_token(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|ch| *ch != '-' && *ch != ' ')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +302,42 @@ pub struct DetectorUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tab_owner_and_read_grant_accept_case_variants_but_emit_canonical_lowercase() {
+        let info: TabInfo = serde_json::from_value(serde_json::json!({
+            "tab_id": 7,
+            "owner": "AGENT",
+            "url": "https://example.com",
+            "title": "Example",
+            "read_grant": "FullTruth",
+            "page_revision": 3,
+            "visual_marker": {
+                "border": true,
+                "badge": "Agent",
+                "color_name": "green"
+            }
+        }))
+        .unwrap();
+        assert_eq!(info.owner, TabOwner::Agent);
+        assert_eq!(info.read_grant, ReadGrant::FullTruth);
+        let encoded = serde_json::to_value(&info).unwrap();
+        assert_eq!(encoded["owner"], "agent");
+        assert_eq!(encoded["read_grant"], "full_truth");
+
+        assert_eq!(
+            serde_json::from_value::<ReadGrant>(serde_json::json!("FULL_TRUTH")).unwrap(),
+            ReadGrant::FullTruth
+        );
+        assert_eq!(
+            serde_json::from_value::<ReadGrant>(serde_json::json!("visible-summary-only")).unwrap(),
+            ReadGrant::VisibleSummaryOnly
+        );
+        assert_eq!(
+            serde_json::from_value::<TabOwner>(serde_json::json!("Human")).unwrap(),
+            TabOwner::Human
+        );
+    }
 
     #[test]
     fn frame_observation_serde_round_trip_preserves_pixels_and_units() {

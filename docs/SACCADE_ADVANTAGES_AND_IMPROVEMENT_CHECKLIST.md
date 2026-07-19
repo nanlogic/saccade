@@ -56,6 +56,7 @@ artifact, measured scope, and release-safe wording.
 | A-15 | Evidence-led compatibility ledger | Proven as an engineering practice | Unsupported sites and rendering paths are measured and routed instead of hidden behind a universal claim. | `docs/browser_compat_ledger.md`; `docs/CURRENT_ACTION_ITEMS.md` | Generate a public compatibility matrix from repeatable gates. |
 | A-16 | Article and YouTube source packets | Partial, adjacent | Specialized readers can reduce noisy page/video input into auditable text, headings, timestamps, and selected frames. | Article and YouTube dogfood reports under `runs/` | Package the reader, test more sources, and keep it separate from the initial form/document wedge. |
 | A-17 | Selective visual capture correlated with fact geometry | Proven in scoped gates; partial as a general product feature | Saccade can capture the user-visible page, translate screenshot/device pixels to CSS coordinates, and compare selected visual regions with browser facts. This gives the agent a second observation channel without making screenshots mandatory or automatically sharing every screenshot with it. | `scripts/probe_mouseaccuracy_original_gate.py`; `scripts/check_human_agent_agreement.py`; `docs/ai028_mouseaccuracy_original_gate.md`; `runs/agreement_gate/` | Measure capture latency and run the generic overlay/disagreement gate on the fixed GitHub canaries. |
+| A-18 | Browser-pushed layout invalidation with local semantic rebase | Proven for DOM and stable Canvas-surface targets | After resize, scroll, zoom or target movement, the browser advances a layout epoch and refreshes geometry immediately before input. If the same stable semantic action survives, Saccade rebases locally and verifies the native-input receipt without another screenshot or LLM turn; if it disappears or is covered, input is never sent. | Build 57 source/package matrices and live SimpleMMO: `runs/dogfood/df_build57_layout_epoch_source_20260718/report.json`, `runs/dogfood/df_build57_layout_epoch_packaged_20260718/report.json`, `runs/dogfood/df_build57_resize_live_simplemmo_20260718/report.json`; `docs/ai044_playwright_parity_benchmark.md` | Repeat on a multi-site responsive corpus and add browser-native semantic/pixel truth for targets inside arbitrary Canvas/WebGL scenes. |
 
 ## What Is Not Unique By Itself
 
@@ -73,6 +74,69 @@ tools already provide parts of this stack:
 
 The defensible advantage is the combination and the measured behavior, not any
 single primitive.
+
+## Competitive Position Versus Playwright MCP
+
+Saccade competes with Playwright MCP as an Agent browser interface, not with
+Playwright Test as a cross-browser test framework. The product target is one
+excellent Chromium-compatible browser where a human and an Agent share a
+visible session. Multi-engine coverage, mobile emulation, locator generation,
+network mocking, arbitrary JavaScript execution, and CI trace/video breadth do
+not count as product advantages for this target.
+
+Evaluate capability breadth in two groups:
+
+1. **Agent task primitives:** reading, navigation, tabs, forms, uploads,
+   downloads, dialogs, screenshots, rich controls, Canvas/WebGL, and verified
+   outcomes. Saccade must implement or explicitly route every primitive needed
+   by the published task corpus.
+2. **Test-framework authority:** cookie/storage mutation, network interception,
+   arbitrary evaluation, generated locators, multi-engine matrices, and test
+   runner artifacts. These are not goals for the default Agent contract. Adding
+   them without a task requirement would increase tool-selection burden,
+   context cost, authority, and attack surface.
+
+Current scoped verdict:
+
+- Saccade has the stronger native contract for Human-controlled per-tab access,
+  model-invisible protected values, revision-bound input, verified outcomes,
+  and value-free receipts/replay.
+- The matched AI-044 public-page open/read wedge now proves lower warm wall time
+  and lower model-facing token use than the official optimized Playwright MCP
+  configuration on that one task: 162.755 vs 654.004 ms warm p50, 132 vs 224
+  median task-result tokens, and 2,120 vs 4,242 first-task tokens including all
+  advertised tool schemas.
+- A separate Playwright screenshot observation charged 920 GPT-5.6 image tokens
+  plus 158 non-image result-metadata tokens. Playwright does not require a
+  screenshot for every task, so this cost is not included in the primary
+  structured comparison.
+- Signed Build 57 adds a measured resize/Canvas wedge. Browser-pushed layout
+  epochs, just-in-time action refresh, local semantic rebase and a verified
+  native-input receipt completed the packaged DOM and stable Canvas-surface
+  cases in 5.551 ms and 2.717 ms after invalidation, with no screenshot or
+  additional LLM turn. A target removed at the responsive breakpoint was
+  rejected before native input.
+- This is not a claim that Playwright DOM locators are stale: official
+  Playwright locators resolve an up-to-date DOM element for every action. The
+  contrast is Playwright MCP's vision lane, where coordinate mouse tools are
+  explicitly screenshot-driven. After layout changes, an old pixel coordinate
+  has no semantic rebase or outcome receipt and must be observed again by the
+  host/model to remain reliable.
+- The current NaNMesh Playwright record is directional, not statistically
+  conclusive: two structured reports contain one failure and one partial result
+  and are marked `insufficient_evidence`.
+- Therefore Saccade currently leads on Agent-browser architecture and scoped
+  safety/transaction evidence and has one published efficiency win. Overall
+  task-success, universal speed, and universal token wins remain claims to
+  unlock with the broader `I-106` corpus.
+
+Safe positioning now:
+
+> Saccade is an AI-first alternative to Playwright for user-visible,
+> privacy-bounded browser collaboration.
+
+Do not score Saccade down for deliberately excluding unrelated test-runner
+breadth. Do score every missing primitive that blocks a user task.
 
 ## P0: Must Finish Before A Public Product Claim
 
@@ -158,7 +222,7 @@ redacted; otherwise it remains user-only evidence.
 | I-103 | Authentication and profile UX | Persist normal profiles like a browser, isolate private profiles, recover expired login, and keep cookies/storage hidden from the agent. Test Google login and common providers without claiming universal support. |
 | I-104 | Save, resume, and repair | Resume a partially completed workflow after navigation or restart without replaying successful writes or overwriting user edits. |
 | I-105 | WebMCP adapter | Discover native WebMCP tools, map read-only and untrusted-content hints, bind calls to origin/revision, and pass them through Saccade confirmation and receipt policy. Fall back to inferred legacy-page facts. |
-| I-106 | Fair A/B benchmark | Run identical tasks through Saccade, Playwright MCP, Stagehand or equivalent, and screenshot-driven browser control. Report success, time, model tokens, actions, corrections, interventions, and leaks. |
+| I-106 | Fair Agent-browser A/B benchmark | Run identical user tasks through Saccade, Playwright MCP, Stagehand or equivalent, and screenshot-driven browser control with the same model, Chromium environment, starting state, task instruction, and success criteria. Report success, time, model tokens, actions, retries, incorrect actions, corrections, interventions, verification quality, and leaks. Do not count multi-engine or test-runner-only breadth. |
 | I-107 | Cross-platform distribution | Define support and packaging for macOS first; add Windows/Linux only with clean install and runtime evidence. |
 | I-108 | Accessibility and keyboard quality | Verify focus, caret, selection, zoom, keyboard navigation, screen-reader labels, and visible status for browser chrome and copilot controls. |
 | I-109 | External host validation | Have an independent TypeScript host and Python host complete grant, facts, safe fill, stale rejection, and replay from the published contract. |
@@ -238,18 +302,60 @@ redacted; otherwise it remains user-only evidence.
 - "Saccade records value-free receipts and replay for its current action paths."
 - "Saccade supports optional screenshot capture and correlates selected visual
   evidence with CSS-space browser facts in its current scoped gates."
+- "In the published macOS `example.com` open-and-read benchmark, Saccade used
+  41% fewer per-task model-facing tokens and 75% less warm wall time than the
+  optimized official Playwright MCP configuration. Including all advertised
+  tool schemas, Saccade used 50% fewer first-task context tokens."
+- "In the benchmark's separate visual lane, a Playwright 1280x720 screenshot
+  added 920 GPT-5.6 image tokens plus 158 result-metadata tokens; Saccade's
+  structured page read required no screenshot."
+- "In signed Build 57's native resize gates and live SimpleMMO rerun, Saccade
+  detected browser layout changes, locally rebased the same surviving semantic
+  action and verified its native-input receipt without another screenshot or
+  LLM turn; actions removed by the new layout were rejected before input. This
+  is a coordinate/Canvas-surface workflow result, not a claim against
+  Playwright's up-to-date DOM locators or arbitrary Canvas game semantics."
 
 ### Requires More Evidence
 
-- "Saccade is faster than Playwright, Stagehand, or screenshot automation."
-- "Saccade uses fewer model tokens."
+- "Saccade is universally faster than Playwright, Stagehand, or screenshot
+  automation."
+- "Saccade universally uses fewer model tokens."
 - "Saccade safely fills real forms better than existing agents."
 - "Saccade can fill PDFs end to end."
 - "Saccade prevents prompt injection."
 - "Saccade works reliably across authenticated sites."
 
-These statements require the P0/P1 comparisons above. Publish the measured
-corpus and metric definition with any result.
+These broad statements require the P0/P1 comparisons above. The narrower
+AI-044 wording is allowed only with its measured corpus and metric definition.
+
+## Playwright Head-To-Head Exit Gate
+
+Publicly use “Saccade beats Playwright MCP for Agent browsing” only when all of
+the following are true:
+
+- `I-106` publishes a matched corpus and Saccade wins the named metrics. State
+  each win by metric and tested scope; never imply universal superiority.
+- The installed dogfood basics close `DF-001`, `DF-003`, `DF-005`, `DF-006`,
+  `DF-008`, `DF-009`, `DF-010`, and `DF-011`, followed by one clean pass of
+  `DF-R01` through `DF-R09` in `docs/dogfood_punch_list_20260716.md`.
+- `I-001`, `I-008`, `I-101`, `I-102`, `I-103`, and `I-110` establish the task,
+  recovery, control, authenticated-session, and compatibility scope being
+  compared.
+- `I-002`, `I-007`, and `I-009` pass with zero protected-value leaks and zero
+  unauthorized browser access in the release corpus.
+- `I-005` and `I-006` prove that the result works as an installed product, not
+  only from a repository checkout.
+
+After this gate, the preferred scoped claim is:
+
+> On the published Chromium Agent-browser corpus, Saccade completed more tasks
+> with fewer model tokens and lower wall time than Playwright MCP while keeping
+> protected values outside model context and evidence.
+
+Replace “more”, “fewer”, and “lower” with the measured results. If one metric
+does not win, omit it rather than blending the score into an unsupported
+“overall” victory.
 
 ### Do Not Claim
 

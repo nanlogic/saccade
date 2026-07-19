@@ -3,7 +3,8 @@
 Render preflight runs before Saccade asks the user for task data or fills a
 form. It checks the live page for structural disagreement: fields removed by
 safety policy, hidden or zero-rect editors, missing visible authoring controls,
-and a page revision that changes while Saccade reads it.
+center points that hit a different rendered surface, and a page revision that
+changes while Saccade reads it.
 
 The first live API is:
 
@@ -23,8 +24,8 @@ Supported values are `page` (default), `github_issue`, and
 writable controls as task evidence.
 
 It returns a verdict, typed reason codes, field/editor counts, the observation
-revision, and an engine route. It does not return field values, cookies,
-storage, screenshots, or page text.
+revision, renderer hit-test counts, and an engine route. It does not return
+field values, cookies, storage, screenshots, or page text.
 
 The live response labels itself `scope=structural_preflight` and
 `full_agreement_measured=false`. A structural green result permits the normal
@@ -34,17 +35,29 @@ field policy. It does not claim that Saccade measured visual parity.
 
 | Verdict | Meaning | Default route |
 | --- | --- | --- |
-| `green` | A visible authoring editor or eligible ordinary field exists. | Servo, subject to normal field policy. |
+| `green` | An eligible field has geometry and renderer hit agreement. | Current engine adapter, subject to normal field policy. |
 | `yellow` | The page is not clearly an actionable form, or safety filtering left no ordinary fields. | Human review. |
-| `red` | The page advertises an authoring surface but Saccade sees only hidden or zero-rect editor candidates. | Chrome compatibility. |
+| `red` | Task URL, revision, visibility, or renderer hit evidence disagrees. | Explicit `navigate_task_surface`, `refresh_replan`, `block`, or measured compatibility route. |
 
 A revision change during preflight also returns `red`, but routes to
 `refresh_replan`. Saccade must not combine an inventory from one revision with
 editor geometry from another.
 
-The GitHub New Issue canary is the first `red` case: the page title says `New
-Issue`, but the bridge sees only zero-rect editor candidates. Saccade must not
-guess a hidden backing field and write to it.
+The route is measured per page and engine. Servo previously routed a GitHub New
+Issue page that exposed only zero-rect backing editors. Current CEF exposes a
+visible title and body on the measured repository and returns structural green.
+The compatibility result is not generalized to every GitHub repository.
+
+## CEF Snapshot
+
+CEF performs field classification, geometry reads, and center-point
+`elementFromPoint` checks in one synchronous renderer command. The browser
+process then adds its trusted current URL plus start/end page revisions. A
+revision change or expected-task mismatch overrides any renderer green result.
+
+This evidence is labeled renderer-observed. It is stronger than composing
+separate DOM calls, but it is not an OS-native hit-test and cannot authorize a
+side effect. An actual browser-input receipt remains a separate action gate.
 
 ## Full Agreement Gate
 
@@ -101,3 +114,10 @@ human-controlled.
   failed hit-tests instead of treating complete-looking truth as safe.
 - `runs/ai034_human_agent_agreement/`: task-scoped GitHub Dashboard/New Issue
   preflight plus separate native and shim account-menu hit-test evidence.
+- `runs/cef_ai034/local_gate_20260715/report.json`: CEF local green, explicit
+  task mismatch routing, and occluded-point blocking without screenshots or
+  value leakage.
+- `runs/cef_ai034/github_canary_20260715_final/report.json`: logged-in GitHub
+  New Issue structural green at 3/3 renderer hit agreement plus a separate
+  fact-bound native CEF account-menu receipt; no write, submit, Sign out, or
+  screenshot.

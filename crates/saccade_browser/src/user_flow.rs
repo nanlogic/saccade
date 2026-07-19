@@ -687,8 +687,8 @@ function fieldValue(el) {
 }
 function maskedFields() {
   return flowFields().map((el) => {
-    const owner = el.getAttribute("data-owner") || "";
-    const sensitivity = el.getAttribute("data-sensitive") || "none";
+    const owner = (el.getAttribute("data-owner") || "").toLowerCase();
+    const sensitivity = (el.getAttribute("data-sensitive") || "none").toLowerCase();
     const raw = fieldValue(el);
     const sensitive = owner === "human" || sensitivity !== "none";
     if (sensitive) {

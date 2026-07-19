@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Saccade host policy navigation fixture</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 48px; }
+    .actions { display: flex; gap: 16px; margin: 24px 0; }
+    a, button { padding: 10px 16px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Host-owned site actions</h1>
+    <p>Two DOM links below represent one logical navigation target.</p>
+    <div id="duplicate-links" class="actions">
+      <a class="details-link" href="page2.html">Read details</a>
+      <a class="details-link" href="page2.html">Read details</a>
+    </div>
+    <div class="actions">
+      <button id="purchase" type="button">Purchase item</button>
+      <form id="order-form">
+        <button id="submit-order" type="submit">Submit order</button>
+      </form>
+    </div>
+    <p id="status">No action dispatched.</p>
+    <p id="truth">hits=0 misses=0 finished=false</p>
+  </main>
+  <script>
+    const status = document.getElementById('status');
+    document.getElementById('purchase').addEventListener('click', () => {
+      status.textContent = 'Purchase dispatched by host policy.';
+    });
+    document.getElementById('order-form').addEventListener('submit', event => {
+      event.preventDefault();
+      status.textContent = 'Submit dispatched by host policy.';
+    });
+    setTimeout(() => {
+      const links = document.getElementById('duplicate-links');
+      links.replaceWith(links.cloneNode(true));
+    }, 60);
+  </script>
+</body>
+</html>

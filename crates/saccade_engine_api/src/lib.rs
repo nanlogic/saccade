@@ -109,11 +109,22 @@ pub struct InputReceipt {
 pub enum EngineErrorCode {
     InvalidArgument,
     PermissionDenied,
+    ConsentRequired,
+    AgentPaused,
     UnsupportedCapability,
     StalePageRevision,
+    StaleLayout,
     TabNotFound,
     TransportUnavailable,
     Timeout,
+    Conflict,
+    PolicyBlocked,
+    FormCommandFailed,
+    PostconditionFailed,
+    ScreenshotBusy,
+    ScreenshotFailed,
+    HumanVerificationRequired,
+    ProviderRejected,
     Internal,
 }
 
@@ -571,6 +582,31 @@ mod tests {
             grant.validate().unwrap_err().code,
             EngineErrorCode::PermissionDenied
         );
+    }
+
+    #[test]
+    fn browser_adapter_error_codes_deserialize_without_transport_collapse() {
+        for (wire, expected) in [
+            ("CONSENT_REQUIRED", EngineErrorCode::ConsentRequired),
+            ("AGENT_PAUSED", EngineErrorCode::AgentPaused),
+            ("FORM_COMMAND_FAILED", EngineErrorCode::FormCommandFailed),
+            ("POLICY_BLOCKED", EngineErrorCode::PolicyBlocked),
+            ("POSTCONDITION_FAILED", EngineErrorCode::PostconditionFailed),
+            ("SCREENSHOT_BUSY", EngineErrorCode::ScreenshotBusy),
+            ("SCREENSHOT_FAILED", EngineErrorCode::ScreenshotFailed),
+            (
+                "HUMAN_VERIFICATION_REQUIRED",
+                EngineErrorCode::HumanVerificationRequired,
+            ),
+            ("PROVIDER_REJECTED", EngineErrorCode::ProviderRejected),
+        ] {
+            let value = serde_json::from_value::<EngineControlError>(json!({
+                "code": wire,
+                "detail": "redacted test detail"
+            }))
+            .expect("adapter error code should deserialize");
+            assert_eq!(value.code, expected);
+        }
     }
 
     #[cfg(unix)]

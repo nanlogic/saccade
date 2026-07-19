@@ -130,7 +130,7 @@ def main() -> int:
     args = parse_args()
     if args.drags <= 0:
         raise SystemExit("--drags must be positive")
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     if not executable.is_file():
         raise SystemExit(f"missing CEF release app: {executable}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +164,7 @@ def main() -> int:
         "--window-size=1280,900",
     ]
     if not args.headed:
-        command.append("--initial-show-state=hidden")
+        command.extend(["--use-views", "--initial-show-state=hidden"])
 
     process: subprocess.Popen[bytes] | None = None
     control: EngineControl | None = None

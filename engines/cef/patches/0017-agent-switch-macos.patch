@@ -1,0 +1,10 @@
+--- a/tests/cefsimple/CMakeLists.txt
++++ b/tests/cefsimple/CMakeLists.txt
+@@ -22,6 +22,8 @@ set(CEFSIMPLE_SRCS_LINUX
+   )
+ set(CEFSIMPLE_SRCS_MAC
+   cefsimple_mac.mm
++  saccade_agent_switch_mac.h
++  saccade_agent_switch_mac.mm
+   simple_handler_mac.mm
+   )

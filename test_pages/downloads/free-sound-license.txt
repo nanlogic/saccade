@@ -1,0 +1,3 @@
+Saccade deterministic download fixture
+License: CC0-1.0
+Asset payload intentionally omitted.

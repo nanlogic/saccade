@@ -103,7 +103,7 @@ def assert_value_free(value: Any, location: str) -> None:
 
 def main() -> int:
     args = parse_args()
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     fixture = args.fixture.resolve()
     mcp_binary = args.mcp_bin.resolve()
     if not executable.is_file() or not mcp_binary.is_file() or not fixture.is_file():
@@ -137,7 +137,7 @@ def main() -> int:
         "--window-size=1280,900",
     ]
     if not args.headed:
-        command.append("--initial-show-state=hidden")
+        command.extend(["--use-views", "--initial-show-state=hidden"])
 
     browser: subprocess.Popen[bytes] | None = None
     control: EngineControl | None = None

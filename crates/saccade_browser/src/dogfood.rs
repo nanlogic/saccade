@@ -5015,8 +5015,8 @@ fn current_tab_copilot_grant_payload(
         "selected_tab_seen": true,
         "grant_required": true,
         "grant_given": true,
-        "owner": "Human",
-        "read_grant": "FullTruth",
+        "owner": "human",
+        "read_grant": "full_truth",
         "agent_input_grant": true,
         "url": url,
         "title": title,
@@ -5163,8 +5163,8 @@ mod tests {
         );
 
         assert_eq!(payload["status"], "granted");
-        assert_eq!(payload["owner"], "Human");
-        assert_eq!(payload["read_grant"], "FullTruth");
+        assert_eq!(payload["owner"], "human");
+        assert_eq!(payload["read_grant"], "full_truth");
         assert_eq!(payload["agent_input_grant"], true);
         assert_eq!(payload["mcp_tool"], "saccade.tabs.grant_current");
         assert_eq!(payload["url"], "https://example.com/form");

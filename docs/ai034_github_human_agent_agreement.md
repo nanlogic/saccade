@@ -1,57 +1,96 @@
-# AI-034 GitHub Human/Agent Agreement
+# AI-034 Human/Agent Agreement
 
-Date: 2026-07-13
-Status: task-surface gate complete; native account-menu hit-test remains routed
+Date: 2026-07-15
+Status: CEF migration gate complete
 
 ## Result
 
-GitHub exposed two independent agreement failures. A writable control can
-belong to the wrong task, and a visible control can fail native hit-testing.
-Saccade now reports both cases without reading field values or capturing the
-logged-in page.
+CEF now exposes the existing `saccade.web.render_preflight` contract through
+the capability-based current-tab adapter. One synchronous renderer snapshot
+measures redacted field facts, editor geometry, and center-point renderer
+hit-tests. The browser process binds that snapshot to its trusted current URL
+and start/end page revision before it permits normal agent input.
 
 | Canary | Result | Route |
 | --- | --- | --- |
-| GitHub Dashboard while the host expects `github_issue` | `red`; current URL is not an Issue authoring surface | `navigate_task_surface` |
-| `https://github.com/servo/servo/issues/new` with `github_issue` intent | `green`; 25 fields, 3 eligible, 2 visible authoring editors, same revision | `servo` under normal field policy |
-| Logged-in Gist account menu at three viewport sizes | Workflow passes through the narrow userscript; native hit-test is 0/3 and shim hit-test is 3/3 | `servo_with_github_pointer_shim` |
+| Local actionable fixture | `green`; 2/2 renderer hit-tests agree, one hidden zero-rect backing editor ignored, one revision | `cef` |
+| Same local fixture while expecting `github_issue` | `red`; trusted URL is not a GitHub Issue authoring surface | `navigate_task_surface` |
+| Local fixture with a different surface covering both proposed points | `red`; 0/2 renderer hit-tests agree | `block` |
+| Logged-in `https://github.com/servo/servo/issues/new` | `green`; 3 fields, 3 eligible, 3/3 renderer hit-tests agree, one revision | `cef` |
+| Logged-in GitHub account menu | Fact-bound native CEF click receipt verified; Settings and Sign out observed | normal CEF action policy |
 
-The New Issue result is page- and repository-specific. Earlier dogfood on a
-different repository returned only zero-rect backing editors and correctly
-routed to Chrome compatibility. Saccade must measure the current page rather
-than assign one compatibility label to all GitHub Issue forms.
+The GitHub run wrote no fields, submitted nothing, did not click Sign out, and
+captured no screenshot. The local gate also carries a populated password
+sentinel; the sentinel is absent from the response and value-free replay.
 
-## Contract Change
+## Contract
 
-`saccade.web.render_preflight` accepts an optional `expected_surface`:
+`saccade.web.render_preflight` accepts:
 
 ```json
-{"expected_surface":"github_issue"}
+{"tab_id":1,"expected_surface":"github_issue"}
 ```
 
-Supported values are `page`, `github_issue`, and `github_discussion`. The
-bridge validates the current URL before it treats unrelated eligible fields as
-evidence for the task. A GitHub Dashboard Copilot input can no longer make an
-Issue task green.
+Supported task surfaces remain `page`, `github_issue`, and
+`github_discussion`. CEF advertises `render_preflight` in its owner-only grant,
+so the existing MCP tool routes without an engine-specific API.
 
-The account-menu probe now records native and shim hit-test accuracy
-separately. A verified shim returns `ROUTE_COMPATIBILITY`, not native green.
+The result includes:
+
+- redacted field/editor counts and geometry-derived visibility;
+- start and end browser page revisions;
+- trusted browser URL task-surface matching;
+- renderer center-point hit-test counts and accuracy;
+- typed reason codes plus `green`, `yellow`, or `red` routing;
+- explicit privacy and screenshot status.
+
+A page revision change routes to `refresh_replan`. A task URL mismatch routes
+to `navigate_task_surface`. A visible fact whose proposed center hits another
+surface routes to `block`.
+
+## Evidence Boundary
+
+The CEF measurement is labeled `cef_renderer_observed`. Its hit result is a
+renderer/Blink structural hit-test, not an OS-native proof and not authority.
+The separate GitHub account-menu canary supplies one actual CEF pointer receipt.
+Page content still cannot authorize a side effect.
+
+`full_agreement_measured=false` remains correct because screenshots are off by
+default and no independent human reference image is supplied. Guarded visual
+evidence remains optional for a user-authorized, no-protected-value page; it is
+not required for structural green.
 
 ## Evidence
 
+- `runs/cef_ai034/local_gate_20260715/report.json`
+- `runs/cef_ai034/github_canary_20260715_final/report.json`
 - `runs/ai034_human_agent_agreement/github_dashboard_expected_issue_20260713/report.json`
 - `runs/ai034_human_agent_agreement/github_new_issue_expected_issue_20260713/report.json`
 - `runs/ai034_human_agent_agreement/github_account_menu_agreement_20260713/report.json`
 
-All three runs used the persistent Saccade profile. They returned no field
-values, cookies, storage, or screenshot pixels. The account-menu result has
-`full_agreement_measured=false` because logged-in screenshots remain disabled
-by default.
+The CEF Release build passed with sandbox enabled. The public MCP unit suite
+passed 9/9. Saved-profile canaries now refuse an ad-hoc app before launch; the
+tested app is signed as `ai.saccade.browser` with Team ID `48KK2UWXQM`.
 
-## Remaining Work
+## Gate
 
-1. Run the same task-scoped preflight on the user's real repository Issue form.
-2. Add user-authorized, pre-task screenshot evidence only when the page contains
-   no protected values.
-3. Keep the account-menu shim visible in compatibility evidence until Servo's
-   native hit-test reaches 3/3.
+```sh
+SACCADE_CODESIGN_IDENTITY=auto engines/cef/scripts/build_macos.sh
+python3 scripts/probe_cef_human_agent_agreement.py \
+  --output-dir runs/cef_ai034/local_gate_20260715
+python3 scripts/probe_cef_github_canary.py \
+  --output-dir runs/cef_ai034/github_canary_20260715_final
+cargo test -p saccade-mcp
+```
+
+## Milestone Report
+
+```text
+MILESTONE: AI-034 CEF human/agent agreement migration
+GATE: local CEF agreement probe + logged-in GitHub canary + cargo test -p saccade-mcp -> PASS
+MEASURED: local green 2/2; local occluded 0/2 and blocked; GitHub 3/3; MCP 9/9
+DEVIATIONS: renderer hit-test is labeled renderer-observed, not native OS truth
+SERVO API NOTES: none
+RISKS RAISED/RETIRED: repeated Keychain prompts prevented by signed-profile preflight; optional visual evidence remains off by default
+NEXT: AI-033 CEF adversarial safety migration gate
+```

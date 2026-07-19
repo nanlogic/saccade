@@ -1,0 +1,15 @@
+--- a/tests/cefsimple/simple_app.cc
++++ b/tests/cefsimple/simple_app.cc
+@@ -145,8 +145,10 @@ void SimpleApp::OnContextInitialized() {
+     url = "https://www.google.com";
+   }
+ 
+-  // Views is enabled by default (add `--use-native` to disable).
+-  const bool use_views = !command_line->HasSwitch("use-native");
++  // Saccade is a human-facing browser, so default to CEF's native Chrome-style
++  // window with tabs, location bar and navigation controls. Keep the simpler
++  // Views surface available only for explicit test/diagnostic launches.
++  const bool use_views = command_line->HasSwitch("use-views");
+ 
+   // If using Views create the browser using the Views framework, otherwise
+   // create the browser using the native platform framework.

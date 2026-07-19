@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {"type": "string"},
+    "verdict": {"type": "string", "enum": ["pass", "fail", "blocked"]},
+    "answer": {"type": "string"},
+    "browser_used": {"type": "string", "enum": ["saccade", "playwright"]},
+    "tools_used": {"type": "array", "items": {"type": "string"}},
+    "observations": {"type": "array", "items": {"type": "string"}},
+    "error": {"type": ["string", "null"]}
+  },
+  "required": [
+    "task_id",
+    "verdict",
+    "answer",
+    "browser_used",
+    "tools_used",
+    "observations",
+    "error"
+  ],
+  "additionalProperties": false
+}

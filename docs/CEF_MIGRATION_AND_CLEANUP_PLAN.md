@@ -241,6 +241,13 @@ capabilities. We will not market "every Chrome site works".
 Cleanup is evidence-driven and runs after processes are stopped. No cleanup
 command deletes files on its first invocation.
 
+Status on 2026-07-18: C0 and the safe release-kit portion of C1 are complete.
+The reviewed manifest removed 29 superseded CEF dogfood directories and
+reclaimed about 10.0 GiB. It preserved Build 62, all `runs/` evidence, all
+profiles/auth state, source, target builds and the pinned CEF cache.
+Evidence/profile pruning remains intentionally out of
+scope because it is not required for dogfood and carries higher deletion risk.
+
 ### C0: Inventory and manifest
 
 - Add a dry-run inventory that classifies git-tracked source, ignored build

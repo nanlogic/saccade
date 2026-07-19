@@ -308,7 +308,12 @@ def main() -> int:
             {"grant_path": str(grant), "reason": "AI-031 generic form execution probe"},
         )
         tab_id = int(granted["tab"]["tab_id"])
-        mcp_inventory = mcp_tool(mcp_proc, 3, "saccade.web.form_inventory", {"tab_id": tab_id})
+        mcp_inventory = mcp_tool(
+            mcp_proc,
+            3,
+            "saccade.web.form_inventory",
+            {"tab_id": tab_id, "mode": "full"},
+        )
         if mcp_inventory.get("field_count") != 17:
             failures.append(f"MCP inventory field_count={mcp_inventory.get('field_count')}")
         mcp_tool(

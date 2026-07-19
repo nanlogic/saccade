@@ -1,6 +1,17 @@
 .DS_Store
 __pycache__/
 *.pyc
+
+# Local credentials and signing material. Never commit these.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.mobileprovision
+
 /target/
 /build/
 /runs/*

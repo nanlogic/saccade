@@ -28,6 +28,7 @@ DEFAULT_PROFILE = (
     / "default"
 )
 DEFAULT_URL = "https://github.com/servo/servo/issues/new"
+EXPECTED_TEAM_ID = os.environ.get("SACCADE_EXPECTED_TEAM_ID", "48KK2UWXQM")
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,6 +39,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=pathlib.Path, required=True)
     parser.add_argument("--timeout-sec", type=float, default=45.0)
     return parser.parse_args()
+
+
+def require_stable_product_signature(app: pathlib.Path) -> None:
+    signature = subprocess.run(
+        ["codesign", "-dvv", str(app)],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ).stdout
+    required = (
+        "Identifier=ai.saccade.browser",
+        "Authority=Developer ID Application:",
+        f"TeamIdentifier={EXPECTED_TEAM_ID}",
+    )
+    if not all(marker in signature for marker in required):
+        raise SystemExit(
+            "GitHub saved-profile canary requires the stable signed Saccade app; "
+            "run SACCADE_CODESIGN_IDENTITY=auto engines/cef/scripts/build_macos.sh"
+        )
 
 
 def wait_for_issue_inventory(
@@ -125,9 +146,10 @@ def wait_for_account_menu(
 
 def main() -> int:
     args = parse_args()
-    executable = args.app / "Contents" / "MacOS" / "cefsimple"
+    executable = args.app / "Contents" / "MacOS" / "Saccade"
     if not executable.is_file():
         raise SystemExit(f"missing CEF release app: {executable}")
+    require_stable_product_signature(args.app)
     args.profile.mkdir(parents=True, exist_ok=True, mode=0o700)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     output = args.output_dir.resolve()
@@ -165,6 +187,10 @@ def main() -> int:
             )
             stage = "grant"
             grant = wait_for_grant(grant_path, process, args.timeout_sec)
+            if "render_preflight" not in set(
+                grant.get("engine_adapter", {}).get("capabilities", [])
+            ):
+                raise AssertionError("CEF grant did not advertise render_preflight")
             control = EngineControl(
                 pathlib.Path(grant["control_endpoint"]["path"]),
                 grant["control_capability"]["token"],
@@ -182,6 +208,26 @@ def main() -> int:
             )
             if inventory.get("sensitive_values_exposed") is not False:
                 raise AssertionError("GitHub form inventory exposed protected values")
+
+            stage = "human_agent_agreement"
+            preflight = control.call(
+                "render_preflight", {"expected_surface": "github_issue"}
+            )
+            preflight_observations = preflight.get("observations", {})
+            preflight_hit = preflight_observations.get("renderer_hit_test", {})
+            if (
+                preflight.get("verdict") != "green"
+                or preflight.get("task_surface_match") is not True
+                or preflight.get("agent_input_allowed") is not True
+                or preflight_observations.get("observation_base_consistent") is not True
+                or preflight_hit.get("tested", 0) < 2
+                or preflight_hit.get("failed") != 0
+            ):
+                raise AssertionError(
+                    f"GitHub human/agent preflight did not agree: {preflight}"
+                )
+            if preflight.get("agreement", {}).get("full_agreement_measured") is not False:
+                raise AssertionError("structural GitHub preflight overclaimed full agreement")
 
             stage = "account_button"
             action_map = control.call("actions")
@@ -225,6 +271,16 @@ def main() -> int:
                     "visible_body_fields": len(body_fields),
                     "sensitive_values_exposed": False,
                 },
+                "human_agent_agreement": {
+                    "verdict": preflight.get("verdict"),
+                    "task_surface_match": preflight.get("task_surface_match"),
+                    "observation_base_consistent": preflight_observations.get(
+                        "observation_base_consistent"
+                    ),
+                    "renderer_hit_test": preflight_hit,
+                    "full_agreement_measured": False,
+                    "screenshot_used": False,
+                },
                 "account_menu": {
                     "button_fact_bound": True,
                     "click_receipt_verified": True,
@@ -261,7 +317,11 @@ def main() -> int:
                     process.wait(timeout=8)
                 except subprocess.TimeoutExpired:
                     process.terminate()
-                    process.wait(timeout=5)
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
             shutil.rmtree(session, ignore_errors=True)
 
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
