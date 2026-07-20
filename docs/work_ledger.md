@@ -347,3 +347,31 @@
   (32/32); cargo test -p saccade_engine_api --lib (4/4); git diff --check.
 - The live installed Hard+Tiny gate remains pending a safe staged update path. The
   known P0-4 in-place installer was not used to overwrite the installed package.
+
+## 2026-07-20 - Windows transport and staged update P0-3/P0-4
+
+- P0-3 replaces synchronous Windows pipe I/O with bounded connect, write, and
+  read phases using overlapped I/O. Deadline expiry calls CancelIoEx, drains the
+  operation before releasing its buffer, and returns EngineErrorCode::Timeout,
+  which MCP exposes as SACCADE_TIMEOUT without replaying the request.
+- A Windows server regression accepts a pipe client and withholds its response;
+  the client returns on the configured read deadline. Engine API tests pass 5/5.
+- Owner-only named-pipe and state-directory ACL construction now fails closed
+  instead of falling back to default Windows security attributes.
+- P0-4 packages Build 76 from a clean directory with version and SHA-256 file
+  manifests. The installer gracefully closes Saccade, stops only MCP/native-host
+  helpers loaded from InstallDir, validates source and staging, swaps whole
+  directories, retains the previous version through registration/launch smoke,
+  and restores it on failure. The external profile directory is never replaced.
+- The isolated upgrade regression passed two consecutive replacements, a locked
+  helper, stale-file removal, profile sentinel preservation, injected rollback,
+  and staging/backup cleanup.
+- Two consecutive real Build 76 installs passed. The installed/source manifest
+  hashes match, no transaction directory remains, the installed browser launch
+  smoke is running, and the external default profile still exists.
+- The first real attempt exposed a locked old MCP helper; rollback restored Build
+  75. Shutdown coverage was corrected and regression-tested before the two
+  successful Build 76 installs.
+- Live MouseAccuracy and SimpleMMO remain pending a new Codex task because this
+  task's old MCP stdio transport correctly closed during package replacement and
+  Codex tasks do not hot-reconnect MCP servers. No browser fallback was used.

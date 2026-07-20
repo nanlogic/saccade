@@ -3,7 +3,9 @@ param(
   [string]$CefRoot = '',
   [string]$BuildRoot = '',
   [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release',
-  [string]$SigningThumbprint = $env:SACCADE_WINDOWS_SIGNING_THUMBPRINT
+  [string]$SigningThumbprint = $env:SACCADE_WINDOWS_SIGNING_THUMBPRINT,
+  [string]$CmakePath = '',
+  [string]$CargoPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,16 +19,24 @@ if (-not $CefRoot) {
     -CefRoot $CefRoot | Select-Object -Last 1)
 }
 
-$cmakeCommand = Get-Command cmake.exe -ErrorAction SilentlyContinue
-if ($cmakeCommand) {
-  $cmakePath = $cmakeCommand.Source
+if ($CmakePath) {
+  $cmakePath = (Resolve-Path -LiteralPath $CmakePath).Path
 } else {
-  $cmakePath = 'C:\Users\wayne\AppData\Local\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.MCF.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin\cmake.exe'
-  if (-not (Test-Path -LiteralPath $cmakePath)) { throw 'cmake.exe was not found' }
+  $cmakeCommand = Get-Command cmake.exe -ErrorAction SilentlyContinue
+  if (-not $cmakeCommand) {
+    throw 'cmake.exe was not found on PATH; pass -CmakePath explicitly'
+  }
+  $cmakePath = $cmakeCommand.Source
 }
-$cargoPath = (Get-Command cargo.exe -ErrorAction SilentlyContinue).Source
-if (-not $cargoPath) { $cargoPath = Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe' }
-if (-not (Test-Path -LiteralPath $cargoPath)) { throw 'cargo.exe was not found' }
+if ($CargoPath) {
+  $cargoPath = (Resolve-Path -LiteralPath $CargoPath).Path
+} else {
+  $cargoCommand = Get-Command cargo.exe -ErrorAction SilentlyContinue
+  if (-not $cargoCommand) {
+    throw 'cargo.exe was not found on PATH; pass -CargoPath explicitly'
+  }
+  $cargoPath = $cargoCommand.Source
+}
 
 $upstreamBuild = Join-Path $BuildRoot 'upstream'
 New-Item -ItemType Directory -Force -Path $upstreamBuild | Out-Null
@@ -46,7 +56,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $sourceDir 'Saccade.exe')) -or
     -not (Test-Path -LiteralPath (Join-Path $sourceDir 'Saccade.dll'))) {
   throw "Missing upstream Saccade output: $sourceDir"
 }
-New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+if (Test-Path -LiteralPath $packageDir) {
+  Remove-Item -LiteralPath $packageDir -Recurse -Force
+}
+New-Item -ItemType Directory -Path $packageDir | Out-Null
 Copy-Item -Path (Join-Path $sourceDir '*') -Destination $packageDir -Recurse -Force
 Remove-Item -LiteralPath (Join-Path $packageDir 'cefsimple.exe') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $packageDir 'cefsimple.dll') -Force -ErrorAction SilentlyContinue
@@ -90,7 +103,7 @@ if ($packageSigned) {
 @{
   product = 'Saccade'
   version = '0.1.0-windows-dogfood'
-  build = 75
+  build = 76
   platform = 'windows64'
   cef_version = '150.0.11+gb887805+chromium-150.0.7871.115'
   chromium_version = '150.0.7871.115'
@@ -112,5 +125,7 @@ if ($packageSigned) {
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $packageDir 'SACCADE_VERSION.json') -Encoding utf8
 
 & (Join-Path $scriptRoot 'grant_windows_lpac.ps1') -Path $packageDir
+& (Join-Path $scriptRoot 'write_windows_package_manifest.ps1') `
+  -PackageDir $packageDir | Out-Null
 
 $packageDir

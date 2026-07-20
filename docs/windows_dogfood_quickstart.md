@@ -1,6 +1,6 @@
 # Saccade Windows Dogfood Quickstart
 
-Status: Build 75 installed-product dogfood. Windows x64 uses the same pinned CEF
+Status: Build 76 installed-product dogfood. Windows x64 uses the same pinned CEF
 150.0.11 / Chromium 150.0.7871.115 engine as the macOS build.
 
 ```powershell
@@ -9,11 +9,20 @@ engines\cef\scripts\build_windows.ps1
 engines\cef\scripts\install_windows.ps1
 ```
 
-The package is written to `target/cef-windows64/Saccade`. The installer copies it
-to `%LOCALAPPDATA%\Programs\Saccade`, applies the LPAC ACL, registers Saccade as
-a browser, installs the Agent native host, pins the Agent action, creates Desktop
-and Start Menu shortcuts, registers the installed MCP for the current Codex user,
-and launches Saccade. A normal installed first launch repeats MCP registration
+The package is written to `target/cef-windows64/Saccade` with a version manifest
+and SHA-256 manifest covering every application file. The installer requests a
+graceful shutdown, verifies installed processes exited, validates the source,
+copies it to a same-volume versioned staging directory, validates the staged
+copy, and swaps the complete application directory. It keeps the previous
+directory until registration and launch smoke checks succeed, then removes it;
+any failure rolls the application directory back.
+
+The profile remains outside the application at
+`%LOCALAPPDATA%\Saccade\CEF\Profiles\default` and is never replaced. After the
+swap, the installer applies the LPAC ACL, registers Saccade as a browser,
+installs the Agent native host, pins the Agent action, creates Desktop and Start
+Menu shortcuts, registers the installed MCP for the current Codex user, and
+launches Saccade. A normal installed first launch repeats MCP registration
 idempotently. It adds a missing entry, repairs an entry already owned by the same
 installed executable, and never overwrites a conflicting user-owned entry.
 
@@ -50,6 +59,9 @@ Normal profile state is stored under
 `%LOCALAPPDATA%\Saccade\CEF\Profiles\default`. Incognito uses an isolated
 temporary profile and removes it after the browser exits.
 
-Build 75 is unsigned dogfood (`public_distribution_ready=false`). Smart App
+The two-upgrade, stale-file, profile-preservation, and rollback gate is
+`engines\cef\scripts\test_windows_staged_upgrade.ps1`.
+
+Build 76 is unsigned dogfood (`public_distribution_ready=false`). Smart App
 Control may still block public downloads until the Windows signing/distribution
 track is complete; this is separate from MCP setup and runtime behavior.
