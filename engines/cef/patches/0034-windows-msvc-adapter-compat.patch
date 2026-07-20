@@ -1,0 +1,35 @@
+--- a/tests/cefsimple/CMakeLists.txt
++++ b/tests/cefsimple/CMakeLists.txt
+@@ -197,6 +197,7 @@ if(OS_WINDOWS)
+
+   add_dependencies(${CEF_TARGET} libcef_dll_wrapper)
+   target_link_libraries(${CEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
++  target_link_libraries(${CEF_TARGET} bcrypt.lib advapi32.lib)
++  target_compile_definitions(${CEF_TARGET} PRIVATE OS_WIN)
+
+   # Copy binary and resource files to the target output directory.
+--- a/tests/cefsimple/saccade_agent_switch_win.cc
++++ b/tests/cefsimple/saccade_agent_switch_win.cc
+@@ -87,7 +87,7 @@ void PositionAgentButton(HWND button) {
+   constexpr int height = 28;
+   const int right_reserve = 164;
+-  const int x = std::max(8, bounds.right - right_reserve - width);
++  const int x = static_cast<int>(std::max<LONG>(8, bounds.right - right_reserve - width));
+   SetWindowPos(button, HWND_TOP, x, 5, width, height,
+--- a/tests/cefsimple/saccade_form_script.h
++++ b/tests/cefsimple/saccade_form_script.h
+@@ -354,6 +354,8 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
+       reasonCodes = [
+         'authoring_surface_has_only_zero_rect_editors',
+         'visual_and_semantic_form_state_disagree'
+       ];
++)SACCADE_FORM_JS"
++R"SACCADE_FORM_JS(
+     } else if (snapshot.field_count > 0 && actionableFields.length === 0) {
+@@ -712,6 +714,8 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
+       .replace(/\n{3,}/g, '\n\n')
+       .trim()
+       .slice(0, 250000);
++)SACCADE_FORM_JS"
++R"SACCADE_FORM_JS(
+     const headings = Array.from(queryAll(root || document,

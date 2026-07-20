@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <utility>
 
 #include "include/base/cef_callback.h"
@@ -34,6 +35,28 @@ namespace {
 
 constexpr char kProtocol[] = "saccade-engine-control-v1";
 constexpr char kContractVersion[] = "1.0";
+
+const char* AgentUiStateName(SaccadeAdapter::AgentUiState state) {
+  switch (state) {
+    case SaccadeAdapter::AgentUiState::kOn:
+      return "on";
+    case SaccadeAdapter::AgentUiState::kOff:
+      return "off";
+    case SaccadeAdapter::AgentUiState::kPaused:
+      return "paused";
+    case SaccadeAdapter::AgentUiState::kUnavailable:
+      return "unavailable";
+  }
+  return "unavailable";
+}
+
+struct ToolbarAgentRequest {
+  std::mutex mutex;
+  std::condition_variable ready;
+  bool done = false;
+  SaccadeAdapter::AgentUiState state =
+      SaccadeAdapter::AgentUiState::kUnavailable;
+};
 
 std::string JsonString(CefRefPtr<CefValue> value) {
   return CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString();
@@ -864,7 +887,16 @@ bool SaccadeAdapter::OnRendererMessage(
         browser_metadata_[browser_->GetIdentifier()].page_revision =
             page_revision_;
       }
+      // Layout-only revisions are common while reflex targets animate. Keep
+      // already accepted native inputs and their receipts alive; navigation
+      // and tab changes still use the full reset path below.
+      const auto dispatched_actions = dispatched_actions_;
+      const auto dispatched_action_facts = dispatched_action_facts_;
+      auto pending_receipts = std::move(pending_receipts_);
       ResetPageStateLocked("layout changed while action was pending");
+      dispatched_actions_ = dispatched_actions;
+      dispatched_action_facts_ = dispatched_action_facts;
+      pending_receipts_ = std::move(pending_receipts);
     }
     fact_cv_.notify_all();
     action_map_cv_.notify_all();
@@ -1005,8 +1037,9 @@ bool SaccadeAdapter::OnRendererMessage(
     receipt.renderer_epoch_ms = arguments->GetDouble(6);
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
-      const auto action = actions_.find(receipt.action_id);
-      if (action == actions_.end() || !std::isfinite(receipt.client_x) ||
+      const auto action = dispatched_action_facts_.find(receipt.action_id);
+      if (action == dispatched_action_facts_.end() ||
+          !std::isfinite(receipt.client_x) ||
           !std::isfinite(receipt.client_y) ||
           !std::isfinite(receipt.renderer_epoch_ms) ||
           dispatched_actions_.erase(receipt.action_id) != 1) {
@@ -1016,6 +1049,7 @@ bool SaccadeAdapter::OnRendererMessage(
       receipt.observed_page_revision = page_revision_;
       receipt.basis_layout_epoch = action->second.layout_epoch;
       receipt.observed_layout_epoch = layout_epoch_;
+      dispatched_action_facts_.erase(action);
       if (pending_receipts_.size() >= 256) {
         pending_receipts_.pop_front();
       }
@@ -1328,6 +1362,41 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
     result->SetBool("opening", true);
     result->SetString("url", url);
     result->SetString("initial_agent_state", "on");
+    return Response(id, result);
+  }
+  if (method == "toolbar_agent_state") {
+    auto result = CefDictionaryValue::Create();
+    result->SetString("state", AgentUiStateName(GetAgentUiState()));
+    result->SetString("scope", "visible_tab");
+    return Response(id, result);
+  }
+  if (method == "toolbar_toggle_agent") {
+    auto pending = std::make_shared<ToolbarAgentRequest>();
+    if (!CefPostTask(
+            TID_UI,
+            base::BindOnce(
+                [](SaccadeAdapter* adapter,
+                   std::shared_ptr<ToolbarAgentRequest> request) {
+                  const auto state = adapter->ToggleAgentForVisibleTab();
+                  {
+                    std::lock_guard<std::mutex> lock(request->mutex);
+                    request->state = state;
+                    request->done = true;
+                  }
+                  request->ready.notify_one();
+                },
+                base::Unretained(this), pending))) {
+      return ErrorResponse(id, "UNAVAILABLE",
+                           "could not dispatch Agent toggle to browser UI");
+    }
+    std::unique_lock<std::mutex> lock(pending->mutex);
+    if (!pending->ready.wait_for(lock, std::chrono::seconds(3),
+                                 [&pending] { return pending->done; })) {
+      return ErrorResponse(id, "TIMEOUT", "Agent toggle timed out");
+    }
+    auto result = CefDictionaryValue::Create();
+    result->SetString("state", AgentUiStateName(pending->state));
+    result->SetString("scope", "visible_tab");
     return Response(id, result);
   }
   if (method == "resume") {
@@ -1935,13 +2004,14 @@ std::string SaccadeAdapter::ActResponse(
       return ErrorResponse(id, "INVALID_ARGUMENT",
                            "action id is already awaiting a receipt");
     }
+    dispatched_action_facts_[action_id] = fact;
   }
   const int x = static_cast<int>(std::lround(fact.left + fact.width / 2.0));
   const int y = static_cast<int>(std::lround(fact.top + fact.height / 2.0));
   CefPostTask(TID_UI, base::BindOnce(&SaccadeAdapter::DispatchPointerOnUi,
                                     base::Unretained(this), x, y, action_id,
                                     browser_id, basis_page_revision,
-                                    fact.layout_epoch));
+                                    fact.layout_epoch, fact.role == "target"));
   auto result = CefDictionaryValue::Create();
   result->SetString("action_id", action_id);
   result->SetString("status", "accepted");
@@ -2013,9 +2083,11 @@ std::string SaccadeAdapter::DragResponse(
                            "action id is already awaiting a receipt");
     }
     fact = action->second;
+    dispatched_action_facts_[action_id] = fact;
     browser_id = browser_ ? browser_->GetIdentifier() : 0;
     if (browser_id == 0) {
       dispatched_actions_.erase(action_id);
+      dispatched_action_facts_.erase(action_id);
       return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
                            "visible browser is unavailable");
     }
@@ -2765,15 +2837,20 @@ void SaccadeAdapter::DispatchPointerOnUi(int x,
                                          std::string action_id,
                                          int browser_id,
                                          uint64_t page_revision,
-                                         uint64_t layout_epoch) {
+                                         uint64_t layout_epoch,
+                                         bool allow_layout_rebase) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
   bool expects_agent_child = false;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     const auto found = browsers_.find(browser_id);
+    const bool exact_layout =
+        page_revision_ == page_revision && layout_epoch_ == layout_epoch;
+    const bool safe_target_layout_rebase =
+        allow_layout_rebase && last_layout_page_revision_ == page_revision_;
     if (found != browsers_.end() && browser_ && browser_->IsSame(found->second) &&
-        page_revision_ == page_revision && layout_epoch_ == layout_epoch) {
+        (exact_layout || safe_target_layout_rebase)) {
       browser = found->second;
       const auto action = actions_.find(action_id);
       expects_agent_child =
@@ -2786,6 +2863,7 @@ void SaccadeAdapter::DispatchPointerOnUi(int x,
   if (!browser) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     dispatched_actions_.erase(action_id);
+    dispatched_action_facts_.erase(action_id);
     return;
   }
   CefMouseEvent event;
@@ -2832,6 +2910,7 @@ void SaccadeAdapter::DispatchDragOnUi(int start_x,
   if (!browser) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     dispatched_actions_.erase(action_id);
+    dispatched_action_facts_.erase(action_id);
     return;
   }
   auto host = browser->GetHost();
@@ -3160,6 +3239,7 @@ void SaccadeAdapter::ResetPageStateLocked(const std::string& reason) {
   staged_actions_.clear();
   action_scan_generation_ = 0;
   dispatched_actions_.clear();
+  dispatched_action_facts_.clear();
   pending_receipts_.clear();
   for (auto& [request_id, command] : form_commands_) {
     if (!command.done) {

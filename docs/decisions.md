@@ -2467,8 +2467,8 @@
   lane. The Playwright 1280x720 screenshot adds 920 GPT-5.6 image tokens and
   158 result-metadata tokens.
 - This unlocks only the exact measured claim in
-  `docs/ai044_playwright_parity_benchmark.md`. It does not unlock “Saccade
-  always beats Playwright,” higher overall task completion, or cross-browser
+  `docs/ai044_playwright_parity_benchmark.md`. It does not unlock â€œSaccade
+  always beats Playwright,â€ higher overall task completion, or cross-browser
   test-framework replacement claims.
 - Evidence: `runs/benchmarks/playwright_parity_build49_evaluate_20260718/report.json`
   and `runs/dogfood/df_playwright_parity_build49_cleanroom_20260718/report.json`.
@@ -2521,7 +2521,7 @@
 - Native Help opens the company site in a new Human-controlled Agent Off
   Saccade tab. Build 59 exposed a legacy grant reapplication bug; Build 60
   restricted that legacy grant to initial bridge configuration and passed the
-  runtime Help gate with browser count 1→2 and eligible count 1→1.
+  runtime Help gate with browser count 1â†’2 and eligible count 1â†’1.
 - This license decision closes dogfood item 16. Notarization, Gatekeeper and
   clean-machine public distribution remain separate release gates.
 - Evidence: `docs/public_release_licensing.md`,
@@ -2608,3 +2608,60 @@
   bypassing that policy is outside the product boundary. Team ID remains
   insufficient by itself for release: full designated-requirement and strict
   nested-signature checks still apply to rebuilt packages.
+
+## DECISION_PRODUCT_084 - Fail closed on the Saccade Agent Layer
+
+- Installed LLM browser tasks must bind to the current Saccade WebView and use
+  the MCP `truth`/`actions`/`act` route with a verified native-input receipt.
+- A missing transport, grant, collector, current page revision, action map or
+  native receipt is a hard `SACCADE_AGENT_LAYER_REQUIRED` failure. It must not
+  start a fallback worker or silently continue through screenshots, Computer
+  Use, Playwright, CDP, another browser, OS mouse input or page scripts.
+- The local worker remains available only in the explicit developer runtime
+  profile. Installed registration selects `installed_product` so these rules
+  apply to every conforming MCP host, not only to one LLM client.
+- Browser actions and benchmark scores without Agent Layer route proof are
+  invalid dogfood evidence, even when the visible result appears successful.
+- An Agent On browser-process refresh may idempotently install the fixed
+  renderer collector when initial context setup was missed. Agent Off tabs
+  remain ineligible at the browser-process grant boundary.
+## DECISION_PRODUCT_085 - Keep the realtime browser loop inside the installed MCP
+
+- Windows and macOS use the same `saccade-mcp` product binary. The installed
+  LLM host makes one `saccade.web.reflex_run` call; MCP locally executes
+  `next_fact -> native act -> next_receipt` with zero LLM calls in the hot loop.
+- The high-rate route is benchmark-only (MouseAccuracy and local fixtures),
+  same-WebView, native-input and receipt-gated. It never falls back to a
+  screenshot, OS mouse, custom page script, Playwright or CDP.
+- CEF preserves an already accepted target input across layout-only revisions
+  and may rebase only that target on the same page. Navigation and tab changes
+  still clear the pending action and fail closed.
+- Real MouseAccuracy completion comes from same-WebView results text. A PASS
+  requires 100% target efficiency, 100% click accuracy and exact equality
+  between target hits and verified native receipts.
+- Windows installation and normal first launch invoke the same MCP binary's
+  non-destructive `register-codex` command. PowerShell is only a thin wrapper;
+  there is no second config writer or Windows-only MCP implementation.
+- Installed Build 73 passed Insane + Tiny + 15 seconds with 46/46 targets,
+  46/46 clicks, 46 matching receipts, median 5.3 ms and p95 6.8 ms. The hot
+  loop made zero LLM calls and used no screenshot or external input fallback.
+- Evidence: `runs/windows_dogfood/build73_mcp_reflex_gate/report.json`.
+
+## DECISION_PRODUCT_086 - Make Saccade the installed default browser route
+
+- Every browser or website task defaults to the installed Saccade MCP even when
+  the user does not mention Saccade. New sessions start with tabs.open_agent;
+  Human-created current tabs retain the explicit per-tab Agent On grant.
+- Codex has no MCP priority field. Registration therefore disables the bundled
+  Browser and Computer Use plugins that would otherwise compete before the MCP.
+  This makes the first automatic browser tool call unambiguously Saccade.
+- Another browser is an explicit per-task user choice, never an automatic
+  fallback. Saccade transport, truth, action or receipt failure remains closed.
+- The MCP initialization instructions, every tool description and structured
+  capabilities expose default_for_all_browser_tasks=true.
+- Windows Build 75 adds this selection to the same idempotent first-launch and
+  installer registration path. Existing Codex config is backed up before write.
+- Build 75 clean-room validation used an ordinary browser prompt that did not
+  mention Saccade. The first browser tool was saccade.tabs.open_agent, with
+  zero command execution, competing browser route or fallback.
+- Evidence: runs/windows_dogfood/build75_default_route_gate/report.json.

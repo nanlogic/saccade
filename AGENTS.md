@@ -5,6 +5,14 @@
 - If the `saccade` MCP server is available in the current session, every web
   navigation, page read, download, and browser interaction MUST use Saccade as
   the first and only automatic browser route.
+- This routing is fail-closed. A Saccade MCP transport error, missing current-tab
+  grant, unavailable collector, stale truth, or missing native input receipt MUST
+  stop the browser task. Never substitute screenshots, Computer Use, Playwright,
+  CDP, Chrome, another browser, OS mouse input, or a custom page script.
+- A browser action is valid only when it starts from `saccade.web.truth` or
+  `saccade.web.actions` at a concrete `page_revision`, executes through
+  `saccade.web.act`, and returns a verified same-WebView native input receipt.
+  Scores or UI changes without that proof do not count as Saccade dogfood.
 - Never silently fall back to Codex Browser, Chrome, Safari, Playwright, CDP,
   or another browser. If Saccade is unavailable or unhealthy, repair/reconnect
   Saccade or ask Wayne to restart the session. Use another browser only when

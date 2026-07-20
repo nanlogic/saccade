@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "channel": "stable",
+  "platform": "windows64",
+  "cef_version": "150.0.11+gb887805+chromium-150.0.7871.115",
+  "cef_git_revision": "b88780525f76c1c1d67d30b87e3b16bb37955175",
+  "chromium_version": "150.0.7871.115",
+  "chromium_git_revision": "25f5b661e5b08141ec24b17d1ce96c5ceb5828da",
+  "packages": {
+    "standard": {
+      "file": "cef_binary_150.0.11+gb887805+chromium-150.0.7871.115_windows64.tar.bz2",
+      "url": "https://cef-builds.spotifycdn.com/cef_binary_150.0.11%2Bgb887805%2Bchromium-150.0.7871.115_windows64.tar.bz2",
+      "sha1": "5166ca9e708c1e72e3bb1a8fbeb885faf4984202",
+      "sha256": "19df14cd13c8d491077fef921dbb9730a702c26bf5eee1ba7497178bb13df981"
+    }
+  },
+  "license": "BSD-3-Clause",
+  "source": "https://cef-builds.spotifycdn.com/index.json",
+  "pinned_at": "2026-07-19"
+}

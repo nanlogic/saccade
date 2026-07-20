@@ -1,0 +1,536 @@
+--- a/tests/cefsimple/CMakeLists.txt
++++ b/tests/cefsimple/CMakeLists.txt
+@@ -10,9 +10,20 @@ set(CEFSIMPLE_SRCS
+   simple_app.cc
+   simple_app.h
+   simple_handler.cc
+   simple_handler.h
++  saccade_adapter.cc
++  saccade_adapter.h
++  saccade_form_script.h
++  saccade_renderer.cc
++  saccade_renderer.h
+   )
+@@ -24,6 +35,12 @@ set(CEFSIMPLE_SRCS_WINDOWS
+   cefsimple_win.cc
++  saccade_agent_switch_win.cc
++  saccade_agent_switch_win.h
++  saccade_direct_session_win.cc
++  saccade_direct_session_win.h
++  saccade_windows_platform.cc
++  saccade_windows_platform.h
+   resource.h
+   simple_handler_win.cc
+   )
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -8,23 +8,48 @@
+ #include <list>
+
+ #include "include/cef_client.h"
++#include "include/cef_download_handler.h"
++#include "include/cef_focus_handler.h"
++#include "include/cef_request_handler.h"
++#include "include/cef_resource_request_handler.h"
+
+ class SimpleHandler : public CefClient,
+                       public CefDisplayHandler,
++                      public CefDownloadHandler,
+                       public CefLifeSpanHandler,
+-                      public CefLoadHandler {
++                      public CefLoadHandler,
++                      public CefFocusHandler,
++                      public CefRequestHandler,
++                      public CefResourceRequestHandler {
+  public:
+   explicit SimpleHandler(bool is_alloy_style);
+   ~SimpleHandler() override;
+
+   // Provide access to the single global instance of this object.
+   static SimpleHandler* GetInstance();
+
+   // CefClient methods:
+   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
++  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
++  CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
++  CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
++  bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
++                                CefRefPtr<CefFrame> frame,
++                                CefProcessId source_process,
++                                CefRefPtr<CefProcessMessage> message) override;
++
++  // CefDownloadHandler methods.
++  bool OnBeforeDownload(CefRefPtr<CefBrowser> browser,
++                        CefRefPtr<CefDownloadItem> download_item,
++                        const CefString& suggested_name,
++                        CefRefPtr<CefBeforeDownloadCallback> callback) override;
++  void OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
++                         CefRefPtr<CefDownloadItem> download_item,
++                         CefRefPtr<CefDownloadItemCallback> callback) override;
+
+   // CefDisplayHandler methods:
+   void OnTitleChange(CefRefPtr<CefBrowser> browser,
+                      const CefString& title) override;
++  void OnAddressChange(CefRefPtr<CefBrowser> browser,
++                       CefRefPtr<CefFrame> frame,
++                       const CefString& url) override;
+
+   // CefLifeSpanHandler methods:
+@@ -32,8 +57,46 @@ class SimpleHandler : public CefClient,
+   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
+   bool DoClose(CefRefPtr<CefBrowser> browser) override;
+   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override;
++  bool OnBeforePopup(
++      CefRefPtr<CefBrowser> browser,
++      CefRefPtr<CefFrame> frame,
++      int popup_id,
++      const CefString& target_url,
++      const CefString& target_frame_name,
++      CefLifeSpanHandler::WindowOpenDisposition target_disposition,
++      bool user_gesture,
++      const CefPopupFeatures& popupFeatures,
++      CefWindowInfo& windowInfo,
++      CefRefPtr<CefClient>& client,
++      CefBrowserSettings& settings,
++      CefRefPtr<CefDictionaryValue>& extra_info,
++      bool* no_javascript_access) override;
++
++  // CefRequestHandler methods:
++  bool OnOpenURLFromTab(
++      CefRefPtr<CefBrowser> browser,
++      CefRefPtr<CefFrame> frame,
++      const CefString& target_url,
++      CefRequestHandler::WindowOpenDisposition target_disposition,
++      bool user_gesture) override;
++  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(
++      CefRefPtr<CefBrowser> browser,
++      CefRefPtr<CefFrame> frame,
++      CefRefPtr<CefRequest> request,
++      bool is_navigation,
++      bool is_download,
++      const CefString& request_initiator,
++      bool& disable_default_handling) override;
++
++  // CefResourceRequestHandler methods.
++  void OnResourceLoadComplete(CefRefPtr<CefBrowser> browser,
++                              CefRefPtr<CefFrame> frame,
++                              CefRefPtr<CefRequest> request,
++                              CefRefPtr<CefResponse> response,
++                              URLRequestStatus status,
++                              int64_t received_content_length) override;
+
+   // CefLoadHandler methods:
++  void OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
++                            bool isLoading,
++                            bool canGoBack,
++                            bool canGoForward) override;
+   void OnLoadError(CefRefPtr<CefBrowser> browser,
+                    CefRefPtr<CefFrame> frame,
+@@ -42,6 +105,9 @@ class SimpleHandler : public CefClient,
+                    const CefString& errorText,
+                    const CefString& failedUrl) override;
+
++  // CefFocusHandler methods:
++  void OnGotFocus(CefRefPtr<CefBrowser> browser) override;
++
+   void ShowMainWindow();
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -4,15 +4,20 @@
+
+ #include "tests/cefsimple/simple_handler.h"
+
++#include <algorithm>
++#include <cctype>
++#include <cstdlib>
+ #include <sstream>
+ #include <string>
+
+ #include "include/base/cef_callback.h"
+ #include "include/cef_app.h"
+ #include "include/cef_parser.h"
+ #include "include/views/cef_browser_view.h"
+ #include "include/views/cef_window.h"
+ #include "include/wrapper/cef_closure_task.h"
+ #include "include/wrapper/cef_helpers.h"
++#include "tests/cefsimple/saccade_adapter.h"
+
+ namespace {
+@@ -28,6 +33,46 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
+              .ToString();
+ }
+
++bool IsSaccadeTabDisposition(cef_window_open_disposition_t disposition) {
++  return disposition == CEF_WOD_NEW_FOREGROUND_TAB ||
++         disposition == CEF_WOD_NEW_BACKGROUND_TAB;
++}
++
++std::string SafeSuggestedDownloadName(const CefString& suggested_name) {
++  std::string name = suggested_name.ToString();
++  const size_t separator = name.find_last_of("/\\");
++  if (separator != std::string::npos) name = name.substr(separator + 1);
++  return name.empty() || name == "." || name == ".." ? "download" : name;
++}
++
++bool HostMatchesDomain(const std::string& host, const std::string& domain) {
++  return host == domain ||
++         (host.size() > domain.size() &&
++          host.compare(host.size() - domain.size(), domain.size(), domain) == 0 &&
++          host[host.size() - domain.size() - 1] == '.');
++}
++
++std::string HumanVerificationProviderForRequest(
++    CefRefPtr<CefRequest> request) {
++  if (!request) return "";
++  CefURLParts parts;
++  if (!CefParseURL(request->GetURL(), parts)) return "";
++  std::string host = CefString(&parts.host).ToString();
++  const std::string path = CefString(&parts.path).ToString();
++  std::transform(host.begin(), host.end(), host.begin(),
++                 [](unsigned char value) { return std::tolower(value); });
++  if (path.find("/fc/gt2/public_key/") == std::string::npos) return "";
++  if (HostMatchesDomain(host, "arkoselabs.com") ||
++      HostMatchesDomain(host, "octocaptcha.com")) {
++    return "Arkose Labs";
++  }
++  return "";
++}
++
+ }  // namespace
+@@ -43,6 +88,43 @@ SimpleHandler* SimpleHandler::GetInstance() {
+   return g_instance;
+ }
+
++bool SimpleHandler::OnProcessMessageReceived(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    CefProcessId source_process,
++    CefRefPtr<CefProcessMessage> message) {
++  CEF_REQUIRE_UI_THREAD();
++  return SaccadeAdapter::GetInstance()->OnRendererMessage(
++      browser, frame, source_process, message);
++}
++
++bool SimpleHandler::OnBeforeDownload(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefDownloadItem> download_item,
++    const CefString& suggested_name,
++    CefRefPtr<CefBeforeDownloadCallback> callback) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnDownloadUpdated(browser, download_item);
++  const char* forced_directory = std::getenv("SACCADE_DOWNLOAD_DIR");
++  if (forced_directory && forced_directory[0] != '\0') {
++    std::string path(forced_directory);
++    if (path.back() != '/' && path.back() != '\\') path.push_back('\\');
++    path.append(SafeSuggestedDownloadName(suggested_name));
++    callback->Continue(path, false);
++    return true;
++  }
++  return false;
++}
++
++void SimpleHandler::OnDownloadUpdated(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefDownloadItem> download_item,
++    CefRefPtr<CefDownloadItemCallback> callback) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnDownloadUpdated(browser, download_item);
++}
++
+ void SimpleHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
+                                   const CefString& title) {
+@@ -59,6 +141,15 @@ void SimpleHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
+   } else if (is_alloy_style_) {
+     // Set the title of the window using platform APIs.
+     PlatformTitleChange(browser, title);
+   }
++  SaccadeAdapter::GetInstance()->OnTitleChanged(browser, title);
++}
++
++void SimpleHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
++                                    CefRefPtr<CefFrame> frame,
++                                    const CefString& url) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnAddressChanged(browser, frame, url);
+ }
+@@ -69,6 +160,7 @@ void SimpleHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
+
+   // Add to the list of existing browsers.
+   browser_list_.push_back(browser);
++  SaccadeAdapter::GetInstance()->OnBrowserCreated(browser);
+ }
+@@ -87,9 +179,48 @@ bool SimpleHandler::DoClose(CefRefPtr<CefBrowser> browser) {
+   return false;
+ }
+
++bool SimpleHandler::OnBeforePopup(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    int popup_id,
++    const CefString& target_url,
++    const CefString& target_frame_name,
++    CefLifeSpanHandler::WindowOpenDisposition target_disposition,
++    bool user_gesture,
++    const CefPopupFeatures& popupFeatures,
++    CefWindowInfo& windowInfo,
++    CefRefPtr<CefClient>& client,
++    CefBrowserSettings& settings,
++    CefRefPtr<CefDictionaryValue>& extra_info,
++    bool* no_javascript_access) {
++  CEF_REQUIRE_UI_THREAD();
++  if (IsSaccadeTabDisposition(target_disposition) &&
++      !target_url.ToString().empty()) {
++    SaccadeAdapter::GetInstance()->OpenRoutedTabOnUi(target_url.ToString());
++    return true;
++  }
++  return false;
++}
++
+ void SimpleHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
+   CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnBrowserClosed(browser);
+
+   // Remove from the list of existing browsers.
+@@ -110,6 +241,63 @@ void SimpleHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
+   }
+ }
+
++bool SimpleHandler::OnOpenURLFromTab(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    const CefString& target_url,
++    CefRequestHandler::WindowOpenDisposition target_disposition,
++    bool user_gesture) {
++  CEF_REQUIRE_UI_THREAD();
++  if (IsSaccadeTabDisposition(target_disposition) &&
++      !target_url.ToString().empty()) {
++    SaccadeAdapter::GetInstance()->OpenRoutedTabOnUi(target_url.ToString());
++    return true;
++  }
++  return false;
++}
++
++CefRefPtr<CefResourceRequestHandler>
++SimpleHandler::GetResourceRequestHandler(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    CefRefPtr<CefRequest> request,
++    bool is_navigation,
++    bool is_download,
++    const CefString& request_initiator,
++    bool& disable_default_handling) {
++  if (!HumanVerificationProviderForRequest(request).empty()) return this;
++  return nullptr;
++}
++
++void SimpleHandler::OnResourceLoadComplete(
++    CefRefPtr<CefBrowser> browser,
++    CefRefPtr<CefFrame> frame,
++    CefRefPtr<CefRequest> request,
++    CefRefPtr<CefResponse> response,
++    URLRequestStatus status,
++    int64_t received_content_length) {
++  const std::string provider = HumanVerificationProviderForRequest(request);
++  if (provider.empty()) return;
++  SaccadeAdapter::GetInstance()->OnHumanVerificationResourceResult(
++      browser, provider, response ? response->GetStatus() : 0,
++      static_cast<int>(status));
++}
++
++void SimpleHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
++                                         bool isLoading,
++                                         bool canGoBack,
++                                         bool canGoForward) {
++  CEF_REQUIRE_UI_THREAD();
++  if (!isLoading) SaccadeAdapter::GetInstance()->OnLoadCompleted(browser);
++}
++
+ void SimpleHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
+@@ -145,6 +333,11 @@ void SimpleHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
+   frame->LoadURL(GetDataURI(ss.str(), "text/html"));
+ }
+
++void SimpleHandler::OnGotFocus(CefRefPtr<CefBrowser> browser) {
++  CEF_REQUIRE_UI_THREAD();
++  SaccadeAdapter::GetInstance()->OnBrowserFocused(browser);
++}
++
+ void SimpleHandler::ShowMainWindow() {
+--- a/tests/cefsimple/cefsimple_win.cc
++++ b/tests/cefsimple/cefsimple_win.cc
+@@ -11,6 +11,8 @@
+ #include "include/cef_sandbox_win.h"
+ #include "include/cef_version_info.h"
+ #include "tests/cefsimple/simple_app.h"
++#include "tests/cefsimple/saccade_direct_session_win.h"
++#include "tests/cefsimple/saccade_renderer.h"
+@@ -42,7 +44,8 @@ int RunMain(HINSTANCE hInstance,
+   // CEF applications have multiple sub-processes (render, GPU, etc) that share
+   // the same executable. This function checks the command-line and, if this is
+   // a sub-process, executes the appropriate logic.
+-  exit_code = CefExecuteProcess(main_args, nullptr, sandbox_info);
++  CefRefPtr<SaccadeRendererApp> renderer_app(new SaccadeRendererApp);
++  exit_code = CefExecuteProcess(main_args, renderer_app, sandbox_info);
+@@ -56,6 +59,7 @@ int RunMain(HINSTANCE hInstance,
+   command_line->InitFromString(::GetCommandLineW());
+
++  SaccadeDirectSessionWin direct_session;
+   // Specify CEF global settings here.
+--- a/tests/cefsimple/saccade_adapter.cc
++++ b/tests/cefsimple/saccade_adapter.cc
+@@ -3,14 +3,24 @@
+
+ #include "tests/cefsimple/saccade_adapter.h"
+
++#if defined(OS_WIN)
++#include "tests/cefsimple/saccade_windows_platform.h"
++#else
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <stdlib.h>
+ #include <sys/socket.h>
+ #include <sys/stat.h>
+ #include <sys/un.h>
+ #include <unistd.h>
++#endif
+
+ #include <algorithm>
+ #include <array>
+ #include <chrono>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
+ #include <limits>
+ #include <utility>
+@@ -26,8 +36,28 @@
+ #include "include/wrapper/cef_closure_task.h"
+ #include "include/wrapper/cef_helpers.h"
+ #if defined(OS_MAC)
+ #include "tests/cefsimple/saccade_agent_switch_mac.h"
++#elif defined(OS_WIN)
++#include "tests/cefsimple/saccade_agent_switch_win.h"
+ #endif
++
++#if defined(OS_WIN)
++#define arc4random_buf(output, size) SaccadeRandomBytes((output), (size))
++#define open SaccadeOpen
++#define read SaccadeRead
++#define write SaccadeWrite
++#define close SaccadeClose
++#define fsync SaccadeCommit
++#define fchmod SaccadeChmodOwnerOnly
++#define unlink SaccadeUnlink
++#define rename SaccadeRenameReplace
++#define getpid SaccadeProcessId
++#define ssize_t SaccadeSSize
++#define O_RDONLY kSaccadeOpenReadOnly
++#define O_WRONLY kSaccadeOpenWriteOnly
++#define O_CREAT kSaccadeOpenCreate
++#define O_TRUNC kSaccadeOpenTruncate
++#define O_APPEND kSaccadeOpenAppend
++#define O_NOFOLLOW kSaccadeOpenNoFollow
++#endif
+@@ -51,7 +81,7 @@ CefRefPtr<CefListValue> CapabilityList() {
+       "article_text", "type_field_text", "render_preflight",
+       "open_agent_tab", "tab_registry", "select_tab", "downloads"};
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+   capabilities.push_back("protected_fill");
+ #endif
+@@ -665,7 +695,7 @@ void SaccadeAdapter::OnHumanVerificationResourceResult(
+     }
+   }
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+   const char* suppress_alert = getenv("SACCADE_SUPPRESS_HUMAN_VERIFICATION_ALERT");
+@@ -1191,17 +1221,25 @@ void SaccadeAdapter::Stop() {
+   text_insert_cv_.notify_all();
+   const int listener = listener_fd_.exchange(-1);
+   if (listener >= 0) {
++#if defined(OS_WIN)
++    SaccadeShutdownNamedPipe(listener);
++#else
+     shutdown(listener, SHUT_RDWR);
++#endif
+     close(listener);
+   }
+@@ -1201,7 +1239,9 @@ void SaccadeAdapter::Stop() {
+     server_thread_.join();
+   }
++#if !defined(OS_WIN)
+   if (!socket_path_.empty()) {
+     unlink(socket_path_.c_str());
+   }
++#endif
+@@ -1212,6 +1252,15 @@ void SaccadeAdapter::Stop() {
+ }
+
+ void SaccadeAdapter::Serve() {
++#if defined(OS_WIN)
++  const int listener = SaccadeCreateNamedPipeListener(socket_path_);
++  if (listener < 0) return;
++  listener_fd_ = listener;
++  if (!WriteGrant()) {
++    close(listener);
++    listener_fd_ = -1;
++    return;
++  }
++#else
+   unlink(socket_path_.c_str());
+   const int listener = socket(AF_UNIX, SOCK_STREAM, 0);
+@@ -1244,8 +1293,13 @@ void SaccadeAdapter::Serve() {
+     return;
+   }
++#endif
+
+   while (!stopping_) {
++#if defined(OS_WIN)
++    const int client = SaccadeAcceptNamedPipe(listener);
++#else
+     const int client = accept(listener, nullptr, nullptr);
++#endif
+@@ -2250,7 +2304,7 @@ std::string SaccadeAdapter::ProtectedFillResponse(
+     return ErrorResponse(id, "PERMISSION_DENIED", reason);
+   }
+
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -2985,8 +3039,13 @@ bool SaccadeAdapter::WriteGrant() {
+   std::lock_guard<std::mutex> grant_lock(grant_mutex_);
+   auto endpoint = CefDictionaryValue::Create();
+   endpoint->SetString("protocol", kProtocol);
++#if defined(OS_WIN)
++  endpoint->SetString("scheme", "windows_named_pipe");
++#else
+   endpoint->SetString("scheme", "unix");
++#endif
+   endpoint->SetString("path", socket_path_);
+@@ -2996,7 +3055,11 @@ bool SaccadeAdapter::WriteGrant() {
+   auto adapter = CefDictionaryValue::Create();
+   adapter->SetString("contract_version", kContractVersion);
++#if defined(OS_WIN)
++  adapter->SetString("transport", "owner_only_windows_pipe_v1");
++#else
+   adapter->SetString("transport", "owner_only_unix_v1");
++#endif
+@@ -3084,7 +3147,7 @@ bool SaccadeAdapter::CurrentTabHasHumanVerificationFailureLocked() const {
+
+ void SaccadeAdapter::RefreshAgentSwitchOnUi() {
+   CEF_REQUIRE_UI_THREAD();
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -3125,6 +3188,10 @@ void SaccadeAdapter::RemoveCurrentPointerIfOwned() {
+   if (current_pointer_path_.empty()) {
+     return;
+   }
++#if defined(OS_WIN)
++  SaccadeRemovePointerIfOwned(current_pointer_path_, grant_path_ + "\n");
++  return;
++#else
+@@ -3151,6 +3218,7 @@ void SaccadeAdapter::RemoveCurrentPointerIfOwned() {
+     unlink(current_pointer_path_.c_str());
+   }
++#endif
+ }

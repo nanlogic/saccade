@@ -1,0 +1,8 @@
+--- a/tests/cefsimple/saccade_agent_switch_win.cc
++++ b/tests/cefsimple/saccade_agent_switch_win.cc
+@@ -87,5 +87,5 @@ void PositionAgentButton(HWND button) {
+   constexpr int height = 28;
+   const int right_reserve = 164;
+-  const int x = std::max(8, bounds.right - right_reserve - width);
++  const int x = static_cast<int>(std::max<LONG>(8, bounds.right - right_reserve - width));
+   SetWindowPos(button, HWND_TOP, x, 5, width, height,

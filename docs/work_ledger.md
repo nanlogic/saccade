@@ -316,3 +316,17 @@
   `authorized_ordinary_fields=fill_without_manual_handoff`, preserved the
   explicit stopping-point policy, and passed the repo-free clean-room gate in
   `runs/dogfood/df_form_completion_default_build64_20260718/report.json`.
+
+## 2026-07-20 - Installed Saccade default browser routing
+
+- Corrected the installed contract from mandatory only for an existing Saccade
+  tab to default and mandatory for every browser or website task.
+- New browser work starts with tabs.open_agent automatically; a Human-created
+  current tab still requires Agent On plus grant_current.
+- Codex registration disables the competing bundled Browser and Computer Use
+  plugins, so a normal browser request reaches Saccade MCP as the first tool
+  route. Alternate automation requires an explicit manual re-enable.
+- MCP tests passed 27/27, including default capability and registration coverage.
+- Installed Build 75 clean-room gate passed: an ordinary prompt with no Saccade
+  wording called saccade.tabs.open_agent first, with zero commands or fallback.
+- Evidence: runs/windows_dogfood/build75_default_route_gate/report.json.
