@@ -1,0 +1,52 @@
+--- a/tests/cefsimple/saccade_adapter.cc
++++ b/tests/cefsimple/saccade_adapter.cc
+@@ -1193,11 +1193,17 @@ void SaccadeAdapter::Stop() {
+   text_insert_cv_.notify_all();
+   const int listener = listener_fd_.exchange(-1);
+   if (listener >= 0) {
++#if defined(OS_WIN)
++    SaccadeShutdownNamedPipe(listener);
++#else
+     shutdown(listener, SHUT_RDWR);
++#endif
+     close(listener);
+   }
+   if (server_thread_.joinable() &&
+       server_thread_.get_id() != std::this_thread::get_id()) {
+     server_thread_.join();
+   }
++#if !defined(OS_WIN)
+   if (!socket_path_.empty()) {
+     unlink(socket_path_.c_str());
+   }
++#endif
+@@ -1212,6 +1218,15 @@ void SaccadeAdapter::Stop() {
+ }
+
+ void SaccadeAdapter::Serve() {
++#if defined(OS_WIN)
++  const int listener = SaccadeCreateNamedPipeListener(socket_path_);
++  if (listener < 0) return;
++  listener_fd_ = listener;
++  if (!WriteGrant()) {
++    close(listener);
++    listener_fd_ = -1;
++    return;
++  }
++#else
+   unlink(socket_path_.c_str());
+   const int listener = socket(AF_UNIX, SOCK_STREAM, 0);
+@@ -1241,11 +1256,16 @@ void SaccadeAdapter::Serve() {
+     listener_fd_ = -1;
+     unlink(socket_path_.c_str());
+     return;
+   }
++#endif
+
+   while (!stopping_) {
++#if defined(OS_WIN)
++    const int client = SaccadeAcceptNamedPipe(listener);
++#else
+     const int client = accept(listener, nullptr, nullptr);
++#endif
+     if (client < 0) {

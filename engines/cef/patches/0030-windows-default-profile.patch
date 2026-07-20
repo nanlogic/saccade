@@ -1,0 +1,55 @@
+diff --git a/tests/cefsimple/cefsimple_win.cc b/tests/cefsimple/cefsimple_win.cc
+--- a/tests/cefsimple/cefsimple_win.cc
++++ b/tests/cefsimple/cefsimple_win.cc
+@@ -5,6 +5,8 @@
+
+ #include <windows.h>
+
++#include <string>
++
+ #include "include/cef_command_line.h"
+ #include "include/cef_sandbox_win.h"
+ #include "include/cef_version_info.h"
+@@ -12,6 +14,22 @@
+
+ namespace {
+
++std::wstring DefaultSaccadeProfilePath() {
++  const DWORD required = ::GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
++  if (required == 0) {
++    return {};
++  }
++  std::wstring root(required, L'\0');
++  const DWORD written =
++      ::GetEnvironmentVariableW(L"LOCALAPPDATA", root.data(), required);
++  if (written == 0 || written >= required) {
++    return {};
++  }
++  root.resize(written);
++  root.append(L"\\Saccade\\CEF\\Profiles\\default");
++  return root;
++}
++
+ int RunMain(HINSTANCE hInstance,
+             LPTSTR lpCmdLine,
+             int nCmdShow,
+@@ -39,6 +57,19 @@ int RunMain(HINSTANCE hInstance,
+   // The packaging step brands bootstrap.exe's IDI_APPLICATION resource.
+   settings.chrome_app_icon_id = 32512;
+
++  CefString profile_path = command_line->GetSwitchValue("user-data-dir");
++  if (profile_path.empty() && !command_line->HasSwitch("incognito")) {
++    const std::wstring default_profile = DefaultSaccadeProfilePath();
++    if (!default_profile.empty()) {
++      profile_path = default_profile;
++    }
++  }
++  if (!profile_path.empty()) {
++    CefString(&settings.root_cache_path) = profile_path;
++    CefString(&settings.cache_path) = profile_path;
++    settings.persist_session_cookies = true;
++  }
++
+   if (!sandbox_info) {
+     settings.no_sandbox = true;
+   }

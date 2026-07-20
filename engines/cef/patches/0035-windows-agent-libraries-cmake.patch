@@ -1,0 +1,11 @@
+--- a/tests/cefsimple/CMakeLists.txt
++++ b/tests/cefsimple/CMakeLists.txt
+@@ -244,7 +244,9 @@ if(OS_WINDOWS)
+   endif()
+
+   add_dependencies(${CEF_TARGET} libcef_dll_wrapper)
+   target_link_libraries(${CEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
++  target_link_libraries(${CEF_TARGET} bcrypt.lib advapi32.lib)
++  target_compile_definitions(${CEF_TARGET} PRIVATE OS_WIN)
+
+   # Copy binary and resource files to the target output directory.

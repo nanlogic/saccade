@@ -1,0 +1,151 @@
+--- a/tests/cefsimple/saccade_adapter.cc
++++ b/tests/cefsimple/saccade_adapter.cc
+@@ -3,14 +3,18 @@
+
+ #include "tests/cefsimple/saccade_adapter.h"
+
++#if defined(OS_WIN)
++#include "tests/cefsimple/saccade_windows_platform.h"
++#else
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <stdlib.h>
+ #include <sys/socket.h>
+ #include <sys/stat.h>
+ #include <sys/un.h>
+ #include <unistd.h>
++#endif
+
+ #include <algorithm>
+@@ -26,8 +30,28 @@
+ #include "include/wrapper/cef_closure_task.h"
+ #include "include/wrapper/cef_helpers.h"
+ #if defined(OS_MAC)
+ #include "tests/cefsimple/saccade_agent_switch_mac.h"
++#elif defined(OS_WIN)
++#include "tests/cefsimple/saccade_agent_switch_win.h"
+ #endif
++
++#if defined(OS_WIN)
++#define arc4random_buf(output, size) SaccadeRandomBytes((output), (size))
++#define open SaccadeOpen
++#define read SaccadeRead
++#define write SaccadeWrite
++#define close SaccadeClose
++#define fsync SaccadeCommit
++#define fchmod SaccadeChmodOwnerOnly
++#define unlink SaccadeUnlink
++#define rename SaccadeRenameReplace
++#define getpid SaccadeProcessId
++#define ssize_t SaccadeSSize
++#define O_RDONLY kSaccadeOpenReadOnly
++#define O_WRONLY kSaccadeOpenWriteOnly
++#define O_CREAT kSaccadeOpenCreate
++#define O_TRUNC kSaccadeOpenTruncate
++#define O_APPEND kSaccadeOpenAppend
++#define O_NOFOLLOW kSaccadeOpenNoFollow
++#endif
+
+ namespace {
+@@ -51,7 +75,7 @@ CefRefPtr<CefListValue> CapabilityList() {
+       "article_text", "type_field_text", "render_preflight",
+       "open_agent_tab", "tab_registry", "select_tab", "downloads"};
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+   capabilities.push_back("protected_fill");
+ #endif
+@@ -665,7 +689,7 @@ void SaccadeAdapter::OnHumanVerificationResourceResult(
+     }
+   }
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+   const char* suppress_alert = getenv("SACCADE_SUPPRESS_HUMAN_VERIFICATION_ALERT");
+@@ -1191,17 +1215,25 @@ void SaccadeAdapter::Stop() {
+   text_insert_cv_.notify_all();
+   const int listener = listener_fd_.exchange(-1);
+   if (listener >= 0) {
++#if defined(OS_WIN)
++    SaccadeShutdownNamedPipe(listener);
++#else
+     shutdown(listener, SHUT_RDWR);
++#endif
+     close(listener);
+   }
+@@ -1201,7 +1233,9 @@ void SaccadeAdapter::Stop() {
+     server_thread_.join();
+   }
++#if !defined(OS_WIN)
+   if (!socket_path_.empty()) {
+     unlink(socket_path_.c_str());
+   }
++#endif
+@@ -1212,6 +1246,15 @@ void SaccadeAdapter::Stop() {
+ }
+
+ void SaccadeAdapter::Serve() {
++#if defined(OS_WIN)
++  const int listener = SaccadeCreateNamedPipeListener(socket_path_);
++  if (listener < 0) return;
++  listener_fd_ = listener;
++  if (!WriteGrant()) {
++    close(listener);
++    listener_fd_ = -1;
++    return;
++  }
++#else
+   unlink(socket_path_.c_str());
+   const int listener = socket(AF_UNIX, SOCK_STREAM, 0);
+@@ -1244,8 +1287,13 @@ void SaccadeAdapter::Serve() {
+     return;
+   }
++#endif
+
+   while (!stopping_) {
++#if defined(OS_WIN)
++    const int client = SaccadeAcceptNamedPipe(listener);
++#else
+     const int client = accept(listener, nullptr, nullptr);
++#endif
+@@ -2250,7 +2298,7 @@ std::string SaccadeAdapter::ProtectedFillResponse(
+     return ErrorResponse(id, "PERMISSION_DENIED", reason);
+   }
+
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -2985,8 +3033,13 @@ bool SaccadeAdapter::WriteGrant() {
+   std::lock_guard<std::mutex> grant_lock(grant_mutex_);
+   auto endpoint = CefDictionaryValue::Create();
+   endpoint->SetString("protocol", kProtocol);
++#if defined(OS_WIN)
++  endpoint->SetString("scheme", "windows_named_pipe");
++#else
+   endpoint->SetString("scheme", "unix");
++#endif
+   endpoint->SetString("path", socket_path_);
+@@ -2996,7 +3049,11 @@ bool SaccadeAdapter::WriteGrant() {
+   auto adapter = CefDictionaryValue::Create();
+   adapter->SetString("contract_version", kContractVersion);
++#if defined(OS_WIN)
++  adapter->SetString("transport", "owner_only_windows_pipe_v1");
++#else
+   adapter->SetString("transport", "owner_only_unix_v1");
++#endif
+@@ -3084,7 +3141,7 @@ bool SaccadeAdapter::CurrentTabHasHumanVerificationFailureLocked() const {
+
+ void SaccadeAdapter::RefreshAgentSwitchOnUi() {
+   CEF_REQUIRE_UI_THREAD();
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -3125,6 +3182,10 @@ void SaccadeAdapter::RemoveCurrentPointerIfOwned() {
+   if (current_pointer_path_.empty()) {
+     return;
+   }
++#if defined(OS_WIN)
++  SaccadeRemovePointerIfOwned(current_pointer_path_, grant_path_ + "\n");
++  return;
++#else
+@@ -3151,6 +3212,7 @@ void SaccadeAdapter::RemoveCurrentPointerIfOwned() {
+     unlink(current_pointer_path_.c_str());
+   }
++#endif
+ }

@@ -511,9 +511,33 @@ bool SaccadeRendererApp::OnProcessMessageReceived(
   if (!context || !context->Enter()) {
     return true;
   }
+  const bool refresh = message->GetName() == kRefreshMessage;
+  if (refresh) {
+    auto global = context->GetGlobal();
+    auto refresh_function =
+        global->GetValue("__saccadeCollectorRefresh");
+    if (!refresh_function || !refresh_function->IsFunction()) {
+      auto handler = CefRefPtr<EmitHandler>(new EmitHandler());
+      global->SetValue(kNativeEmitName,
+                       CefV8Value::CreateFunction(kNativeEmitName, handler),
+                       V8_PROPERTY_ATTRIBUTE_DONTENUM);
+      CefRefPtr<CefV8Value> install_result;
+      CefRefPtr<CefV8Exception> install_exception;
+      context->Eval(kCollectorScript, "saccade://renderer/collector.js", 1,
+                    install_result, install_exception);
+      CefRefPtr<CefV8Value> form_function;
+      CefRefPtr<CefV8Exception> form_exception;
+      if (context->Eval(kSaccadeFormCommandScript,
+                        "saccade://renderer/form_command.js", 1,
+                        form_function, form_exception) &&
+          form_function && form_function->IsFunction()) {
+        form_command_closures_[browser->GetIdentifier()] =
+            FormCommandClosure{context, form_function};
+      }
+    }
+  }
   CefRefPtr<CefV8Value> result;
   CefRefPtr<CefV8Exception> exception;
-  const bool refresh = message->GetName() == kRefreshMessage;
   context->Eval(refresh
                     ? "typeof window.__saccadeCollectorRefresh === 'function' && "
                       "window.__saccadeCollectorRefresh()"

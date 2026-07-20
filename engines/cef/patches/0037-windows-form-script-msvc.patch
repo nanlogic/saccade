@@ -1,0 +1,17 @@
+--- a/tests/cefsimple/saccade_form_script.h
++++ b/tests/cefsimple/saccade_form_script.h
+@@ -354,5 +354,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
+       reasonCodes = [
+         'authoring_surface_has_only_zero_rect_editors',
+         'visual_and_semantic_form_state_disagree'
+       ];
++)SACCADE_FORM_JS"
++R"SACCADE_FORM_JS(
+     } else if (snapshot.field_count > 0 && actionableFields.length === 0) {
+@@ -712,4 +714,6 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
+       .replace(/\n{3,}/g, '\n\n')
+       .trim()
+       .slice(0, 250000);
++)SACCADE_FORM_JS"
++R"SACCADE_FORM_JS(
+     const headings = Array.from(queryAll(root || document,

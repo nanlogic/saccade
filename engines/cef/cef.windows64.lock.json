@@ -7,12 +7,11 @@
   "chromium_version": "150.0.7871.115",
   "chromium_git_revision": "25f5b661e5b08141ec24b17d1ce96c5ceb5828da",
   "packages": {
-    "minimal": {
-      "file": "cef_binary_150.0.11+gb887805+chromium-150.0.7871.115_windows64_minimal.tar.bz2",
-      "url": "https://cef-builds.spotifycdn.com/cef_binary_150.0.11%2Bgb887805%2Bchromium-150.0.7871.115_windows64_minimal.tar.bz2",
-      "size": 164142463,
-      "sha1": "3b1496f7edbc19f1e431ad043f37a67a75d012f7",
-      "sha256": "5f4f2270d9e1b80094c32007bb8cbaef0c61bb06f04b552474651dadcf63808f"
+    "standard": {
+      "file": "cef_binary_150.0.11+gb887805+chromium-150.0.7871.115_windows64.tar.bz2",
+      "url": "https://cef-builds.spotifycdn.com/cef_binary_150.0.11%2Bgb887805%2Bchromium-150.0.7871.115_windows64.tar.bz2",
+      "sha1": "5166ca9e708c1e72e3bb1a8fbeb885faf4984202",
+      "sha256": "19df14cd13c8d491077fef921dbb9730a702c26bf5eee1ba7497178bb13df981"
     }
   },
   "license": "BSD-3-Clause",

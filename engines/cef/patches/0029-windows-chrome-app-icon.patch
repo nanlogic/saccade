@@ -1,0 +1,13 @@
+diff --git a/tests/cefsimple/cefsimple_win.cc b/tests/cefsimple/cefsimple_win.cc
+--- a/tests/cefsimple/cefsimple_win.cc
++++ b/tests/cefsimple/cefsimple_win.cc
+@@ -35,6 +35,9 @@ int RunMain(HINSTANCE hInstance,
+
+   // Specify CEF global settings here.
+   CefSettings settings;
++
++  // The packaging step brands bootstrap.exe's IDI_APPLICATION resource.
++  settings.chrome_app_icon_id = 32512;
+
+   if (!sandbox_info) {
+     settings.no_sandbox = true;

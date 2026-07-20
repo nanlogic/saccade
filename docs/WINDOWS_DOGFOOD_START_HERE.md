@@ -1,13 +1,20 @@
 # Saccade Windows dogfood: start here
 
-Date: 2026-07-19
+Date: 2026-07-20
 
 ## Readiness verdict
 
-The repository is ready to begin Windows implementation, but it is not yet a
-Windows dogfood build. The current browser adapter and Rust engine contract are
-Unix-socket only. Do not replace them with loopback TCP and do not claim Windows
-parity until the gates below pass on a Windows 10/11 x64 machine.
+Windows implementation and installed-product dogfood are complete through
+Build 76. The final live gate passed MouseAccuracy Hard + Tiny and a reversible
+SimpleMMO A/B through the installed MCP with same-WebView native-input receipts
+and no browser fallback. The adapter and Rust engine contract use an owner-only
+Windows named pipe; loopback TCP remains prohibited.
+
+Build 76 is unsigned dogfood. Public distribution is not ready until the
+Windows signing and reputation track is complete. See
+`docs/windows_dogfood_quickstart.md`, `docs/work_ledger.md`, and
+`runs/windows_dogfood/build76_final_live_gate/report.json` for current status
+and evidence.
 
 The Windows CEF archive is pinned to the same CEF and Chromium revisions as the
 macOS build in `engines/cef/cef.windows64.lock.json`.
@@ -33,10 +40,13 @@ powershell -ExecutionPolicy Bypass -File .\engines\cef\scripts\preflight_windows
 cargo test
 ```
 
-The preflight downloads the pinned CEF archive into ignored `target/` storage,
-checks its exact byte length and SHA-256, and prints the extracted CEF root.
+The preflight downloads the pinned CEF archive into the per-user Saccade CEF
+cache, checks its SHA-1 and SHA-256, and prints the extracted CEF root.
 
 ## Windows milestone order
+
+W0-W4 are complete for Build 76. Keep these gates for clean rebuilds and
+regressions.
 
 ### W0 - pinned CEF and toolchain
 
@@ -92,7 +102,10 @@ Run the article, multi-tab consent, ordinary form, protected local fill,
 download, media, resize/Canvas rebase, profile persistence and receipt gates.
 Record Defender and SmartScreen behavior instead of inferring it.
 
-## Prompt for the Windows Codex task
+## Historical bootstrap prompt
+
+The prompt below is retained as implementation history. Do not treat its W0/W1
+scope as current project status.
 
 ```text
 Read AGENTS.md, SACCADE_BUILD_SPEC_v4.md, docs/windows_dogfood_plan.md and

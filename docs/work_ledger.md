@@ -316,3 +316,87 @@
   `authorized_ordinary_fields=fill_without_manual_handoff`, preserved the
   explicit stopping-point policy, and passed the repo-free clean-room gate in
   `runs/dogfood/df_form_completion_default_build64_20260718/report.json`.
+
+## 2026-07-20 - Installed Saccade default browser routing
+
+- Corrected the installed contract from mandatory only for an existing Saccade
+  tab to default and mandatory for every browser or website task.
+- New browser work starts with tabs.open_agent automatically; a Human-created
+  current tab still requires Agent On plus grant_current.
+- Codex registration disables the competing bundled Browser and Computer Use
+  plugins, so a normal browser request reaches Saccade MCP as the first tool
+  route. Alternate automation requires an explicit manual re-enable.
+- MCP tests passed 27/27, including default capability and registration coverage.
+- Installed Build 75 clean-room gate passed: an ordinary prompt with no Saccade
+  wording called saccade.tabs.open_agent first, with zero commands or fallback.
+- Evidence: runs/windows_dogfood/build75_default_route_gate/report.json.
+
+## 2026-07-20 - Windows MouseAccuracy P0-1/P0-2
+
+- P0-1 gives START discovery, the running game, and result settlement independent
+  deadlines instead of sharing one timeout.
+- The game deadline begins only after the START action has a verified receipt and
+  the same WebView reports the destination collector ready.
+- P0-2 uses final MouseAccuracy result truth as the only PASS policy: both
+  accuracy values must be 100%, all targets and clicks must hit, and verified
+  receipt count must equal targets hit.
+- Timeout, max_hits, generic finished, and result parse failure cannot return PASS.
+- Local fixture receipt completion remains an explicit, separate policy.
+- Windows UI, New Tab, Agent toolbar, icons, and Chromium-style shell are untouched.
+- Validation passed: cargo fmt --all -- --check; cargo test -p saccade-mcp
+  (32/32); cargo test -p saccade_engine_api --lib (4/4); git diff --check.
+- The live installed Hard+Tiny gate remains pending a safe staged update path. The
+  known P0-4 in-place installer was not used to overwrite the installed package.
+
+## 2026-07-20 - Windows transport and staged update P0-3/P0-4
+
+- P0-3 replaces synchronous Windows pipe I/O with bounded connect, write, and
+  read phases using overlapped I/O. Deadline expiry calls CancelIoEx, drains the
+  operation before releasing its buffer, and returns EngineErrorCode::Timeout,
+  which MCP exposes as SACCADE_TIMEOUT without replaying the request.
+- A Windows server regression accepts a pipe client and withholds its response;
+  the client returns on the configured read deadline. Engine API tests pass 5/5.
+- Owner-only named-pipe and state-directory ACL construction now fails closed
+  instead of falling back to default Windows security attributes.
+- P0-4 packages Build 76 from a clean directory with version and SHA-256 file
+  manifests. The installer gracefully closes Saccade, stops only MCP/native-host
+  helpers loaded from InstallDir, validates source and staging, swaps whole
+  directories, retains the previous version through registration/launch smoke,
+  and restores it on failure. The external profile directory is never replaced.
+- The isolated upgrade regression passed two consecutive replacements, a locked
+  helper, stale-file removal, profile sentinel preservation, injected rollback,
+  and staging/backup cleanup.
+- Two consecutive real Build 76 installs passed. The installed/source manifest
+  hashes match, no transaction directory remains, the installed browser launch
+  smoke is running, and the external default profile still exists.
+- The first real attempt exposed a locked old MCP helper; rollback restored Build
+  75. Shutdown coverage was corrected and regression-tested before the two
+  successful Build 76 installs.
+- Live MouseAccuracy and SimpleMMO remain pending a new Codex task because this
+  task's old MCP stdio transport correctly closed during package replacement and
+  Codex tasks do not hot-reconnect MCP servers. No browser fallback was used.
+
+## 2026-07-20 - Windows Build 76 final installed-product live gate
+
+- A fresh Codex task connected to the installed Build 76 MCP and used Saccade as
+  the only browser route. No screenshot, OS-input, CDP, Playwright, or alternate
+  browser fallback was used.
+- MouseAccuracy ran at Hard + Tiny for 15 seconds. The strict results-page gate
+  passed with 31/31 targets, 31/31 clicks, 100% target efficiency, 100% click
+  accuracy, and exactly 31 matching verified native-input receipts. START had a
+  verified receipt, destination readiness was observed before the game deadline,
+  the hot loop made zero LLM calls, and target latency was 5.0 ms median / 6.6 ms
+  p95 / 8.1 ms max.
+- The saved SimpleMMO game session had expired and `/events` redirected to the
+  credential page. No credential was requested, read, entered, or logged. The
+  public reversible A/B therefore used Home -> Updates at revision 115 -> 116
+  and Updates -> Home at revision 116 -> 117. Both revision-bound actions
+  returned verified same-WebView native-input receipts, and the destination URL,
+  title, and bounded article truth matched each leg.
+- The installed and packaged 0.1.0-windows-dogfood Build 76 manifests still
+  match (`SHA-256 6B967A8D7E71ECCD6C3918ED49A5196CF9F547DE7129C1A0B8964484E09D6ACE`),
+  the installed MCP and external profile remain present, no staging/backup
+  transaction directory remains, and the browser stayed running after the gate.
+- Verdict: Windows installed-product dogfood is ready. Build 76 remains unsigned,
+  so public distribution is still explicitly not ready.
+- Evidence: `runs/windows_dogfood/build76_final_live_gate/report.json`.

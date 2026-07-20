@@ -1,0 +1,102 @@
+--- a/tests/cefsimple/saccade_adapter.cc
++++ b/tests/cefsimple/saccade_adapter.cc
+@@ -6,1 +6,4 @@
++#if defined(OS_WIN)
++#include "tests/cefsimple/saccade_windows_platform.h"
++#else
+ #include <errno.h>
+@@ -13,1 +16,2 @@
+ #include <unistd.h>
++#endif
+@@ -29,2 +33,24 @@
+ #include "tests/cefsimple/saccade_agent_switch_mac.h"
++#elif defined(OS_WIN)
++#include "tests/cefsimple/saccade_agent_switch_win.h"
+ #endif
++
++#if defined(OS_WIN)
++#define arc4random_buf(output, size) SaccadeRandomBytes((output), (size))
++#define open SaccadeOpen
++#define read SaccadeRead
++#define write SaccadeWrite
++#define close SaccadeClose
++#define fsync SaccadeCommit
++#define fchmod SaccadeChmodOwnerOnly
++#define unlink SaccadeUnlink
++#define rename SaccadeRenameReplace
++#define getpid SaccadeProcessId
++#define ssize_t SaccadeSSize
++#define O_RDONLY kSaccadeOpenReadOnly
++#define O_WRONLY kSaccadeOpenWriteOnly
++#define O_CREAT kSaccadeOpenCreate
++#define O_TRUNC kSaccadeOpenTruncate
++#define O_APPEND kSaccadeOpenAppend
++#define O_NOFOLLOW kSaccadeOpenNoFollow
++#endif
+@@ -54,1 +80,1 @@
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -668,1 +694,1 @@
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -1196,1 +1222,5 @@
++#if defined(OS_WIN)
++    SaccadeShutdownNamedPipe(listener);
++#else
+     shutdown(listener, SHUT_RDWR);
++#endif
+@@ -1203,1 +1233,2 @@
++#if !defined(OS_WIN)
+   if (!socket_path_.empty()) {
+@@ -1205,1 +1236,2 @@
+   }
++#endif
+@@ -1215,1 +1247,11 @@
+ void SaccadeAdapter::Serve() {
++#if defined(OS_WIN)
++  const int listener = SaccadeCreateNamedPipeListener(socket_path_);
++  if (listener < 0) return;
++  listener_fd_ = listener;
++  if (!WriteGrant()) {
++    close(listener);
++    listener_fd_ = -1;
++    return;
++  }
++#else
+@@ -1247,1 +1289,2 @@
++#endif
+   while (!stopping_) {
+@@ -1248,1 +1291,5 @@
++#if defined(OS_WIN)
++    const int client = SaccadeAcceptNamedPipe(listener);
++#else
+     const int client = accept(listener, nullptr, nullptr);
++#endif
+@@ -2253,1 +2300,1 @@
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -2988,1 +3035,5 @@
++#if defined(OS_WIN)
++  endpoint->SetString("scheme", "windows_named_pipe");
++#else
+   endpoint->SetString("scheme", "unix");
++#endif
+@@ -2999,1 +3050,5 @@
++#if defined(OS_WIN)
++  adapter->SetString("transport", "owner_only_windows_pipe_v1");
++#else
+   adapter->SetString("transport", "owner_only_unix_v1");
++#endif
+@@ -3087,1 +3142,1 @@
+-#if defined(OS_MAC)
++#if defined(OS_MAC) || defined(OS_WIN)
+@@ -3131,1 +3186,5 @@
++#if defined(OS_WIN)
++  SaccadeRemovePointerIfOwned(current_pointer_path_, grant_path_ + "\n");
++  return;
++#else
+   const int fd = open(current_pointer_path_.c_str(), O_RDONLY | O_NOFOLLOW);
+@@ -3151,1 +3210,2 @@
+     unlink(current_pointer_path_.c_str());
+   }
++#endif

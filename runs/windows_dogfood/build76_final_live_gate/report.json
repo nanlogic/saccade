@@ -1,0 +1,89 @@
+{
+  "schema": "saccade-windows-final-live-gate-v1",
+  "date": "2026-07-20",
+  "product": "Saccade",
+  "version": "0.1.0-windows-dogfood",
+  "build": 76,
+  "platform": "windows64",
+  "runtime_profile": "installed_product",
+  "verdict": "PASS",
+  "windows_dogfood_ready": true,
+  "public_distribution_ready": false,
+  "mouseaccuracy": {
+    "url": "https://mouseaccuracy.com/",
+    "results_url": "https://mouseaccuracy.com/results",
+    "difficulty": "Hard",
+    "target_size": "Tiny",
+    "duration_seconds": 15,
+    "verdict": "PASS",
+    "completion_policy": "mouseaccuracy_results_truth_v1",
+    "finish_reason": "results_truth_verified",
+    "total_score": 944,
+    "target_efficiency_pct": 100,
+    "targets_hit": 31,
+    "targets_total": 31,
+    "click_accuracy_pct": 100,
+    "clicks_hit": 31,
+    "clicks_total": 31,
+    "verified_target_receipts": 31,
+    "receipt_count_matches_truth_hits": true,
+    "start_receipt_verified": true,
+    "start_destination_ready": true,
+    "latency_ms": {
+      "samples": 31,
+      "median": 5.0,
+      "p95": 6.6,
+      "max": 8.1
+    },
+    "llm_calls_in_hot_loop": 0,
+    "screenshot_fallback_used": false,
+    "external_input_fallback_used": false
+  },
+  "simplemmo_ab": {
+    "verdict": "PASS",
+    "session_state": "stored game session had expired; the site redirected /events to /login/credentials",
+    "credential_handling": "no credential was requested, read, entered, or logged",
+    "scope": "public reversible same-site navigation",
+    "leg_a": {
+      "action": "Home -> Updates",
+      "action_id": "link-mc2a9k-4",
+      "basis_page_revision": 115,
+      "result_page_revision": 116,
+      "result_url": "https://web.simple-mmo.com/updates",
+      "result_title": "Updates | SimpleMMO - The Lightweight Text-Based MMORPG",
+      "same_webview_native_receipt_verified": true
+    },
+    "leg_b": {
+      "action": "Updates -> Home",
+      "action_id": "link-ontxsn-2",
+      "basis_page_revision": 116,
+      "result_page_revision": 117,
+      "result_url": "https://web.simple-mmo.com/",
+      "result_title": "SimpleMMO | The Lightweight Text-Based MMORPG",
+      "same_webview_native_receipt_verified": true
+    },
+    "article_truth_verified": true,
+    "sensitive_values_exposed": false,
+    "screenshot_fallback_used": false,
+    "external_input_fallback_used": false
+  },
+  "installed_package": {
+    "source_and_installed_version": "0.1.0-windows-dogfood",
+    "source_and_installed_build": 76,
+    "manifest_sha256": "6B967A8D7E71ECCD6C3918ED49A5196CF9F547DE7129C1A0B8964484E09D6ACE",
+    "source_installed_manifest_hashes_match": true,
+    "installed_mcp_present": true,
+    "external_profile_present": true,
+    "transaction_directories_remaining": 0,
+    "browser_running_after_gate": true
+  },
+  "agent_layer": {
+    "route": "same_webview_control_v1",
+    "input_route": "native_cef_input",
+    "receipt_verification": "matching_action_id_applied_v1",
+    "fail_closed": true,
+    "screenshot_fallback_used": false,
+    "external_input_fallback_used": false
+  },
+  "release_boundary": "Windows installed-product dogfood is ready. Build 76 remains unsigned and is not yet public-distribution-ready."
+}

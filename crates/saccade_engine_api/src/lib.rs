@@ -3,7 +3,7 @@
 //! This crate deliberately contains no Servo, CEF, CDP, MCP, or product policy
 //! types. Engines translate their native state into this boundary.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,6 +19,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_named_pipe;
 
 pub const ADAPTER_CONTRACT_VERSION: &str = "1.0";
 pub const CONTROL_PROTOCOL_VERSION: &str = "saccade-engine-control-v1";
@@ -159,6 +163,7 @@ pub struct EngineAdapterDescriptor {
 #[serde(tag = "scheme", rename_all = "snake_case")]
 pub enum TransportAddress {
     Unix { path: PathBuf },
+    WindowsNamedPipe { path: PathBuf },
     Tcp { host: String, port: u16 },
 }
 
@@ -218,12 +223,27 @@ impl EngineGrant {
                 "invalid session capability",
             ));
         }
-        if self.engine_adapter.provenance != "browser_process"
-            || self.engine_adapter.transport != "owner_only_unix_v1"
-        {
+        if self.engine_adapter.provenance != "browser_process" {
             return Err(EngineApiError::new(
                 EngineErrorCode::PermissionDenied,
-                "adapter contract 1.0 requires browser_process provenance and owner_only_unix_v1",
+                "adapter contract 1.0 requires browser_process provenance",
+            ));
+        }
+        let transport_matches = matches!(
+            (
+                &self.control_endpoint.address,
+                self.engine_adapter.transport.as_str()
+            ),
+            (TransportAddress::Unix { .. }, "owner_only_unix_v1")
+                | (
+                    TransportAddress::WindowsNamedPipe { .. },
+                    "owner_only_windows_pipe_v1"
+                )
+        );
+        if !transport_matches {
+            return Err(EngineApiError::new(
+                EngineErrorCode::PermissionDenied,
+                "adapter transport does not match its owner-only endpoint scheme",
             ));
         }
         if self.engine_adapter.capabilities.is_empty()
@@ -315,6 +335,9 @@ pub fn call_control(
             transact(stream, &request)
         }
         TransportAddress::Unix { path } => call_unix(path, &request, read_timeout),
+        TransportAddress::WindowsNamedPipe { path } => {
+            call_windows_named_pipe(path, &request, read_timeout)
+        }
     }
 }
 
@@ -374,6 +397,37 @@ fn call_unix(
     transact(stream, request)
 }
 
+#[cfg(windows)]
+fn call_windows_named_pipe(
+    path: &Path,
+    request: &ControlRequest,
+    read_timeout: Duration,
+) -> Result<Value, EngineApiError> {
+    validate_windows_pipe_path(path)?;
+    windows_named_pipe::call(
+        path,
+        request,
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+        read_timeout,
+    )
+}
+
+#[cfg(not(windows))]
+fn call_windows_named_pipe(
+    path: &Path,
+    _request: &ControlRequest,
+    _read_timeout: Duration,
+) -> Result<Value, EngineApiError> {
+    Err(EngineApiError::new(
+        EngineErrorCode::UnsupportedCapability,
+        format!(
+            "Windows named-pipe transport is unavailable for {}",
+            path.display()
+        ),
+    ))
+}
+
 #[cfg(not(unix))]
 fn call_unix(
     path: &Path,
@@ -393,7 +447,7 @@ fn validate_transport_address(address: &TransportAddress) -> Result<(), EngineAp
             "adapter contract 1.0 does not permit TCP transport",
         )),
         TransportAddress::Unix { path } => {
-            if !path.is_absolute() {
+            if !path.is_absolute() && !path.to_string_lossy().starts_with('/') {
                 return Err(EngineApiError::new(
                     EngineErrorCode::InvalidArgument,
                     "engine Unix socket path must be absolute",
@@ -401,7 +455,19 @@ fn validate_transport_address(address: &TransportAddress) -> Result<(), EngineAp
             }
             Ok(())
         }
+        TransportAddress::WindowsNamedPipe { path } => validate_windows_pipe_path(path),
     }
+}
+
+fn validate_windows_pipe_path(path: &Path) -> Result<(), EngineApiError> {
+    let value = path.to_string_lossy();
+    if !value.starts_with(r"\\.\pipe\Saccade-") || value.len() > 240 {
+        return Err(EngineApiError::new(
+            EngineErrorCode::PermissionDenied,
+            "engine Windows named pipe must use the private Saccade pipe namespace",
+        ));
+    }
+    Ok(())
 }
 
 fn loopback_socket_addr(host: &str, port: u16) -> Result<SocketAddr, EngineApiError> {
@@ -516,6 +582,7 @@ fn json_error(error: serde_json::Error) -> EngineApiError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::fs::OpenOptions;
     #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt;

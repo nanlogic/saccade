@@ -199,7 +199,8 @@ class SaccadeAdapter {
                            std::string action_id,
                            int browser_id,
                            uint64_t page_revision,
-                           uint64_t layout_epoch);
+                           uint64_t layout_epoch,
+                           bool allow_layout_rebase);
   void ClearPendingAgentChildOpenerOnUi(int browser_id);
   void DispatchDragOnUi(int start_x,
                         int start_y,
@@ -257,6 +258,7 @@ class SaccadeAdapter {
   int action_scan_generation_ = 0;
   uint64_t action_map_serial_ = 0;
   std::set<std::string> dispatched_actions_;
+  std::map<std::string, TargetFact> dispatched_action_facts_;
   std::deque<ReflexReceipt> pending_receipts_;
   std::condition_variable fact_cv_;
   std::condition_variable action_map_cv_;

@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Saccade New Tab",
+  "version": "0.2.0",
+  "description": "Saccade new tab identity and per-tab Agent control.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2T9V7R1OKdctWcR+ZWJ7ZWLuYcMcOfbGZj61uSxXIPtw/xv5QxLBGqslqqlPdwKcoiXTWCWhK1OIIJ4EbF4SFL4LGALjKM1c9gv02TIltevDqDksL3VUj5fghVP8QTqjp4kMwxUPgZILGEfwt75GoMHEsSd2ccmtApu5eyvtU9ZfrIA1HfgmTaUoDXR4zJ9tIIyncSapoWzh4yIC9ksgWlO8qOGCgVSFzp8C9Sdw3gIs9rBs21aVLxcHnvYvZwE90wHSRKtNvXqVBtxJee2rlzCMJqQVqZrSiH0HDhouGupKGLvWBYPk9wsqvevwpufaB9dEUK1WGRNT5PbmWvsW6wIDAQAB",
+  "permissions": ["nativeMessaging"],
+  "background": {
+    "service_worker": "agent-action.js"
+  },
+  "action": {
+    "default_title": "Agent Off - current tab",
+    "default_icon": {
+      "16": "Saccade.png",
+      "32": "Saccade.png"
+    }
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  }
+}
