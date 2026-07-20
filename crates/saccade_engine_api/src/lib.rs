@@ -3,7 +3,7 @@
 //! This crate deliberately contains no Servo, CEF, CDP, MCP, or product policy
 //! types. Engines translate their native state into this boundary.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,6 +19,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_named_pipe;
 
 pub const ADAPTER_CONTRACT_VERSION: &str = "1.0";
 pub const CONTROL_PROTOCOL_VERSION: &str = "saccade-engine-control-v1";
@@ -397,35 +401,16 @@ fn call_unix(
 fn call_windows_named_pipe(
     path: &Path,
     request: &ControlRequest,
-    _read_timeout: Duration,
+    read_timeout: Duration,
 ) -> Result<Value, EngineApiError> {
-    use std::os::windows::fs::OpenOptionsExt;
-
     validate_windows_pipe_path(path)?;
-    let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    let stream = loop {
-        match std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .share_mode(0)
-            .open(path)
-        {
-            Ok(stream) => break stream,
-            Err(error)
-                if matches!(error.raw_os_error(), Some(2 | 231))
-                    && std::time::Instant::now() < deadline =>
-            {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(error) => {
-                return Err(EngineApiError::new(
-                    EngineErrorCode::TransportUnavailable,
-                    format!("failed to connect {}: {error}", path.display()),
-                ));
-            }
-        }
-    };
-    transact(stream, request)
+    windows_named_pipe::call(
+        path,
+        request,
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+        read_timeout,
+    )
 }
 
 #[cfg(not(windows))]

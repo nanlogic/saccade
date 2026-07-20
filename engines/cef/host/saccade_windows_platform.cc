@@ -233,14 +233,20 @@ int SaccadeAcceptNamedPipe(int listener_descriptor) {
   }
   const std::wstring pipe_name = Utf8ToWide(listener->name);
   PSECURITY_DESCRIPTOR descriptor = nullptr;
-  auto security = OwnerOnlySecurityAttributes(&descriptor);
+  if (pipe_name.empty() || !CurrentUserSecurityDescriptor(&descriptor)) {
+    errno = EACCES;
+    return -1;
+  }
+  SECURITY_ATTRIBUTES security{};
+  security.nLength = sizeof(security);
+  security.lpSecurityDescriptor = descriptor;
   HANDLE pipe = CreateNamedPipeW(
       pipe_name.c_str(), PIPE_ACCESS_DUPLEX,
       PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT |
           PIPE_REJECT_REMOTE_CLIENTS,
       8, 64 * 1024, 64 * 1024, 0,
-      descriptor ? &security : nullptr);
-  if (descriptor) LocalFree(descriptor);
+      &security);
+  LocalFree(descriptor);
   if (pipe == INVALID_HANDLE_VALUE) {
     errno = EIO;
     return -1;
@@ -281,9 +287,12 @@ bool SaccadeApplyOwnerOnlyDacl(const std::wstring& path) {
 bool SaccadeEnsureOwnerOnlyDirectory(const std::wstring& path) {
   PSECURITY_DESCRIPTOR descriptor = nullptr;
   auto security = OwnerOnlySecurityAttributes(&descriptor);
-  const BOOL made = CreateDirectoryW(path.c_str(), descriptor ? &security : nullptr);
+  if (!descriptor) {
+    return false;
+  }
+  const BOOL made = CreateDirectoryW(path.c_str(), &security);
   const DWORD error = GetLastError();
-  if (descriptor) LocalFree(descriptor);
+  LocalFree(descriptor);
   if (!made && error != ERROR_ALREADY_EXISTS) return false;
   return SaccadeApplyOwnerOnlyDacl(path);
 }
