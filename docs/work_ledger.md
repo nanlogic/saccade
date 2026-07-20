@@ -375,3 +375,28 @@
 - Live MouseAccuracy and SimpleMMO remain pending a new Codex task because this
   task's old MCP stdio transport correctly closed during package replacement and
   Codex tasks do not hot-reconnect MCP servers. No browser fallback was used.
+
+## 2026-07-20 - Windows Build 76 final installed-product live gate
+
+- A fresh Codex task connected to the installed Build 76 MCP and used Saccade as
+  the only browser route. No screenshot, OS-input, CDP, Playwright, or alternate
+  browser fallback was used.
+- MouseAccuracy ran at Hard + Tiny for 15 seconds. The strict results-page gate
+  passed with 31/31 targets, 31/31 clicks, 100% target efficiency, 100% click
+  accuracy, and exactly 31 matching verified native-input receipts. START had a
+  verified receipt, destination readiness was observed before the game deadline,
+  the hot loop made zero LLM calls, and target latency was 5.0 ms median / 6.6 ms
+  p95 / 8.1 ms max.
+- The saved SimpleMMO game session had expired and `/events` redirected to the
+  credential page. No credential was requested, read, entered, or logged. The
+  public reversible A/B therefore used Home -> Updates at revision 115 -> 116
+  and Updates -> Home at revision 116 -> 117. Both revision-bound actions
+  returned verified same-WebView native-input receipts, and the destination URL,
+  title, and bounded article truth matched each leg.
+- The installed and packaged 0.1.0-windows-dogfood Build 76 manifests still
+  match (`SHA-256 6B967A8D7E71ECCD6C3918ED49A5196CF9F547DE7129C1A0B8964484E09D6ACE`),
+  the installed MCP and external profile remain present, no staging/backup
+  transaction directory remains, and the browser stayed running after the gate.
+- Verdict: Windows installed-product dogfood is ready. Build 76 remains unsigned,
+  so public distribution is still explicitly not ready.
+- Evidence: `runs/windows_dogfood/build76_final_live_gate/report.json`.
