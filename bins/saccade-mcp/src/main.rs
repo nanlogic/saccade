@@ -26,6 +26,9 @@ const REQUIRED_TOOL_COUNT: usize = 32;
 const SACCADE_CONTRACT_VERSION: &str = "1.0";
 const SACCADE_MIN_CONTRACT_VERSION: &str = "1.0";
 const COLLECTOR_READY_TIMEOUT: Duration = Duration::from_secs(12);
+const DEFAULT_REFLEX_START_TIMEOUT_MS: u64 = 5_000;
+const DEFAULT_REFLEX_RESULTS_SETTLEMENT_TIMEOUT_MS: u64 = 5_000;
+const MAX_REFLEX_PHASE_TIMEOUT_MS: u64 = 30_000;
 const FORM_INVENTORY_STABILITY_INTERVAL: Duration = Duration::from_millis(200);
 const DEFAULT_FORM_INVENTORY_WAIT_MS: u64 = 5_000;
 const POST_EXECUTE_FORM_INVENTORY_WAIT_MS: u64 = 1_500;
@@ -1625,6 +1628,8 @@ fn input_schema(name: &str) -> Value {
                 "auto_start": {"type": "boolean", "default": true},
                 "start_label": {"type": "string", "default": "START", "maxLength": 64},
                 "max_hits": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000},
+                "start_timeout_ms": {"type": "integer", "minimum": 250, "maximum": 30000, "default": 5000},
+                "results_settlement_timeout_ms": {"type": "integer", "minimum": 250, "maximum": 30000, "default": 5000},
                 "timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 120000, "default": 30000}
             },
             "required": ["tab_id"],
@@ -4095,6 +4100,192 @@ fn web_act_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> 
     }))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReflexPhaseTimeouts {
+    start: Duration,
+    game: Duration,
+    results_settlement: Duration,
+}
+
+impl ReflexPhaseTimeouts {
+    fn from_arguments(arguments: &Value) -> Result<Self> {
+        let start_timeout_ms = reflex_phase_timeout_arg(
+            arguments,
+            "start_timeout_ms",
+            DEFAULT_REFLEX_START_TIMEOUT_MS,
+            250,
+            MAX_REFLEX_PHASE_TIMEOUT_MS,
+        )?;
+        let game_timeout_ms =
+            reflex_phase_timeout_arg(arguments, "timeout_ms", 30_000, 1_000, 120_000)?;
+        let results_settlement_timeout_ms = reflex_phase_timeout_arg(
+            arguments,
+            "results_settlement_timeout_ms",
+            DEFAULT_REFLEX_RESULTS_SETTLEMENT_TIMEOUT_MS,
+            250,
+            MAX_REFLEX_PHASE_TIMEOUT_MS,
+        )?;
+        Ok(Self {
+            start: Duration::from_millis(start_timeout_ms),
+            game: Duration::from_millis(game_timeout_ms),
+            results_settlement: Duration::from_millis(results_settlement_timeout_ms),
+        })
+    }
+
+    fn start_deadline(self, request_started: Instant) -> Instant {
+        request_started + self.start
+    }
+
+    fn game_deadline(self, start_receipt_and_destination_ready: Instant) -> Instant {
+        start_receipt_and_destination_ready + self.game
+    }
+
+    fn results_deadline(self, game_ended: Instant) -> Instant {
+        game_ended + self.results_settlement
+    }
+}
+
+fn reflex_phase_timeout_arg(
+    arguments: &Value,
+    name: &str,
+    default_ms: u64,
+    minimum_ms: u64,
+    maximum_ms: u64,
+) -> Result<u64> {
+    let value = arguments
+        .get(name)
+        .and_then(Value::as_u64)
+        .unwrap_or(default_ms);
+    if !(minimum_ms..=maximum_ms).contains(&value) {
+        bail!("saccade.web.reflex_run {name} must be between {minimum_ms} and {maximum_ms}");
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReflexCompletionPolicy {
+    MouseAccuracyResultsTruth,
+    LocalFixtureReceipts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReflexOutcome {
+    status: &'static str,
+    verdict: &'static str,
+    completed: bool,
+    finish_reason: &'static str,
+    summary: &'static str,
+}
+
+fn mouseaccuracy_results_receipts_match(
+    results: &MouseAccuracyResults,
+    verified_receipt_count: usize,
+) -> bool {
+    results.targets_hit as usize == verified_receipt_count
+}
+
+fn mouseaccuracy_results_passed(
+    results: &MouseAccuracyResults,
+    verified_receipt_count: usize,
+) -> bool {
+    results.target_efficiency_pct == 100
+        && results.click_accuracy_pct == 100
+        && results.targets_hit == results.targets_total
+        && results.clicks_hit == results.clicks_total
+        && mouseaccuracy_results_receipts_match(results, verified_receipt_count)
+}
+
+fn classify_reflex_outcome(
+    policy: ReflexCompletionPolicy,
+    results: Option<&MouseAccuracyResults>,
+    results_page_detected: bool,
+    verified_receipt_count: usize,
+    max_hits: usize,
+    page_finished: bool,
+    timed_out: bool,
+) -> ReflexOutcome {
+    if policy == ReflexCompletionPolicy::LocalFixtureReceipts {
+        if page_finished || verified_receipt_count >= max_hits {
+            return ReflexOutcome {
+                status: "ok",
+                verdict: "PASS",
+                completed: true,
+                finish_reason: if page_finished {
+                    "local_fixture_finished"
+                } else {
+                    "local_fixture_max_hits"
+                },
+                summary: "local fixture completed under the explicit receipt completion policy",
+            };
+        }
+        return ReflexOutcome {
+            status: "incomplete",
+            verdict: "INCOMPLETE",
+            completed: false,
+            finish_reason: if timed_out { "timeout" } else { "stopped" },
+            summary: "local fixture ended before its explicit completion policy was satisfied",
+        };
+    }
+
+    if let Some(results) = results {
+        let passed = mouseaccuracy_results_passed(results, verified_receipt_count);
+        return ReflexOutcome {
+            status: if passed { "ok" } else { "failed" },
+            verdict: if passed { "PASS" } else { "FAIL" },
+            completed: true,
+            finish_reason: if passed {
+                "results_truth_verified"
+            } else {
+                "results_truth_failed"
+            },
+            summary: if passed {
+                "MouseAccuracy PASS is proven by strict same-WebView results truth and matching native receipts"
+            } else {
+                "MouseAccuracy results truth did not satisfy the strict 100-percent acceptance gate"
+            },
+        };
+    }
+
+    let (status, finish_reason, summary) = if results_page_detected {
+        (
+            "failed",
+            "results_parse_failed",
+            "MouseAccuracy reached the results page but authoritative result truth could not be parsed",
+        )
+    } else if timed_out {
+        (
+            "incomplete",
+            "timeout",
+            "MouseAccuracy game deadline expired before authoritative results truth settled",
+        )
+    } else if verified_receipt_count >= max_hits {
+        (
+            "incomplete",
+            "max_hits_reached",
+            "MouseAccuracy reached max_hits without authoritative results truth",
+        )
+    } else if page_finished {
+        (
+            "incomplete",
+            "page_finished_without_results_truth",
+            "MouseAccuracy emitted a generic finished signal without authoritative results truth",
+        )
+    } else {
+        (
+            "incomplete",
+            "stopped",
+            "MouseAccuracy ended before authoritative results truth was available",
+        )
+    };
+    ReflexOutcome {
+        status,
+        verdict: "INCOMPLETE",
+        completed: false,
+        finish_reason,
+        summary,
+    }
+}
+
 fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<Value> {
     let tab_id = required_tab_id_arg(&arguments)?;
     let auto_start = arguments
@@ -4116,13 +4307,8 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
     if !(1..=10_000).contains(&max_hits) {
         bail!("saccade.web.reflex_run max_hits must be between 1 and 10000");
     }
-    let timeout_ms = arguments
-        .get("timeout_ms")
-        .and_then(Value::as_u64)
-        .unwrap_or(30_000);
-    if !(1_000..=120_000).contains(&timeout_ms) {
-        bail!("saccade.web.reflex_run timeout_ms must be between 1000 and 120000");
-    }
+    let phase_timeouts = ReflexPhaseTimeouts::from_arguments(&arguments)?;
+    let timeout_ms = phase_timeouts.game.as_millis() as u64;
 
     ensure_agent_input_allowed(state, tab_id)?;
     ensure_truth_allowed(state, tab_id)?;
@@ -4140,6 +4326,7 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
         "next_fact",
         "act",
         "next_receipt",
+        "shell_status",
     ] {
         ensure_dogfood_control_capability(state, tab_id, capability)?;
     }
@@ -4162,14 +4349,20 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
             "saccade.web.reflex_run is benchmark-only and accepts mouseaccuracy.com or local test URLs; got {parsed_url}"
         );
     }
+    let completion_policy = if is_mouseaccuracy_url(&parsed_url) {
+        ReflexCompletionPolicy::MouseAccuracyResultsTruth
+    } else {
+        ReflexCompletionPolicy::LocalFixtureReceipts
+    };
 
-    let started = Instant::now();
-    let deadline = started + Duration::from_millis(timeout_ms);
+    let request_started = Instant::now();
+    let start_deadline = phase_timeouts.start_deadline(request_started);
     let mut start_action_found = false;
     let mut start_receipt_verified = false;
+    let mut start_destination_ready = !auto_start;
+    let mut final_status = None;
     if auto_start {
-        let start_wait_deadline = deadline.min(Instant::now() + Duration::from_secs(5));
-        while Instant::now() < start_wait_deadline {
+        while Instant::now() < start_deadline {
             let actions = call_dogfood_control(&endpoint, "actions", json!({}))?;
             let start_action = actions
                 .get("actions")
@@ -4203,24 +4396,55 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
                 });
             if let Some((action_id, page_revision, layout_epoch)) = start_action {
                 start_action_found = true;
-                let start_result = web_act_tool(
-                    state,
-                    json!({
-                        "tab_id": tab_id.0,
-                        "action_id": action_id,
-                        "basis_page_revision": page_revision,
-                        "basis_layout_epoch": layout_epoch,
-                    }),
+                let receipt_timeout_ms = start_deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis()
+                    .clamp(1, 3_000) as u64;
+                control_act_and_verify_receipt(
+                    &endpoint,
+                    &action_id,
+                    page_revision,
+                    layout_epoch,
+                    receipt_timeout_ms,
                 )?;
-                start_receipt_verified = start_result
-                    .pointer("/verification/verified")
-                    .and_then(Value::as_bool)
-                    == Some(true);
+                start_receipt_verified = true;
+                while Instant::now() < start_deadline {
+                    match call_dogfood_control(&endpoint, "shell_status", json!({})) {
+                        Ok(status) => {
+                            start_destination_ready = reflex_destination_ready(&status);
+                            final_status = Some(status);
+                            if start_destination_ready {
+                                break;
+                            }
+                        }
+                        Err(error) if is_control_timeout(&error) => {}
+                        Err(error) => return Err(error),
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
                 break;
             }
             thread::sleep(Duration::from_millis(50));
         }
+        if !start_action_found {
+            bail!(
+                "saccade.web.reflex_run did not find START within the independent {} ms start window",
+                phase_timeouts.start.as_millis()
+            );
+        }
+        if !start_receipt_verified {
+            bail!("saccade.web.reflex_run START did not return a verified native input receipt");
+        }
+        if !start_destination_ready {
+            bail!(
+                "saccade.web.reflex_run START receipt verified, but the same-WebView destination did not become ready within {} ms",
+                phase_timeouts.start.as_millis()
+            );
+        }
     }
+
+    let game_started = Instant::now();
+    let game_deadline = phase_timeouts.game_deadline(game_started);
     let mut receipts = Vec::new();
     let mut latencies_ms = Vec::new();
     let mut finished = false;
@@ -4228,11 +4452,11 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
     let mut timed_out = false;
     while receipts.len() < max_hits as usize {
         let now = Instant::now();
-        if now >= deadline {
+        if now >= game_deadline {
             timed_out = true;
             break;
         }
-        let remaining_ms = deadline
+        let remaining_ms = game_deadline
             .saturating_duration_since(now)
             .as_millis()
             .clamp(1, 1_000) as u64;
@@ -4241,10 +4465,11 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
             {
                 Ok(fact) => fact,
                 Err(error) if is_control_timeout(&error) => {
-                    if call_dogfood_control(&endpoint, "shell_status", json!({}))
-                        .ok()
-                        .as_ref()
-                        .is_some_and(is_mouseaccuracy_results_status)
+                    if completion_policy == ReflexCompletionPolicy::MouseAccuracyResultsTruth
+                        && call_dogfood_control(&endpoint, "shell_status", json!({}))
+                            .ok()
+                            .as_ref()
+                            .is_some_and(is_mouseaccuracy_results_status)
                     {
                         results_page_detected = true;
                         break;
@@ -4268,8 +4493,17 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
             .get("layout_epoch")
             .and_then(json_number_u64)
             .unwrap_or(0);
-        let receipt =
-            control_act_and_verify_receipt(&endpoint, action_id, page_revision, layout_epoch)?;
+        let receipt_timeout_ms = game_deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis()
+            .clamp(1, 3_000) as u64;
+        let receipt = control_act_and_verify_receipt(
+            &endpoint,
+            action_id,
+            page_revision,
+            layout_epoch,
+            receipt_timeout_ms,
+        )?;
         if let (Some(fact_ms), Some(receipt_ms)) = (
             fact.get("renderer_epoch_ms").and_then(Value::as_f64),
             receipt.get("renderer_epoch_ms").and_then(Value::as_f64),
@@ -4285,30 +4519,30 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
         }
     }
 
-    let mut final_status = call_dogfood_control(&endpoint, "shell_status", json!({})).ok();
-    results_page_detected |= final_status
-        .as_ref()
-        .is_some_and(is_mouseaccuracy_results_status);
-    if let Some(tab) = state.find_tab_mut(tab_id) {
-        if let Some(status) = final_status.as_ref() {
-            update_session_tab_from_browser_result(tab, status);
-        }
-    }
-    let mouseaccuracy_results = if results_page_detected {
-        let truth_deadline = deadline.min(Instant::now() + Duration::from_secs(5));
-        let mut parsed = None;
-        while Instant::now() < truth_deadline {
+    let game_ended = Instant::now();
+    let results_deadline = phase_timeouts.results_deadline(game_ended);
+    let mut mouseaccuracy_results = None;
+    if completion_policy == ReflexCompletionPolicy::MouseAccuracyResultsTruth {
+        while Instant::now() < results_deadline {
             let status = match call_dogfood_control(&endpoint, "shell_status", json!({})) {
                 Ok(status) => status,
-                Err(error) if is_control_timeout(&error) => continue,
+                Err(error) if is_control_timeout(&error) => {
+                    thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
                 Err(error) => return Err(error),
             };
-            let Some(basis_page_revision) = status.get("page_revision").and_then(json_number_u64)
-            else {
+            results_page_detected |= is_mouseaccuracy_results_status(&status);
+            let basis_page_revision = status.get("page_revision").and_then(json_number_u64);
+            final_status = Some(status);
+            if !results_page_detected {
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+            let Some(basis_page_revision) = basis_page_revision else {
                 thread::sleep(Duration::from_millis(50));
                 continue;
             };
-            final_status = Some(status);
             match call_dogfood_control(
                 &endpoint,
                 "article_text",
@@ -4318,11 +4552,11 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
                 }),
             ) {
                 Ok(article) => {
-                    parsed = article
+                    mouseaccuracy_results = article
                         .get("text")
                         .and_then(Value::as_str)
                         .and_then(parse_mouseaccuracy_results);
-                    if parsed.is_some() {
+                    if mouseaccuracy_results.is_some() {
                         break;
                     }
                 }
@@ -4337,35 +4571,27 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
             }
             thread::sleep(Duration::from_millis(50));
         }
-        parsed
-    } else {
-        None
-    };
-    let results_receipts_match = mouseaccuracy_results.as_ref().is_some_and(|results| {
-        results.targets_hit as usize == receipts.len()
-            && results.targets_hit == results.targets_total
-    });
-    let results_passed = mouseaccuracy_results.as_ref().is_some_and(|results| {
-        results.target_efficiency_pct == 100
-            && results.click_accuracy_pct == 100
-            && results.targets_hit == results.targets_total
-            && results.clicks_hit == results.clicks_total
-            && results_receipts_match
-    });
-    let completed = results_passed || finished || receipts.len() >= max_hits as usize;
-    let finish_reason = if results_passed {
-        "results_truth_verified"
-    } else if results_page_detected {
-        "results_truth_failed"
-    } else if finished {
-        "page_finished"
-    } else if receipts.len() >= max_hits as usize {
-        "max_hits_reached"
-    } else if timed_out {
-        "timeout"
-    } else {
-        "stopped"
-    };
+    } else if let Ok(status) = call_dogfood_control(&endpoint, "shell_status", json!({})) {
+        final_status = Some(status);
+    }
+    if let Some(tab) = state.find_tab_mut(tab_id) {
+        if let Some(status) = final_status.as_ref() {
+            update_session_tab_from_browser_result(tab, status);
+        }
+    }
+
+    let results_receipts_match = mouseaccuracy_results
+        .as_ref()
+        .is_some_and(|results| mouseaccuracy_results_receipts_match(results, receipts.len()));
+    let outcome = classify_reflex_outcome(
+        completion_policy,
+        mouseaccuracy_results.as_ref(),
+        results_page_detected,
+        receipts.len(),
+        max_hits as usize,
+        finished,
+        timed_out,
+    );
     let last_receipt = receipts.last();
     let final_hits = mouseaccuracy_results
         .as_ref()
@@ -4399,29 +4625,42 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
             "verified_receipt_count_matches_hits": results_receipts_match,
         })
     });
+    let results_settlement_ended = Instant::now();
     Ok(json!({
-        "status": if completed { "ok" } else { "incomplete" },
-        "verdict": if completed { "PASS" } else { "FAIL" },
-        "summary": if completed {
-            "local MCP reflex loop completed with verified same-WebView native input receipts and benchmark truth"
-        } else {
-            "local MCP reflex loop ended before verified benchmark truth or the requested hit count completed"
-        },
+        "status": outcome.status,
+        "verdict": outcome.verdict,
+        "summary": outcome.summary,
         "tab_id": tab_id.0,
         "url": current_url,
-        "completed": completed,
-        "finish_reason": finish_reason,
+        "completed": outcome.completed,
+        "finish_reason": outcome.finish_reason,
+        "completion_policy": match completion_policy {
+            ReflexCompletionPolicy::MouseAccuracyResultsTruth => "mouseaccuracy_results_truth_v1",
+            ReflexCompletionPolicy::LocalFixtureReceipts => "local_fixture_receipts_v1",
+        },
         "auto_start": auto_start,
         "start_action_found": start_action_found,
         "start_receipt_verified": start_receipt_verified,
+        "start_destination_ready": start_destination_ready,
         "requested_max_hits": max_hits,
         "verified_target_receipts": receipts.len(),
         "final_hits": final_hits,
         "final_misses": final_misses,
         "page_finished": results_page_detected || finished,
+        "timed_out": timed_out,
         "benchmark_truth": benchmark_truth,
         "latency_ms": reflex_latency_summary(&latencies_ms),
-        "duration_ms": started.elapsed().as_millis(),
+        "timeouts_ms": {
+            "start": phase_timeouts.start.as_millis(),
+            "game": timeout_ms,
+            "results_settlement": phase_timeouts.results_settlement.as_millis(),
+        },
+        "phase_elapsed_ms": {
+            "start": game_started.duration_since(request_started).as_millis(),
+            "game": game_ended.duration_since(game_started).as_millis(),
+            "results_settlement": results_settlement_ended.duration_since(game_ended).as_millis(),
+        },
+        "duration_ms": request_started.elapsed().as_millis(),
         "final_status": final_status,
         "agent_layer": {
             "required": true,
@@ -4457,7 +4696,7 @@ fn is_mouseaccuracy_results_status(status: &Value) -> bool {
         .and_then(Value::as_str)
         .and_then(|url| Url::parse(url).ok())
         .is_some_and(|url| {
-            is_reflex_benchmark_url(&url)
+            is_mouseaccuracy_url(&url)
                 && url.path_segments().and_then(|mut segments| segments.next()) == Some("results")
         })
 }
@@ -4501,6 +4740,7 @@ fn control_act_and_verify_receipt(
     action_id: &str,
     basis_page_revision: u64,
     basis_layout_epoch: u64,
+    receipt_timeout_ms: u64,
 ) -> Result<Value> {
     call_dogfood_control(
         endpoint,
@@ -4511,7 +4751,11 @@ fn control_act_and_verify_receipt(
             "basis_layout_epoch": basis_layout_epoch,
         }),
     )?;
-    let receipt = call_dogfood_control(endpoint, "next_receipt", json!({"timeout_ms": 3000}))?;
+    let receipt = call_dogfood_control(
+        endpoint,
+        "next_receipt",
+        json!({"timeout_ms": receipt_timeout_ms}),
+    )?;
     if receipt.get("action_id").and_then(Value::as_str) != Some(action_id)
         || receipt.get("verified").and_then(Value::as_bool) != Some(true)
         || receipt.get("status").and_then(Value::as_str) != Some("applied")
@@ -4521,19 +4765,25 @@ fn control_act_and_verify_receipt(
     Ok(receipt)
 }
 
+fn reflex_destination_ready(status: &Value) -> bool {
+    status.get("agent_enabled").and_then(Value::as_bool) == Some(true)
+        && status.get("collector_ready").and_then(Value::as_bool) == Some(true)
+}
+
 fn is_control_timeout(error: &anyhow::Error) -> bool {
     error.to_string().to_ascii_lowercase().contains("timeout")
 }
 
-fn is_reflex_benchmark_url(url: &Url) -> bool {
-    if is_local_dev_url(url) {
-        return true;
-    }
+fn is_mouseaccuracy_url(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
         && url.host_str().is_some_and(|host| {
             host.eq_ignore_ascii_case("mouseaccuracy.com")
                 || host.to_ascii_lowercase().ends_with(".mouseaccuracy.com")
         })
+}
+
+fn is_reflex_benchmark_url(url: &Url) -> bool {
+    is_local_dev_url(url) || is_mouseaccuracy_url(url)
 }
 
 fn reflex_latency_summary(values: &[f64]) -> Value {
@@ -9018,6 +9268,14 @@ mod tests {
             schema.pointer("/properties/timeout_ms/maximum"),
             Some(&json!(120000))
         );
+        assert_eq!(
+            schema.pointer("/properties/start_timeout_ms/default"),
+            Some(&json!(5000))
+        );
+        assert_eq!(
+            schema.pointer("/properties/results_settlement_timeout_ms/default"),
+            Some(&json!(5000))
+        );
         assert!(AGENT_LAYER_INSTRUCTIONS.contains("zero LLM calls"));
     }
 
@@ -9057,6 +9315,150 @@ mod tests {
         assert_eq!(results.clicks_total, 46);
         assert_eq!(results.total_score, 1544);
     }
+    #[test]
+    fn reflex_run_phase_deadlines_are_independent() {
+        let timeouts = ReflexPhaseTimeouts::from_arguments(&json!({
+            "start_timeout_ms": 1_250,
+            "timeout_ms": 30_000,
+            "results_settlement_timeout_ms": 2_750,
+        }))
+        .expect("valid phase timeouts should parse");
+        let request_started = Instant::now();
+        let start_ready = request_started + Duration::from_millis(900);
+        let game_deadline = timeouts.game_deadline(start_ready);
+        let game_ended = game_deadline;
+        let results_deadline = timeouts.results_deadline(game_ended);
+
+        assert_eq!(
+            timeouts.start_deadline(request_started) - request_started,
+            timeouts.start
+        );
+        assert_eq!(game_deadline - start_ready, Duration::from_secs(30));
+        assert_eq!(results_deadline - game_ended, Duration::from_millis(2_750));
+        assert!(game_deadline > timeouts.start_deadline(request_started));
+        assert!(ReflexPhaseTimeouts::from_arguments(&json!({"start_timeout_ms": 249})).is_err());
+    }
+
+    #[test]
+    fn reflex_start_requires_same_webview_destination_readiness() {
+        assert!(reflex_destination_ready(
+            &json!({"agent_enabled": true, "collector_ready": true})
+        ));
+        assert!(!reflex_destination_ready(
+            &json!({"agent_enabled": true, "collector_ready": false})
+        ));
+        assert!(!reflex_destination_ready(
+            &json!({"agent_enabled": false, "collector_ready": true})
+        ));
+    }
+
+    #[test]
+    fn mouseaccuracy_results_truth_requires_every_acceptance_condition() {
+        let perfect = MouseAccuracyResults {
+            target_efficiency_pct: 100,
+            targets_hit: 46,
+            targets_total: 46,
+            click_accuracy_pct: 100,
+            clicks_hit: 46,
+            clicks_total: 46,
+            total_score: 1_544,
+        };
+        let pass = classify_reflex_outcome(
+            ReflexCompletionPolicy::MouseAccuracyResultsTruth,
+            Some(&perfect),
+            true,
+            46,
+            1_000,
+            true,
+            false,
+        );
+        assert_eq!(pass.verdict, "PASS");
+        assert_eq!(pass.finish_reason, "results_truth_verified");
+
+        let mut failures = Vec::new();
+        let mut target_efficiency = perfect.clone();
+        target_efficiency.target_efficiency_pct = 99;
+        failures.push(target_efficiency);
+        let mut click_accuracy = perfect.clone();
+        click_accuracy.click_accuracy_pct = 99;
+        failures.push(click_accuracy);
+        let mut targets = perfect.clone();
+        targets.targets_hit = 45;
+        failures.push(targets);
+        let mut clicks = perfect.clone();
+        clicks.clicks_hit = 45;
+        failures.push(clicks);
+
+        for results in failures {
+            let outcome = classify_reflex_outcome(
+                ReflexCompletionPolicy::MouseAccuracyResultsTruth,
+                Some(&results),
+                true,
+                46,
+                1_000,
+                true,
+                false,
+            );
+            assert_eq!(outcome.verdict, "FAIL");
+            assert_eq!(outcome.finish_reason, "results_truth_failed");
+        }
+
+        let receipt_mismatch = classify_reflex_outcome(
+            ReflexCompletionPolicy::MouseAccuracyResultsTruth,
+            Some(&perfect),
+            true,
+            45,
+            1_000,
+            true,
+            false,
+        );
+        assert_eq!(receipt_mismatch.verdict, "FAIL");
+    }
+
+    #[test]
+    fn mouseaccuracy_nontruth_terminations_never_pass() {
+        let cases = [
+            (false, 1_000, false, false, "max_hits_reached"),
+            (false, 12, false, true, "timeout"),
+            (
+                false,
+                12,
+                true,
+                false,
+                "page_finished_without_results_truth",
+            ),
+            (true, 12, true, false, "results_parse_failed"),
+        ];
+        for (results_page_detected, receipts, finished, timed_out, reason) in cases {
+            let outcome = classify_reflex_outcome(
+                ReflexCompletionPolicy::MouseAccuracyResultsTruth,
+                None,
+                results_page_detected,
+                receipts,
+                1_000,
+                finished,
+                timed_out,
+            );
+            assert_ne!(outcome.verdict, "PASS");
+            assert_eq!(outcome.finish_reason, reason);
+        }
+    }
+
+    #[test]
+    fn local_fixture_uses_separate_receipt_completion_policy() {
+        let outcome = classify_reflex_outcome(
+            ReflexCompletionPolicy::LocalFixtureReceipts,
+            None,
+            false,
+            10,
+            10,
+            false,
+            false,
+        );
+        assert_eq!(outcome.verdict, "PASS");
+        assert_eq!(outcome.finish_reason, "local_fixture_max_hits");
+    }
+
     #[test]
     fn reflex_latency_summary_uses_nearest_rank_p95() {
         let summary = reflex_latency_summary(&[1.0, 2.0, 3.0, 4.0, 5.0]);

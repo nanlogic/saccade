@@ -330,3 +330,20 @@
 - Installed Build 75 clean-room gate passed: an ordinary prompt with no Saccade
   wording called saccade.tabs.open_agent first, with zero commands or fallback.
 - Evidence: runs/windows_dogfood/build75_default_route_gate/report.json.
+
+## 2026-07-20 - Windows MouseAccuracy P0-1/P0-2
+
+- P0-1 gives START discovery, the running game, and result settlement independent
+  deadlines instead of sharing one timeout.
+- The game deadline begins only after the START action has a verified receipt and
+  the same WebView reports the destination collector ready.
+- P0-2 uses final MouseAccuracy result truth as the only PASS policy: both
+  accuracy values must be 100%, all targets and clicks must hit, and verified
+  receipt count must equal targets hit.
+- Timeout, max_hits, generic finished, and result parse failure cannot return PASS.
+- Local fixture receipt completion remains an explicit, separate policy.
+- Windows UI, New Tab, Agent toolbar, icons, and Chromium-style shell are untouched.
+- Validation passed: cargo fmt --all -- --check; cargo test -p saccade-mcp
+  (32/32); cargo test -p saccade_engine_api --lib (4/4); git diff --check.
+- The live installed Hard+Tiny gate remains pending a safe staged update path. The
+  known P0-4 in-place installer was not used to overwrite the installed package.
