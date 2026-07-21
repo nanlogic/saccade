@@ -51,6 +51,13 @@ mv "$APP/Contents/MacOS/cefsimple" "$APP/Contents/MacOS/Saccade"
   "$REPO_ROOT/engines/cef/assets/Saccade.icns"
 cp "$REPO_ROOT/engines/cef/assets/Saccade.icns" \
   "$APP/Contents/Resources/Saccade.icns"
+EXTENSION_DIR="$APP/Contents/Resources/extensions/saccade-new-tab"
+mkdir -p "$EXTENSION_DIR"
+ditto "$REPO_ROOT/engines/cef/extensions/saccade-new-tab" "$EXTENSION_DIR"
+cp "$REPO_ROOT/engines/cef/assets/Saccade.ico" \
+  "$EXTENSION_DIR/Saccade.ico"
+cp "$REPO_ROOT/engines/cef/assets/saccade-icon-windows.png" \
+  "$EXTENSION_DIR/Saccade.png"
 sips -z 64 64 "$REPO_ROOT/engines/cef/assets/saccade-icon-windows.png" \
   --out "$APP/Contents/Resources/Saccade-tab.png" >/dev/null
 rm -f "$APP/Contents/Resources/cefsimple.icns"

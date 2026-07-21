@@ -400,3 +400,23 @@
 - Verdict: Windows installed-product dogfood is ready. Build 76 remains unsigned,
   so public distribution is still explicitly not ready.
 - Evidence: `runs/windows_dogfood/build76_final_live_gate/report.json`.
+
+## 2026-07-20 - macOS/Windows Agent toolbar parity
+
+- Pulled `main` through the merged Windows Build 76 work before the macOS UI
+  change; no Windows-only commit remains outside `main`.
+- macOS now packages and loads the same fixed-ID Chrome Runtime extension used
+  on Windows. Its Saccade action is pinned between the address bar/star and the
+  profile control; the old macOS titlebar accessory was removed.
+- Human Off is the icon without a badge, On is the blue `ON` badge, Paused is
+  `||`, and native-host failure is red `!`. The shared state source now returns
+  Paused instead of collapsing it to Off.
+- First launch merges the pinned extension into the existing Chromium
+  Preferences without removing other pins and writes an origin-scoped native
+  messaging manifest only inside the owner-only Saccade profile. Chrome and
+  Chromium profiles are not modified.
+- Build 80 visually passed exact placement and a real Off -> On click through
+  extension -> native host -> owner-only broker. `cargo test -p saccade-mcp`
+  passed 35/35 and the pinned CEF incremental build passed 22/22.
+- Evidence screenshots: `runs/dogfood/macos_ui_parity_build80/off-placement.png`
+  and `runs/dogfood/macos_ui_parity_build80/on-badge.png`.

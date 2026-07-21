@@ -66,6 +66,11 @@ class SaccadeDirectSession {
       return Result::kFailedClosed;
     }
 
+    // The toolbar action is a bundled Chrome extension. Pin it and register its
+    // stdio bridge only inside Saccade's owner-only profile; do not modify the
+    // user's Chrome or Chromium profiles.
+    RegisterAgentToolbarBestEffort(profile_path_);
+
     // MCP clients do not discover arbitrary applications on their own. A
     // signed Saccade install therefore performs an idempotent, non-destructive
     // Codex registration for each macOS user on that user's first launch.
@@ -92,6 +97,7 @@ class SaccadeDirectSession {
         setenv("SACCADE_ENGINE_GRANT_PATH", grant_path_.c_str(), 1) != 0 ||
         setenv("SACCADE_ENGINE_REPLAY_PATH", replay_path_.c_str(), 1) != 0 ||
         setenv("SACCADE_ENGINE_CURRENT_POINTER", pointer_path_.c_str(), 1) != 0 ||
+        setenv("SACCADE_CURRENT_AGENT_POINTER", pointer_path_.c_str(), 1) != 0 ||
         setenv("SACCADE_ENGINE_BROKER", "1", 1) != 0 ||
         setenv("SACCADE_PROFILE_MODE", "normal", 0) != 0 ||
         setenv("SACCADE_PROFILE_NAME", "default", 0) != 0) {
@@ -119,25 +125,32 @@ class SaccadeDirectSession {
   }
 
  private:
-  static void RegisterCodexMcpBestEffort() {
+  static std::string ExecutableDirectory() {
     uint32_t size = 4096;
     std::vector<char> executable(size, '\0');
     if (_NSGetExecutablePath(executable.data(), &size) != 0) {
       if (size == 0 || size > 64 * 1024) {
-        return;
+        return {};
       }
       executable.assign(size + 1, '\0');
       if (_NSGetExecutablePath(executable.data(), &size) != 0) {
-        return;
+        return {};
       }
     }
-    std::string executable_path(executable.data());
+    const std::string executable_path(executable.data());
     const size_t separator = executable_path.rfind('/');
-    if (separator == std::string::npos) {
+    return separator == std::string::npos
+               ? std::string()
+               : executable_path.substr(0, separator);
+  }
+
+  static void RegisterCodexMcpBestEffort() {
+    const std::string executable_directory = ExecutableDirectory();
+    if (executable_directory.empty()) {
       return;
     }
-    const std::string helper = executable_path.substr(0, separator + 1) +
-                               "saccade-connect-codex";
+    const std::string helper =
+        executable_directory + "/saccade-connect-codex";
     struct stat status {};
     if (lstat(helper.c_str(), &status) != 0 || !S_ISREG(status.st_mode) ||
         (status.st_mode & S_IXUSR) == 0) {
@@ -154,6 +167,45 @@ class SaccadeDirectSession {
                                      O_WRONLY, 0);
     pid_t child = -1;
     char* const argv[] = {const_cast<char*>(helper.c_str()), nullptr};
+    const int spawned =
+        posix_spawn(&child, helper.c_str(), &actions, nullptr, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (spawned == 0 && child > 0) {
+      int child_status = 0;
+      while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {
+      }
+    }
+  }
+
+  static void RegisterAgentToolbarBestEffort(
+      const std::string& profile_path) {
+    const std::string executable_directory = ExecutableDirectory();
+    if (executable_directory.empty()) {
+      return;
+    }
+    const std::string helper = executable_directory + "/saccade-mcp";
+    struct stat status {};
+    if (lstat(helper.c_str(), &status) != 0 || !S_ISREG(status.st_mode) ||
+        (status.st_mode & S_IXUSR) == 0) {
+      return;
+    }
+
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) {
+      return;
+    }
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null",
+                                     O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null",
+                                     O_WRONLY, 0);
+    pid_t child = -1;
+    char* const argv[] = {
+        const_cast<char*>(helper.c_str()),
+        const_cast<char*>("register-agent-toolbar"),
+        const_cast<char*>("--profile-dir"),
+        const_cast<char*>(profile_path.c_str()),
+        nullptr,
+    };
     const int spawned =
         posix_spawn(&child, helper.c_str(), &actions, nullptr, argv, environ);
     posix_spawn_file_actions_destroy(&actions);

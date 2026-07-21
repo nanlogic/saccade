@@ -69,6 +69,10 @@ enum Command {
         #[arg(long)]
         install_dir: Option<PathBuf>,
     },
+    RegisterAgentToolbar {
+        #[arg(long)]
+        profile_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -221,6 +225,9 @@ fn main() -> Result<()> {
             config_path,
             install_dir,
         } => register_codex_command(repair, config_path, install_dir),
+        Command::RegisterAgentToolbar { profile_dir } => {
+            register_agent_toolbar_command(&profile_dir)
+        }
     }
 }
 
@@ -229,6 +236,112 @@ enum CodexRegistrationUpdate {
     Connected,
     Conflict,
     Write(String),
+}
+
+fn prepare_agent_toolbar_preferences(existing: &str) -> Result<String> {
+    let mut root: Value = if existing.trim().is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(existing).context("invalid Chromium Preferences JSON")?
+    };
+    let root_object = root
+        .as_object_mut()
+        .context("Chromium Preferences root must be an object")?;
+    let extensions = root_object
+        .entry("extensions")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .context("Chromium extensions preference must be an object")?;
+    let mut pinned = extensions
+        .get("pinned_extensions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    pinned.retain(|value| value.as_str() != Some("kfmcgnphhefgadoabheodbhdndhfmonl"));
+    pinned.insert(0, json!("kfmcgnphhefgadoabheodbhdndhfmonl"));
+    extensions.insert("pinned_extensions".to_string(), Value::Array(pinned));
+    serde_json::to_string(&root).context("failed to encode Chromium Preferences JSON")
+}
+
+fn register_agent_toolbar_command(profile_dir: &Path) -> Result<()> {
+    if !profile_dir.is_absolute() {
+        bail!("Saccade profile directory must be absolute");
+    }
+    let default_profile = profile_dir.join("Default");
+    fs::create_dir_all(&default_profile)
+        .with_context(|| format!("failed to create {}", default_profile.display()))?;
+    let preferences_path = default_profile.join("Preferences");
+    let existing = match fs::read_to_string(&preferences_path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", preferences_path.display()));
+        }
+    };
+    let updated = prepare_agent_toolbar_preferences(&existing)?;
+    write_owner_only_atomic(&preferences_path, updated.as_bytes(), "toolbar")?;
+
+    let current_exe = std::env::current_exe().context("failed to locate saccade-mcp executable")?;
+    if !current_exe.is_file() {
+        bail!("missing native messaging host {}", current_exe.display());
+    }
+    let native_hosts = profile_dir.join("NativeMessagingHosts");
+    fs::create_dir_all(&native_hosts)
+        .with_context(|| format!("failed to create {}", native_hosts.display()))?;
+    let manifest_path = native_hosts.join("com.nanlogic.saccade_agent.json");
+    let manifest = serde_json::to_vec_pretty(&agent_native_host_manifest(&current_exe))?;
+    write_owner_only_atomic(&manifest_path, &manifest, "native-host")?;
+
+    println!(
+        "{}",
+        json!({
+            "status": "pinned",
+            "extension_id": "kfmcgnphhefgadoabheodbhdndhfmonl",
+            "profile_dir": profile_dir,
+            "native_host_manifest": manifest_path,
+        })
+    );
+    Ok(())
+}
+
+fn agent_native_host_manifest(host: &Path) -> Value {
+    json!({
+        "name": "com.nanlogic.saccade_agent",
+        "description": "Saccade per-tab Agent toolbar bridge",
+        "path": host,
+        "type": "stdio",
+        "allowed_origins": [SACCADE_AGENT_EXTENSION_ORIGIN],
+    })
+}
+
+fn write_owner_only_atomic(path: &Path, contents: &[u8], tag: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .with_context(|| format!("{} has no parent directory", path.display()))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .with_context(|| format!("{} has no valid file name", path.display()))?;
+    let temporary = parent.join(format!(
+        "{file_name}.saccade-{tag}.tmp.{}",
+        std::process::id()
+    ));
+    fs::write(&temporary, contents)
+        .with_context(|| format!("failed to write {}", temporary.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+    }
+    fs::rename(&temporary, path).with_context(|| {
+        format!(
+            "failed to replace {} with {}",
+            path.display(),
+            temporary.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn register_codex_command(
@@ -9187,6 +9300,47 @@ mod tests {
         assert!(updated.starts_with("model = \"gpt-test\""));
         assert!(updated.contains("[mcp_servers.saccade]"));
         assert!(updated.contains("SACCADE_MCP_RUNTIME_PROFILE = \"installed_product\""));
+    }
+
+    #[test]
+    fn agent_toolbar_registration_preserves_other_pinned_extensions() {
+        let existing = json!({
+            "profile": {"name": "Wayne"},
+            "extensions": {
+                "pinned_extensions": ["keep-me", "kfmcgnphhefgadoabheodbhdndhfmonl"]
+            }
+        })
+        .to_string();
+        let updated = prepare_agent_toolbar_preferences(&existing).unwrap();
+        let value: Value = serde_json::from_str(&updated).unwrap();
+        assert_eq!(value.pointer("/profile/name"), Some(&json!("Wayne")));
+        assert_eq!(
+            value.pointer("/extensions/pinned_extensions"),
+            Some(&json!(["kfmcgnphhefgadoabheodbhdndhfmonl", "keep-me"]))
+        );
+    }
+
+    #[test]
+    fn agent_toolbar_registration_initializes_empty_preferences() {
+        let updated = prepare_agent_toolbar_preferences("").unwrap();
+        let value: Value = serde_json::from_str(&updated).unwrap();
+        assert_eq!(
+            value.pointer("/extensions/pinned_extensions/0"),
+            Some(&json!("kfmcgnphhefgadoabheodbhdndhfmonl"))
+        );
+    }
+
+    #[test]
+    fn agent_toolbar_native_host_manifest_is_origin_scoped() {
+        let manifest = agent_native_host_manifest(Path::new("/Applications/Saccade.app/host"));
+        assert_eq!(
+            manifest.pointer("/allowed_origins/0"),
+            Some(&json!(SACCADE_AGENT_EXTENSION_ORIGIN))
+        );
+        assert_eq!(
+            manifest.pointer("/path"),
+            Some(&json!("/Applications/Saccade.app/host"))
+        );
     }
 
     #[test]

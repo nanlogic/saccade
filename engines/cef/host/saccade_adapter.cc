@@ -1211,7 +1211,10 @@ SaccadeAdapter::AgentUiState SaccadeAdapter::GetAgentUiState() {
   if (!started_) {
     return AgentUiState::kOff;
   }
-  return CurrentTabGrantedLocked() ? AgentUiState::kOn : AgentUiState::kOff;
+  if (!CurrentTabGrantedLocked()) {
+    return AgentUiState::kOff;
+  }
+  return CurrentTabPausedLocked() ? AgentUiState::kPaused : AgentUiState::kOn;
 }
 
 void SaccadeAdapter::Stop() {
@@ -3163,21 +3166,10 @@ bool SaccadeAdapter::CurrentTabHasHumanVerificationFailureLocked() const {
 
 void SaccadeAdapter::RefreshAgentSwitchOnUi() {
   CEF_REQUIRE_UI_THREAD();
-#if defined(OS_MAC)
-  CefRefPtr<CefBrowser> browser;
-  AgentUiState state = AgentUiState::kUnavailable;
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    browser = browser_;
-    if (configured_ && started_ && browser_) {
-      state = CurrentTabGrantedLocked() ? AgentUiState::kOn
-                                        : AgentUiState::kOff;
-    }
-  }
-  if (browser) {
-    SaccadeUpdateAgentSwitch(browser, static_cast<int>(state));
-  }
-#endif
+  // Chrome Runtime toolbar actions query GetAgentUiState through the bundled
+  // native-messaging bridge. Do not mirror the state into a platform titlebar
+  // accessory: that places the control in the tab strip instead of beside the
+  // address bar and creates a second source of UI truth.
 }
 
 bool SaccadeAdapter::WriteCurrentPointer() {

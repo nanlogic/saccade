@@ -1,0 +1,120 @@
+diff --git a/tests/cefsimple/simple_app.cc b/tests/cefsimple/simple_app.cc
+--- a/tests/cefsimple/simple_app.cc
++++ b/tests/cefsimple/simple_app.cc
+@@ -5,11 +5,19 @@
+
+ #include "tests/cefsimple/simple_app.h"
+
+-#include <string>
+ #include <cstdio>
++#include <string>
++
++#if defined(OS_MAC)
++#include <limits.h>
++#include <mach-o/dyld.h>
++#include <stdlib.h>
++#include <sys/stat.h>
++#endif
+
+ #include "include/cef_browser.h"
+ #include "include/cef_command_line.h"
++#include "include/cef_preference.h"
+ #include "include/views/cef_browser_view.h"
+ #include "include/views/cef_window.h"
+ #include "include/wrapper/cef_helpers.h"
+@@ -114,13 +122,95 @@ class SimpleBrowserViewDelegate : public CefBrowserViewDelegate {
+   IMPLEMENT_REFCOUNTING(SimpleBrowserViewDelegate);
+ };
+
++#if defined(OS_MAC)
++constexpr char kSaccadeAgentExtensionId[] =
++    "kfmcgnphhefgadoabheodbhdndhfmonl";
++
++void PinSaccadeAgentAction() {
++  CefRefPtr<CefPreferenceManager> preferences =
++      CefPreferenceManager::GetGlobalPreferenceManager();
++  constexpr char kPinnedExtensions[] = "extensions.pinned_extensions";
++  if (!preferences || !preferences->CanSetPreference(kPinnedExtensions)) {
++    return;
++  }
++
++  CefRefPtr<CefListValue> pinned = CefListValue::Create();
++  pinned->SetString(0, kSaccadeAgentExtensionId);
++  size_t next = 1;
++  CefRefPtr<CefValue> current = preferences->GetPreference(kPinnedExtensions);
++  if (current && current->GetType() == VTYPE_LIST) {
++    CefRefPtr<CefListValue> current_list = current->GetList();
++    for (size_t index = 0; index < current_list->GetSize(); ++index) {
++      if (current_list->GetType(index) != VTYPE_STRING) {
++        continue;
++      }
++      const CefString extension_id = current_list->GetString(index);
++      if (extension_id != kSaccadeAgentExtensionId) {
++        pinned->SetString(next++, extension_id);
++      }
++    }
++  }
++
++  CefRefPtr<CefValue> value = CefValue::Create();
++  value->SetList(pinned);
++  CefString error;
++  preferences->SetPreference(kPinnedExtensions, value, error);
++}
++#endif
++
+ }  // namespace
+
+ SimpleApp::SimpleApp()
+     : resource_bundle_handler_(new SaccadeBrandResources()) {}
+
++void SimpleApp::OnBeforeCommandLineProcessing(
++    const CefString& process_type,
++    CefRefPtr<CefCommandLine> command_line) {
++#if defined(OS_MAC)
++  if (!process_type.empty()) {
++    return;
++  }
++
++  char executable[PATH_MAX] = {};
++  uint32_t executable_size = sizeof(executable);
++  if (_NSGetExecutablePath(executable, &executable_size) != 0) {
++    return;
++  }
++  std::string extension_path(executable);
++  const size_t slash = extension_path.rfind('/');
++  if (slash == std::string::npos) {
++    return;
++  }
++  extension_path.resize(slash);
++  extension_path.append("/../Resources/extensions/saccade-new-tab");
++
++  char resolved[PATH_MAX] = {};
++  if (!realpath(extension_path.c_str(), resolved)) {
++    return;
++  }
++  struct stat status {};
++  if (stat(resolved, &status) != 0 || !S_ISDIR(status.st_mode)) {
++    return;
++  }
++
++  std::string extensions(resolved);
++  const CefString current = command_line->GetSwitchValue("load-extension");
++  if (!current.empty()) {
++    extensions.append(",");
++    extensions.append(current.ToString());
++  }
++  command_line->AppendSwitchWithValue("load-extension", extensions);
++#endif
++}
++
+ void SimpleApp::OnContextInitialized() {
+   CEF_REQUIRE_UI_THREAD();
+
++#if defined(OS_MAC)
++  // Run before the first browser window is created so the action occupies the
++  // Chromium toolbar between the address bar and the profile control.
++  PinSaccadeAgentAction();
++#endif
++
+   CefRefPtr<CefCommandLine> command_line =
+       CefCommandLine::GetGlobalCommandLine();

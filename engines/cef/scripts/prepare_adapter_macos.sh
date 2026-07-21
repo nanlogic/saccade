@@ -105,6 +105,12 @@ fi
 if ! grep -q 'HumanVerificationProviderForRequest' "$SIMPLE_ROOT/simple_handler.cc"; then
   patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0027-human-verification-failure.patch"
 fi
+if ! grep -q 'OnBeforeCommandLineProcessing' "$SIMPLE_ROOT/simple_app.h"; then
+  patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0029-macos-agent-toolbar-extension-header.patch"
+fi
+if ! grep -q 'kSaccadeAgentExtensionId' "$SIMPLE_ROOT/simple_app.cc"; then
+  patch -d "$CEF_ROOT" -p1 < "$REPO_ROOT/engines/cef/patches/0029-macos-agent-toolbar-extension.patch"
+fi
 
 # Fail before compilation if an old mutable CEF cache contains a patch twice.
 # A clean pinned archive plus one ordered patch pass must yield one definition.

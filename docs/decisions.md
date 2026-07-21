@@ -2665,3 +2665,19 @@
   mention Saccade. The first browser tool was saccade.tabs.open_agent, with
   zero command execution, competing browser route or fallback.
 - Evidence: runs/windows_dogfood/build75_default_route_gate/report.json.
+
+## DECISION_PRODUCT_087 - Use one Chrome toolbar action across macOS and Windows
+
+- The per-tab Agent control belongs in Chromium's address toolbar, immediately
+  after the address bar/star and before the profile control. A macOS titlebar
+  accessory is rejected because it renders in the tab strip and creates a
+  platform-specific second UI state source.
+- Both platforms package the fixed-ID Saccade extension and use its action
+  badge states: Off has no badge, On is `ON`, Paused is `||`, and unavailable
+  is `!`. The browser adapter remains the sole source of per-tab state.
+- On macOS, first launch pins the action and registers the extension's stdio
+  bridge only under Saccade's owner-only profile. Existing pinned extensions
+  are preserved, and Google Chrome/Chromium profiles are not touched.
+- The native host receives the active Saccade broker pointer from its parent
+  browser process. This locates only the same user's owner-only broker and does
+  not grant an Off tab or expose the capability to the extension UI.

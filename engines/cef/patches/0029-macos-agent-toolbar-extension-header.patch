@@ -1,0 +1,13 @@
+diff --git a/tests/cefsimple/simple_app.h b/tests/cefsimple/simple_app.h
+--- a/tests/cefsimple/simple_app.h
++++ b/tests/cefsimple/simple_app.h
+@@ -19,6 +19,9 @@ class SimpleApp : public CefApp, public CefBrowserProcessHandler {
+   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
+     return this;
+   }
++  void OnBeforeCommandLineProcessing(
++      const CefString& process_type,
++      CefRefPtr<CefCommandLine> command_line) override;
+
+   // CefBrowserProcessHandler methods:
+   void OnContextInitialized() override;
