@@ -437,26 +437,29 @@ void SaccadeRendererApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
       (reflex_gate && std::string(reflex_gate) == "1") ||
       (current_tab_grant && std::string(current_tab_grant) == "1") ||
       (broker && std::string(broker) == "1");
-  if (!frame->IsMain() || !enabled) {
+  if (!enabled) {
     return;
   }
 
-  auto global = context->GetGlobal();
-  auto handler = CefRefPtr<EmitHandler>(new EmitHandler());
-  global->SetValue(kNativeEmitName,
-                   CefV8Value::CreateFunction(kNativeEmitName, handler),
-                   V8_PROPERTY_ATTRIBUTE_DONTENUM);
-  CefRefPtr<CefV8Value> result;
-  CefRefPtr<CefV8Exception> exception;
-  context->Eval(kCollectorScript, "saccade://renderer/collector.js", 1,
-                result, exception);
+  if (frame->IsMain()) {
+    auto global = context->GetGlobal();
+    auto handler = CefRefPtr<EmitHandler>(new EmitHandler());
+    global->SetValue(kNativeEmitName,
+                     CefV8Value::CreateFunction(kNativeEmitName, handler),
+                     V8_PROPERTY_ATTRIBUTE_DONTENUM);
+    CefRefPtr<CefV8Value> result;
+    CefRefPtr<CefV8Exception> exception;
+    context->Eval(kCollectorScript, "saccade://renderer/collector.js", 1,
+                  result, exception);
+  }
   CefRefPtr<CefV8Value> form_function;
   CefRefPtr<CefV8Exception> form_exception;
   if (context->Eval(kSaccadeFormCommandScript,
                     "saccade://renderer/form_command.js", 1,
                     form_function, form_exception) &&
       form_function && form_function->IsFunction()) {
-    form_command_closures_[browser->GetIdentifier()] =
+    form_command_closures_[{browser->GetIdentifier(),
+                            frame->GetIdentifier().ToString()}] =
         FormCommandClosure{context, form_function};
   }
 }
@@ -466,10 +469,9 @@ void SaccadeRendererApp::OnContextReleased(
     CefRefPtr<CefFrame> frame,
     CefRefPtr<CefV8Context> context) {
   CEF_REQUIRE_RENDERER_THREAD();
-  if (!frame->IsMain()) {
-    return;
-  }
-  const auto current = form_command_closures_.find(browser->GetIdentifier());
+  const auto key =
+      FormCommandKey{browser->GetIdentifier(), frame->GetIdentifier().ToString()};
+  const auto current = form_command_closures_.find(key);
   if (current != form_command_closures_.end() && current->second.context &&
       current->second.context->IsSame(context)) {
     form_command_closures_.erase(current);
@@ -482,7 +484,7 @@ bool SaccadeRendererApp::OnProcessMessageReceived(
     CefProcessId source_process,
     CefRefPtr<CefProcessMessage> message) {
   CEF_REQUIRE_RENDERER_THREAD();
-  if (source_process != PID_BROWSER || !frame->IsMain()) {
+  if (source_process != PID_BROWSER || !frame) {
     return false;
   }
   if (message->GetName() == kFormRequestMessage) {
@@ -490,18 +492,36 @@ bool SaccadeRendererApp::OnProcessMessageReceived(
     if (!arguments || arguments->GetSize() != 3) {
       return true;
     }
-    const auto closure = form_command_closures_.find(browser->GetIdentifier());
-    RunFormCommand(frame,
-                   closure == form_command_closures_.end()
-                       ? nullptr
-                       : closure->second.context,
-                   closure == form_command_closures_.end()
-                       ? nullptr
-                       : closure->second.function,
-                   arguments->GetInt(0),
+    const auto key =
+        FormCommandKey{browser->GetIdentifier(),
+                       frame->GetIdentifier().ToString()};
+    const auto closure = form_command_closures_.find(key);
+    CefRefPtr<CefV8Context> form_context;
+    CefRefPtr<CefV8Value> form_function;
+    if (closure != form_command_closures_.end()) {
+      form_context = closure->second.context;
+      form_function = closure->second.function;
+    } else {
+      form_context = frame->GetV8Context();
+      CefRefPtr<CefV8Exception> form_exception;
+      if (form_context && form_context->Enter()) {
+        form_context->Eval(kSaccadeFormCommandScript,
+                           "saccade://renderer/form_command.js", 1,
+                           form_function, form_exception);
+        form_context->Exit();
+      }
+      if (form_function && form_function->IsFunction()) {
+        form_command_closures_[key] =
+            FormCommandClosure{form_context, form_function};
+      }
+    }
+    RunFormCommand(frame, form_context, form_function, arguments->GetInt(0),
                    arguments->GetString(1).ToString(),
                    arguments->GetString(2).ToString());
     return true;
+  }
+  if (!frame->IsMain()) {
+    return false;
   }
   if (message->GetName() != kStartMessage &&
       message->GetName() != kRefreshMessage) {
@@ -531,7 +551,8 @@ bool SaccadeRendererApp::OnProcessMessageReceived(
                         "saccade://renderer/form_command.js", 1,
                         form_function, form_exception) &&
           form_function && form_function->IsFunction()) {
-        form_command_closures_[browser->GetIdentifier()] =
+        form_command_closures_[{browser->GetIdentifier(),
+                                frame->GetIdentifier().ToString()}] =
             FormCommandClosure{context, form_function};
       }
     }

@@ -101,6 +101,14 @@ class SaccadeAdapter {
     std::string payload;
     std::string error;
     uint64_t basis_page_revision = 0;
+    int expected_responses = 1;
+    int received_responses = 0;
+    int successful_responses = 0;
+    int form_frames_detected = 0;
+    int best_field_count = -1;
+    int best_eligible_count = -1;
+    std::string best_frame_identifier;
+    bool best_frame_is_main = true;
     bool done = false;
     bool ok = false;
   };
@@ -182,6 +190,8 @@ class SaccadeAdapter {
   void DispatchFormCommandOnUi(int request_id,
                                std::string command,
                                std::string input_json);
+  void FinalizeFormInventoryLocked(FormCommandState& state);
+  void SettleFormInventoryOnUi(int request_id);
   void DispatchTextOnUi(std::u16string text,
                         int browser_id,
                         uint64_t page_revision);
@@ -265,6 +275,7 @@ class SaccadeAdapter {
   std::condition_variable receipt_cv_;
   std::condition_variable form_cv_;
   std::map<int, FormCommandState> form_commands_;
+  std::string selected_form_frame_identifier_;
   std::atomic<int> next_form_request_id_{1};
   std::condition_variable screenshot_cv_;
   bool screenshot_pending_ = false;

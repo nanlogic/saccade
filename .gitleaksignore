@@ -1,0 +1,5 @@
+# Public RSA key embedded in the unpacked New Tab extension manifest.
+aee5a2215fd8ccc821637b5ea40bbd2824f89c62:engines/cef/extensions/saccade-new-tab/manifest.json:generic-api-key:6
+
+# Deterministic fake token used only by a unit test.
+9d7333ad34d9f4bb4a8c30329a9b92fb25c2cd05:bins/saccade-mcp/src/main.rs:generic-api-key:6458
