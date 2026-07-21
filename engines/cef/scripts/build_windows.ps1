@@ -103,10 +103,11 @@ if ($packageSigned) {
 @{
   product = 'Saccade'
   version = '0.1.0-windows-dogfood'
-  build = 77
+  build = 78
   platform = 'windows64'
   cef_version = '150.0.11+gb887805+chromium-150.0.7871.115'
   chromium_version = '150.0.7871.115'
+  google_api_credentials = 'not_bundled'
   sandbox = $true
   agent_bridge = $true
   agent_transport = 'owner_only_windows_pipe_v1'

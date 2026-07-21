@@ -225,6 +225,17 @@ def main() -> int:
             "id:project-name": "Saccade iframe dogfood",
             "id:homepage": "https://example.invalid/saccade",
         }
+        inspection = control.call(
+            "inspect_fields",
+            {
+                "basis_page_revision": revision,
+                "fields": sorted(expected_ids),
+            },
+        )
+        inspected = {item.get("field_id") for item in inspection.get("fields", [])}
+        if inspected != expected_ids:
+            raise AssertionError(f"unexpected embedded inspection: {inspection}")
+
         plan = control.call(
             "form_compile_plan",
             {"basis_page_revision": revision, "assignments": assignments},
@@ -253,6 +264,7 @@ def main() -> int:
             "form_frame_count": inventory["form_frame_count"],
             "frame_scope": inventory["frame_scope"],
             "field_ids": sorted(field_ids),
+            "inspected": sorted(inspected),
             "planned": sorted(planned),
             "filled": sorted(item["field_id"] for item in execution["filled"]),
             "receipt_verified": execution["receipt_verified"],
