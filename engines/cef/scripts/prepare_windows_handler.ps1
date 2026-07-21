@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Stop'
 
 function Replace-Exact {
   param([ref]$Text, [string]$Old, [string]$New, [string]$Label)
+  $Old = $Old.Replace("`r`n", "`n")
+  $New = $New.Replace("`r`n", "`n")
   if (-not $Text.Value.Contains($Old)) {
     throw "Windows handler transform lost expected $Label fragment"
   }

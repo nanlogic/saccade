@@ -6,6 +6,8 @@ $resolved = (Resolve-Path -LiteralPath $Path).Path
 $text = [IO.File]::ReadAllText($resolved).Replace("`r`n", "`n")
 
 function Replace-Required([string]$Old, [string]$New) {
+  $Old = $Old.Replace("`r`n", "`n")
+  $New = $New.Replace("`r`n", "`n")
   if (-not $script:text.Contains($Old)) {
     throw "Missing Agent switch source fragment: $Old"
   }

@@ -7,6 +7,8 @@ $text = [IO.File]::ReadAllText($resolved).Replace("`r`n", "`n")
 $text = $text.Replace("      delete state;`n      SetWindowLongPtrW(window, GWLP_USERDATA, 0);", "      SetWindowLongPtrW(window, GWLP_USERDATA, 0);`n      delete state;")
 
 function Replace-Required([string]$Old, [string]$New) {
+  $Old = $Old.Replace("`r`n", "`n")
+  $New = $New.Replace("`r`n", "`n")
   if (-not $script:text.Contains($Old)) { throw "Missing source fragment: $Old" }
   $script:text = $script:text.Replace($Old, $New)
 }
