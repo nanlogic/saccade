@@ -1,7 +1,7 @@
 # Saccade Windows Dogfood Plan
 
 Date: 2026-07-18
-Status: Build 76 installed-product dogfood ready; public distribution not ready
+Status: Build 78 installed-product dogfood ready; public distribution not ready
 Target: Windows 10/11 x64 first; ARM64 only after x64 parity
 
 Windows W0-W4 and the final installed-product live gate are complete. Start a

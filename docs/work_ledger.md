@@ -420,3 +420,49 @@
   passed 35/35 and the pinned CEF incremental build passed 22/22.
 - Evidence screenshots: `runs/dogfood/macos_ui_parity_build80/off-placement.png`
   and `runs/dogfood/macos_ui_parity_build80/on-badge.png`.
+
+## 2026-07-21 - Windows Build 78 iframe inspection and installed-product gate
+
+- Audited installed Build 77 after the embedded-iframe routing merge. CEF
+  correctly required a revision for `inspect_fields`, but the MCP dogfood route
+  forwarded only field IDs, making every Windows CEF inspection fail with
+  `STALE_PAGE_REVISION` even after a fresh form inventory.
+- MCP now binds `inspect_fields` to the tracked current `page_revision`, forwards
+  it to both live control paths, and returns the basis in its structured result.
+  A fake-control regression verifies the exact forwarded parameters.
+- The cross-origin iframe probe now requires inventory, explicit field
+  inspection, plan compilation, fill, and a verified receipt in the selected
+  embedded frame. It never submits the form.
+- Validation passed: `cargo fmt --all -- --check`; MCP tests 33/33; engine API
+  tests 5/5; Python probe compile; Windows preflight; CEF Release compile; and
+  isolated staged-upgrade replacement/profile/rollback regression.
+- Build 78 package and installed-path iframe probes both passed with two frames
+  scanned and both fields inventoried, inspected, planned, and filled. The
+  installed/source manifests match across 252 files, the external profile
+  remains present, no transaction directory remains, MCP registration reports
+  `connected`, and Saccade relaunched from the stable installed path.
+- The package manifest declares `google_api_credentials=not_bundled`; no Google
+  API key or OAuth client credential is required for core browsing or MCP.
+- The broader Servo-backed MCP binary selftest could not run on this Windows
+  toolchain because optional `mozangle` bindgen could not find `libclang.dll`.
+  This does not affect the CEF Windows release target; its product, transport,
+  package, installed-path, and form regressions all passed.
+- Verdict: Windows Build 78 installed-product dogfood is ready for macOS handoff.
+  Public Windows distribution remains externally blocked on Authenticode signing
+  and reputation; the SignPath Foundation application has been submitted.
+- Evidence: `runs/windows_dogfood/build78_iframe_inspect/report.json`,
+  `runs/windows_dogfood/build78_installed_iframe_inspect/report.json`, and
+  `runs/windows_dogfood/build78_staged_upgrade/report.json`.
+
+## 2026-07-21 - macOS Build 82 cross-origin iframe form gate
+
+- Merged the Windows Build 78 iframe routing and revision-bound inspection work
+  from `origin/main` into the macOS/Windows Agent toolbar parity branch.
+- The signed incremental CEF Release build completed 22/22 build steps.
+- The cross-origin iframe probe scanned two frames, selected the sole embedded
+  form frame, and inventoried, inspected, compiled, and filled both ordinary
+  fields with a verified native receipt. The probe did not submit the form.
+- Validation: `cargo fmt --all -- --check`; `cargo test -p saccade-mcp` 36/36;
+  `scripts/probe_cef_iframe_form.py` returned `ok=true`,
+  `receipt_verified=true`, and `submitted=false`.
+- Evidence: `runs/dogfood/macos_iframe_build82/report.json`.

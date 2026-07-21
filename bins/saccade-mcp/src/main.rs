@@ -5072,12 +5072,12 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
     if !has_live_session {
         bail!("saccade.web.inspect_fields requires a live browser session tab");
     }
-    let current_url = state
-        .find_tab(tab_id)
-        .with_context(|| format!("unknown tab_id {}", tab_id.0))?
-        .info
-        .url
-        .clone();
+    let (current_url, basis_page_revision) = {
+        let tab = state
+            .find_tab(tab_id)
+            .with_context(|| format!("unknown tab_id {}", tab_id.0))?;
+        (tab.info.url.clone(), tab.info.page_revision)
+    };
     let site_policy = classify_site_url(&current_url);
     let live_inspect = if let Some(endpoint) = state.dogfood_controls.get(&tab_id.0).cloned() {
         ensure_dogfood_control_capability(state, tab_id, "inspect_fields")?;
@@ -5085,6 +5085,7 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
             &endpoint,
             "inspect_fields",
             json!({
+                "basis_page_revision": basis_page_revision,
                 "fields": Value::Array(fields.clone()),
             }),
         )?
@@ -5094,6 +5095,7 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
             tab_id,
             "inspect_fields",
             json!({
+                "basis_page_revision": basis_page_revision,
                 "fields": Value::Array(fields.clone()),
             }),
         )?
@@ -5132,6 +5134,7 @@ fn web_inspect_fields_tool(state: &mut McpSessionState, arguments: Value) -> Res
         "summary": "explicit field inspection completed through live Saccade browser session",
         "runtime": tab_runtime(state, tab_id),
         "tab_id": tab_id.0,
+        "basis_page_revision": basis_page_revision,
         "page_revision": tab.info.page_revision,
         "site_policy": site_policy,
         "fields": inspected,
@@ -6735,6 +6738,14 @@ fn spawn_fake_dogfood_control_once(
     expected_method: &'static str,
     response_result: Value,
 ) -> Result<(DogfoodControlEndpoint, thread::JoinHandle<bool>)> {
+    spawn_fake_dogfood_control_once_matching_params(expected_method, None, response_result)
+}
+
+fn spawn_fake_dogfood_control_once_matching_params(
+    expected_method: &'static str,
+    expected_params: Option<Value>,
+    response_result: Value,
+) -> Result<(DogfoodControlEndpoint, thread::JoinHandle<bool>)> {
     let listener =
         TcpListener::bind("127.0.0.1:0").context("failed to bind fake dogfood control")?;
     let addr = listener
@@ -6759,6 +6770,12 @@ fn spawn_fake_dogfood_control_once(
         }
         if request.get("capability").and_then(Value::as_str)
             != Some("test-capability-token-with-sufficient-length")
+        {
+            return false;
+        }
+        if expected_params
+            .as_ref()
+            .is_some_and(|params| request.get("params") != Some(params))
         {
             return false;
         }
@@ -9178,6 +9195,71 @@ mod tests {
 
         assert_eq!(tab_runtime(&state, TabId(7)), "saccade-dogfood-control-v1");
         assert_eq!(tab_runtime(&state, TabId(8)), "mcp_report_backed_v0");
+    }
+
+    #[test]
+    fn dogfood_inspect_fields_binds_the_current_page_revision() {
+        let expected_params = json!({
+            "basis_page_revision": 7,
+            "fields": ["id:project-name"],
+        });
+        let (endpoint, handle) = spawn_fake_dogfood_control_once_matching_params(
+            "inspect_fields",
+            Some(expected_params),
+            json!({
+                "page_revision": 7,
+                "fields": [{
+                    "field_id": "id:project-name",
+                    "value_returned": true,
+                    "value_redacted": false,
+                    "value": "Saccade"
+                }],
+                "sensitive_fields_seen": false
+            }),
+        )
+        .expect("fake inspect control should start");
+
+        let mut info = tab(
+            7,
+            TabOwner::Human,
+            ReadGrant::FullTruth,
+            "https://example.test/form",
+            "Form",
+        );
+        info.page_revision = 7;
+        let mut state = McpSessionState::default();
+        state.tabs.push(SessionTab {
+            info,
+            paused: false,
+            agent_input_grant: true,
+            grant_reason: Some("revision-bound inspect regression".into()),
+            last_engine: None,
+            last_summary: None,
+            last_report_path: None,
+            last_replay_path: None,
+            last_actions: Vec::new(),
+            last_findings: Vec::new(),
+        });
+        state.dogfood_controls.insert(7, endpoint);
+
+        let response = web_inspect_fields_tool(
+            &mut state,
+            json!({
+                "tab_id": 7,
+                "fields": ["id:project-name"],
+                "policy": {
+                    "redact_sensitive": true,
+                    "explicit_fields_only": true,
+                    "live_worker_only": true
+                }
+            }),
+        )
+        .expect("revision-bound inspection should succeed");
+
+        assert!(handle.join().expect("fake inspect control should finish"));
+        assert_eq!(response.get("basis_page_revision"), Some(&json!(7)));
+        assert_eq!(response.get("page_revision"), Some(&json!(7)));
+        assert_eq!(response.get("values_returned"), Some(&json!(1)));
     }
 
     #[test]

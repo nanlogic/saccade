@@ -7,6 +7,8 @@ $text = [System.IO.File]::ReadAllText($resolved).Replace("`r`n", "`n")
 
 function Replace-Required {
   param([string]$Old, [string]$New)
+  $Old = $Old.Replace("`r`n", "`n")
+  $New = $New.Replace("`r`n", "`n")
   if (-not $script:text.Contains($Old)) {
     throw "Required Agent overlay source fragment was not found: $Old"
   }
@@ -62,6 +64,9 @@ void PositionAgentButton(HWND button) {
                SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 "@
+$oldPosition = $oldPosition.Replace("`r`n", "`n")
+$oldPositionUnnormalized = $oldPositionUnnormalized.Replace("`r`n", "`n")
+$newPosition = $newPosition.Replace("`r`n", "`n")
 if ($text.Contains($oldPosition)) {
   $text = $text.Replace($oldPosition, $newPosition)
 } elseif ($text.Contains($oldPositionUnnormalized)) {
@@ -85,6 +90,8 @@ HWND FindAgentButton(HWND root) {
   return nullptr;
 }
 "@
+$oldFind = $oldFind.Replace("`r`n", "`n")
+$newFind = $newFind.Replace("`r`n", "`n")
 if ($text.Contains($oldFind)) {
   $text = $text.Replace($oldFind, $newFind)
 } elseif (-not $text.Contains('GetWindow(candidate, GW_OWNER)')) {

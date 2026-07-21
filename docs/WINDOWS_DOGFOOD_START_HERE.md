@@ -1,20 +1,25 @@
 # Saccade Windows dogfood: start here
 
-Date: 2026-07-20
+Date: 2026-07-21
 
 ## Readiness verdict
 
 Windows implementation and installed-product dogfood are complete through
-Build 76. The final live gate passed MouseAccuracy Hard + Tiny and a reversible
-SimpleMMO A/B through the installed MCP with same-WebView native-input receipts
+Build 78. The Build 76 final live gate passed MouseAccuracy Hard + Tiny and a
+reversible SimpleMMO A/B through the installed MCP with same-WebView native-input receipts
 and no browser fallback. The adapter and Rust engine contract use an owner-only
 Windows named pipe; loopback TCP remains prohibited.
 
-Build 76 is unsigned dogfood. Public distribution is not ready until the
+Build 77 added cross-origin embedded-iframe form inventory, planning, and fill.
+Build 78 binds explicit field inspection to the fresh inventory revision and
+adds the iframe inspection regression before compile/fill.
+
+Build 78 is unsigned dogfood. Public distribution is not ready until the
 Windows signing and reputation track is complete. See
-`docs/windows_dogfood_quickstart.md`, `docs/work_ledger.md`, and
-`runs/windows_dogfood/build76_final_live_gate/report.json` for current status
-and evidence.
+`docs/windows_dogfood_quickstart.md`, `docs/work_ledger.md`,
+`runs/windows_dogfood/build76_final_live_gate/report.json`, and
+`runs/windows_dogfood/build78_installed_iframe_inspect/report.json` for current
+status and evidence.
 
 The Windows CEF archive is pinned to the same CEF and Chromium revisions as the
 macOS build in `engines/cef/cef.windows64.lock.json`.
@@ -45,7 +50,7 @@ cache, checks its SHA-1 and SHA-256, and prints the extracted CEF root.
 
 ## Windows milestone order
 
-W0-W4 are complete for Build 76. Keep these gates for clean rebuilds and
+W0-W4 are complete for Build 78. Keep these gates for clean rebuilds and
 regressions.
 
 ### W0 - pinned CEF and toolchain

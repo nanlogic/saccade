@@ -1,0 +1,10 @@
+﻿{
+    "schema":  "saccade-windows-staged-upgrade-test-v1",
+    "verdict":  "PASS",
+    "upgrades_completed":  2,
+    "profile_preserved":  true,
+    "stale_files_absent":  true,
+    "rollback_restored_previous":  true,
+    "transaction_artifacts_absent":  true,
+    "locked_helper_stopped":  true
+}

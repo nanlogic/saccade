@@ -12,6 +12,8 @@ function Replace-Exact {
     [Parameter(Mandatory = $true)][string]$Old,
     [Parameter(Mandatory = $true)][string]$New
   )
+  $Old = $Old.Replace("`r`n", "`n")
+  $New = $New.Replace("`r`n", "`n")
   if (-not $script:text.Contains($Old)) {
     throw "Windows adapter transform lost expected Build 64 source fragment: $Old"
   }
