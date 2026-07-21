@@ -4,7 +4,9 @@
 #ifndef SACCADE_CEF_HOST_SACCADE_RENDERER_H_
 #define SACCADE_CEF_HOST_SACCADE_RENDERER_H_
 
+#include <string>
 #include <map>
+#include <utility>
 
 #include "include/cef_app.h"
 #include "include/cef_render_process_handler.h"
@@ -35,7 +37,8 @@ class SaccadeRendererApp : public CefApp, public CefRenderProcessHandler {
     CefRefPtr<CefV8Value> function;
   };
 
-  std::map<int, FormCommandClosure> form_command_closures_;
+  using FormCommandKey = std::pair<int, std::string>;
+  std::map<FormCommandKey, FormCommandClosure> form_command_closures_;
 
   IMPLEMENT_REFCOUNTING(SaccadeRendererApp);
 };

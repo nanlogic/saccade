@@ -790,7 +790,7 @@ bool SaccadeAdapter::OnRendererMessage(
     CefProcessId source_process,
     CefRefPtr<CefProcessMessage> message) {
   CEF_REQUIRE_UI_THREAD();
-  if (source_process != PID_RENDERER || !frame || !frame->IsMain() ||
+  if (source_process != PID_RENDERER || !frame ||
       !browser_ || !browser_->IsSame(browser) || !message ||
       !message->IsValid()) {
     return false;
@@ -807,15 +807,19 @@ bool SaccadeAdapter::OnRendererMessage(
   if (name.rfind("saccade.renderer.", 0) != 0) {
     return false;
   }
+  const bool is_form_response =
+      name == "saccade.renderer.form_response_v1";
+  if (!is_form_response && !frame->IsMain()) {
+    return false;
+  }
   auto arguments = message->GetArgumentList();
   if (!arguments) {
     return true;
   }
 
-  if (name == "saccade.renderer.form_response_v1" &&
-      arguments->GetSize() == 3) {
+  if (is_form_response && arguments->GetSize() == 3) {
     const int request_id = arguments->GetInt(0);
-    const bool ok = arguments->GetBool(1);
+    const bool response_ok = arguments->GetBool(1);
     const std::string payload = arguments->GetString(2).ToString();
     bool refresh = false;
     {
@@ -824,40 +828,84 @@ bool SaccadeAdapter::OnRendererMessage(
       if (pending == form_commands_.end() || pending->second.done) {
         return true;
       }
-      pending->second.done = true;
-      pending->second.ok = ok;
-      if (ok && payload.size() <= 1024 * 1024) {
-        pending->second.payload = payload;
-        if (pending->second.command == "execute" ||
-            pending->second.command == "protected_fill" ||
-            pending->second.command == "reveal_more") {
-          auto parsed = CefParseJSON(payload, JSON_PARSER_RFC);
-          const char* counter = pending->second.command == "reveal_more"
+      auto& state = pending->second;
+      ++state.received_responses;
+
+      const bool bounded = payload.size() <= 1024 * 1024;
+      auto parsed = response_ok && bounded
+                        ? CefParseJSON(payload, JSON_PARSER_RFC)
+                        : nullptr;
+      const bool valid = parsed && parsed->GetType() == VTYPE_DICTIONARY;
+      if (valid) {
+        auto result = parsed->GetDictionary();
+        const int field_count =
+            state.command == "inventory" ? result->GetInt("field_count") : 0;
+        const int eligible_count =
+            state.command == "inventory" ? result->GetInt("eligible_count") : 0;
+        if (state.command == "inventory" && field_count > 0) {
+          ++state.form_frames_detected;
+        }
+        const bool better =
+            state.successful_responses == 0 ||
+            field_count > state.best_field_count ||
+            (field_count == state.best_field_count &&
+             eligible_count > state.best_eligible_count) ||
+            (field_count == state.best_field_count &&
+             eligible_count == state.best_eligible_count &&
+             frame->IsMain() && !state.best_frame_is_main);
+        if (better) {
+          state.payload = payload;
+          state.best_field_count = field_count;
+          state.best_eligible_count = eligible_count;
+          state.best_frame_identifier = frame->GetIdentifier().ToString();
+          state.best_frame_is_main = frame->IsMain();
+        }
+        ++state.successful_responses;
+      } else if (state.error.empty()) {
+        state.error = response_ok && !bounded
+                          ? "renderer form response was too large"
+                          : (!response_ok && bounded && !payload.empty()
+                                 ? payload
+                                 : "fixed renderer form command failed");
+      }
+
+      if (state.received_responses >= state.expected_responses) {
+        if (state.command == "inventory") {
+          FinalizeFormInventoryLocked(state);
+        } else {
+          state.done = true;
+          state.ok = state.successful_responses > 0;
+        }
+        if (!state.ok && state.error.empty()) {
+          state.error = "all renderer frame form commands failed";
+        }
+
+        if (state.ok &&
+            (state.command == "execute" ||
+             state.command == "protected_fill" ||
+             state.command == "reveal_more")) {
+          auto selected = CefParseJSON(state.payload, JSON_PARSER_RFC);
+          const char* counter = state.command == "reveal_more"
                                     ? "changed_scrollers"
                                     : "write_attempted_count";
-          if (parsed && parsed->GetType() == VTYPE_DICTIONARY &&
-              parsed->GetDictionary()->GetInt(counter) > 0) {
+          if (selected && selected->GetType() == VTYPE_DICTIONARY &&
+              selected->GetDictionary()->GetInt(counter) > 0) {
             ++page_revision_;
             ResetPageStateLocked(
                 "page changed while form command was pending");
             refresh = true;
           }
         }
-      } else {
-        pending->second.ok = false;
-        pending->second.error = ok ? "renderer form response was too large"
-                                   : "fixed renderer form command failed";
       }
     }
     form_cv_.notify_all();
-    if (refresh) {
-      frame->SendProcessMessage(
+    if (refresh && browser && browser->GetMainFrame()) {
+      browser->GetMainFrame()->SendProcessMessage(
           PID_RENDERER,
           CefProcessMessage::Create("saccade.collector.refresh_v1"));
     }
     return true;
   }
-
   if (name == "saccade.renderer.ready_v1" && arguments->GetSize() == 1) {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
@@ -2646,14 +2694,66 @@ void SaccadeAdapter::StartReflexOnUi() {
   }
 }
 
+void SaccadeAdapter::FinalizeFormInventoryLocked(FormCommandState& state) {
+  state.done = true;
+  state.ok = state.successful_responses > 0;
+  if (!state.ok) {
+    if (state.error.empty()) {
+      state.error = "all renderer frame form commands failed";
+    }
+    return;
+  }
+
+  auto selected = CefParseJSON(state.payload, JSON_PARSER_RFC);
+  if (!selected || selected->GetType() != VTYPE_DICTIONARY) {
+    state.ok = false;
+    state.error = "renderer returned invalid fixed form result";
+    return;
+  }
+  auto result = selected->GetDictionary();
+  result->SetInt("frame_count_scanned", state.expected_responses);
+  result->SetInt("frame_response_success_count", state.successful_responses);
+  result->SetInt("frame_response_failure_count",
+                 state.received_responses - state.successful_responses);
+  result->SetInt("frame_response_pending_count",
+                 state.expected_responses - state.received_responses);
+  result->SetBool("frame_settlement_partial",
+                  state.received_responses < state.expected_responses);
+  result->SetInt("form_frame_count", state.form_frames_detected);
+  if (!state.error.empty()) {
+    result->SetString("frame_response_error", state.error);
+  }
+  result->SetString("frame_scope",
+                    state.best_frame_is_main ? "main" : "embedded");
+  result->SetBool("embedded_frame", !state.best_frame_is_main);
+  result->SetBool("frame_selection_ambiguous", state.form_frames_detected > 1);
+  state.payload = JsonString(selected);
+  selected_form_frame_identifier_ = state.best_frame_identifier;
+}
+
+void SaccadeAdapter::SettleFormInventoryOnUi(int request_id) {
+  CEF_REQUIRE_UI_THREAD();
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto pending = form_commands_.find(request_id);
+    if (pending == form_commands_.end() || pending->second.done ||
+        pending->second.command != "inventory") {
+      return;
+    }
+    FinalizeFormInventoryLocked(pending->second);
+  }
+  form_cv_.notify_all();
+}
 void SaccadeAdapter::DispatchFormCommandOnUi(int request_id,
                                              std::string command,
                                              std::string input_json) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
+  std::string selected_frame_identifier;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     browser = browser_;
+    selected_frame_identifier = selected_form_frame_identifier_;
   }
   if (!browser || !browser->GetMainFrame()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
@@ -2666,12 +2766,52 @@ void SaccadeAdapter::DispatchFormCommandOnUi(int request_id,
     form_cv_.notify_all();
     return;
   }
-  auto message = CefProcessMessage::Create("saccade.form.request_v1");
-  auto arguments = message->GetArgumentList();
-  arguments->SetInt(0, request_id);
-  arguments->SetString(1, command);
-  arguments->SetString(2, input_json);
-  browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
+
+  std::vector<CefRefPtr<CefFrame>> frames;
+  if (command == "inventory") {
+    std::vector<CefString> frame_identifiers;
+    browser->GetFrameIdentifiers(frame_identifiers);
+    for (const auto& frame_identifier : frame_identifiers) {
+      auto candidate = browser->GetFrameByIdentifier(frame_identifier);
+      if (candidate && candidate->IsValid()) {
+        frames.push_back(candidate);
+      }
+    }
+  } else if (!selected_frame_identifier.empty()) {
+    auto selected = browser->GetFrameByIdentifier(selected_frame_identifier);
+    if (selected && selected->IsValid()) {
+      frames.push_back(selected);
+    }
+  }
+  if (frames.empty()) {
+    frames.push_back(browser->GetMainFrame());
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    auto pending = form_commands_.find(request_id);
+    if (pending == form_commands_.end() || pending->second.done) {
+      return;
+    }
+    pending->second.expected_responses =
+        static_cast<int>(frames.size());
+  }
+
+  for (const auto& target_frame : frames) {
+    auto message = CefProcessMessage::Create("saccade.form.request_v1");
+    auto arguments = message->GetArgumentList();
+    arguments->SetInt(0, request_id);
+    arguments->SetString(1, command);
+    arguments->SetString(2, input_json);
+    target_frame->SendProcessMessage(PID_RENDERER, message);
+  }
+  if (command == "inventory") {
+    CefPostDelayedTask(
+        TID_UI,
+        base::BindOnce(&SaccadeAdapter::SettleFormInventoryOnUi,
+                       base::Unretained(this), request_id),
+        1000);
+  }
 }
 
 void SaccadeAdapter::DispatchTextOnUi(std::u16string text,
@@ -3233,6 +3373,7 @@ void SaccadeAdapter::RemoveCurrentPointerIfOwned() {
 void SaccadeAdapter::ResetPageStateLocked(const std::string& reason) {
   collector_ready_ = false;
   collector_error_.clear();
+  selected_form_frame_identifier_.clear();
   controls_.clear();
   pending_facts_.clear();
   actions_.clear();
