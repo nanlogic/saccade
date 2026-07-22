@@ -415,6 +415,10 @@ def main() -> int:
         planned = {item.get("field_id") for item in plan.get("eligible", [])}
         if planned != expected_ids:
             raise AssertionError(f"unexpected embedded plan: {plan}")
+        plan_id = str(plan.get("plan_id", ""))
+        if not plan_id.startswith("form_plan_v2_"):
+            raise AssertionError(f"expected form_plan_v2, got: {plan_id or plan}")
+
         direct_type_blocked = False
         try:
             control.call(
@@ -484,6 +488,7 @@ def main() -> int:
             "filled": sorted(item["field_id"] for item in execution["filled"]),
             "receipt_verified": execution["receipt_verified"],
             "native_input_receipt_count": len(receipts),
+            "plan_id": plan_id,
             "same_webview_native_input": execution["same_webview_native_input"],
             "direct_type_bypass_blocked": direct_type_blocked,
             "route": "mcp" if mcp else "engine_control",

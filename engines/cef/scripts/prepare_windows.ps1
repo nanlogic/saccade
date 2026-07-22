@@ -60,9 +60,22 @@ foreach ($name in $copiedFiles) {
 & (Join-Path $scriptRoot 'prepare_windows_adapter_final.ps1') `
   -Source (Join-Path $repoRoot 'engines\cef\host\saccade_adapter.cc') `
   -Destination (Join-Path $simpleRoot 'saccade_adapter.cc')
+$formScriptDestination = Join-Path $simpleRoot 'saccade_form_script.h'
+$previousFormScriptHash = if (Test-Path -LiteralPath $formScriptDestination) {
+  (Get-FileHash -LiteralPath $formScriptDestination -Algorithm SHA256).Hash
+} else {
+  ''
+}
 & (Join-Path $scriptRoot 'prepare_windows_form_script.ps1') `
   -Source (Join-Path $repoRoot 'engines\cef\host\saccade_form_script.h') `
-  -Destination (Join-Path $simpleRoot 'saccade_form_script.h')
+  -Destination $formScriptDestination
+$currentFormScriptHash =
+  (Get-FileHash -LiteralPath $formScriptDestination -Algorithm SHA256).Hash
+if ($currentFormScriptHash -ne $previousFormScriptHash) {
+  # The upstream MSBuild project does not track this generated header in its
+  # renderer object dependencies, so explicitly invalidate the translation unit.
+  (Get-Item -LiteralPath (Join-Path $simpleRoot 'saccade_renderer.cc')).LastWriteTime = Get-Date
+}
 & (Join-Path $scriptRoot 'prepare_windows_agent_switch.ps1') `
   -Source (Join-Path $repoRoot 'engines\cef\host\saccade_agent_switch_win.cc') `
   -Destination (Join-Path $simpleRoot 'saccade_agent_switch_win.cc')

@@ -1,6 +1,6 @@
 # Saccade Windows Dogfood Quickstart
 
-Status: Build 78 installed-product dogfood. Windows x64 uses the same pinned CEF
+Status: Build 79 installed-product dogfood. Windows x64 uses the same pinned CEF
 150.0.11 / Chromium 150.0.7871.115 engine as the macOS build.
 
 ```powershell
@@ -66,6 +66,6 @@ The package does not bundle Google API keys or OAuth client credentials; core
 browsing and the Saccade MCP bridge do not depend on Chrome Sync or other
 Google-proprietary services.
 
-Build 78 is unsigned dogfood (`public_distribution_ready=false`). Smart App
+Build 79 is unsigned dogfood (`public_distribution_ready=false`). Smart App
 Control may still block public downloads until the Windows signing/distribution
 track is complete; this is separate from MCP setup and runtime behavior.

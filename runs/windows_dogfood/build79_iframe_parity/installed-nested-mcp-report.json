@@ -1,0 +1,61 @@
+{
+  "ok": true,
+  "url": "http://127.0.0.1:56208/index.html",
+  "parent_origin": "127.0.0.1:56208",
+  "child_origin": "127.0.0.1:56207",
+  "frame_count_scanned": 4,
+  "form_frame_count": 3,
+  "frame_scope": "composited",
+  "frame_aggregation_complete": true,
+  "frame_inventory": [
+    {
+      "eligible_count": 1,
+      "field_count": 1,
+      "frame_depth": 1,
+      "frame_index": 0,
+      "frame_scope": "embedded"
+    },
+    {
+      "eligible_count": 1,
+      "field_count": 1,
+      "frame_depth": 2,
+      "frame_index": 1,
+      "frame_scope": "embedded"
+    },
+    {
+      "eligible_count": 1,
+      "field_count": 1,
+      "frame_depth": 3,
+      "frame_index": 2,
+      "frame_scope": "embedded"
+    }
+  ],
+  "field_ids": [
+    "frame:f0:id:first-crush",
+    "frame:f1:id:current-crush",
+    "frame:f2:id:destiny"
+  ],
+  "inspected": [
+    "frame:f0:id:first-crush",
+    "frame:f1:id:current-crush",
+    "frame:f2:id:destiny"
+  ],
+  "planned": [
+    "frame:f0:id:first-crush",
+    "frame:f1:id:current-crush",
+    "frame:f2:id:destiny"
+  ],
+  "filled": [
+    "frame:f0:id:first-crush",
+    "frame:f1:id:current-crush",
+    "frame:f2:id:destiny"
+  ],
+  "receipt_verified": true,
+  "native_input_receipt_count": 3,
+  "plan_id": "form_plan_v2_f456d7b9",
+  "same_webview_native_input": true,
+  "direct_type_bypass_blocked": true,
+  "route": "mcp",
+  "mcp_verification_complete": true,
+  "submitted": false
+}

@@ -517,3 +517,31 @@
   SelectorsHub MCP probe.
 - Evidence: `runs/dogfood/macos_iframe_composited_build84/local-nested-report.json`
   and `runs/dogfood/macos_iframe_composited_build84/selectorshub-report.json`.
+
+## 2026-07-22 - Windows Build 79 composited iframe parity gate
+
+- Synced commit `3d31f44` and rebuilt the shared `form_plan_v2` inventory,
+  inspect, compile, and frame-aware native fill route for Windows.
+- Found that the upstream MSBuild project did not track the generated
+  `saccade_form_script.h` as a dependency of `saccade_renderer.obj`. This could
+  package a new host and MCP beside a stale renderer. Windows preparation now
+  hashes the generated header and invalidates the renderer translation unit
+  whenever the header changes.
+- Hardened the iframe gate to require a `form_plan_v2_` plan ID and record it in
+  every report. Direct `type_field_text` bypass remains policy-blocked and the
+  probe never submits a form.
+- Package and installed-path single-iframe gates each inventoried, inspected,
+  planned, and filled 2/2 fields with two verified same-WebView native-input
+  receipts. Package and installed-path nested gates each unified depths 1/2/3
+  and filled 3/3 fields with three verified receipts.
+- Installed Build 79 through the staged installer. The installed and package
+  MCP SHA-256 values match, registration reports `connected_restart_codex`, and
+  a new Codex session is required to load the updated MCP process.
+- Validation passed: `cargo fmt --all -- --check`; MCP tests 37/37; engine API
+  tests 5/5; Python compile; Windows preflight; CEF Release compile including a
+  forced `saccade_renderer.cc` rebuild; and staged-upgrade/profile/rollback.
+- Verdict: Windows Build 79 installed-product dogfood is ready. Public Windows
+  distribution remains externally gated on Authenticode signing and reputation.
+- Evidence: `runs/windows_dogfood/build79_iframe_parity/single-mcp-report.json`,
+  `nested-mcp-report.json`, `installed-single-mcp-report.json`,
+  `installed-nested-mcp-report.json`, and `staged-upgrade/report.json`.

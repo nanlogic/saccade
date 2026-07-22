@@ -1,11 +1,11 @@
 # Saccade Windows dogfood: start here
 
-Date: 2026-07-21
+Date: 2026-07-22
 
 ## Readiness verdict
 
 Windows implementation and installed-product dogfood are complete through
-Build 78. The Build 76 final live gate passed MouseAccuracy Hard + Tiny and a
+Build 79. The Build 76 final live gate passed MouseAccuracy Hard + Tiny and a
 reversible SimpleMMO A/B through the installed MCP with same-WebView native-input receipts
 and no browser fallback. The adapter and Rust engine contract use an owner-only
 Windows named pipe; loopback TCP remains prohibited.
@@ -14,12 +14,19 @@ Build 77 added cross-origin embedded-iframe form inventory, planning, and fill.
 Build 78 binds explicit field inspection to the fresh inventory revision and
 adds the iframe inspection regression before compile/fill.
 
-Build 78 is unsigned dogfood. Public distribution is not ready until the
+Build 79 brings the shared `form_plan_v2` composited inventory and exact
+frame-aware native fill route to Windows. The installed MCP passed both the
+single cross-origin iframe gate and a three-layer nested iframe gate at depths
+1/2/3. Windows preparation now invalidates the renderer object whenever its
+generated form-script header changes, preventing new host code from being
+packaged with a stale renderer.
+
+Build 79 is unsigned dogfood. Public distribution is not ready until the
 Windows signing and reputation track is complete. See
 `docs/windows_dogfood_quickstart.md`, `docs/work_ledger.md`,
 `runs/windows_dogfood/build76_final_live_gate/report.json`, and
-`runs/windows_dogfood/build78_installed_iframe_inspect/report.json` for current
-status and evidence.
+`runs/windows_dogfood/build79_iframe_parity/installed-nested-mcp-report.json`
+for current status and evidence.
 
 The Windows CEF archive is pinned to the same CEF and Chromium revisions as the
 macOS build in `engines/cef/cef.windows64.lock.json`.
@@ -50,7 +57,7 @@ cache, checks its SHA-1 and SHA-256, and prints the extracted CEF root.
 
 ## Windows milestone order
 
-W0-W4 are complete for Build 78. Keep these gates for clean rebuilds and
+W0-W4 are complete for Build 79. Keep these gates for clean rebuilds and
 regressions.
 
 ### W0 - pinned CEF and toolchain

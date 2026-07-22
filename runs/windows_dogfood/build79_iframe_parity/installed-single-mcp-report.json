@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "url": "http://127.0.0.1:62712/index.html",
+  "parent_origin": "127.0.0.1:62712",
+  "child_origin": "127.0.0.1:62711",
+  "frame_count_scanned": 2,
+  "form_frame_count": 1,
+  "frame_scope": "embedded",
+  "frame_aggregation_complete": true,
+  "frame_inventory": [
+    {
+      "eligible_count": 2,
+      "field_count": 2,
+      "frame_depth": 1,
+      "frame_index": 0,
+      "frame_scope": "embedded"
+    }
+  ],
+  "field_ids": [
+    "id:homepage",
+    "id:project-name"
+  ],
+  "inspected": [
+    "id:homepage",
+    "id:project-name"
+  ],
+  "planned": [
+    "id:homepage",
+    "id:project-name"
+  ],
+  "filled": [
+    "id:homepage",
+    "id:project-name"
+  ],
+  "receipt_verified": true,
+  "native_input_receipt_count": 2,
+  "plan_id": "form_plan_v2_d949dc10",
+  "same_webview_native_input": true,
+  "direct_type_bypass_blocked": true,
+  "route": "mcp",
+  "mcp_verification_complete": true,
+  "submitted": false
+}
