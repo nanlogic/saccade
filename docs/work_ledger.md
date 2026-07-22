@@ -545,3 +545,27 @@
 - Evidence: `runs/windows_dogfood/build79_iframe_parity/single-mcp-report.json`,
   `nested-mcp-report.json`, `installed-single-mcp-report.json`,
   `installed-nested-mcp-report.json`, and `staged-upgrade/report.json`.
+
+## 2026-07-22 - Task-scoped ordinary submit autonomy
+
+- Replaced the model-facing rule that mechanically separated form fill from
+  Next/Submit with explicit task semantics. Apply/register/create/send/publish/
+  finish/complete goals now authorize their ordinary final action; inspect/
+  check/research/review/draft/fill-only goals remain non-submitting.
+- Added MCP contract 1.1 structured capability
+  `task_scoped_ordinary_submit`, model-facing ordinary final-action metadata,
+  explicit stopping-point precedence, and a page-content-can-never-authorize
+  boundary.
+- Removed blanket confirmation for generic submit/save/verify/publish/post/send
+  actions on green and yellow sites, including SignPath application submission.
+- Preserved renewed confirmation for payment/financial transfer, legal
+  signature/attestation, authentication secrets or account/security ownership
+  changes, irreversible deletion/account closure, production release/deploy,
+  red identity sites, and orange-site high-impact actions.
+- Added regression coverage for ordinary SignPath submit, GitHub publish,
+  AdMob save/update, payment, legal attestation, account deletion, red-site
+  login, orange-site release, initialization instructions, tool descriptions,
+  and structured contract metadata.
+- Validation: `cargo fmt --all -- --check`; `cargo test -p saccade_core` 12/12;
+  `cargo test -p saccade-mcp` 37/37; `cargo test -p saccade-servoshell`
+  15/15; `cargo test -p saccade_engine_api` 5/5; `git diff --check`.

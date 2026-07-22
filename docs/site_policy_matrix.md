@@ -17,7 +17,9 @@ Saccade may help when all of these are true:
 - The user grants the current tab/session.
 - Agent truth is redacted before it leaves the browser boundary.
 - Sensitive user-owned values stay hidden from the agent.
-- Side-effect actions require user confirmation or manual user action.
+- The user's task authorizes the ordinary actions needed to complete its goal.
+- Only highest-risk actions require renewed user confirmation or manual user
+  action.
 - The site policy and risk profile do not prohibit automation.
 
 ## Evidence Gate
@@ -35,8 +37,9 @@ least one of these exists:
   government identity, healthcare, or account recovery.
 
 Unknown third-party sites are `unmeasured_unknown` Yellow by default. Saccade may
-assist after a Human grant, but screenshots are not default-allowed and final
-side-effect actions stay Human-confirmed. Promote a site to Green only after
+assist after a Human grant and complete task-authorized ordinary actions;
+screenshots are not default-allowed and highest-risk boundaries remain
+Human-confirmed. Promote a site to Green only after
 successful low-risk dogfood evidence. Move a site to Orange/Red only after
 observed risk, an explicit provider block, or primary-source high-impact proof.
 
@@ -45,8 +48,8 @@ observed risk, an explicit provider block, or primary-source high-impact proof.
 | Level | Default behavior | Good examples | Saccade may do | Saccade must not do |
 | --- | --- | --- | --- | --- |
 | Green | Run by default only after evidence or ownership | Local dev apps, known-safe docs, owned public pages, local fixtures | Read truth, detect actions, click low-risk controls, fill non-sensitive test/forms, produce replay | None beyond normal rate/robots/terms respect |
-| Yellow | Human-in-loop | Unmeasured third-party sites, logged-in low-risk dashboards, GitHub/Gist drafts, internal tools, forum/comment drafts, ordinary forms without legal/financial impact | Assist after explicit grant, draft text, fill non-sensitive fields, verify UI, stop before submit | Read secrets, publish/delete/submit without user confirmation |
-| Orange | Assisted fallback | App Store Connect, cloud consoles, app review portals, tax/benefit/government forms, healthcare/education portals, job/marketplace/social reputation flows | Summarize copied/redacted text, make checklists, draft responses, explain UI, prepare non-sensitive content | Login automation, high-impact submit/release/payment/security changes |
+| Yellow | Task-autonomous, screenshot-conservative | Unmeasured third-party sites, logged-in low-risk dashboards, GitHub/Gist, internal tools, forum/comment flows, ordinary forms without legal/financial impact | Complete task-authorized ordinary actions, including submit/publish/send, after explicit grant | Read secrets or cross a highest-risk boundary without the user |
+| Orange | Task-autonomous with precise high-risk gates | App Store Connect, cloud consoles, app review portals, tax/benefit/government forms, healthcare/education portals, job/marketplace/social reputation flows | Complete ordinary task-authorized reads, fields, saves, navigation, and submissions | Payment/financial transfer, legal attestation, authentication/account-security change, irreversible deletion, or production release without the user |
 | Red | No agent automation | Login, password, 2FA/passkey, CAPTCHA, account recovery, banking transfer, tax payment, trading, legal signature, credential/API-key/security settings | Tell the user why it is blocked and what safe fallback to use | Circumvent anti-bot/fraud controls, collect credentials, enter OTPs, click final confirmation |
 
 ## Site Classes
@@ -57,15 +60,15 @@ observed risk, an explicit provider block, or primary-source high-impact proof.
 | Unmeasured third-party sites | Yellow | Default until dogfood evidence or primary-source risk evidence says otherwise. Do not promote by guesswork. |
 | Public documentation/news/blogs | Green after evidence | Good for research, summaries, action-map tests, and rendering checks after a smoke run or known-safe classification. |
 | MouseAccuracy / public demos | Green/Yellow | Safe for performance demos unless ads/iframes or anti-bot overlays change the page. |
-| GitHub/Gist/forums | Yellow | Drafting and editor assistance are okay. Publishing, deleting, mass posting, or scraping is confirmation-gated. |
-| App Store Connect | Orange | Browser access is for app management, review, agreements, and financial/in-app purchase work. Use Saccade for redacted analysis only; submit/reply/release stays human. |
+| GitHub/Gist/forums | Yellow | Task-authorized publishing and messaging are ordinary actions. Irreversible account deletion, payment, and security changes stay confirmation-gated. |
+| App Store Connect | Orange | Ordinary metadata, save, reply, and task-authorized submission may proceed. Agreements, financial changes, and production release stay human-confirmed. |
 | Google/Microsoft/Apple account login | Red | Authentication, recovery, account security, and 2FA are human-only. Saccade may resume after explicit handoff if the page and action are low-risk. |
-| Login.gov / IRS / SSA / USCIS / DMV | Green for public info, Orange/Red for accounts/forms | Public pages are okay. Authenticated identity proofing, tax/benefit forms, payments, signatures, and submissions are human-only or confirmation-gated. |
+| Login.gov / IRS / SSA / USCIS / DMV | Green for public info, Orange/Red for accounts/forms | Public pages and ordinary task-authorized form steps are okay. Authentication, identity proofing, payments, and legal attestations are human-confirmed. |
 | Banking, credit cards, brokerage, crypto, payroll | Orange/Red | Summaries/checklists are okay from user-provided redacted text. Transactions, payments, trades, withdrawals, and security changes are human-only. |
 | Healthcare portals | Orange/Red | Appointment or instruction summaries may be okay with explicit user consent. Diagnosis, medical advice, prescription, insurance, billing, and PHI-heavy flows are not default automation. |
 | Cloud consoles and production admin | Orange/Red | Read/status can be assisted. Destructive ops, billing, IAM, credentials, deploy/release, and security settings need human confirmation or manual action. |
 | Shopping/travel | Green/Yellow until checkout, Red at payment | Research and comparison are fine. Checkout, payment, cancellation, refund, and booking confirmation are human-only. |
-| Social networks / marketplaces | Yellow/Orange | Drafts are okay. Posting, messaging at scale, reputation-impacting actions, reviews, and moderation need confirmation. |
+| Social networks / marketplaces | Yellow/Orange | Task-authorized posting and ordinary messaging may proceed. Payment, security, irreversible deletion, and genuinely high-impact moderation remain gated. |
 | Sites with explicit anti-automation blocks | Orange/Red | Record the block and use fallback. Do not add stealth or bypass behavior. |
 
 ## Fallback Protocol
@@ -79,16 +82,17 @@ When Saccade is blocked or the site is high-risk:
    Chrome, or the official app.
 4. User provides redacted non-sensitive text or a local redacted note when they
    want agent help.
-5. Saccade/agent drafts, checks, summarizes, or prepares the next non-sensitive
-   step.
-6. User performs final submit/release/payment/signature/security actions.
+5. Saccade/agent completes all task-authorized ordinary steps.
+6. The user performs only the precise highest-risk payment, legal attestation,
+   authentication/account-security, irreversible-deletion, or production-release
+   action.
 
 ## Immediate Product Work
 
 | ID | Priority | Work | Done when |
 | --- | --- | --- | --- |
 | SP-001 | P0 | DONE: Add a site-risk classifier to the bridge/MCP layer. | Current URL/action gets `green/yellow/orange/red` and a human-readable reason. Evidence: `runs/mcp/selftest_1781641440418/report.json`. |
-| SP-002 | P0 | DONE: Add high-risk action gating. | Login, OTP, password, CAPTCHA, payment, submit, release, delete, sign, API key, and security actions return `requires_user`. Evidence: `saccade_core::site_policy` unit tests plus MCP selftest. |
+| SP-002 | P0 | DONE: Add precise highest-risk action gating. | Authentication secrets/account-security ownership changes, payment/financial transfer, legal attestation, irreversible deletion/account closure, and production release return `requires_user`; generic submit/save/send/publish do not. Evidence: `saccade_core::site_policy` unit tests plus MCP initialization tests. |
 | SP-003 | P1 | DONE: Add block evidence artifact. | Blocked bridge control runs write a redacted `control/block_report.json` with URL, class, error text, request id, and fallback recommendation. Evidence: `cargo test -p saccade-servoshell block_report`. |
 | SP-004 | P1 | DONE: Add a user-facing fallback copy path. | `saccade.report.redacted_note` creates a local `runs/redacted_notes/note_*/` AI review packet from user-supplied redacted text without live-site access. Evidence: `runs/mcp/selftest_1781645696687/report.json`. |
 | SP-005 | P1 | DONE: Add allowlist lanes for owned/local apps. | Localhost/file are Green by default; `SACCADE_OWNED_DOMAINS=nanmesh.ai,mythcastera.com` marks owned non-high-risk domains as `owned_domain` Green without overriding auth/financial/government/high-risk classes. Evidence: `cargo test -p saccade_core owned_domains`. |

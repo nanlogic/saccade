@@ -32,7 +32,7 @@ impl SitePolicy {
             agent_read_allowed: true,
             agent_fill_allowed: true,
             agent_action_allowed: true,
-            side_effects_require_user: true,
+            side_effects_require_user: false,
             auth_human_only: false,
             screenshots_default_allowed: true,
         }
@@ -46,7 +46,7 @@ impl SitePolicy {
             agent_read_allowed: true,
             agent_fill_allowed: true,
             agent_action_allowed: true,
-            side_effects_require_user: true,
+            side_effects_require_user: false,
             auth_human_only: false,
             screenshots_default_allowed: false,
         }
@@ -58,10 +58,10 @@ impl SitePolicy {
             category,
             reason,
             agent_read_allowed: true,
-            agent_fill_allowed: false,
-            agent_action_allowed: false,
-            side_effects_require_user: true,
-            auth_human_only: true,
+            agent_fill_allowed: true,
+            agent_action_allowed: true,
+            side_effects_require_user: false,
+            auth_human_only: false,
             screenshots_default_allowed: false,
         }
     }
@@ -136,7 +136,7 @@ pub fn classify_site_url_with_owned_domains(url: &str, owned_domains: &[String])
     if host_matches_any(host, &["admob.google.com", "adsense.google.com"]) {
         return SitePolicy::yellow(
             "monetization_admin",
-            "Monetization consoles allow copilot navigation and non-sensitive drafts; Save, Verify, billing, and account changes need Human confirmation",
+            "Task-authorized ordinary actions are allowed; billing, payment, credentials, and account security remain user-controlled",
         );
     }
     if host_matches(host, "irs.gov")
@@ -226,7 +226,7 @@ pub fn classify_site_url_with_owned_domains(url: &str, owned_domains: &[String])
     ) {
         return SitePolicy::yellow(
             "account_reputation_or_social",
-            "Drafting is okay; publish, delete, mass message, or reputation actions need confirmation",
+            "Task-authorized ordinary publish and messaging actions are allowed; account security, payment, and irreversible account deletion remain user-controlled",
         );
     }
     if host_matches_any(
@@ -256,7 +256,7 @@ pub fn classify_site_url_with_owned_domains(url: &str, owned_domains: &[String])
 
     SitePolicy::yellow(
         "unmeasured_unknown",
-        "No site-specific evidence yet; assist only with Human-in-loop defaults until dogfood evidence promotes it",
+        "No site-specific evidence yet; complete task-authorized ordinary actions while preserving highest-risk user boundaries",
     )
 }
 
@@ -291,10 +291,6 @@ fn action_requires_user(
             "one-time",
             "passkey",
             "password",
-            "sign in",
-            "signin",
-            "login",
-            "log in",
             "account recovery",
         ],
     ) {
@@ -303,14 +299,21 @@ fn action_requires_user(
     if contains_any(
         &action_text,
         &[
-            "api key",
-            "token",
-            "secret",
-            "credential",
-            "security",
-            "iam",
-            "permission",
-            "access key",
+            "create api key",
+            "rotate api key",
+            "revoke api key",
+            "delete api key",
+            "create access key",
+            "rotate secret",
+            "revoke token",
+            "change password",
+            "reset password",
+            "grant permission",
+            "edit permission",
+            "change owner",
+            "transfer ownership",
+            "add administrator",
+            "remove administrator",
         ],
     ) {
         return Some("security_or_credential_change_requires_user");
@@ -332,34 +335,58 @@ fn action_requires_user(
     ) {
         return Some("payment_or_financial_action_requires_user");
     }
-    if contains_any(&action_text, &["delete", "remove", "destroy", "cancel"]) {
-        return Some("destructive_action_confirmation_required");
+    if contains_any(
+        &action_text,
+        &[
+            "delete account",
+            "close account",
+            "destroy production",
+            "permanently delete",
+            "irreversible delete",
+            "erase all",
+        ],
+    ) {
+        return Some("irreversible_destructive_action_requires_user");
     }
-    if contains_any(&action_text, &["sign", "signature", "attest", "certify"]) {
+    if contains_any(
+        &action_text,
+        &[
+            "sign agreement",
+            "sign document",
+            "legal signature",
+            "signature",
+            "attest",
+            "certify",
+        ],
+    ) {
         return Some("legal_attestation_human_only");
     }
     if contains_any(
         &action_text,
         &[
-            "submit",
-            "save",
-            "verify",
-            "check for updates",
-            "publish",
-            "post",
-            "send",
-            "release",
-            "deploy",
-            "confirm",
-            "export",
-            "act_submit",
-            "act_export",
+            "deploy production",
+            "production deploy",
+            "release to production",
+            "publish to production",
+            "go live",
         ],
     ) {
-        if matches!(site.level, SiteRiskLevel::Orange) {
-            return Some("high_risk_site_side_effect_requires_user");
-        }
-        return Some("side_effect_confirmation_required");
+        return Some("production_release_or_deployment_requires_user");
+    }
+    if matches!(
+        site.category,
+        "app_store_connect" | "cloud_or_production_admin"
+    ) && contains_any(
+        &action_text,
+        &[
+            "release",
+            "deploy",
+            "publish app",
+            "submit for review",
+            "go live",
+        ],
+    ) {
+        return Some("production_release_or_deployment_requires_user");
     }
 
     None
@@ -401,14 +428,16 @@ mod tests {
 
     #[test]
     fn classifies_core_site_buckets() {
-        assert_eq!(
-            classify_site_url("http://127.0.0.1:4173/").level,
-            SiteRiskLevel::Green
-        );
-        assert_eq!(
-            classify_site_url("https://appstoreconnect.apple.com/apps").level,
-            SiteRiskLevel::Orange
-        );
+        let local = classify_site_url("http://127.0.0.1:4173/");
+        assert_eq!(local.level, SiteRiskLevel::Green);
+        assert!(!local.side_effects_require_user);
+
+        let app_store = classify_site_url("https://appstoreconnect.apple.com/apps");
+        assert_eq!(app_store.level, SiteRiskLevel::Orange);
+        assert!(app_store.agent_fill_allowed);
+        assert!(app_store.agent_action_allowed);
+        assert!(!app_store.side_effects_require_user);
+        assert!(!app_store.auth_human_only);
         assert_eq!(
             classify_site_url("https://secure.login.gov/").level,
             SiteRiskLevel::Red
@@ -426,29 +455,46 @@ mod tests {
         assert_eq!(unknown.level, SiteRiskLevel::Yellow);
         assert_eq!(unknown.category, "unmeasured_unknown");
         assert!(!unknown.screenshots_default_allowed);
+        assert!(!unknown.side_effects_require_user);
     }
 
     #[test]
-    fn blocks_high_risk_actions() {
+    fn allows_task_authorized_ordinary_side_effects() {
         assert_eq!(
             site_action_requires_user("https://example.com", "act_submit", Some("Submit")),
-            Some("side_effect_confirmation_required")
+            None
+        );
+        assert_eq!(
+            site_action_requires_user("https://signpath.org/apply", "apply", Some("Apply")),
+            None
         );
         assert_eq!(
             site_action_requires_user(
-                "https://appstoreconnect.apple.com/apps",
-                "act_release",
-                Some("Release")
+                "https://signpath.org/apply",
+                "act_submit",
+                Some("Submit application")
             ),
-            Some("high_risk_site_side_effect_requires_user")
+            None
         );
         assert_eq!(
-            site_action_requires_user("https://accounts.google.com", "next", Some("Next")),
-            Some("red_site_human_only")
+            site_action_requires_user("https://signpath.org", "home", Some("SignPath")),
+            None
+        );
+        assert_eq!(
+            site_action_requires_user("https://example.com", "login", Some("Sign in")),
+            None
+        );
+        assert_eq!(
+            site_action_requires_user(
+                "https://github.com/example/repo",
+                "act_publish",
+                Some("Publish")
+            ),
+            None
         );
         assert_eq!(
             site_action_requires_user("https://admob.google.com", "act_save", Some("Save")),
-            Some("side_effect_confirmation_required")
+            None
         );
         assert_eq!(
             site_action_requires_user(
@@ -456,7 +502,63 @@ mod tests {
                 "act_check_for_updates",
                 Some("Check for updates")
             ),
-            Some("side_effect_confirmation_required")
+            None
+        );
+    }
+
+    #[test]
+    fn blocks_only_highest_risk_actions() {
+        assert_eq!(
+            site_action_requires_user(
+                "https://appstoreconnect.apple.com/apps",
+                "act_save",
+                Some("Save metadata")
+            ),
+            None
+        );
+        assert_eq!(
+            site_action_requires_user(
+                "https://appstoreconnect.apple.com/apps",
+                "act_release",
+                Some("Release")
+            ),
+            Some("production_release_or_deployment_requires_user")
+        );
+        assert_eq!(
+            site_action_requires_user("https://accounts.google.com", "next", Some("Next")),
+            Some("red_site_human_only")
+        );
+        assert_eq!(
+            site_action_requires_user("https://example.com", "act_pay", Some("Pay now")),
+            Some("payment_or_financial_action_requires_user")
+        );
+        assert_eq!(
+            site_action_requires_user(
+                "https://example.com",
+                "act_attest",
+                Some("Sign legal attestation")
+            ),
+            Some("legal_attestation_human_only")
+        );
+        assert_eq!(
+            site_action_requires_user(
+                "https://example.com",
+                "act_delete_account",
+                Some("Permanently delete account")
+            ),
+            Some("irreversible_destructive_action_requires_user")
+        );
+        assert_eq!(
+            site_action_requires_user(
+                "https://example.com",
+                "act_deploy",
+                Some("Deploy production")
+            ),
+            Some("production_release_or_deployment_requires_user")
+        );
+        assert_eq!(
+            site_action_requires_user("https://example.com", "nav_security", Some("Security")),
+            None
         );
         assert_eq!(
             site_action_requires_user("http://localhost:3000", "act_primary", Some("Preview")),
