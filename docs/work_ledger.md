@@ -496,3 +496,24 @@
 - Evidence: `runs/dogfood/macos_iframe_native_receipt_build83/report.json`,
   `runs/dogfood/macos_iframe_native_receipt_build83/mcp-report.json`, and
   `runs/dogfood/macos_form_native_receipt_build83/report.json`.
+
+## 2026-07-22 - Build 84 composited iframe form truth
+
+- Replaced CEF's single `best_frame` form result with one revision-bound,
+  composited inventory across every visible form frame. Fields retain private
+  frame routes while the model receives one ordered field view.
+- Inspect and compile partition requested fields by their private frame route;
+  native execution focuses, types, and verifies each field in its owning frame.
+  A partial frame settlement leaves the view unready and cannot compile or fill.
+- Added a three-origin nested fixture matching the visible `First Crush` ->
+  `Current Crush Name` -> `Destiny` depth sequence. All three fields were
+  inventoried, inspected, compiled, and filled with three verified same-WebView
+  native receipts. The original single-iframe two-field gate also remained green.
+- SelectorsHub public dogfood scanned 14 frames, unified the three visible form
+  layers at depths 1/2/3, inspected and compiled all three fields, filled all
+  three with verified native receipts, and did not submit.
+- Validation: signed CEF Release build 22/22; `cargo test -p saccade-mcp`
+  37/37; Python compile; local single/nested iframe MCP probes; public
+  SelectorsHub MCP probe.
+- Evidence: `runs/dogfood/macos_iframe_composited_build84/local-nested-report.json`
+  and `runs/dogfood/macos_iframe_composited_build84/selectorshub-report.json`.

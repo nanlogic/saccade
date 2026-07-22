@@ -97,9 +97,21 @@ class SaccadeAdapter {
   };
 
   struct FormCommandState {
+    struct FramePayload {
+      std::string frame_identifier;
+      std::string payload;
+      int dispatch_order = 0;
+      int depth = 0;
+      bool is_main = true;
+    };
+
     std::string command;
     std::string payload;
     std::string error;
+    std::string input_json;
+    std::string target_frame_identifier;
+    std::vector<std::string> frame_dispatch_order;
+    std::vector<FramePayload> frame_payloads;
     uint64_t basis_page_revision = 0;
     int expected_responses = 1;
     int received_responses = 0;
@@ -111,6 +123,11 @@ class SaccadeAdapter {
     bool best_frame_is_main = true;
     bool done = false;
     bool ok = false;
+  };
+
+  struct FormFieldRoute {
+    std::string frame_identifier;
+    std::string renderer_field_id;
   };
 
   struct BrowserRole {
@@ -177,6 +194,15 @@ class SaccadeAdapter {
   std::string FormCommandResponse(int id,
                                   const std::string& command,
                                   CefRefPtr<CefDictionaryValue> params);
+  std::string FormCommandResponseForFrame(
+      int id,
+      const std::string& command,
+      CefRefPtr<CefDictionaryValue> params,
+      const std::string& frame_identifier);
+  std::string FormCompilePlanResponse(
+      int id, CefRefPtr<CefDictionaryValue> params);
+  std::string FormInspectFieldsResponse(
+      int id, CefRefPtr<CefDictionaryValue> params);
   std::string FormExecutePlanResponse(
       int id, CefRefPtr<CefDictionaryValue> params);
   std::string ProtectedFillResponse(
@@ -280,6 +306,8 @@ class SaccadeAdapter {
   std::condition_variable form_cv_;
   std::map<int, FormCommandState> form_commands_;
   std::string selected_form_frame_identifier_;
+  std::map<std::string, FormFieldRoute> form_field_routes_;
+  uint64_t form_field_routes_revision_ = 0;
   std::atomic<int> next_form_request_id_{1};
   std::condition_variable screenshot_cv_;
   bool screenshot_pending_ = false;

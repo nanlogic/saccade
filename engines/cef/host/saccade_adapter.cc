@@ -353,13 +353,14 @@ bool ValidAssignments(CefRefPtr<CefDictionaryValue> params) {
 }
 
 bool ValidInspectFields(CefRefPtr<CefDictionaryValue> params) {
-  if (!params || !params->HasKey("field_ids")) {
+  if (!params || (!params->HasKey("field_ids") && !params->HasKey("fields"))) {
     return true;
   }
-  if (params->GetType("field_ids") != VTYPE_LIST) {
+  const char* key = params->HasKey("field_ids") ? "field_ids" : "fields";
+  if (params->GetType(key) != VTYPE_LIST) {
     return false;
   }
-  auto fields = params->GetList("field_ids");
+  auto fields = params->GetList(key);
   if (!fields || fields->GetSize() > 500) {
     return false;
   }
@@ -844,6 +845,25 @@ bool SaccadeAdapter::OnRendererMessage(
             state.command == "inventory" ? result->GetInt("eligible_count") : 0;
         if (state.command == "inventory" && field_count > 0) {
           ++state.form_frames_detected;
+        }
+        if (state.command == "inventory") {
+          FormCommandState::FramePayload frame_payload;
+          frame_payload.frame_identifier = frame->GetIdentifier().ToString();
+          frame_payload.payload = payload;
+          frame_payload.is_main = frame->IsMain();
+          const auto order = std::find(state.frame_dispatch_order.begin(),
+                                       state.frame_dispatch_order.end(),
+                                       frame_payload.frame_identifier);
+          frame_payload.dispatch_order =
+              order == state.frame_dispatch_order.end()
+                  ? static_cast<int>(state.frame_dispatch_order.size())
+                  : static_cast<int>(
+                        std::distance(state.frame_dispatch_order.begin(), order));
+          for (auto parent = frame->GetParent(); parent;
+               parent = parent->GetParent()) {
+            ++frame_payload.depth;
+          }
+          state.frame_payloads.push_back(std::move(frame_payload));
         }
         const bool better =
             state.successful_responses == 0 ||
@@ -1520,12 +1540,10 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
                                request->GetDictionary("params"));
   }
   if (method == "inspect_fields") {
-    return FormCommandResponse(id, "inspect",
-                               request->GetDictionary("params"));
+    return FormInspectFieldsResponse(id, request->GetDictionary("params"));
   }
   if (method == "form_compile_plan") {
-    return FormCommandResponse(id, "compile",
-                               request->GetDictionary("params"));
+    return FormCompilePlanResponse(id, request->GetDictionary("params"));
   }
   if (method == "form_execute_plan") {
     return FormExecutePlanResponse(id, request->GetDictionary("params"));
@@ -2177,6 +2195,14 @@ std::string SaccadeAdapter::FormCommandResponse(
     int id,
     const std::string& command,
     CefRefPtr<CefDictionaryValue> params) {
+  return FormCommandResponseForFrame(id, command, params, "");
+}
+
+std::string SaccadeAdapter::FormCommandResponseForFrame(
+    int id,
+    const std::string& command,
+    CefRefPtr<CefDictionaryValue> params,
+    const std::string& frame_identifier) {
   if ((command == "compile" || command == "execute") &&
       !ValidAssignments(params)) {
     return ErrorResponse(id, "INVALID_ARGUMENT",
@@ -2228,15 +2254,27 @@ std::string SaccadeAdapter::FormCommandResponse(
     }
   }
 
+  auto original_input = CefValue::Create();
+  original_input->SetDictionary(params ? params->Copy(false)
+                                       : CefDictionaryValue::Create());
+  const std::string original_input_json = JsonString(original_input);
+  auto renderer_params = params ? params->Copy(false)
+                                : CefDictionaryValue::Create();
+  if (command == "inventory") {
+    renderer_params->SetString("mode", "full");
+    renderer_params->SetInt("offset", 0);
+    renderer_params->SetInt("limit", 500);
+  }
   auto input = CefValue::Create();
-  input->SetDictionary(params ? params->Copy(false)
-                              : CefDictionaryValue::Create());
+  input->SetDictionary(renderer_params);
   const std::string input_json = JsonString(input);
   const int request_id = next_form_request_id_.fetch_add(1);
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     FormCommandState state;
     state.command = command;
+    state.input_json = original_input_json;
+    state.target_frame_identifier = frame_identifier;
     state.basis_page_revision = revision_required ? basis_page_revision
                                                   : page_revision_;
     form_commands_[request_id] = std::move(state);
@@ -2343,6 +2381,250 @@ std::string SaccadeAdapter::FormCommandResponse(
   return Response(id, result);
 }
 
+std::string SaccadeAdapter::FormCompilePlanResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  if (!ValidAssignments(params)) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "form compilation requires scalar assignments");
+  }
+  const uint64_t basis_page_revision = RequestRevision(params);
+  auto assignments = params->GetDictionary("assignments");
+  CefDictionaryValue::KeyList assignment_keys;
+  assignments->GetKeys(assignment_keys);
+
+  std::map<std::string, FormFieldRoute> routes;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!CurrentTabGrantedLocked()) {
+      return ErrorResponse(id, "PERMISSION_DENIED", "agent is paused");
+    }
+    if (!collector_ready_) {
+      return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
+                           "renderer collector is not ready");
+    }
+    if (basis_page_revision == 0 || basis_page_revision != page_revision_) {
+      return ErrorResponse(id, "STALE_PAGE_REVISION",
+                           "form basis does not match current page");
+    }
+    if (form_field_routes_revision_ != basis_page_revision) {
+      return ErrorResponse(id, "STALE_FORM_INVENTORY",
+                           "refresh the unified form inventory before compiling");
+    }
+    routes = form_field_routes_;
+  }
+
+  std::map<std::string, CefRefPtr<CefDictionaryValue>> grouped_assignments;
+  std::map<std::string, std::map<std::string, std::string>> public_by_local;
+  std::vector<CefRefPtr<CefDictionaryValue>> rejected_entries;
+  for (const auto& public_field_id : assignment_keys) {
+    const auto route = routes.find(public_field_id.ToString());
+    if (route == routes.end()) {
+      auto rejected = CefDictionaryValue::Create();
+      rejected->SetString("field_id", public_field_id);
+      rejected->SetString("reason", "not_found");
+      rejected_entries.push_back(rejected);
+      continue;
+    }
+    auto& frame_assignments = grouped_assignments[route->second.frame_identifier];
+    if (!frame_assignments) {
+      frame_assignments = CefDictionaryValue::Create();
+    }
+    frame_assignments->SetValue(
+        route->second.renderer_field_id,
+        assignments->GetValue(public_field_id)->Copy());
+    public_by_local[route->second.frame_identifier]
+                   [route->second.renderer_field_id] =
+        public_field_id.ToString();
+  }
+
+  std::vector<CefRefPtr<CefDictionaryValue>> eligible_entries;
+  for (const auto& [frame_identifier, frame_assignments] : grouped_assignments) {
+    auto frame_params = params->Copy(false);
+    frame_params->SetDictionary("assignments", frame_assignments->Copy(false));
+    const std::string response = FormCommandResponseForFrame(
+        id, "compile", frame_params, frame_identifier);
+    auto parsed = CefParseJSON(response, JSON_PARSER_RFC);
+    auto root = parsed && parsed->GetType() == VTYPE_DICTIONARY
+                    ? parsed->GetDictionary()
+                    : nullptr;
+    if (!root || !root->GetBool("ok")) {
+      return root ? response
+                  : ErrorResponse(id, "FORM_COMMAND_FAILED",
+                                  "frame form compile returned invalid data");
+    }
+    auto frame_result = root->GetDictionary("result");
+    const auto& reverse = public_by_local[frame_identifier];
+    for (const char* list_name : {"eligible", "rejected"}) {
+      auto list = frame_result ? frame_result->GetList(list_name) : nullptr;
+      for (size_t index = 0; list && index < list->GetSize(); ++index) {
+        auto source = list->GetDictionary(index);
+        if (!source) {
+          continue;
+        }
+        auto entry = source->Copy(false);
+        const std::string local_id = entry->GetString("field_id").ToString();
+        const auto public_id = reverse.find(local_id);
+        if (public_id == reverse.end()) {
+          continue;
+        }
+        entry->SetString("field_id", public_id->second);
+        if (std::strcmp(list_name, "eligible") == 0) {
+          eligible_entries.push_back(entry);
+        } else {
+          rejected_entries.push_back(entry);
+        }
+      }
+    }
+  }
+
+  const auto by_field_id = [](const CefRefPtr<CefDictionaryValue>& left,
+                              const CefRefPtr<CefDictionaryValue>& right) {
+    return left->GetString("field_id").ToString() <
+           right->GetString("field_id").ToString();
+  };
+  std::sort(eligible_entries.begin(), eligible_entries.end(), by_field_id);
+  std::sort(rejected_entries.begin(), rejected_entries.end(), by_field_id);
+  auto eligible = CefListValue::Create();
+  std::string plan_basis;
+  for (const auto& entry : eligible_entries) {
+    const std::string field_id = entry->GetString("field_id").ToString();
+    if (!plan_basis.empty()) {
+      plan_basis.push_back('|');
+    }
+    plan_basis.append(field_id);
+    eligible->SetDictionary(eligible->GetSize(), entry->Copy(false));
+  }
+  auto rejected = CefListValue::Create();
+  for (const auto& entry : rejected_entries) {
+    rejected->SetDictionary(rejected->GetSize(), entry->Copy(false));
+  }
+
+  auto result = CefDictionaryValue::Create();
+  result->SetString("plan_id",
+                    "form_plan_v2_" +
+                        Fnv1aUtf16(CefString(plan_basis).ToString16()));
+  result->SetList("eligible", eligible);
+  result->SetList("rejected", rejected);
+  result->SetDouble("basis_page_revision",
+                    static_cast<double>(basis_page_revision));
+  result->SetDouble("page_revision",
+                    static_cast<double>(basis_page_revision));
+  result->SetBool("frame_routing_compiled", true);
+  result->SetBool("sensitive_values_exposed", false);
+  AppendValueFreeReplay("form_compile_composited", result,
+                        basis_page_revision, basis_page_revision);
+  return Response(id, result);
+}
+
+std::string SaccadeAdapter::FormInspectFieldsResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params) {
+  if (!ValidInspectFields(params)) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "inspect field_ids must be a bounded string list");
+  }
+  const uint64_t basis_page_revision = RequestRevision(params);
+  std::map<std::string, FormFieldRoute> routes;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (basis_page_revision == 0 || basis_page_revision != page_revision_) {
+      return ErrorResponse(id, "STALE_PAGE_REVISION",
+                           "form basis does not match current page");
+    }
+    if (form_field_routes_revision_ != basis_page_revision) {
+      return ErrorResponse(id, "STALE_FORM_INVENTORY",
+                           "refresh the unified form inventory before inspection");
+    }
+    routes = form_field_routes_;
+  }
+
+  std::vector<std::string> requested;
+  auto requested_list = params
+                            ? params->GetList(params->HasKey("field_ids")
+                                                  ? "field_ids"
+                                                  : "fields")
+                            : nullptr;
+  if (requested_list) {
+    for (size_t index = 0; index < requested_list->GetSize(); ++index) {
+      requested.push_back(requested_list->GetString(index).ToString());
+    }
+  } else {
+    for (const auto& [field_id, route] : routes) {
+      requested.push_back(field_id);
+    }
+  }
+
+  std::map<std::string, CefRefPtr<CefListValue>> grouped_fields;
+  std::map<std::string, std::map<std::string, std::string>> public_by_local;
+  auto fields = CefListValue::Create();
+  for (const auto& public_field_id : requested) {
+    const auto route = routes.find(public_field_id);
+    if (route == routes.end()) {
+      auto missing = CefDictionaryValue::Create();
+      missing->SetString("field_id", public_field_id);
+      missing->SetString("status", "not_found");
+      fields->SetDictionary(fields->GetSize(), missing);
+      continue;
+    }
+    auto& local_fields = grouped_fields[route->second.frame_identifier];
+    if (!local_fields) {
+      local_fields = CefListValue::Create();
+    }
+    local_fields->SetString(local_fields->GetSize(),
+                            route->second.renderer_field_id);
+    public_by_local[route->second.frame_identifier]
+                   [route->second.renderer_field_id] = public_field_id;
+  }
+
+  int sensitive_count = 0;
+  for (const auto& [frame_identifier, local_fields] : grouped_fields) {
+    auto frame_params = params->Copy(false);
+    frame_params->SetList("field_ids", local_fields->Copy());
+    const std::string response = FormCommandResponseForFrame(
+        id, "inspect", frame_params, frame_identifier);
+    auto parsed = CefParseJSON(response, JSON_PARSER_RFC);
+    auto root = parsed && parsed->GetType() == VTYPE_DICTIONARY
+                    ? parsed->GetDictionary()
+                    : nullptr;
+    if (!root || !root->GetBool("ok")) {
+      return root ? response
+                  : ErrorResponse(id, "FORM_COMMAND_FAILED",
+                                  "frame form inspection returned invalid data");
+    }
+    auto frame_result = root->GetDictionary("result");
+    sensitive_count += frame_result ? frame_result->GetInt("sensitive_count") : 0;
+    auto frame_fields = frame_result ? frame_result->GetList("fields") : nullptr;
+    const auto& reverse = public_by_local[frame_identifier];
+    for (size_t index = 0; frame_fields && index < frame_fields->GetSize(); ++index) {
+      auto source = frame_fields->GetDictionary(index);
+      if (!source) {
+        continue;
+      }
+      auto entry = source->Copy(false);
+      const auto public_id =
+          reverse.find(entry->GetString("field_id").ToString());
+      if (public_id == reverse.end()) {
+        continue;
+      }
+      entry->SetString("field_id", public_id->second);
+      fields->SetDictionary(fields->GetSize(), entry);
+    }
+  }
+  auto result = CefDictionaryValue::Create();
+  result->SetList("fields", fields);
+  result->SetInt("sensitive_count", sensitive_count);
+  result->SetBool("values_logged", false);
+  result->SetBool("sensitive_values_exposed", false);
+  result->SetDouble("basis_page_revision",
+                    static_cast<double>(basis_page_revision));
+  result->SetDouble("page_revision",
+                    static_cast<double>(basis_page_revision));
+  AppendValueFreeReplay("form_inspect_composited", result,
+                        basis_page_revision, basis_page_revision);
+  return Response(id, result);
+}
+
 std::string SaccadeAdapter::ProtectedFillResponse(
     int id,
     CefRefPtr<CefDictionaryValue> params) {
@@ -2353,8 +2635,24 @@ std::string SaccadeAdapter::ProtectedFillResponse(
                          "protected_fill requires a bounded field_id");
   }
 
+  FormFieldRoute route;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto found = form_field_routes_.find(field_id);
+    if (form_field_routes_revision_ != RequestRevision(params) ||
+        found == form_field_routes_.end()) {
+      return ErrorResponse(id, "STALE_FORM_INVENTORY",
+                           "refresh the unified form inventory before protected fill");
+    }
+    route = found->second;
+  }
+  auto routed_params = params ? params->Copy(false)
+                              : CefDictionaryValue::Create();
+  routed_params->SetString("field_id", route.renderer_field_id);
+
   const std::string prepare_response =
-      FormCommandResponse(id, "protected_prepare", params);
+      FormCommandResponseForFrame(id, "protected_prepare", routed_params,
+                                  route.frame_identifier);
   auto parsed_prepare = CefParseJSON(prepare_response, JSON_PARSER_RFC);
   if (!parsed_prepare || parsed_prepare->GetType() != VTYPE_DICTIONARY) {
     return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
@@ -2398,13 +2696,25 @@ std::string SaccadeAdapter::ProtectedFillResponse(
     return Response(id, result);
   }
 
-  auto fill_params = params ? params->Copy(false) : CefDictionaryValue::Create();
+  auto fill_params = routed_params->Copy(false);
   fill_params->SetString("local_value", prompt.value);
   fill_params->SetBool("user_confirmed", true);
   const std::string fill_response =
-      FormCommandResponse(id, "protected_fill", fill_params);
+      FormCommandResponseForFrame(id, "protected_fill", fill_params,
+                                  route.frame_identifier);
   std::fill(prompt.value.begin(), prompt.value.end(), '\0');
   fill_params->Remove("local_value");
+  auto fill_value = CefParseJSON(fill_response, JSON_PARSER_RFC);
+  auto fill_root = fill_value && fill_value->GetType() == VTYPE_DICTIONARY
+                       ? fill_value->GetDictionary()
+                       : nullptr;
+  auto fill_result = fill_root && fill_root->GetBool("ok")
+                         ? fill_root->GetDictionary("result")
+                         : nullptr;
+  if (fill_result) {
+    fill_result->SetString("field_id", field_id);
+    return Response(id, fill_result);
+  }
   return fill_response;
 #else
   return ErrorResponse(id, "TRANSPORT_UNAVAILABLE",
@@ -2428,7 +2738,7 @@ std::string SaccadeAdapter::FormExecutePlanResponse(
   const uint64_t basis_page_revision = RequestRevision(params);
 
   const std::string compile_response =
-      FormCommandResponse(id, "compile", params);
+      FormCompilePlanResponse(id, params);
   auto compile_value = CefParseJSON(compile_response, JSON_PARSER_RFC);
   auto compile_root =
       compile_value && compile_value->GetType() == VTYPE_DICTIONARY
@@ -2588,14 +2898,27 @@ std::string SaccadeAdapter::TypeFieldTextResponse(
                          "type_field_text exceeds the 16384 character limit");
   }
 
+  FormFieldRoute route;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto found = form_field_routes_.find(field_id);
+    if (form_field_routes_revision_ != RequestRevision(params) ||
+        found == form_field_routes_.end()) {
+      return ErrorResponse(id, "STALE_FORM_INVENTORY",
+                           "refresh the unified form inventory before typing");
+    }
+    route = found->second;
+  }
+
   auto focus_params = CefDictionaryValue::Create();
-  focus_params->SetString("field_id", field_id);
+  focus_params->SetString("field_id", route.renderer_field_id);
   focus_params->SetBool("allow_ordinary_native_type",
                         allow_ordinary_native_type);
   focus_params->SetDouble("basis_page_revision",
                           static_cast<double>(RequestRevision(params)));
   const std::string focus_response =
-      FormCommandResponse(id, "focus_native_type", focus_params);
+      FormCommandResponseForFrame(id, "focus_native_type", focus_params,
+                                  route.frame_identifier);
   auto focus_value = CefParseJSON(focus_response, JSON_PARSER_RFC);
   auto focus_root = focus_value && focus_value->GetType() == VTYPE_DICTIONARY
                         ? focus_value->GetDictionary()
@@ -2655,7 +2978,7 @@ std::string SaccadeAdapter::TypeFieldTextResponse(
   }
 
   auto verify_params = CefDictionaryValue::Create();
-  verify_params->SetString("field_id", field_id);
+  verify_params->SetString("field_id", route.renderer_field_id);
   verify_params->SetDouble("basis_page_revision",
                            static_cast<double>(RequestRevision(params)));
   verify_params->SetInt("expected_length",
@@ -2673,7 +2996,8 @@ std::string SaccadeAdapter::TypeFieldTextResponse(
       std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
     const std::string verify_response =
-        FormCommandResponse(id, "verify_native_type", verify_params);
+        FormCommandResponseForFrame(id, "verify_native_type", verify_params,
+                                    route.frame_identifier);
     auto verify_value = CefParseJSON(verify_response, JSON_PARSER_RFC);
     auto verify_root =
         verify_value && verify_value->GetType() == VTYPE_DICTIONARY
@@ -2882,13 +3206,176 @@ void SaccadeAdapter::FinalizeFormInventoryLocked(FormCommandState& state) {
     return;
   }
 
-  auto selected = CefParseJSON(state.payload, JSON_PARSER_RFC);
-  if (!selected || selected->GetType() != VTYPE_DICTIONARY) {
-    state.ok = false;
-    state.error = "renderer returned invalid fixed form result";
-    return;
+  auto original_input = CefParseJSON(state.input_json, JSON_PARSER_RFC);
+  auto input = original_input && original_input->GetType() == VTYPE_DICTIONARY
+                   ? original_input->GetDictionary()
+                   : CefDictionaryValue::Create();
+  std::string mode = input->GetString("mode").ToString();
+  if (mode != "actionable" && mode != "compact") {
+    mode = "full";
   }
-  auto result = selected->GetDictionary();
+  const int requested_offset = input->GetInt("offset");
+  const int offset = requested_offset > 0 ? requested_offset : 0;
+  int limit = input->GetInt("limit");
+  if (limit < 1) {
+    limit = mode == "compact" ? 100 : 500;
+  }
+  limit = std::min(limit, 500);
+
+  std::sort(state.frame_payloads.begin(), state.frame_payloads.end(),
+            [](const FormCommandState::FramePayload& left,
+               const FormCommandState::FramePayload& right) {
+              if (left.depth != right.depth) {
+                return left.depth < right.depth;
+              }
+              return left.dispatch_order < right.dispatch_order;
+            });
+  const bool multiple_form_frames = state.form_frames_detected > 1;
+  auto all_fields = CefListValue::Create();
+  auto frame_inventory = CefListValue::Create();
+  std::map<std::string, FormFieldRoute> routes;
+  int dom_control_count = 0;
+  int hidden_control_count = 0;
+  int field_count = 0;
+  int eligible_count = 0;
+  int sensitive_count = 0;
+  int existing_value_count = 0;
+  int form_frame_index = 0;
+  bool any_embedded_frame = false;
+
+  for (const auto& frame_payload : state.frame_payloads) {
+    auto parsed = CefParseJSON(frame_payload.payload, JSON_PARSER_RFC);
+    auto frame_result = parsed && parsed->GetType() == VTYPE_DICTIONARY
+                            ? parsed->GetDictionary()
+                            : nullptr;
+    if (!frame_result) {
+      continue;
+    }
+    const int frame_field_count = frame_result->GetInt("field_count");
+    if (frame_field_count <= 0) {
+      continue;
+    }
+    const int current_frame_index = form_frame_index++;
+    const std::string frame_scope = "f" + std::to_string(current_frame_index);
+    any_embedded_frame = any_embedded_frame || !frame_payload.is_main;
+    dom_control_count += frame_result->GetInt("dom_control_count");
+    hidden_control_count += frame_result->GetInt("hidden_control_count");
+    field_count += frame_field_count;
+    eligible_count += frame_result->GetInt("eligible_count");
+    sensitive_count += frame_result->GetInt("sensitive_count");
+    existing_value_count += frame_result->GetInt("existing_value_count");
+
+    auto frame_summary = CefDictionaryValue::Create();
+    frame_summary->SetInt("frame_index", current_frame_index);
+    frame_summary->SetInt("frame_depth", frame_payload.depth);
+    frame_summary->SetString("frame_scope",
+                             frame_payload.is_main ? "main" : "embedded");
+    frame_summary->SetInt("field_count", frame_field_count);
+    frame_summary->SetInt("eligible_count",
+                          frame_result->GetInt("eligible_count"));
+    frame_inventory->SetDictionary(frame_inventory->GetSize(), frame_summary);
+
+    auto fields = frame_result->GetList("fields");
+    for (size_t index = 0; fields && index < fields->GetSize(); ++index) {
+      auto source = fields->GetDictionary(index);
+      if (!source) {
+        continue;
+      }
+      auto field = source->Copy(false);
+      const std::string renderer_field_id =
+          field->GetString("field_id").ToString();
+      if (renderer_field_id.empty()) {
+        continue;
+      }
+      std::string exposed_field_id = renderer_field_id;
+      if (multiple_form_frames) {
+        exposed_field_id = "frame:" + frame_scope + ":" + renderer_field_id;
+        if (exposed_field_id.size() > 256) {
+          exposed_field_id =
+              "frame:" + frame_scope + ":field:" +
+              Fnv1aUtf16(CefString(renderer_field_id).ToString16());
+        }
+      }
+      field->SetString("field_id", exposed_field_id);
+      field->SetInt("frame_index", current_frame_index);
+      field->SetInt("frame_depth", frame_payload.depth);
+      field->SetString("frame_scope",
+                       frame_payload.is_main ? "main" : "embedded");
+      routes[exposed_field_id] =
+          {frame_payload.frame_identifier, renderer_field_id};
+      all_fields->SetDictionary(all_fields->GetSize(), field);
+    }
+  }
+
+  if (form_frame_index == 0) {
+    auto selected = CefParseJSON(state.payload, JSON_PARSER_RFC);
+    if (!selected || selected->GetType() != VTYPE_DICTIONARY) {
+      state.ok = false;
+      state.error = "renderer returned invalid fixed form result";
+      return;
+    }
+  }
+
+  auto candidates = CefListValue::Create();
+  for (size_t index = 0; index < all_fields->GetSize(); ++index) {
+    auto field = all_fields->GetDictionary(index);
+    if (!field) {
+      continue;
+    }
+    const bool actionable = field->GetBool("eligible") ||
+                            field->GetBool("native_type_eligible");
+    if (mode != "actionable" || actionable) {
+      candidates->SetDictionary(candidates->GetSize(), field->Copy(false));
+    }
+  }
+  auto page = CefListValue::Create();
+  const size_t start = std::min(static_cast<size_t>(offset),
+                                candidates->GetSize());
+  const size_t end = std::min(start + static_cast<size_t>(limit),
+                              candidates->GetSize());
+  for (size_t index = start; index < end; ++index) {
+    auto field = candidates->GetDictionary(index);
+    if (!field) {
+      continue;
+    }
+    if (mode != "compact") {
+      page->SetDictionary(page->GetSize(), field->Copy(false));
+      continue;
+    }
+    auto compact = CefDictionaryValue::Create();
+    for (const char* key : {"field_id", "label", "type", "owner",
+                            "sensitivity", "value_state", "frame_scope"}) {
+      compact->SetString(key, field->GetString(key));
+    }
+    compact->SetInt("frame_index", field->GetInt("frame_index"));
+    compact->SetInt("frame_depth", field->GetInt("frame_depth"));
+    compact->SetBool("required", field->GetBool("required"));
+    compact->SetBool("eligible", field->GetBool("eligible"));
+    compact->SetBool("native_type_eligible",
+                     field->GetBool("native_type_eligible"));
+    auto blocked = field->GetList("blocked_reasons");
+    compact->SetString("blocked_reason",
+                       blocked && blocked->GetSize() > 0
+                           ? blocked->GetString(0)
+                           : "");
+    page->SetDictionary(page->GetSize(), compact);
+  }
+
+  auto result = CefDictionaryValue::Create();
+  result->SetString("mode", mode);
+  result->SetInt("dom_control_count", dom_control_count);
+  result->SetInt("hidden_control_count", hidden_control_count);
+  result->SetInt("field_count", field_count);
+  result->SetInt("candidate_count", static_cast<int>(candidates->GetSize()));
+  result->SetInt("eligible_count", eligible_count);
+  result->SetInt("sensitive_count", sensitive_count);
+  result->SetInt("existing_value_count", existing_value_count);
+  result->SetInt("offset", offset);
+  result->SetInt("limit", limit);
+  result->SetInt("returned_count", static_cast<int>(page->GetSize()));
+  result->SetBool("has_more", end < candidates->GetSize());
+  result->SetList("fields", page);
+  result->SetList("frame_inventory", frame_inventory);
   result->SetInt("frame_count_scanned", state.expected_responses);
   result->SetInt("frame_response_success_count", state.successful_responses);
   result->SetInt("frame_response_failure_count",
@@ -2897,16 +3384,25 @@ void SaccadeAdapter::FinalizeFormInventoryLocked(FormCommandState& state) {
                  state.expected_responses - state.received_responses);
   result->SetBool("frame_settlement_partial",
                   state.received_responses < state.expected_responses);
-  result->SetInt("form_frame_count", state.form_frames_detected);
+  result->SetInt("form_frame_count", form_frame_index);
   if (!state.error.empty()) {
     result->SetString("frame_response_error", state.error);
   }
   result->SetString("frame_scope",
-                    state.best_frame_is_main ? "main" : "embedded");
-  result->SetBool("embedded_frame", !state.best_frame_is_main);
-  result->SetBool("frame_selection_ambiguous", state.form_frames_detected > 1);
-  state.payload = JsonString(selected);
+                    form_frame_index > 1
+                        ? "composited"
+                        : (any_embedded_frame ? "embedded" : "main"));
+  result->SetBool("embedded_frame", any_embedded_frame);
+  result->SetBool("frame_selection_ambiguous", false);
+  result->SetBool("frame_aggregation_complete",
+                  state.received_responses >= state.expected_responses);
+  auto value = CefValue::Create();
+  value->SetDictionary(result);
+  state.payload = JsonString(value);
   selected_form_frame_identifier_ = state.best_frame_identifier;
+  form_field_routes_ = std::move(routes);
+  form_field_routes_revision_ =
+      state.received_responses >= state.expected_responses ? page_revision_ : 0;
 }
 
 void SaccadeAdapter::SettleFormInventoryOnUi(int request_id) {
@@ -2928,10 +3424,15 @@ void SaccadeAdapter::DispatchFormCommandOnUi(int request_id,
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser;
   std::string selected_frame_identifier;
+  std::string target_frame_identifier;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     browser = browser_;
     selected_frame_identifier = selected_form_frame_identifier_;
+    const auto pending = form_commands_.find(request_id);
+    if (pending != form_commands_.end()) {
+      target_frame_identifier = pending->second.target_frame_identifier;
+    }
   }
   if (!browser || !browser->GetMainFrame()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
@@ -2955,6 +3456,11 @@ void SaccadeAdapter::DispatchFormCommandOnUi(int request_id,
         frames.push_back(candidate);
       }
     }
+  } else if (!target_frame_identifier.empty()) {
+    auto target = browser->GetFrameByIdentifier(target_frame_identifier);
+    if (target && target->IsValid()) {
+      frames.push_back(target);
+    }
   } else if (!selected_frame_identifier.empty()) {
     auto selected = browser->GetFrameByIdentifier(selected_frame_identifier);
     if (selected && selected->IsValid()) {
@@ -2973,6 +3479,11 @@ void SaccadeAdapter::DispatchFormCommandOnUi(int request_id,
     }
     pending->second.expected_responses =
         static_cast<int>(frames.size());
+    pending->second.frame_dispatch_order.clear();
+    for (const auto& target_frame : frames) {
+      pending->second.frame_dispatch_order.push_back(
+          target_frame->GetIdentifier().ToString());
+    }
   }
 
   for (const auto& target_frame : frames) {
@@ -3541,6 +4052,8 @@ void SaccadeAdapter::ResetPageStateLocked(const std::string& reason) {
   collector_ready_ = false;
   collector_error_.clear();
   selected_form_frame_identifier_.clear();
+  form_field_routes_.clear();
+  form_field_routes_revision_ = 0;
   controls_.clear();
   pending_facts_.clear();
   actions_.clear();

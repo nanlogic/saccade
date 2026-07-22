@@ -5217,7 +5217,11 @@ fn poll_stable_form_inventory(
             .get("field_count")
             .and_then(json_number_u64)
             .unwrap_or(0);
-        if field_count > 0 {
+        let view_complete = result
+            .get("frame_aggregation_complete")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        if field_count > 0 && view_complete {
             if stable_field_count == Some(field_count) {
                 stable_samples += 1;
             } else {
@@ -5381,7 +5385,14 @@ fn minimal_form_inventory_response(
         "eligible_count": result.get("eligible_count").cloned().unwrap_or(Value::Null),
         "sensitive_count": result.get("sensitive_count").cloned().unwrap_or(json!(0)),
         "fields": fields,
-        "ready": field_inventory_stable,
+        "ready": field_inventory_stable && result
+            .get("frame_aggregation_complete")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        "view_complete": result
+            .get("frame_aggregation_complete")
+            .cloned()
+            .unwrap_or(Value::Bool(true)),
     });
     if result.get("has_more").and_then(Value::as_bool) == Some(true) {
         response["has_more"] = json!(true);
@@ -9032,6 +9043,7 @@ mod tests {
             false,
         );
         assert_eq!(response.get("ready"), Some(&json!(true)));
+        assert_eq!(response.get("view_complete"), Some(&json!(true)));
         assert_eq!(
             response.pointer("/fields/0/status"),
             Some(&json!("fillable"))
@@ -9042,6 +9054,27 @@ mod tests {
         );
         assert_eq!(response.pointer("/fields/1/protected"), Some(&json!(true)));
         assert!(!response.to_string().contains("must-not-escape"));
+    }
+
+    #[test]
+    fn minimal_form_inventory_fails_closed_for_partial_frame_view() {
+        let response = minimal_form_inventory_response(
+            &json!({
+                "page_revision": 9,
+                "field_count": 1,
+                "eligible_count": 1,
+                "frame_aggregation_complete": false,
+                "fields": [{
+                    "field_id": "frame:f0:id:name", "label": "Name",
+                    "type": "text", "eligible": true,
+                    "sensitivity": "none", "value_state": "empty"
+                }]
+            }),
+            true,
+            false,
+        );
+        assert_eq!(response.get("ready"), Some(&json!(false)));
+        assert_eq!(response.get("view_complete"), Some(&json!(false)));
     }
 
     #[test]

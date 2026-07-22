@@ -2681,3 +2681,20 @@
 - The native host receives the active Saccade broker pointer from its parent
   browser process. This locates only the same user's owner-only broker and does
   not grant an Off tab or expose the capability to the extension UI.
+
+## DECISION_PRODUCT_088 - Give the model the composited form view humans see
+
+- A human-visible form is one composited page even when its fields live in
+  main-frame, cross-origin iframe, or nested-iframe documents. Form inventory
+  therefore aggregates all visible form frames instead of selecting one
+  `best_frame` and reporting the rest only as an ambiguity count.
+- Public field IDs are revision-bound routing handles. The CEF host keeps the
+  raw frame identifier and renderer-local field ID private, partitions inspect
+  and compile requests internally, and routes native input back to the owning
+  frame without asking the model or user to manage iframe mechanics.
+- Frame aggregation must settle completely before the inventory is ready.
+  Partial views cannot produce a compilable route map, preserving the existing
+  fail-closed contract.
+- Nested fields are ordered by document depth so the semantic view follows the
+  visible outer-to-inner layer sequence. Same-depth sibling ordering remains a
+  browser enumeration detail; identity and action routing do not depend on it.

@@ -42,6 +42,30 @@ CHILD_HTML = """<!doctype html>
 </html>
 """
 
+NESTED_INNER_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Third form layer</title></head>
+<body><form><input id="destiny" placeholder="Destiny" data-sensitive="none"></form></body>
+</html>
+"""
+
+NESTED_MIDDLE_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Second form layer</title></head>
+<body>
+  <form><input id="current-crush" placeholder="Current Crush Name" data-sensitive="none"></form>
+  <iframe title="Third form layer" src="{inner_url}"
+          style="width:760px;height:180px;border:1px solid #888"></iframe>
+</body></html>
+"""
+
+NESTED_OUTER_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>First form layer</title></head>
+<body>
+  <form><input id="first-crush" placeholder="First Crush" data-sensitive="none"></form>
+  <iframe title="Second form layer" src="{middle_url}"
+          style="width:820px;height:360px;border:1px solid #888"></iframe>
+</body></html>
+"""
+
 
 class StaticHandler(http.server.BaseHTTPRequestHandler):
     body = b""
@@ -134,6 +158,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--mcp-bin", type=pathlib.Path)
     parser.add_argument("--public-url")
+    parser.add_argument("--nested", action="store_true")
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--keep-open-sec", type=float, default=0.0)
     parser.add_argument("--timeout-sec", type=float, default=25.0)
@@ -149,12 +174,30 @@ def main() -> int:
 
     child_server: http.server.ThreadingHTTPServer | None = None
     parent_server: http.server.ThreadingHTTPServer | None = None
+    fixture_servers: list[http.server.ThreadingHTTPServer] = []
     if args.public_url:
         parent_url = args.public_url
+    elif args.nested:
+        inner_server, _ = serve(NESTED_INNER_HTML.encode())
+        fixture_servers.append(inner_server)
+        inner_url = f"http://127.0.0.1:{inner_server.server_port}/inner.html"
+        middle_server, _ = serve(NESTED_MIDDLE_HTML.format(inner_url=inner_url).encode())
+        fixture_servers.append(middle_server)
+        middle_url = f"http://127.0.0.1:{middle_server.server_port}/middle.html"
+        child_server, _ = serve(
+            NESTED_OUTER_HTML.format(middle_url=middle_url).encode()
+        )
+        fixture_servers.append(child_server)
+        child_url = f"http://127.0.0.1:{child_server.server_port}/outer.html"
+        parent_server, _ = serve(PARENT_HTML.format(child_url=child_url).encode())
+        fixture_servers.append(parent_server)
+        parent_url = f"http://127.0.0.1:{parent_server.server_port}/index.html"
     else:
         child_server, _ = serve(CHILD_HTML.encode())
+        fixture_servers.append(child_server)
         child_url = f"http://127.0.0.1:{child_server.server_port}/child.html"
         parent_server, _ = serve(PARENT_HTML.format(child_url=child_url).encode())
+        fixture_servers.append(parent_server)
         parent_url = f"http://127.0.0.1:{parent_server.server_port}/index.html"
 
     session = pathlib.Path(tempfile.mkdtemp(prefix="saccade-iframe-form-"))
@@ -230,7 +273,11 @@ def main() -> int:
                 raise AssertionError(f"MCP did not attach to Saccade: {granted}")
             tab_id = int(granted["tab"]["tab_id"])
 
-        expected_ids = {"id:project-name", "id:homepage"} if not args.public_url else set()
+        expected_ids = (
+            set()
+            if args.public_url or args.nested
+            else {"id:project-name", "id:homepage"}
+        )
         inventory_deadline = time.monotonic() + args.timeout_sec
         inventory: dict[str, Any] = {}
         field_ids: set[Any] = set()
@@ -255,6 +302,15 @@ def main() -> int:
             field_ids = {
                 field.get("field_id") for field in inventory.get("fields", [])
             }
+            if args.nested:
+                nested_labels = {"First Crush", "Current Crush Name", "Destiny"}
+                expected_ids = {
+                    str(field["field_id"])
+                    for field in inventory.get("fields", [])
+                    if field.get("label") in nested_labels
+                }
+                if len(expected_ids) != len(nested_labels):
+                    expected_ids = set()
             if args.public_url:
                 public_candidates = [
                     field
@@ -265,8 +321,16 @@ def main() -> int:
                     and field.get("type")
                     in {"text", "email", "tel", "url", "search", "textarea"}
                 ]
+                target_labels = {"First Crush", "Current Crush Name", "Destiny"}
+                labelled_candidates = [
+                    field
+                    for field in public_candidates
+                    if field.get("label") in target_labels
+                ]
+                if len(labelled_candidates) == len(target_labels):
+                    public_candidates = labelled_candidates
                 expected_ids = {
-                    str(field["field_id"]) for field in public_candidates[:2]
+                    str(field["field_id"]) for field in public_candidates[:3]
                 }
             if expected_ids and expected_ids.issubset(field_ids):
                 break
@@ -275,15 +339,24 @@ def main() -> int:
             raise AssertionError(f"embedded fields were not discovered: {inventory}")
         if inventory.get("embedded_frame") is not True:
             raise AssertionError(f"embedded frame was not selected: {inventory}")
-        if inventory.get("frame_scope") != "embedded":
+        expected_frame_scope = (
+            "composited"
+            if int(inventory.get("form_frame_count", 0)) > 1
+            else "embedded"
+        )
+        if inventory.get("frame_scope") != expected_frame_scope:
             raise AssertionError(f"unexpected frame scope: {inventory}")
         if int(inventory.get("frame_count_scanned", 0)) < 2:
             raise AssertionError(f"frame fan-out was not observed: {inventory}")
         if inventory.get("frame_selection_ambiguous") is not False:
-            raise AssertionError(f"single form frame was marked ambiguous: {inventory}")
+            raise AssertionError(f"unified frame routing was marked ambiguous: {inventory}")
+        if inventory.get("frame_aggregation_complete") is not True:
+            raise AssertionError(f"frame aggregation was incomplete: {inventory}")
+        if args.nested and int(inventory.get("form_frame_count", 0)) != 3:
+            raise AssertionError(f"three visible form layers were not unified: {inventory}")
 
         revision = int(inventory["page_revision"])
-        if args.public_url:
+        if args.public_url or args.nested:
             fields_by_id = {
                 field["field_id"]: field for field in inventory.get("fields", [])
             }
@@ -295,7 +368,7 @@ def main() -> int:
                     if fields_by_id[field_id].get("type") == "url"
                     else "5550100"
                     if fields_by_id[field_id].get("type") == "tel"
-                    else "Saccade public iframe probe"
+                    else "Saccade nested iframe probe"
                 )
                 for field_id in expected_ids
             }
@@ -403,6 +476,8 @@ def main() -> int:
             "frame_count_scanned": inventory["frame_count_scanned"],
             "form_frame_count": inventory["form_frame_count"],
             "frame_scope": inventory["frame_scope"],
+            "frame_aggregation_complete": inventory["frame_aggregation_complete"],
+            "frame_inventory": inventory.get("frame_inventory", []),
             "field_ids": sorted(field_ids),
             "inspected": sorted(inspected),
             "planned": sorted(planned),
@@ -437,12 +512,9 @@ def main() -> int:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
-        if parent_server:
-            parent_server.shutdown()
-            parent_server.server_close()
-        if child_server:
-            child_server.shutdown()
-            child_server.server_close()
+        for server in reversed(fixture_servers):
+            server.shutdown()
+            server.server_close()
 
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
