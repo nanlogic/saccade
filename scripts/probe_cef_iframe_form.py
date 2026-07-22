@@ -133,6 +133,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exe", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--mcp-bin", type=pathlib.Path)
+    parser.add_argument("--public-url")
+    parser.add_argument("--headed", action="store_true")
+    parser.add_argument("--keep-open-sec", type=float, default=0.0)
     parser.add_argument("--timeout-sec", type=float, default=25.0)
     return parser.parse_args()
 
@@ -144,10 +147,15 @@ def main() -> int:
         raise SystemExit(f"missing Saccade executable: {executable}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    child_server, _ = serve(CHILD_HTML.encode())
-    child_url = f"http://127.0.0.1:{child_server.server_port}/child.html"
-    parent_server, _ = serve(PARENT_HTML.format(child_url=child_url).encode())
-    parent_url = f"http://127.0.0.1:{parent_server.server_port}/index.html"
+    child_server: http.server.ThreadingHTTPServer | None = None
+    parent_server: http.server.ThreadingHTTPServer | None = None
+    if args.public_url:
+        parent_url = args.public_url
+    else:
+        child_server, _ = serve(CHILD_HTML.encode())
+        child_url = f"http://127.0.0.1:{child_server.server_port}/child.html"
+        parent_server, _ = serve(PARENT_HTML.format(child_url=child_url).encode())
+        parent_url = f"http://127.0.0.1:{parent_server.server_port}/index.html"
 
     session = pathlib.Path(tempfile.mkdtemp(prefix="saccade-iframe-form-"))
     grant_path = session / "grant.json"
@@ -177,13 +185,15 @@ def main() -> int:
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-background-networking",
-        "--initial-show-state=hidden",
         "--window-size=1100,800",
     ]
+    if not args.headed:
+        command.append("--initial-show-state=hidden")
 
     process: subprocess.Popen[bytes] | None = None
     mcp: Any | None = None
     report: dict[str, Any]
+    exit_code = 0
     try:
         process = subprocess.Popen(
             command,
@@ -220,23 +230,48 @@ def main() -> int:
                 raise AssertionError(f"MCP did not attach to Saccade: {granted}")
             tab_id = int(granted["tab"]["tab_id"])
 
-        expected_ids = {"id:project-name", "id:homepage"}
+        expected_ids = {"id:project-name", "id:homepage"} if not args.public_url else set()
         inventory_deadline = time.monotonic() + args.timeout_sec
         inventory: dict[str, Any] = {}
         field_ids: set[Any] = set()
         while time.monotonic() < inventory_deadline:
-            inventory = (
-                mcp.tool("saccade.web.form_inventory", {"tab_id": tab_id, "mode": "full"})
-                if mcp
-                else control.call("form_inventory")
-            )
+            try:
+                inventory = (
+                    mcp.tool(
+                        "saccade.web.form_inventory", {"tab_id": tab_id, "mode": "full"}
+                    )
+                    if mcp
+                    else control.call("form_inventory")
+                )
+            except RuntimeError as error:
+                if args.public_url and (
+                    "layout changed while action was pending" in str(error)
+                    or "renderer collector is not ready" in str(error)
+                    or "renderer form command timed out" in str(error)
+                ):
+                    time.sleep(0.25)
+                    continue
+                raise
             field_ids = {
                 field.get("field_id") for field in inventory.get("fields", [])
             }
-            if expected_ids.issubset(field_ids):
+            if args.public_url:
+                public_candidates = [
+                    field
+                    for field in inventory.get("fields", [])
+                    if field.get("eligible") is True
+                    and field.get("sensitivity") == "none"
+                    and field.get("value_state") == "empty"
+                    and field.get("type")
+                    in {"text", "email", "tel", "url", "search", "textarea"}
+                ]
+                expected_ids = {
+                    str(field["field_id"]) for field in public_candidates[:2]
+                }
+            if expected_ids and expected_ids.issubset(field_ids):
                 break
             time.sleep(0.1)
-        if not expected_ids.issubset(field_ids):
+        if not expected_ids or not expected_ids.issubset(field_ids):
             raise AssertionError(f"embedded fields were not discovered: {inventory}")
         if inventory.get("embedded_frame") is not True:
             raise AssertionError(f"embedded frame was not selected: {inventory}")
@@ -248,10 +283,27 @@ def main() -> int:
             raise AssertionError(f"single form frame was marked ambiguous: {inventory}")
 
         revision = int(inventory["page_revision"])
-        assignments = {
-            "id:project-name": "Saccade iframe dogfood",
-            "id:homepage": "https://example.invalid/saccade",
-        }
+        if args.public_url:
+            fields_by_id = {
+                field["field_id"]: field for field in inventory.get("fields", [])
+            }
+            assignments = {
+                field_id: (
+                    "saccade-public-probe@example.invalid"
+                    if fields_by_id[field_id].get("type") == "email"
+                    else "https://example.invalid/saccade-public-probe"
+                    if fields_by_id[field_id].get("type") == "url"
+                    else "5550100"
+                    if fields_by_id[field_id].get("type") == "tel"
+                    else "Saccade public iframe probe"
+                )
+                for field_id in expected_ids
+            }
+        else:
+            assignments = {
+                "id:project-name": "Saccade iframe dogfood",
+                "id:homepage": "https://example.invalid/saccade",
+            }
         inspection = (
             mcp.tool(
                 "saccade.web.inspect_fields",
@@ -296,7 +348,7 @@ def main() -> int:
                 "type_field_text",
                 {
                     "basis_page_revision": revision,
-                    "field_id": "id:project-name",
+                    "field_id": sorted(expected_ids)[0],
                     "text": "plan bypass must not be typed",
                 },
             )
@@ -322,7 +374,10 @@ def main() -> int:
         if mcp and execution.get("verification_complete") is not True:
             raise AssertionError(f"MCP rejected embedded native receipts: {execution}")
         receipts = execution.get("native_input_receipts", [])
-        if execution.get("same_webview_native_input") is not True or len(receipts) != 2:
+        if (
+            execution.get("same_webview_native_input") is not True
+            or len(receipts) != len(expected_ids)
+        ):
             raise AssertionError(f"embedded native receipts missing: {execution}")
         if not all(
             receipt.get("schema") == "saccade.native_input_receipt/1"
@@ -338,8 +393,13 @@ def main() -> int:
 
         report = {
             "ok": True,
-            "parent_origin": f"127.0.0.1:{parent_server.server_port}",
-            "child_origin": f"127.0.0.1:{child_server.server_port}",
+            "url": parent_url,
+            "parent_origin": (
+                f"127.0.0.1:{parent_server.server_port}" if parent_server else None
+            ),
+            "child_origin": (
+                f"127.0.0.1:{child_server.server_port}" if child_server else None
+            ),
             "frame_count_scanned": inventory["frame_count_scanned"],
             "form_frame_count": inventory["form_frame_count"],
             "frame_scope": inventory["frame_scope"],
@@ -352,8 +412,21 @@ def main() -> int:
             "same_webview_native_input": execution["same_webview_native_input"],
             "direct_type_bypass_blocked": direct_type_blocked,
             "route": "mcp" if mcp else "engine_control",
-            "mcp_verification_complete": execution.get("verification_complete") if mcp else None,
+            "mcp_verification_complete": (
+                execution.get("verification_complete") if mcp else None
+            ),
             "submitted": False,
+        }
+        if args.keep_open_sec > 0:
+            time.sleep(min(args.keep_open_sec, 120.0))
+    except Exception as error:
+        exit_code = 1
+        report = {
+            "ok": False,
+            "url": parent_url,
+            "route": "mcp" if mcp else "engine_control",
+            "submitted": False,
+            "error": str(error),
         }
     finally:
         if mcp is not None:
@@ -364,14 +437,16 @@ def main() -> int:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
-        parent_server.shutdown()
-        parent_server.server_close()
-        child_server.shutdown()
-        child_server.server_close()
+        if parent_server:
+            parent_server.shutdown()
+            parent_server.server_close()
+        if child_server:
+            child_server.shutdown()
+            child_server.server_close()
 
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
