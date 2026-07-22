@@ -1528,8 +1528,7 @@ std::string SaccadeAdapter::HandleRequest(const std::string& line) {
                                request->GetDictionary("params"));
   }
   if (method == "form_execute_plan") {
-    return FormCommandResponse(id, "execute",
-                               request->GetDictionary("params"));
+    return FormExecutePlanResponse(id, request->GetDictionary("params"));
   }
   if (method == "type_field_text") {
     return TypeFieldTextResponse(id, request->GetDictionary("params"));
@@ -2413,9 +2412,169 @@ std::string SaccadeAdapter::ProtectedFillResponse(
 #endif
 }
 
-std::string SaccadeAdapter::TypeFieldTextResponse(
+std::string SaccadeAdapter::FormExecutePlanResponse(
     int id,
     CefRefPtr<CefDictionaryValue> params) {
+  if (!ValidAssignments(params)) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "form execution requires scalar assignments");
+  }
+  const std::string expected_plan_id =
+      params ? params->GetString("expected_plan_id").ToString() : "";
+  if (expected_plan_id.empty() || expected_plan_id.size() > 128) {
+    return ErrorResponse(id, "INVALID_ARGUMENT",
+                         "form execution requires expected_plan_id");
+  }
+  const uint64_t basis_page_revision = RequestRevision(params);
+
+  const std::string compile_response =
+      FormCommandResponse(id, "compile", params);
+  auto compile_value = CefParseJSON(compile_response, JSON_PARSER_RFC);
+  auto compile_root =
+      compile_value && compile_value->GetType() == VTYPE_DICTIONARY
+          ? compile_value->GetDictionary()
+          : nullptr;
+  if (!compile_root || !compile_root->GetBool("ok")) {
+    return compile_root ? compile_response
+                        : ErrorResponse(id, "FORM_COMMAND_FAILED",
+                                        "form compile returned invalid data");
+  }
+  auto compiled = compile_root->GetDictionary("result");
+  if (!compiled ||
+      compiled->GetString("plan_id").ToString() != expected_plan_id) {
+    return ErrorResponse(id, "STALE_FORM_PLAN",
+                         "form plan id mismatch; recompile before execution");
+  }
+
+  auto assignments = params->GetDictionary("assignments");
+  auto eligible = compiled->GetList("eligible");
+  auto rejected = compiled->GetList("rejected");
+  auto filled = CefListValue::Create();
+  auto failed = CefListValue::Create();
+  auto preserved = CefListValue::Create();
+  auto rejected_copy = CefListValue::Create();
+  auto receipts = CefListValue::Create();
+  if (rejected) {
+    for (size_t index = 0; index < rejected->GetSize(); ++index) {
+      auto entry = rejected->GetDictionary(index);
+      if (entry) {
+        rejected_copy->SetDictionary(rejected_copy->GetSize(),
+                                     entry->Copy(false));
+      }
+    }
+  }
+
+  int native_attempt_count = 0;
+  for (size_t index = 0; eligible && index < eligible->GetSize(); ++index) {
+    auto planned = eligible->GetDictionary(index);
+    if (!planned) {
+      continue;
+    }
+    const std::string field_id = planned->GetString("field_id").ToString();
+    const std::string type = planned->GetString("type").ToString();
+    const bool native_text_type =
+        type == "text" || type == "email" || type == "tel" ||
+        type == "url" || type == "search" || type == "textarea" ||
+        type == "contenteditable" || type == "role_textbox";
+    if (!native_text_type || assignments->GetType(field_id) != VTYPE_STRING) {
+      auto failure = CefDictionaryValue::Create();
+      failure->SetString("field_id", field_id);
+      failure->SetString("reason", native_text_type
+                                       ? "native_text_value_required"
+                                       : "native_input_type_unsupported");
+      failed->SetDictionary(failed->GetSize(), failure);
+      continue;
+    }
+
+    auto type_params = CefDictionaryValue::Create();
+    type_params->SetString("field_id", field_id);
+    type_params->SetString("text", assignments->GetString(field_id));
+    type_params->SetDouble("basis_page_revision",
+                           static_cast<double>(basis_page_revision));
+    ++native_attempt_count;
+    const std::string type_response =
+        TypeFieldTextResponse(id, type_params, true);
+    type_params->Remove("text");
+    auto type_value = CefParseJSON(type_response, JSON_PARSER_RFC);
+    auto type_root =
+        type_value && type_value->GetType() == VTYPE_DICTIONARY
+            ? type_value->GetDictionary()
+            : nullptr;
+    auto type_result = type_root && type_root->GetBool("ok")
+                           ? type_root->GetDictionary("result")
+                           : nullptr;
+    auto receipt = type_result
+                       ? type_result->GetDictionary("native_input_receipt")
+                       : nullptr;
+    if (!type_result || !type_result->GetBool("receipt_verified") ||
+        !receipt || !receipt->GetBool("same_webview")) {
+      auto failure = CefDictionaryValue::Create();
+      failure->SetString("field_id", field_id);
+      failure->SetString("reason", "native_input_receipt_missing");
+      if (type_root && type_root->GetType("error") == VTYPE_DICTIONARY) {
+        auto error = type_root->GetDictionary("error");
+        failure->SetString("error_code", error->GetString("code"));
+      }
+      failed->SetDictionary(failed->GetSize(), failure);
+      continue;
+    }
+    auto filled_entry = CefDictionaryValue::Create();
+    filled_entry->SetString("field_id", field_id);
+    filled_entry->SetString("status", "filled_verified");
+    filled_entry->SetString("method", "cef_devtools_input_insert_text");
+    filled->SetDictionary(filled->GetSize(), filled_entry);
+    receipts->SetDictionary(receipts->GetSize(), receipt->Copy(false));
+  }
+
+  uint64_t observed_revision = basis_page_revision;
+  if (native_attempt_count > 0) {
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (page_revision_ == basis_page_revision) {
+        ++page_revision_;
+        observed_revision = page_revision_;
+        ResetPageStateLocked("page changed after native form input");
+      } else {
+        observed_revision = page_revision_;
+      }
+    }
+    CefPostTask(TID_UI,
+                base::BindOnce(&SaccadeAdapter::RefreshCollectorOnUi,
+                               base::Unretained(this)));
+  }
+
+  const size_t eligible_count = eligible ? eligible->GetSize() : 0;
+  const bool receipt_verified =
+      native_attempt_count > 0 && failed->GetSize() == 0 &&
+      filled->GetSize() == eligible_count &&
+      receipts->GetSize() == filled->GetSize();
+  const int native_input_receipt_count =
+      static_cast<int>(receipts->GetSize());
+  auto result = CefDictionaryValue::Create();
+  result->SetString("plan_id", expected_plan_id);
+  result->SetList("filled", filled);
+  result->SetList("preserved", preserved);
+  result->SetList("rejected", rejected_copy);
+  result->SetList("failed", failed);
+  result->SetList("native_input_receipts", receipts);
+  result->SetInt("write_attempted_count", native_attempt_count);
+  result->SetInt("native_input_receipt_count", native_input_receipt_count);
+  result->SetBool("same_webview_native_input", receipt_verified);
+  result->SetBool("receipt_verified", receipt_verified);
+  result->SetDouble("basis_page_revision",
+                    static_cast<double>(basis_page_revision));
+  result->SetDouble("page_revision", static_cast<double>(observed_revision));
+  result->SetBool("sensitive_values_exposed", false);
+  result->SetBool("values_logged", false);
+  AppendValueFreeReplay("form_native_execute", result,
+                        basis_page_revision, observed_revision);
+  return Response(id, result);
+}
+
+std::string SaccadeAdapter::TypeFieldTextResponse(
+    int id,
+    CefRefPtr<CefDictionaryValue> params,
+    bool allow_ordinary_native_type) {
   const std::string field_id =
       params ? params->GetString("field_id").ToString() : "";
   const std::string text = params ? params->GetString("text").ToString() : "";
@@ -2431,6 +2590,8 @@ std::string SaccadeAdapter::TypeFieldTextResponse(
 
   auto focus_params = CefDictionaryValue::Create();
   focus_params->SetString("field_id", field_id);
+  focus_params->SetBool("allow_ordinary_native_type",
+                        allow_ordinary_native_type);
   focus_params->SetDouble("basis_page_revision",
                           static_cast<double>(RequestRevision(params)));
   const std::string focus_response =
@@ -2447,7 +2608,7 @@ std::string SaccadeAdapter::TypeFieldTextResponse(
     return ErrorResponse(id, "POLICY_BLOCKED",
                          focus_result
                              ? focus_result->GetString("reason").ToString()
-                             : "rich editor is not ready for native typing");
+                             : "form field is not ready for native typing");
   }
 
   int target_browser_id = 0;
@@ -2459,7 +2620,7 @@ std::string SaccadeAdapter::TypeFieldTextResponse(
     }
     if (!browser_ || page_revision_ != target_revision) {
       return ErrorResponse(id, "STALE_PAGE_REVISION",
-                           "rich-editor target changed before text insertion");
+                           "form-field target changed before text insertion");
     }
     target_browser_id = browser_->GetIdentifier();
     text_insert_pending_ = true;
@@ -2538,6 +2699,20 @@ std::string SaccadeAdapter::TypeFieldTextResponse(
       result->SetBool("receipt_verified", true);
       result->SetBool("values_logged", false);
       const uint64_t revision = RequestRevision(params);
+      auto receipt = CefDictionaryValue::Create();
+      receipt->SetString("schema", "saccade.native_input_receipt/1");
+      receipt->SetString("kind", "text_input");
+      receipt->SetString("backend", "cef_devtools_protocol");
+      receipt->SetString("method", "Input.insertText");
+      receipt->SetString("field_id", field_id);
+      receipt->SetBool("same_webview", true);
+      receipt->SetBool("dispatch_acknowledged", true);
+      receipt->SetBool("postcondition_verified", true);
+      receipt->SetDouble("basis_page_revision",
+                         static_cast<double>(revision));
+      receipt->SetDouble("page_revision", static_cast<double>(revision));
+      receipt->SetBool("value_logged", false);
+      result->SetDictionary("native_input_receipt", receipt);
       AppendValueFreeReplay("native_text_typed", result, revision, revision);
       return Response(id, result);
     }

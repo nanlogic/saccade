@@ -477,22 +477,34 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     const fieldId = String(input.field_id || '');
     const snapshot = inventory();
     const field = snapshot.fields.find(candidate => candidate.field_id === fieldId);
-    if (!field || !field.native_type_eligible) {
+    const nativeTextTypes = new Set([
+      'text', 'email', 'tel', 'url', 'search', 'textarea',
+      'contenteditable', 'role_textbox'
+    ]);
+    const nativeTypeAllowed = field && nativeTextTypes.has(field.type) &&
+      (field.native_type_eligible ||
+        (input.allow_ordinary_native_type === true && field.eligible));
+    if (!nativeTypeAllowed) {
       return {native_type_ready: false, field_id: fieldId,
         reason: !field ? 'not_found' :
-          ((field.blocked_reasons || []).find(reason =>
-            reason !== 'requires_native_typing') || 'not_native_type_eligible'),
+          (!nativeTextTypes.has(field.type) ? 'native_input_type_unsupported' :
+            ((field.blocked_reasons || []).find(reason =>
+              reason !== 'requires_native_typing') || 'not_native_type_eligible')),
         values_logged: false};
     }
     const el = controls()[field.element_index];
     el.focus();
-    if (typeof document.execCommand === 'function') {
+    if (typeof el.select === 'function' &&
+        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+      el.select();
+    } else if (typeof document.execCommand === 'function') {
       document.execCommand('selectAll', false, null);
     }
+    const beforeValue = String(internalValue(el, field.type));
     return {native_type_ready: document.activeElement === el,
       field_id: fieldId, type: field.type,
-      before_length: String(internalValue(el, field.type)).length,
-      visible_hash_before: hash(String(el.innerText || '').replace(/\u200b/g, '')),
+      before_length: beforeValue.length,
+      visible_hash_before: hash(beforeValue),
       values_logged: false};
   };
   const verifyNativeType = () => {
@@ -503,7 +515,7 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
       reason: 'not_found', values_logged: false};
     const el = controls()[field.element_index];
     const value = String(internalValue(el, field.type));
-    const visibleHash = hash(String(el.innerText || '').replace(/\u200b/g, ''));
+    const visibleHash = hash(value);
     return {field_id: fieldId,
       verified: value.length === Number(input.expected_length) &&
         hash(value) === String(input.expected_hash || '') &&
@@ -693,8 +705,10 @@ constexpr char kSaccadeFormCommandScript[] = R"SACCADE_FORM_JS(
     }
     return {plan_id: compiled.plan_id, filled, preserved,
       rejected: compiled.rejected, failed, write_attempted_count: writes,
-      receipt_verified: failed.length === 0 &&
+      dom_postcondition_verified: failed.length === 0 &&
         filled.length === compiled.eligible.length,
+      native_input_receipt_count: 0,
+      receipt_verified: false,
       values_logged: false};
   };
 

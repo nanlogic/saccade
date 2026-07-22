@@ -203,12 +203,48 @@ def main() -> int:
                 )
             assert_value_free(inventory, "MCP inventory")
 
+            unsupported_assignments = {"id:region": "west"}
+            unsupported_plan = mcp.tool(
+                "saccade.web.form_compile_plan",
+                {
+                    "tab_id": tab_id,
+                    "basis_page_revision": revision,
+                    "assignments": unsupported_assignments,
+                    "policy": {
+                        "block_sensitive": True,
+                        "preserve_existing": True,
+                        "no_submit": True,
+                    },
+                },
+            )
+            unsupported_execution = mcp.tool(
+                "saccade.web.form_execute_plan",
+                {
+                    "tab_id": tab_id,
+                    "basis_page_revision": revision,
+                    "expected_plan_id": unsupported_plan["plan_id"],
+                    "assignments": unsupported_assignments,
+                    "policy": {
+                        "block_sensitive": True,
+                        "preserve_existing": True,
+                        "no_submit": True,
+                    },
+                },
+            )
+            if (
+                unsupported_execution.get("receipt_verified") is not False
+                or unsupported_execution.get("verification_complete") is not False
+                or not any(
+                    failure.get("reason") == "native_input_type_unsupported"
+                    for failure in unsupported_execution.get("failed", [])
+                )
+            ):
+                raise AssertionError(
+                    f"unsupported form control did not fail closed: {unsupported_execution}"
+                )
+
             assignments: dict[str, Any] = {
                 "id:team": SENTINELS[0],
-                "id:region": "west",
-                "id:instances": 24,
-                "id:launch-date": "2026-08-15",
-                "id:include-staging": True,
                 "id:summary": "Ordinary capacity draft.",
                 "id:user-note": SENTINELS[3],
                 "id:ssn": SENTINELS[1],
@@ -230,14 +266,7 @@ def main() -> int:
                 },
             )
             eligible = {item["field_id"] for item in compiled.get("eligible", [])}
-            expected = {
-                "id:team",
-                "id:region",
-                "id:instances",
-                "id:launch-date",
-                "id:include-staging",
-                "id:summary",
-            }
+            expected = {"id:team", "id:summary"}
             if eligible != expected:
                 raise AssertionError(f"unexpected MCP plan: {compiled}")
             rejected = {item["field_id"] for item in compiled.get("rejected", [])}
@@ -258,6 +287,18 @@ def main() -> int:
             )
             if executed.get("receipt_verified") is not True:
                 raise AssertionError(f"MCP execution receipt failed: {executed}")
+            receipts = executed.get("native_input_receipts", [])
+            if executed.get("verification_complete") is not True or not receipts:
+                raise AssertionError(f"MCP native execution was not verified: {executed}")
+            if not all(
+                receipt.get("schema") == "saccade.native_input_receipt/1"
+                and receipt.get("same_webview") is True
+                and receipt.get("dispatch_acknowledged") is True
+                and receipt.get("postcondition_verified") is True
+                and receipt.get("value_logged") is False
+                for receipt in receipts
+            ):
+                raise AssertionError(f"MCP native receipt invalid: {executed}")
             if {item["field_id"] for item in executed.get("filled", [])} != expected:
                 raise AssertionError(f"MCP did not fill all ordinary fields: {executed}")
             if executed.get("failed") or executed.get("repair"):
@@ -284,6 +325,8 @@ def main() -> int:
                 "sensitive_fields_blocked": 2,
                 "human_values_preserved": True,
                 "receipt_verified": True,
+                "native_input_receipt_count": len(receipts),
+                "unsupported_types_fail_closed": True,
                 "submitted": False,
                 "values_logged": False,
                 "replay_events": len(replay_events),

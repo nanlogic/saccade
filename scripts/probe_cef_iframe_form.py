@@ -132,6 +132,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
+    parser.add_argument("--mcp-bin", type=pathlib.Path)
     parser.add_argument("--timeout-sec", type=float, default=25.0)
     return parser.parse_args()
 
@@ -181,6 +182,7 @@ def main() -> int:
     ]
 
     process: subprocess.Popen[bytes] | None = None
+    mcp: Any | None = None
     report: dict[str, Any]
     try:
         process = subprocess.Popen(
@@ -197,12 +199,37 @@ def main() -> int:
         )
         wait_ready(control, args.timeout_sec)
 
+        tab_id: int | None = None
+        if args.mcp_bin:
+            from probe_cef_mcp_form_plan import McpClient
+
+            mcp_binary = args.mcp_bin.resolve()
+            if not mcp_binary.is_file():
+                raise AssertionError(f"missing MCP binary: {mcp_binary}")
+            mcp = McpClient(mcp_binary)
+            mcp.request("initialize", {})
+            granted = mcp.tool(
+                "saccade.tabs.grant_current",
+                {
+                    "grant_path": str(grant_path),
+                    "reason": "cross-origin iframe native form receipt gate",
+                    "policy": {"explicit_user_grant": True, "local_dev_only": True},
+                },
+            )
+            if granted.get("same_webview_attached") is not True:
+                raise AssertionError(f"MCP did not attach to Saccade: {granted}")
+            tab_id = int(granted["tab"]["tab_id"])
+
         expected_ids = {"id:project-name", "id:homepage"}
         inventory_deadline = time.monotonic() + args.timeout_sec
         inventory: dict[str, Any] = {}
         field_ids: set[Any] = set()
         while time.monotonic() < inventory_deadline:
-            inventory = control.call("form_inventory")
+            inventory = (
+                mcp.tool("saccade.web.form_inventory", {"tab_id": tab_id, "mode": "full"})
+                if mcp
+                else control.call("form_inventory")
+            )
             field_ids = {
                 field.get("field_id") for field in inventory.get("fields", [])
             }
@@ -225,34 +252,87 @@ def main() -> int:
             "id:project-name": "Saccade iframe dogfood",
             "id:homepage": "https://example.invalid/saccade",
         }
-        inspection = control.call(
-            "inspect_fields",
-            {
-                "basis_page_revision": revision,
-                "fields": sorted(expected_ids),
-            },
+        inspection = (
+            mcp.tool(
+                "saccade.web.inspect_fields",
+                {"tab_id": tab_id, "fields": sorted(expected_ids)},
+            )
+            if mcp
+            else control.call(
+                "inspect_fields",
+                {
+                    "basis_page_revision": revision,
+                    "fields": sorted(expected_ids),
+                },
+            )
         )
         inspected = {item.get("field_id") for item in inspection.get("fields", [])}
         if inspected != expected_ids:
             raise AssertionError(f"unexpected embedded inspection: {inspection}")
 
-        plan = control.call(
-            "form_compile_plan",
-            {"basis_page_revision": revision, "assignments": assignments},
+        policy = {"block_sensitive": True, "preserve_existing": True, "no_submit": True}
+        plan = (
+            mcp.tool(
+                "saccade.web.form_compile_plan",
+                {
+                    "tab_id": tab_id,
+                    "basis_page_revision": revision,
+                    "assignments": assignments,
+                    "policy": policy,
+                },
+            )
+            if mcp
+            else control.call(
+                "form_compile_plan",
+                {"basis_page_revision": revision, "assignments": assignments},
+            )
         )
         planned = {item.get("field_id") for item in plan.get("eligible", [])}
         if planned != expected_ids:
             raise AssertionError(f"unexpected embedded plan: {plan}")
-        execution = control.call(
-            "form_execute_plan",
-            {
-                "basis_page_revision": revision,
-                "expected_plan_id": plan["plan_id"],
-                "assignments": assignments,
-            },
+        direct_type_blocked = False
+        try:
+            control.call(
+                "type_field_text",
+                {
+                    "basis_page_revision": revision,
+                    "field_id": "id:project-name",
+                    "text": "plan bypass must not be typed",
+                },
+            )
+        except RuntimeError as error:
+            direct_type_blocked = "POLICY_BLOCKED" in str(error)
+        if not direct_type_blocked:
+            raise AssertionError("ordinary iframe field bypassed compile/execute policy")
+        execution_params = {
+            "basis_page_revision": revision,
+            "expected_plan_id": plan["plan_id"],
+            "assignments": assignments,
+        }
+        execution = (
+            mcp.tool(
+                "saccade.web.form_execute_plan",
+                {"tab_id": tab_id, **execution_params, "policy": policy},
+            )
+            if mcp
+            else control.call("form_execute_plan", execution_params)
         )
         if execution.get("receipt_verified") is not True:
             raise AssertionError(f"embedded execution receipt failed: {execution}")
+        if mcp and execution.get("verification_complete") is not True:
+            raise AssertionError(f"MCP rejected embedded native receipts: {execution}")
+        receipts = execution.get("native_input_receipts", [])
+        if execution.get("same_webview_native_input") is not True or len(receipts) != 2:
+            raise AssertionError(f"embedded native receipts missing: {execution}")
+        if not all(
+            receipt.get("schema") == "saccade.native_input_receipt/1"
+            and receipt.get("same_webview") is True
+            and receipt.get("dispatch_acknowledged") is True
+            and receipt.get("postcondition_verified") is True
+            and receipt.get("value_logged") is False
+            for receipt in receipts
+        ):
+            raise AssertionError(f"embedded native receipt invalid: {execution}")
         if {item.get("field_id") for item in execution.get("filled", [])} != expected_ids:
             raise AssertionError(f"embedded fields were not filled: {execution}")
 
@@ -268,9 +348,16 @@ def main() -> int:
             "planned": sorted(planned),
             "filled": sorted(item["field_id"] for item in execution["filled"]),
             "receipt_verified": execution["receipt_verified"],
+            "native_input_receipt_count": len(receipts),
+            "same_webview_native_input": execution["same_webview_native_input"],
+            "direct_type_bypass_blocked": direct_type_blocked,
+            "route": "mcp" if mcp else "engine_control",
+            "mcp_verification_complete": execution.get("verification_complete") if mcp else None,
             "submitted": False,
         }
     finally:
+        if mcp is not None:
+            mcp.close()
         if process is not None and process.poll() is None:
             process.terminate()
             try:

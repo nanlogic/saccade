@@ -466,3 +466,33 @@
   `scripts/probe_cef_iframe_form.py` returned `ok=true`,
   `receipt_verified=true`, and `submitted=false`.
 - Evidence: `runs/dogfood/macos_iframe_build82/report.json`.
+
+## 2026-07-21 - Build 83 native iframe form receipt repair
+
+- Re-audited the Build 82 result after an installed-product restart. The two
+  iframe fields were changed, but the renderer had written DOM properties and
+  mislabeled its postcondition as `receipt_verified`; no same-WebView native
+  input receipt existed. Build 82 therefore did not pass the fail-closed
+  dogfood contract, superseding the earlier ledger claim above.
+- Replaced the shared macOS/Windows CEF `form_execute_plan` text path with
+  revision-bound `Input.insertText` dispatch, exact value hash/length
+  verification, and value-free `saccade.native_input_receipt/1` records.
+  Ordinary fields can use this route only through a compiled plan; direct
+  `type_field_text` bypass remains policy-blocked. Unsupported native form
+  types now fail closed instead of falling back to DOM writes.
+- MCP now requires a non-empty, count-matched set of acknowledged same-WebView
+  native receipts and briefly retries only the expected collector-not-ready
+  window after the form revision advances. All other transport errors remain
+  terminal.
+- Build 83 was signed as `ai.saccade.browser` by NaN Logic LLC team
+  `W5D59P54A2`. The cross-origin iframe MCP gate scanned two frames, selected
+  the embedded form, inspected and compiled both fields, filled both with two
+  native receipts, advanced revision 2 to 3, completed post-inventory, and did
+  not submit. The generic MCP form gate also passed text/textarea native input
+  while proving unsupported select input fails closed.
+- Validation: `cargo fmt --all -- --check`; `cargo test -p saccade-mcp` 36/36;
+  signed CEF Release build 22/22; direct and MCP iframe probes; generic MCP form
+  probe.
+- Evidence: `runs/dogfood/macos_iframe_native_receipt_build83/report.json`,
+  `runs/dogfood/macos_iframe_native_receipt_build83/mcp-report.json`, and
+  `runs/dogfood/macos_form_native_receipt_build83/report.json`.

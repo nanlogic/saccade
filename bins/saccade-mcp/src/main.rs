@@ -5200,7 +5200,19 @@ fn poll_stable_form_inventory(
     let mut stable_field_count = None;
     let mut stable_samples = 0_u8;
     let result = loop {
-        let result = call_dogfood_control(endpoint, "form_inventory", params.clone())?;
+        let result = match call_dogfood_control(endpoint, "form_inventory", params.clone()) {
+            Ok(result) => result,
+            Err(error)
+                if Instant::now() < deadline
+                    && error
+                        .to_string()
+                        .contains("renderer collector is not ready") =>
+            {
+                thread::sleep(FORM_INVENTORY_STABILITY_INTERVAL);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         let field_count = result
             .get("field_count")
             .and_then(json_number_u64)
@@ -5540,8 +5552,38 @@ fn web_form_execute_plan_tool(state: &mut McpSessionState, arguments: Value) -> 
         update_session_tab_from_browser_result(tab, &post_execute.result);
     }
     if let Some(object) = result.as_object_mut() {
+        let native_receipts = object
+            .get("native_input_receipts")
+            .and_then(Value::as_array);
+        let native_receipt_count = object
+            .get("native_input_receipt_count")
+            .and_then(json_number_u64)
+            .unwrap_or(0);
+        let native_receipts_verified = native_receipts.is_some_and(|receipts| {
+            !receipts.is_empty()
+                && receipts.len() as u64 == native_receipt_count
+                && receipts.iter().all(|receipt| {
+                    receipt.get("schema").and_then(Value::as_str)
+                        == Some("saccade.native_input_receipt/1")
+                        && receipt.get("same_webview").and_then(Value::as_bool) == Some(true)
+                        && receipt
+                            .get("dispatch_acknowledged")
+                            .and_then(Value::as_bool)
+                            == Some(true)
+                        && receipt
+                            .get("postcondition_verified")
+                            .and_then(Value::as_bool)
+                            == Some(true)
+                        && receipt.get("value_logged").and_then(Value::as_bool) == Some(false)
+                })
+        });
         let verification_complete = object.get("receipt_verified").and_then(Value::as_bool)
             == Some(true)
+            && object
+                .get("same_webview_native_input")
+                .and_then(Value::as_bool)
+                == Some(true)
+            && native_receipts_verified
             && object
                 .get("failed")
                 .and_then(Value::as_array)
@@ -5560,11 +5602,11 @@ fn web_form_execute_plan_tool(state: &mut McpSessionState, arguments: Value) -> 
         object.insert(
             "summary".to_string(),
             json!(if verification_complete && follow_up_required {
-                "Form execution verified; newly revealed ordinary fields require a follow-up plan"
+                "Native form input verified; newly revealed ordinary fields require a follow-up plan"
             } else if verification_complete {
-                "Form execution verified; no further field inspection required"
+                "Native form input verified; no further field inspection required"
             } else {
-                "Form execution completed; review failed or rejected fields"
+                "Form execution is not verified; a same-WebView native input receipt is required"
             }),
         );
     }

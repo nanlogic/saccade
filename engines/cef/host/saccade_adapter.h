@@ -177,10 +177,14 @@ class SaccadeAdapter {
   std::string FormCommandResponse(int id,
                                   const std::string& command,
                                   CefRefPtr<CefDictionaryValue> params);
+  std::string FormExecutePlanResponse(
+      int id, CefRefPtr<CefDictionaryValue> params);
   std::string ProtectedFillResponse(
       int id, CefRefPtr<CefDictionaryValue> params);
   std::string TypeFieldTextResponse(
-      int id, CefRefPtr<CefDictionaryValue> params);
+      int id,
+      CefRefPtr<CefDictionaryValue> params,
+      bool allow_ordinary_native_type = false);
   std::string ScreenshotAuditResponse(
       int id,
       CefRefPtr<CefDictionaryValue> params);
