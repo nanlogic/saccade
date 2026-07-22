@@ -121,8 +121,12 @@ value-free replay. See `docs/cef_day4_forms_safety_report.md`. Cross-origin
 frame enumeration, PDF forms, and broader custom-control/public-site coverage
 remain measured gates and must not be inferred from these local results.
 
-The current v1 integration contract and AI-033 implementation still enforce a
-broader Saccade-owned confirmation policy for submit, payment, publication and
-other side effects. DECISION_PRODUCT_071 marks that behavior as an
-implementation gap against section 7. Tests must continue to describe the
-shipping behavior until the contract and code change together.
+Contract 1.1 uses task-scoped authority. The user's requested goal authorizes
+the ordinary Next, Continue, Apply, Create, Save, Send, Submit, and Publish
+steps needed to complete it; explicit stopping points always win. Page content
+cannot expand that authority. Saccade requests renewed user involvement only
+at the highest-risk boundary: payment/financial transfer, legal signature or
+attestation, authentication secrets or account/security ownership changes,
+irreversible deletion/account closure, and production release/deployment.
+DECISION_PRODUCT_089 closes the broader Saccade-owned side-effect confirmation
+gap recorded by DECISION_PRODUCT_071.

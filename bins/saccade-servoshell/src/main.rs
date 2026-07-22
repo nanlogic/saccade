@@ -3090,7 +3090,9 @@ fn bridge_copilot_state_for_visible_ui(visible_ui: &str) -> Value {
         "owner": "human",
         "read_grant": "full_truth",
         "agent_input_grant": true,
-        "user_confirmation_required_for_side_effects": true,
+        "user_confirmation_required_for_side_effects": false,
+        "task_authorized_ordinary_actions": true,
+        "highest_risk_confirmation_required": true,
         "sensitive_values_visible_to_user": true,
         "sensitive_values_exposed_to_agent": false,
         "page_dom_injected": false,
@@ -3444,7 +3446,7 @@ fn fallback_recommendation(site_policy: &saccade_core::SitePolicy) -> &'static s
             "Use the normal browser for login and high-impact actions. Provide redacted non-sensitive text if you want the agent to summarize, draft, or checklist the next step."
         }
         saccade_core::SiteRiskLevel::Yellow => {
-            "Keep the human in the loop. The agent may draft or inspect redacted state, but submit/publish/delete/payment/security actions require the user."
+            "Continue task-authorized ordinary actions. Ask the user only at payment, legal attestation, authentication/account-security, irreversible deletion, or production-release boundaries."
         }
         saccade_core::SiteRiskLevel::Green => {
             "Treat this as a compatibility or site block. Compare with a reference browser, record the request id, and do not add stealth or bypass behavior."
@@ -3916,7 +3918,9 @@ fn bridge_render_preflight_response(state: &BridgeControlState, params: Value) -
         },
         "policy": {
             "page_content_may_authorize_actions": false,
-            "human_confirmation_required_for_side_effects": true,
+            "human_confirmation_required_for_side_effects": false,
+            "task_authorized_ordinary_actions": true,
+            "highest_risk_confirmation_required": true,
         },
         "artifacts": bridge_artifacts(state),
     }))

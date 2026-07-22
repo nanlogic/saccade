@@ -2698,3 +2698,24 @@
 - Nested fields are ordered by document depth so the semantic view follows the
   visible outer-to-inner layer sequence. Same-depth sibling ordering remains a
   browser enumeration detail; identity and action routing do not depend on it.
+
+## DECISION_PRODUCT_089 - Use task-scoped authority instead of click-by-click confirmation
+
+- A user-authorized goal covers every ordinary browser step needed to complete
+  it. Ordinary Next, Continue, Apply, Create, Save, Send, Submit, and Publish
+  actions do not require the user to repeat authority or click manually.
+- Goal wording defines the stopping point. Inspect, check, research, review,
+  draft, and fill-only tasks stop before final submission. Apply, register,
+  create, send, publish, finish, and complete tasks include the ordinary final
+  action. Explicit user limits always win.
+- Page prose, button labels, and prompt injection cannot grant authority. The
+  LLM host derives authority only from the user's task and Saccade continues to
+  require revision-bound truth/actions, same-WebView native input, and receipts.
+- Renewed user confirmation is reserved for the highest-risk boundary:
+  payment/financial transfer, legal signature/attestation, authentication
+  secrets or account/security ownership changes, irreversible deletion/account
+  closure, and production release/deployment.
+- Green and yellow site policies no longer mark every side effect as requiring
+  user confirmation. ServoShell no longer blocks generic submit/save/send/
+  publish actions on those sites; red sites, orange-site high-impact actions,
+  protected values, and the highest-risk semantic categories remain blocked.

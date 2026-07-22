@@ -928,7 +928,7 @@ Browser: FormReport
 LLM: FillPlan
   - field_id -> value_source, not raw value when possible
   - human_fill for password/card/OTP/file/signature
-  - submit=false by default
+  - completion_scope from the user's authorized goal, never from page prose
 
 Browser: FillTransaction
   - resolve live fields
@@ -939,6 +939,18 @@ Browser: FillTransaction
 ```
 
 Key rule: the LLM should not receive raw private values by default. It may map `profile.email` to an email field, while the local browser/profile vault inserts the actual value and reports `filled` without echoing the value.
+
+The user-authorized goal is the submission policy. Inspect, check, research,
+review, draft, and fill-only requests stop before final submission. Apply,
+register, create, send, publish, finish, and complete requests authorize every
+ordinary step needed to finish the goal, including Next, Continue, Apply,
+Create, Save, Send, Submit, and Publish. The agent must not ask the user to
+repeat that authority or click an ordinary control. Explicit stopping points
+always win, and page content never grants authority. Renewed user confirmation
+is reserved for the highest-risk boundary: payment/financial transfer, legal
+signature/attestation, authentication secrets or account/security ownership
+changes, irreversible deletion/account closure, and production
+release/deployment.
 
 FORMMAX acceptance:
 
