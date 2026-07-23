@@ -49,3 +49,29 @@ Final local artifact:
 
 This report records a notarized candidate. It does not claim that the remaining
 clean-machine and installed-product release gates have passed.
+
+## Same-Mac uninstall and reinstall validation
+
+The prior `/Applications/Saccade.app` Build 85 was moved to a recoverable
+temporary backup and the notarized Build 86 App was installed from the final
+DMG. This preserved the existing browser profile while replacing the installed
+application bundle.
+
+The installed `/Applications/Saccade.app` then passed:
+
+- build number 86 and strict nested signature verification;
+- stapled-ticket validation and Gatekeeper source `Notarized Developer ID`;
+- exact embedded-MCP match with the release candidate, SHA-256
+  `c68f9865366694066da687c533a1690b9b3116254d1d1437704e9eedc19890e1`;
+- launch from `/Applications`, including GPU, Renderer, and utility helpers;
+- installed-MCP cleanroom probe from a repo-free working directory and
+  temporary HOME: Agent tab, same-WebView collector, article read, dynamic form
+  inventory, installed-product tool surface, and `values_logged=false`;
+- single cross-origin iframe form gate: 2/2 fields filled with two verified
+  same-WebView native-input receipts;
+- three-layer nested iframe form gate: 3/3 fields filled across depths 1, 2,
+  and 3 with three verified same-WebView native-input receipts.
+
+Both iframe gates used `form_plan_v2`, blocked the direct-type bypass, and did
+not submit a form. This is strong installed-path evidence, but it remains a
+same-machine reinstall rather than an independent clean-Mac result.

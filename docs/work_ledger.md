@@ -562,6 +562,15 @@
   `303149e1113785dbea608cc47795325b38ec2cabf630ba262e49730a07953f66`.
 - The packaged Build 86 DOCMAX/PDF smoke passed. Clean-machine installation and
   installed MCP/browser gates remain before publishing a supported download.
+- Replaced installed Build 85 with the notarized Build 86 App from the final
+  DMG while retaining a recoverable temporary backup. The installed bundle
+  passed strict signature, staple, Gatekeeper, embedded-MCP hash, launch, and
+  repo-free cleanroom checks.
+- Installed single-iframe and three-layer nested-iframe gates filled 2/2 and
+  3/3 ordinary fields with two and three verified same-WebView native-input
+  receipts respectively. Both used `form_plan_v2`, blocked direct typing, and
+  did not submit. This is same-machine reinstall evidence, not an independent
+  clean-Mac result.
 
 ## 2026-07-23 - Public reflex evidence packager
 

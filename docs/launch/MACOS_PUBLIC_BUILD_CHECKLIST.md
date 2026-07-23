@@ -122,8 +122,13 @@ Build 86 result: PASS. App submission
 - [ ] Verify profile preservation and uninstall behavior.
 - [ ] Open a new MCP host task and confirm it runs the MCP embedded in the new
       installed App.
-- [ ] Run the form, iframe, protected-value, and reflex release gates against
+- [ ] Run the remaining protected-value and reflex release gates against
       the installed package.
+
+Same-Mac Build 85 removal and Build 86 DMG reinstall passed installed launch,
+signature, staple, Gatekeeper, embedded-MCP cleanroom, profile-preservation,
+single-iframe, and nested-iframe checks. This does not close the independent
+clean-Mac checkbox above.
 
 The next public candidate contains more than the MCP replay field when compared
 with the only Apple-accepted submission, Build 65. It also contains the later
@@ -131,9 +136,10 @@ Agent-control, nested-iframe, native-receipt, and task-scoped action changes.
 Use this minimum regression set:
 
 - [x] `cargo test -p saccade-mcp`;
-- [ ] installed App opens and a new MCP host task connects to its embedded MCP;
+- [x] installed App opens and its embedded MCP passes the repo-free cleanroom
+  probe; a newly restarted Codex host session remains to be checked;
 - [ ] Agent Off/On and same-tab bounded article reading pass;
-- [ ] the nested-iframe page exposes all three visible fields, compiles one
+- [x] the nested-iframe page exposes all three visible fields, compiles one
       complete plan, fills them, and returns verified native receipts;
 - [ ] the local task-scoped action fixture passes and protected values remain
       absent from MCP output and replay;
