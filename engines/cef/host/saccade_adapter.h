@@ -82,6 +82,9 @@ class SaccadeAdapter {
     std::string destination_url;
   };
 
+  static bool TargetOccurrenceMoved(const TargetFact& previous,
+                                    const TargetFact& current);
+
   struct ReflexReceipt {
     std::string action_id;
     double client_x = 0;
@@ -295,6 +298,8 @@ class SaccadeAdapter {
   std::deque<TargetFact> pending_facts_;
   std::map<std::string, TargetFact> actions_;
   std::map<std::string, TargetFact> staged_actions_;
+  std::map<std::string, TargetFact> completed_target_facts_;
+  std::set<std::string> target_reemit_armed_;
   int action_scan_generation_ = 0;
   uint64_t action_map_serial_ = 0;
   std::set<std::string> dispatched_actions_;

@@ -66,6 +66,51 @@
     window.__saccadeStart = () => setTimeout(spawn, 80);
   }
 
+  function domReusedTarget(options) {
+    const arena = document.getElementById("arena");
+    const state = {hits: 0, misses: 0, spawned: 0, finished: false};
+    const button = document.createElement("button");
+    button.id = "reused-target";
+    button.className = "hit";
+    button.style.display = "none";
+    button.setAttribute("aria-label", "target");
+    let active = false;
+
+    function moveToNextPosition() {
+      if (state.hits >= options.count) {
+        active = false;
+        state.finished = true;
+        button.classList.add("hit");
+        button.style.display = "none";
+        truth(state);
+        return;
+      }
+      const [x, y] = positions[state.spawned % positions.length];
+      button.style.left = `${x}px`;
+      button.style.top = `${y}px`;
+      button.style.display = "block";
+      button.className = "target";
+      state.spawned += 1;
+      active = true;
+      truth(state);
+    }
+
+    button.addEventListener("mousedown", event => {
+      event.stopPropagation();
+      if (!active) return;
+      state.hits += 1;
+      moveToNextPosition();
+    });
+    arena.addEventListener("mousedown", event => {
+      if (active && event.target !== button) {
+        state.misses += 1;
+        truth(state);
+      }
+    });
+    arena.appendChild(button);
+    window.__saccadeStart = () => setTimeout(moveToNextPosition, 80);
+  }
+
   function svgTargets(options) {
     const arena = document.getElementById("arena");
     const state = {hits: 0, misses: 0, spawned: 0, finished: false};
@@ -251,6 +296,7 @@
 
   window.SaccadeSelftest = {
     domTargets,
+    domReusedTarget,
     svgTargets,
     canvasTargets,
     overlayPage,

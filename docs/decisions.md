@@ -2719,3 +2719,19 @@
   user confirmation. ServoShell no longer blocks generic submit/save/send/
   publish actions on those sites; red sites, orange-site high-impact actions,
   protected values, and the highest-risk semantic categories remain blocked.
+
+## DECISION_PRODUCT_090 - Treat a receipted target moved under one ID as a new occurrence
+
+- Dynamic pages may reuse one target element and stable DOM ID while moving it
+  to a new coordinate. The CEF action map previously emitted a fact only when
+  an action ID was absent from the preceding scan, so a coalesced remove/move
+  lifecycle could stop the reflex stream even though later targets remained
+  visible.
+- Target re-emission is armed only after a verified native receipt. A subsequent
+  center change greater than 0.5 CSS px emits one new fact for that same action
+  ID. Size-only animation and repeated scans before a receipt do not create
+  duplicate clicks.
+- The regression fixture keeps one button and one explicit ID for the entire
+  run, moving it after every hit. Both that path and the original remove/create
+  path must produce 100 hits, zero misses, 100 matching native receipts, and no
+  CDP or screenshot fallback.

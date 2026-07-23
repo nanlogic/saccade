@@ -419,6 +419,16 @@ SaccadeAdapter* SaccadeAdapter::GetInstance() {
   return &adapter;
 }
 
+bool SaccadeAdapter::TargetOccurrenceMoved(const TargetFact& previous,
+                                           const TargetFact& current) {
+  const double previous_center_x = previous.left + previous.width / 2.0;
+  const double previous_center_y = previous.top + previous.height / 2.0;
+  const double current_center_x = current.left + current.width / 2.0;
+  const double current_center_y = current.top + current.height / 2.0;
+  return std::abs(previous_center_x - current_center_x) > 0.5 ||
+         std::abs(previous_center_y - current_center_y) > 0.5;
+}
+
 SaccadeAdapter::~SaccadeAdapter() {
   Stop();
 }
@@ -1074,16 +1084,35 @@ bool SaccadeAdapter::OnRendererMessage(
         return true;
       }
       for (const auto& [action_id, fact] : staged_actions_) {
-        if (actions_.find(action_id) == actions_.end()) {
+        const auto previous = actions_.find(action_id);
+        const auto completed = completed_target_facts_.find(action_id);
+        const bool moved_after_receipt =
+            fact.role == "target" &&
+            target_reemit_armed_.find(action_id) !=
+                target_reemit_armed_.end() &&
+            completed != completed_target_facts_.end() &&
+            TargetOccurrenceMoved(completed->second, fact);
+        if (previous == actions_.end() || moved_after_receipt) {
           if (pending_facts_.size() >= 256) {
             pending_facts_.pop_front();
           }
           pending_facts_.push_back(fact);
           added = true;
+          target_reemit_armed_.erase(action_id);
+          completed_target_facts_.erase(action_id);
         }
       }
       actions_.swap(staged_actions_);
       staged_actions_.clear();
+      for (auto it = completed_target_facts_.begin();
+           it != completed_target_facts_.end();) {
+        if (actions_.find(it->first) == actions_.end()) {
+          target_reemit_armed_.erase(it->first);
+          it = completed_target_facts_.erase(it);
+        } else {
+          ++it;
+        }
+      }
       ++action_map_serial_;
     }
     action_map_cv_.notify_all();
@@ -1117,11 +1146,40 @@ bool SaccadeAdapter::OnRendererMessage(
       receipt.observed_page_revision = page_revision_;
       receipt.basis_layout_epoch = action->second.layout_epoch;
       receipt.observed_layout_epoch = layout_epoch_;
+      bool added = false;
+      if (action->second.role == "target") {
+        const TargetFact completed_fact = action->second;
+        const auto current = actions_.find(receipt.action_id);
+        const bool current_already_pending =
+            current != actions_.end() &&
+            std::any_of(pending_facts_.begin(), pending_facts_.end(),
+                        [&current](const TargetFact& pending) {
+                          return pending.action_id == current->first &&
+                                 !TargetOccurrenceMoved(pending,
+                                                        current->second);
+                        });
+        if (current != actions_.end() && !current_already_pending &&
+            TargetOccurrenceMoved(completed_fact, current->second)) {
+          if (pending_facts_.size() >= 256) {
+            pending_facts_.pop_front();
+          }
+          pending_facts_.push_back(current->second);
+          target_reemit_armed_.erase(receipt.action_id);
+          completed_target_facts_.erase(receipt.action_id);
+          added = true;
+        } else if (current != actions_.end() && !current_already_pending) {
+          completed_target_facts_[receipt.action_id] = completed_fact;
+          target_reemit_armed_.insert(receipt.action_id);
+        }
+      }
       dispatched_action_facts_.erase(action);
       if (pending_receipts_.size() >= 256) {
         pending_receipts_.pop_front();
       }
       pending_receipts_.push_back(receipt);
+      if (added) {
+        fact_cv_.notify_one();
+      }
     }
     receipt_cv_.notify_one();
     return true;
@@ -4058,6 +4116,8 @@ void SaccadeAdapter::ResetPageStateLocked(const std::string& reason) {
   pending_facts_.clear();
   actions_.clear();
   staged_actions_.clear();
+  completed_target_facts_.clear();
+  target_reemit_armed_.clear();
   action_scan_generation_ = 0;
   dispatched_actions_.clear();
   dispatched_action_facts_.clear();
