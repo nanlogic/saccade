@@ -1,6 +1,6 @@
 # macOS Public Build And Notarization Checklist
 
-Status: Developer ID identity restored; Build 86 candidate preparation in progress
+Status: Build 86 notarized; clean-install and installed-product regression remain
 
 Observed on 2026-07-23:
 
@@ -8,15 +8,20 @@ Observed on 2026-07-23:
   `580a69d6-7da7-40c2-b2bd-312d92c3b39c` as `Accepted`;
 - the same notary profile's history contains no DMG submission, and the local
   rehearsal stopped before a saved staple/DMG/Gatekeeper result;
-- current local package: Build 85, commit `3dc0ad7c97e43d96a262d400ec6dcddc53ffa478`;
-- Hardened Runtime: present;
-- secure timestamp: absent;
-- notarization and public-distribution flags: false;
-- notarization preflight: failed with `CSSMERR_TP_NOT_TRUSTED`;
+- previous local package: Build 85, commit
+  `3dc0ad7c97e43d96a262d400ec6dcddc53ffa478`, had Hardened Runtime but no
+  secure timestamp or notarization and failed preflight with
+  `CSSMERR_TP_NOT_TRUSTED`;
 - the original local check reported no valid Developer ID identity;
 - a new CSR generated on this Mac produced a matching certificate and private
   key; `security find-identity -v -p codesigning` now lists
   `Developer ID Application: NaN Logic LLC (W5D59P54A2)`.
+- Build 86 was frozen at commit
+  `9338ab06703dc57ccffffd5d588acdcaf34c7f16`, signed with Hardened Runtime and
+  an Apple secure timestamp, and passed the no-upload preflight;
+- Apple accepted and stapled both the Build 86 App and DMG. The final DMG
+  passed Gatekeeper with SHA-256
+  `303149e1113785dbea608cc47795325b38ec2cabf630ba262e49730a07953f66`.
 
 Build 85 cannot become the public package. Build the next candidate from the
 commit that contains the updated MCP and use a valid Developer ID Application
@@ -51,11 +56,11 @@ after code signing passes. It does not replace the signing certificate.
 
 ## 2. Freeze a clean candidate
 
-- [ ] Commit the updated MCP, public evidence tooling, and launch documents.
-- [ ] Run the narrow Rust and Python tests.
-- [ ] Push the exact candidate commit.
-- [ ] Confirm `git status --porcelain` returns no output.
-- [ ] Choose the next monotonically increasing build number.
+- [x] Commit the updated MCP, public evidence tooling, and launch documents.
+- [x] Run the narrow Rust and Python tests.
+- [x] Push the exact candidate commit.
+- [x] Confirm `git status --porcelain` returns no output.
+- [x] Choose the next monotonically increasing build number: 86.
 
 Do not publish a package whose `VERSION.json` says `source_dirty=true`.
 
@@ -84,6 +89,8 @@ engines/cef/scripts/notarize_macos.sh preflight \
 The preflight checks the main app and executable children for Developer ID,
 Hardened Runtime, secure timestamps, and forbidden debug entitlements.
 
+Build 86 result: PASS.
+
 ## 5. Submit the App and DMG
 
 This step uploads the frozen candidate to Apple. Run it only after the release
@@ -100,12 +107,16 @@ The script submits the App archive, checks for `Accepted`, staples the App,
 builds and signs the DMG, submits the DMG, staples it, and runs Gatekeeper
 assessment on both artifacts.
 
+Build 86 result: PASS. App submission
+`44e1a5e9-526f-422e-83d4-01a7e841eb77` and DMG submission
+`49f5d93e-fc65-40e0-b4a7-80387a0ff614` were both `Accepted`.
+
 ## 6. Public artifact verification
 
-- [ ] `xcrun stapler validate` passes on the App and DMG.
-- [ ] Gatekeeper accepts the downloaded DMG and installed App without a bypass.
-- [ ] Generate and publish a SHA-256 checksum for the final DMG.
-- [ ] Record build, commit, signing team, Apple submission IDs, acceptance
+- [x] `xcrun stapler validate` passes on the App and DMG.
+- [x] Gatekeeper accepts the local stapled DMG and App without a bypass.
+- [x] Generate a SHA-256 checksum for the final DMG.
+- [x] Record build, commit, signing team, Apple submission IDs, acceptance
       status, and test platform in a release report.
 - [ ] Install on a second clean Mac without the development repository.
 - [ ] Verify profile preservation and uninstall behavior.
@@ -119,7 +130,7 @@ with the only Apple-accepted submission, Build 65. It also contains the later
 Agent-control, nested-iframe, native-receipt, and task-scoped action changes.
 Use this minimum regression set:
 
-- [ ] `cargo test -p saccade-mcp`;
+- [x] `cargo test -p saccade-mcp`;
 - [ ] installed App opens and a new MCP host task connects to its embedded MCP;
 - [ ] Agent Off/On and same-tab bounded article reading pass;
 - [ ] the nested-iframe page exposes all three visible fields, compiles one
@@ -143,6 +154,8 @@ dist/saccade-cef-dogfood-build[BUILD]/bin/run-docmax-gate release_pdf_smoke
 
 Repeat the public blank-PDF matrix when PDF code, packaged resources,
 protected-value behavior, or a public PDF claim changes.
+
+Build 86 packaged DOCMAX/PDF smoke result: PASS.
 
 ## 7. Publication boundary
 

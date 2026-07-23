@@ -14,9 +14,12 @@ results into release claims.
    pages, evidence, media, metadata, and release gates needed before publishing.
 3. [`MACOS_PUBLIC_BUILD_CHECKLIST.md`](MACOS_PUBLIC_BUILD_CHECKLIST.md) records
    the signed-build, notarization, staple, Gatekeeper, and clean-machine path.
-4. [`ARTICLE_BROWSER_RECEIPTS.md`](ARTICLE_BROWSER_RECEIPTS.md) is the first
+4. [`MACOS_BUILD86_RELEASE_REPORT.md`](MACOS_BUILD86_RELEASE_REPORT.md) records
+   the notarized Build 86 candidate, checksums, passed gates, and remaining
+   clean-machine work.
+5. [`ARTICLE_BROWSER_RECEIPTS.md`](ARTICLE_BROWSER_RECEIPTS.md) is the first
    English technical article draft.
-5. [`HACKER_NEWS_LAUNCH.md`](HACKER_NEWS_LAUNCH.md) separates the first regular
+6. [`HACKER_NEWS_LAUNCH.md`](HACKER_NEWS_LAUNCH.md) separates the first regular
    link submission from a later Show HN launch.
 
 ## Recommended order

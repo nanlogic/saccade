@@ -546,6 +546,23 @@
   `nested-mcp-report.json`, `installed-single-mcp-report.json`,
   `installed-nested-mcp-report.json`, and `staged-upgrade/report.json`.
 
+## 2026-07-23 - Build 86 signed and notarized
+
+- Restored a valid `Developer ID Application: NaN Logic LLC (W5D59P54A2)`
+  identity by creating a local CSR and installing its matching Apple
+  certificate.
+- Froze and pushed commit
+  `9338ab06703dc57ccffffd5d588acdcaf34c7f16`, then built clean Build 86 with
+  Hardened Runtime and an Apple secure timestamp.
+- The no-upload notarization preflight passed. Apple accepted the App
+  (`44e1a5e9-526f-422e-83d4-01a7e841eb77`) and DMG
+  (`49f5d93e-fc65-40e0-b4a7-80387a0ff614`). Both stapled tickets validated and
+  Gatekeeper reported `Notarized Developer ID`.
+- Final DMG SHA-256:
+  `303149e1113785dbea608cc47795325b38ec2cabf630ba262e49730a07953f66`.
+- The packaged Build 86 DOCMAX/PDF smoke passed. Clean-machine installation and
+  installed MCP/browser gates remain before publishing a supported download.
+
 ## 2026-07-23 - Public reflex evidence packager
 
 - Added `scripts/build_reflex_evidence_pack.py` as a downstream-only publisher
