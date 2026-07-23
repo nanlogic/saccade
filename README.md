@@ -26,7 +26,10 @@ instead treats the visible browser as a human-and-agent shared workspace:
 
 The detailed product contract and current engineering constraints live in
 [`SACCADE_BUILD_SPEC_v4.md`](SACCADE_BUILD_SPEC_v4.md). Public dogfood evidence
-and explicit non-claims are under [`docs/`](docs/).
+and explicit non-claims start with the
+[`Public Evidence Guide`](docs/PUBLIC_EVIDENCE_GUIDE.md) and curated
+[`evidence/`](evidence/) packs. Milestone files under [`docs/`](docs/) are the
+engineering archive and may describe obsolete builds.
 
 ## Current status
 

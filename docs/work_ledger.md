@@ -546,6 +546,91 @@
   `nested-mcp-report.json`, `installed-single-mcp-report.json`,
   `installed-nested-mcp-report.json`, and `staged-upgrade/report.json`.
 
+## 2026-07-23 - Public reflex evidence packager
+
+- Added `scripts/build_reflex_evidence_pack.py` as a downstream-only publisher
+  for existing `saccade.web.reflex_run` evidence. It does not operate a browser
+  or enter the hot loop.
+- PASS packaging requires the installed Agent Layer route, same-WebView native
+  input, matching receipts, zero hot-loop LLM calls, no fallbacks, and strict
+  MouseAccuracy 100% result truth when that completion policy is used.
+- The packager sanitizes reports/replays, preserves the uncut recording,
+  exports WebM/MP4/GIF/poster assets, and writes provenance, a manifest,
+  checksums, website markup, and a public README.
+- Current-tab grants now retain the trusted sibling replay path and
+  `saccade.web.reflex_run` returns it under `artifacts.replay`, without exposing
+  the owner-only grant path or capability.
+- Public workflow: `docs/PUBLIC_EVIDENCE_GUIDE.md`; curated pack root:
+  `evidence/README.md`.
+
+## 2026-07-23 - Web, article, and Hacker News launch kit
+
+- Added `docs/launch/PUBLICATION_BACKLOG.md` with the initial web pages, eight
+  article candidates, release order, and evidence gate for each claim.
+- Added `docs/launch/WEB_BLOG_RELEASE_CHECKLIST.md` with separate gates for a
+  technical article and a later tryable product launch.
+- Drafted `docs/launch/ARTICLE_BROWSER_RECEIPTS.md` around the measured nested-
+  iframe fail-closed case and the public 15-second reflex evidence workflow.
+  Measured claims remain placeholders until a real public evidence pack exists.
+- Added `docs/launch/HACKER_NEWS_LAUNCH.md`. The first submission is a regular
+  article link. Show HN waits for a signed public build that readers can try
+  without a signup or private handoff.
+- The Hacker News kit does not provide generated comments because the current
+  HN comment guidelines prohibit generated and AI-edited text. The launch uses
+  a normal URL submission with an empty HN text field; the linked article may
+  use AI editing on the owned site.
+- Added `docs/launch/MACOS_PUBLIC_BUILD_CHECKLIST.md`. Build 85 cannot serve as
+  the public candidate because it lacks a secure timestamp and notarization;
+  the current Mac also reports zero valid Developer ID Application identities.
+  The saved notarytool profile remains useful after the release owner installs
+  a valid signing certificate and private key.
+- A live `notarytool info` check corrected the earlier incomplete local record:
+  Apple reports Build 65 App submission
+  `580a69d6-7da7-40c2-b2bd-312d92c3b39c` as `Accepted`. Notary history contains
+  no DMG submission, and no saved staple/Gatekeeper completion exists. A later
+  MCP binary still requires its own signed submission. The MCP-only regression
+  does not require a DOCMAX/PDF rerun.
+
+## 2026-07-23 - Build 85 packaged PDF smoke
+
+- Ran `dist/saccade-cef-dogfood-current/bin/run-docmax-gate
+  release_pdf_smoke_build85` from the packaged Build 85 kit.
+- Verdict: PASS. The local AcroForm exposed five fields, filled two ordinary
+  fields, blocked three protected fields, verified the receipt, classified the
+  flat control as `no_fillable_fields`, and recorded `values_logged=false`.
+- Evidence:
+  `dist/saccade-cef-dogfood-build85/runs/release_pdf_smoke_build85/report.json`.
+- The final public candidate should repeat this one packaged smoke; the broader
+  public PDF matrix remains unnecessary unless PDF code or claims change.
+
+## 2026-07-23 - Public comparison article and media preflight
+
+- Reworked `docs/launch/ARTICLE_BROWSER_RECEIPTS.md` into a release candidate
+  with a scoped Playwright MCP comparison, developer-fit matrix, architectural
+  safety matrix, and Build 85 DOCMAX result. It explicitly credits
+  Playwright's accessibility snapshots, locators, cross-browser testing,
+  tracing, video, network, and storage tools.
+- Added two source-backed SVG charts and a machine-readable chart dataset for
+  the matched Build 49 `example.com` open-and-read benchmark. Measured values:
+  warm p50 162.755 ms vs 654.004 ms; median task result 132 vs 224 tokens; cold
+  context 2,120 vs 4,242 tokens. No qualitative score was invented.
+- Used Saccade native actions to verify the live MouseAccuracy settings exposed
+  by the current page: Insane, Tiny, and 15 seconds. Every setting action
+  returned a verified same-WebView native-input receipt.
+- The first public reflex attempt did not pass the evidence contract. The game
+  advanced to the results route, but `saccade.web.reflex_run` failed during
+  collector result verification with `renderer collector is not ready`, so no
+  result was accepted and no evidence pack was built.
+- macOS window recording is separately blocked by missing Screen & System Audio
+  Recording permission for the Codex/terminal host. Added
+  `scripts/record_macos_window.swift`, which uses ScreenCaptureKit to select
+  only the visible Saccade window and fails rather than capture another app.
+  It compiles successfully; pixel capture needs the permission followed by a
+  Codex restart before the canonical run.
+- Validation: evidence packager integration tests 5/5; `saccade-mcp` tests
+  38/38 with loopback permission; Swift recorder compile; SVG XML validation;
+  chart render review; `git diff --check`.
+
 ## 2026-07-22 - Task-scoped ordinary submit autonomy
 
 - Replaced the model-facing rule that mechanically separated form fill from

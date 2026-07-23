@@ -2862,6 +2862,7 @@ struct CurrentTabGrantRequest {
     owner: TabOwner,
     source: &'static str,
     grant_path: Option<String>,
+    replay_path: Option<String>,
     control_endpoint: Option<DogfoodControlEndpoint>,
 }
 
@@ -2938,7 +2939,7 @@ fn tabs_grant_current_tool(state: &mut McpSessionState, arguments: Value) -> Res
         last_engine: None,
         last_summary: None,
         last_report_path: None,
-        last_replay_path: None,
+        last_replay_path: grant.replay_path.clone(),
         last_actions: Vec::new(),
         last_findings: Vec::new(),
     };
@@ -3229,8 +3230,26 @@ fn current_tab_grant_from_direct_args(arguments: &Value) -> Result<CurrentTabGra
         owner: TabOwner::Human,
         source: "direct_url",
         grant_path: None,
+        replay_path: None,
         control_endpoint: None,
     })
+}
+
+fn replay_path_from_grant(grant_path: &Path, grant: &Value) -> Result<Option<String>> {
+    let Some(raw) = grant.pointer("/artifacts/replay").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    let replay_path = PathBuf::from(raw);
+    if !replay_path.is_absolute() {
+        bail!("grant artifact replay path must be absolute");
+    }
+    if replay_path.parent() != grant_path.parent() {
+        bail!("grant artifact replay path must stay beside the owner-only grant");
+    }
+    Ok(Some(replay_path.display().to_string()))
 }
 
 fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantRequest> {
@@ -3295,6 +3314,7 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         .map(str::trim)
         .unwrap_or("dogfood browser current-tab grant artifact");
     let read_grant = read_grant_from_grant_value(grant.get("read_grant").and_then(Value::as_str))?;
+    let replay_path = replay_path_from_grant(&grant_path, &grant)?;
     Ok(CurrentTabGrantRequest {
         url,
         reason: reason.to_string(),
@@ -3302,6 +3322,7 @@ fn current_tab_grant_from_artifact(arguments: &Value) -> Result<CurrentTabGrantR
         owner,
         source: "grant_artifact",
         grant_path: Some(grant_path.display().to_string()),
+        replay_path,
         control_endpoint,
     })
 }
@@ -4762,6 +4783,15 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
             "verified_receipt_count_matches_hits": results_receipts_match,
         })
     });
+    let artifacts = state
+        .find_tab(tab_id)
+        .map(|tab| {
+            json!({
+                "report": tab.last_report_path.clone(),
+                "replay": tab.last_replay_path.clone(),
+            })
+        })
+        .unwrap_or_else(|| json!({"report": null, "replay": null}));
     let results_settlement_ended = Instant::now();
     Ok(json!({
         "status": outcome.status,
@@ -4799,6 +4829,7 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
         },
         "duration_ms": request_started.elapsed().as_millis(),
         "final_status": final_status,
+        "artifacts": artifacts,
         "agent_layer": {
             "required": true,
             "bound": true,
@@ -9568,6 +9599,29 @@ mod tests {
             manifest.pointer("/path"),
             Some(&json!("/Applications/Saccade.app/host"))
         );
+    }
+
+    #[test]
+    fn grant_replay_path_accepts_only_a_sibling_of_the_owner_grant() {
+        let session = std::env::temp_dir().join("saccade-grant-replay-path-test");
+        let grant_path = session.join("grant.json");
+        let replay_path = session.join("replay.jsonl");
+        let grant = json!({
+            "artifacts": {
+                "replay": replay_path.display().to_string(),
+                "values_logged": false,
+            }
+        });
+        assert_eq!(
+            replay_path_from_grant(&grant_path, &grant).unwrap(),
+            Some(replay_path.display().to_string())
+        );
+
+        let outside = session.join("other").join("replay.jsonl");
+        let outside_grant = json!({
+            "artifacts": {"replay": outside.display().to_string()}
+        });
+        assert!(replay_path_from_grant(&grant_path, &outside_grant).is_err());
     }
 
     #[test]

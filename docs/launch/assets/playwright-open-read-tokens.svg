@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="610" viewBox="0 0 960 610" role="img" aria-labelledby="title desc">
+  <title id="title">Model-facing token cost for the matched example.com open-and-read benchmark</title>
+  <desc id="desc">For the median structured task result, Saccade used 132 tokens and optimized Playwright MCP used 224. For all tool schemas plus the first task result, Saccade used 2,120 and Playwright MCP used 4,242. Lower is better.</desc>
+  <rect width="960" height="610" rx="28" fill="#0b1020"/>
+  <text x="64" y="66" fill="#f7f9fc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="30" font-weight="700">Model-facing token cost</text>
+  <text x="64" y="98" fill="#9aa6bc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="16">Complete MCP result envelopes · o200k_base · lower is better</text>
+
+  <text x="64" y="157" fill="#f7f9fc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="650">Median structured task result</text>
+  <line x1="246" y1="192" x2="876" y2="192" stroke="#344057" stroke-width="2"/>
+  <text x="64" y="238" fill="#c8fff1" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17">Saccade</text>
+  <rect x="246" y="214" width="330" height="38" rx="9" fill="#22c59d"/>
+  <text x="591" y="240" fill="#c8fff1" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="700">132</text>
+  <text x="64" y="295" fill="#ded9ff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17">Playwright MCP</text>
+  <rect x="246" y="271" width="560" height="38" rx="9" fill="#7c6df2"/>
+  <text x="786" y="297" fill="#ffffff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="700" text-anchor="end">224</text>
+
+  <text x="64" y="377" fill="#f7f9fc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="650">Cold context: every tool schema + first task result</text>
+  <line x1="246" y1="412" x2="876" y2="412" stroke="#344057" stroke-width="2"/>
+  <text x="64" y="458" fill="#c8fff1" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17">Saccade</text>
+  <rect x="246" y="434" width="300" height="38" rx="9" fill="#22c59d"/>
+  <text x="561" y="460" fill="#c8fff1" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="700">2,120</text>
+  <text x="64" y="515" fill="#ded9ff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17">Playwright MCP</text>
+  <rect x="246" y="491" width="600" height="38" rx="9" fill="#7c6df2"/>
+  <text x="826" y="517" fill="#ffffff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="700" text-anchor="end">4,242</text>
+
+  <rect x="64" y="556" width="832" height="1" fill="#263148"/>
+  <text x="64" y="584" fill="#9aa6bc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">Same host and task. Common prompt text was omitted equally. This is not a whole-product benchmark.</text>
+</svg>

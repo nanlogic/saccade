@@ -7,16 +7,26 @@ Use this file as the navigation entry point.
 
 Read these first:
 
-1. `docs/PRODUCT_CONTRACT.md` - the engine-neutral product definition and six
+1. [`README.md`](../README.md) - the public project introduction and current
+   release posture.
+2. [`docs/launch/README.md`](launch/README.md) - the web, article, evidence, and
+   Hacker News publication kit.
+3. [`docs/PUBLIC_EVIDENCE_GUIDE.md`](PUBLIC_EVIDENCE_GUIDE.md) - how current
+   claims, reports, replays, and
+   video demonstrations are recorded and published.
+4. [`evidence/README.md`](../evidence/README.md) - curated public evidence
+   packs; these are distinct from raw development runs and historical milestone
+   files.
+5. `docs/PRODUCT_CONTRACT.md` - the engine-neutral product definition and six
    non-negotiable guarantees.
-2. `docs/CURRENT_ACTION_ITEMS.md` - the canonical short execution queue.
-3. `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md` - product strengths,
+6. `docs/CURRENT_ACTION_ITEMS.md` - the canonical short execution queue.
+7. `docs/SACCADE_ADVANTAGES_AND_IMPROVEMENT_CHECKLIST.md` - product strengths,
    evidence status, improvement queue, release gates, and claim boundaries.
-4. `docs/CURRENT_PLAN.md` - the broad product plan; milestone labels may lag the
+8. `docs/CURRENT_PLAN.md` - the broad product plan; milestone labels may lag the
    execution queue.
-5. `docs/next_plan_v5_tracker.md` - normalized historical status and evidence map.
-6. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
-7. `docs/decisions.md` - append-only decision ledger.
+9. `docs/next_plan_v5_tracker.md` - normalized historical status and evidence map.
+10. `docs/browser_compat_ledger.md` - known browser/product compatibility gaps.
+11. `docs/decisions.md` - append-only decision ledger.
 
 ## Current Active Direction
 

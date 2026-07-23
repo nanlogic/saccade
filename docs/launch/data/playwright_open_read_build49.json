@@ -1,0 +1,26 @@
+{
+  "schema": "saccade-public-chart-data-v1",
+  "title": "Matched example.com open-and-read benchmark",
+  "date": "2026-07-18",
+  "host": "Apple Silicon macOS",
+  "iterations": 5,
+  "task": "Open https://example.com and return the main text",
+  "saccade": {
+    "build": 49,
+    "tool_count": 20,
+    "warm_p50_task_ms": 162.755,
+    "median_task_result_tokens": 132,
+    "cold_context_tokens": 2120
+  },
+  "playwright_mcp": {
+    "version": "1.62.0-alpha-1783623505000",
+    "configuration": "--snapshot-mode none",
+    "tool_count": 24,
+    "warm_p50_task_ms": 654.004,
+    "median_task_result_tokens": 224,
+    "cold_context_tokens": 4242
+  },
+  "tokenizer": "o200k_base",
+  "scope": "MCP tool schemas and complete tool results; common user/model text omitted equally",
+  "source": "runs/benchmarks/playwright_parity_build49_evaluate_20260718/report.json"
+}

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">Warm median latency for the matched example.com open-and-read benchmark</title>
+  <desc id="desc">Saccade measured 162.755 milliseconds. Optimized Playwright MCP measured 654.004 milliseconds. Lower is better.</desc>
+  <rect width="960" height="520" rx="28" fill="#0b1020"/>
+  <text x="64" y="66" fill="#f7f9fc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="30" font-weight="700">Open + read latency</text>
+  <text x="64" y="98" fill="#9aa6bc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="16">Warm p50 · 5 sequential runs · lower is better</text>
+  <line x1="238" y1="148" x2="238" y2="414" stroke="#344057" stroke-width="2"/>
+  <line x1="238" y1="414" x2="880" y2="414" stroke="#344057" stroke-width="2"/>
+  <g fill="#78869e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" text-anchor="middle">
+    <text x="238" y="442">0</text>
+    <text x="399" y="442">175</text>
+    <text x="559" y="442">350</text>
+    <text x="720" y="442">525</text>
+    <text x="880" y="442" text-anchor="end">700 ms</text>
+  </g>
+  <g stroke="#263148" stroke-width="1">
+    <line x1="399" y1="148" x2="399" y2="414"/>
+    <line x1="559" y1="148" x2="559" y2="414"/>
+    <line x1="720" y1="148" x2="720" y2="414"/>
+    <line x1="880" y1="148" x2="880" y2="414"/>
+  </g>
+  <g font-family="ui-sans-serif, system-ui, sans-serif">
+    <text x="64" y="228" fill="#f7f9fc" font-size="20" font-weight="650">Saccade</text>
+    <rect x="238" y="190" width="149" height="58" rx="12" fill="#22c59d"/>
+    <text x="405" y="227" fill="#c8fff1" font-size="20" font-weight="700">162.755 ms</text>
+    <text x="64" y="348" fill="#f7f9fc" font-size="20" font-weight="650">Playwright MCP</text>
+    <rect x="238" y="310" width="600" height="58" rx="12" fill="#7c6df2"/>
+    <text x="816" y="347" fill="#ffffff" font-size="20" font-weight="700" text-anchor="end">654.004 ms</text>
+  </g>
+  <rect x="64" y="466" width="832" height="1" fill="#263148"/>
+  <text x="64" y="493" fill="#9aa6bc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">Matched task: open example.com and return its main text. Playwright used --snapshot-mode none.</text>
+</svg>
