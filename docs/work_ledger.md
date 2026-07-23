@@ -703,7 +703,17 @@
   fallback.
 - `cargo test -p saccade-mcp` passed 39/39 with loopback permission. The CEF
   Release build compiled and the signed Build 90 is installed locally. It is
-  not notarized. No video was recorded.
-- Strict real-page 100% remains unconfirmed because the single allowed real run
-  occurred before the final bounded-rescan fix. Do not record or notarize; the
-  next authorized session should perform one normal-page confirmation first.
+  not notarized.
+- Wayne authorized a fresh normal-page confirmation after the bounded-rescan
+  fix. The unrecorded Build 90 run at `https://mouseaccuracy.com/` used Insane,
+  Tiny, and 15 Seconds and strictly passed: 46/46 targets, 100% target
+  efficiency, 46/46 click accuracy, zero misses, score 1544, 46 matching
+  same-WebView native receipts, and p95 fact-to-receipt 6.2 ms. Hot-loop LLM
+  calls and screenshot/external-input fallbacks remained zero.
+- After that strict pass unlocked recording, the same normal-page configuration
+  passed again under macOS screen recording: 46/46 targets, 100% target
+  efficiency, 46/46 click accuracy, zero misses, score 1544, 46 matching native
+  receipts, and p95 6.9 ms. The verified 27.99-second H.264 2880x1800 recording
+  is `runs/real/build90_mouseaccuracy_normal_recording.mov` (18 MB, kept as a
+  local ignored release artifact). Notarization and release submission remain
+  intentionally pending.
