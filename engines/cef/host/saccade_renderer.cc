@@ -43,6 +43,8 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
   let attached = false;
   let lastLayoutSignature = '';
   let layoutRefreshPending = false;
+  let actionRescanFrames = 0;
+  let actionRescanPending = false;
 
   const queryAll = Function.call.bind(Document.prototype.querySelectorAll);
   const getById = Function.call.bind(Document.prototype.getElementById);
@@ -204,6 +206,29 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
     nativeEmit('actions_end', generation, epochNow());
   };
 
+  const runActionRescan = () => {
+    actionRescanPending = false;
+    if (actionRescanFrames <= 0) return;
+    if (layoutRefreshPending) {
+      actionRescanPending = true;
+      requestAnimationFrame(runActionRescan);
+      return;
+    }
+    actionRescanFrames -= 1;
+    safeRun('action_rescan', scanActions);
+    if (actionRescanFrames > 0) {
+      actionRescanPending = true;
+      requestAnimationFrame(runActionRescan);
+    }
+  };
+
+  const scheduleActionRescans = frames => {
+    actionRescanFrames = Math.max(actionRescanFrames, frames);
+    if (actionRescanPending) return;
+    actionRescanPending = true;
+    requestAnimationFrame(runActionRescan);
+  };
+
   const refreshLayout = () => {
     const signature = layoutSignature();
     if (lastLayoutSignature && signature !== lastLayoutSignature) {
@@ -224,10 +249,19 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
     });
   };
 
+  const scheduleObservedRefresh = () => {
+    scheduleLayoutRefresh();
+    // A newly inserted target can be zero-sized during its first CSS animation
+    // frame. MutationObserver will not fire again as transform-only animation
+    // makes it actionable, so perform bounded action-only rescans without
+    // manufacturing layout revisions.
+    scheduleActionRescans(12);
+  };
+
   const attach = () => {
     if (attached || !document.documentElement) return;
     attached = true;
-    const observer = new MutationObserver(scheduleLayoutRefresh);
+    const observer = new MutationObserver(scheduleObservedRefresh);
     observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
@@ -274,6 +308,11 @@ constexpr char kCollectorScript[] = R"SACCADE_JS(
     const misses = Number((/misses=(\d+)/.exec(text) || [0, 0])[1]);
     const finished = /finished=true/.test(text) || hits >= requestedCount;
     nativeEmit('receipt', actionId, clientX, clientY, hits, misses, finished, epochNow());
+    // The page's click handler runs after mouseup and may reuse the same target
+    // node at the same coordinates. Force one post-click scan so the browser
+    // process can distinguish that new occurrence from the receipted one even
+    // when no observable geometry changed.
+    scheduleObservedRefresh();
   }, true);
 
   if (document.documentElement) {

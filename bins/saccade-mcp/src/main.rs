@@ -4701,6 +4701,15 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
                 thread::sleep(Duration::from_millis(50));
                 continue;
             };
+            if final_status
+                .as_ref()
+                .and_then(|status| status.get("collector_ready"))
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
             match call_dogfood_control(
                 &endpoint,
                 "article_text",
@@ -4718,13 +4727,7 @@ fn web_reflex_run_tool(state: &mut McpSessionState, arguments: Value) -> Result<
                         break;
                     }
                 }
-                Err(error)
-                    if is_control_timeout(&error)
-                        || error.to_string().to_ascii_lowercase().contains("stale")
-                        || error
-                            .to_string()
-                            .to_ascii_lowercase()
-                            .contains("layout changed") => {}
+                Err(error) if is_reflex_settlement_transient(&error) => {}
                 Err(error) => return Err(error),
             }
             thread::sleep(Duration::from_millis(50));
@@ -4939,7 +4942,16 @@ fn reflex_destination_ready(status: &Value) -> bool {
 }
 
 fn is_control_timeout(error: &anyhow::Error) -> bool {
-    error.to_string().to_ascii_lowercase().contains("timeout")
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("timeout") || message.contains("timed out")
+}
+
+fn is_reflex_settlement_transient(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    is_control_timeout(error)
+        || message.contains("stale")
+        || message.contains("layout changed")
+        || message.contains("renderer collector is not ready")
 }
 
 fn is_mouseaccuracy_url(url: &Url) -> bool {
@@ -9785,6 +9797,24 @@ mod tests {
         assert!(!reflex_destination_ready(
             &json!({"agent_enabled": false, "collector_ready": true})
         ));
+    }
+
+    #[test]
+    fn reflex_results_settlement_retries_transient_collector_unavailability() {
+        for message in [
+            "control request timed out",
+            "stale page revision",
+            "layout changed while form command was pending",
+            "renderer collector is not ready",
+        ] {
+            assert!(
+                is_reflex_settlement_transient(&anyhow!(message)),
+                "expected transient settlement error: {message}"
+            );
+        }
+        assert!(!is_reflex_settlement_transient(&anyhow!(
+            "native input receipt did not verify"
+        )));
     }
 
     #[test]

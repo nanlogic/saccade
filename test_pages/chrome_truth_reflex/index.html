@@ -6,6 +6,22 @@
     <title>Chrome Truth Reflex POC</title>
     <link rel="stylesheet" href="../selftest.css">
     <style>
+      #reflex-start {
+        position: absolute;
+        left: 600px;
+        top: 360px;
+        z-index: 20;
+      }
+
+      .delayed-target {
+        animation: delayed-target-reveal 1ms step-end 64ms forwards;
+        visibility: hidden;
+      }
+
+      @keyframes delayed-target-reveal {
+        to { visibility: visible; }
+      }
+
       #sensitive-fixture {
         position: absolute;
         left: 12px;
@@ -21,6 +37,7 @@
     </style>
   </head>
   <body>
+    <button id="reflex-start" type="button">START</button>
     <div id="arena"></div>
     <pre id="truth">hits=0 misses=0 spawned=0 finished=false</pre>
     <div id="sensitive-fixture" aria-label="Human sensitive fields">
@@ -29,8 +46,20 @@
     </div>
     <script src="../selftest_targets.js"></script>
     <script>
-      const requestedCount = Number(new URLSearchParams(location.search).get("count") || 30);
-      SaccadeSelftest.domTargets({count: Math.max(1, requestedCount)});
+      const params = new URLSearchParams(location.search);
+      const requestedCount = Number(params.get("count") || 30);
+      SaccadeSelftest.domTargets({
+        count: Math.max(1, requestedCount),
+        delayed: params.get("delayed") === "1",
+      });
+      const startReflex = window.__saccadeStart;
+      window.__saccadeStart = () => {
+        document.getElementById("reflex-start")?.remove();
+        startReflex();
+      };
+      document.getElementById("reflex-start").addEventListener("mousedown", () => {
+        window.__saccadeStart();
+      });
     </script>
   </body>
 </html>

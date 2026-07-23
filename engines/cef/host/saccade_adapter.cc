@@ -1086,13 +1086,13 @@ bool SaccadeAdapter::OnRendererMessage(
       for (const auto& [action_id, fact] : staged_actions_) {
         const auto previous = actions_.find(action_id);
         const auto completed = completed_target_facts_.find(action_id);
-        const bool moved_after_receipt =
+        const bool scanned_after_receipt =
             fact.role == "target" &&
             target_reemit_armed_.find(action_id) !=
                 target_reemit_armed_.end() &&
             completed != completed_target_facts_.end() &&
-            TargetOccurrenceMoved(completed->second, fact);
-        if (previous == actions_.end() || moved_after_receipt) {
+            fact.renderer_epoch_ms > completed->second.renderer_epoch_ms;
+        if (previous == actions_.end() || scanned_after_receipt) {
           if (pending_facts_.size() >= 256) {
             pending_facts_.pop_front();
           }
@@ -1148,7 +1148,7 @@ bool SaccadeAdapter::OnRendererMessage(
       receipt.observed_layout_epoch = layout_epoch_;
       bool added = false;
       if (action->second.role == "target") {
-        const TargetFact completed_fact = action->second;
+        TargetFact completed_fact = action->second;
         const auto current = actions_.find(receipt.action_id);
         const bool current_already_pending =
             current != actions_.end() &&
@@ -1168,6 +1168,10 @@ bool SaccadeAdapter::OnRendererMessage(
           completed_target_facts_.erase(receipt.action_id);
           added = true;
         } else if (current != actions_.end() && !current_already_pending) {
+          // Use the receipt time as a causal barrier. A later renderer scan is
+          // a post-click occurrence even when the page deliberately reuses the
+          // same DOM id, size, and center.
+          completed_fact.renderer_epoch_ms = receipt.renderer_epoch_ms;
           completed_target_facts_[receipt.action_id] = completed_fact;
           target_reemit_armed_.insert(receipt.action_id);
         }

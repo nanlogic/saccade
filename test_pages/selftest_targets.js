@@ -38,7 +38,7 @@
       }
       const [x, y] = positions[state.spawned % positions.length];
       const button = document.createElement("button");
-      button.className = "target";
+      button.className = options.delayed ? "target delayed-target" : "target";
       button.style.left = `${x}px`;
       button.style.top = `${y}px`;
       button.setAttribute("aria-label", "target");
@@ -85,7 +85,9 @@
         truth(state);
         return;
       }
-      const [x, y] = positions[state.spawned % positions.length];
+      const [x, y] = options.stationary
+        ? positions[0]
+        : positions[state.spawned % positions.length];
       button.style.left = `${x}px`;
       button.style.top = `${y}px`;
       button.style.display = "block";

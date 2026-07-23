@@ -2735,3 +2735,20 @@
   run, moving it after every hit. Both that path and the original remove/create
   path must produce 100 hits, zero misses, 100 matching native receipts, and no
   CDP or screenshot fallback.
+
+## DECISION_PRODUCT_091 - Bound action rescans across CSS-only target reveals
+
+- A DOM mutation can insert a target while its first rendered animation frame
+  is still hidden or zero-sized. Transform/visibility animation then makes it
+  actionable without another mutation, so a one-shot MutationObserver scan can
+  miss the entire occurrence even though later targets continue normally.
+- The renderer now performs at most 12 action-only rAF rescans after an observed
+  mutation or native receipt. These scans do not manufacture layout revisions;
+  if a real layout refresh is pending, they yield until that revision settles
+  so no stale fact can escape ahead of it.
+- A receipt timestamp is the causal barrier for a reused target occurrence. A
+  later renderer scan may re-emit the same action ID even when its center and
+  size are unchanged. Repeated scans before the receipt remain deduplicated.
+- MouseAccuracy result settlement treats temporary collector unavailability as
+  retryable inside its bounded results window. Native receipt mismatches and
+  other non-transient errors still fail closed.

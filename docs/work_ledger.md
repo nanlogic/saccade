@@ -680,3 +680,30 @@
 - Validation: `cargo fmt --all -- --check`; `cargo test -p saccade_core` 12/12;
   `cargo test -p saccade-mcp` 37/37; `cargo test -p saccade-servoshell`
   15/15; `cargo test -p saccade_engine_api` 5/5; `git diff --check`.
+
+## 2026-07-23 - macOS MouseAccuracy final fact-stream timing diagnosis
+
+- Build 88 added receipt-barrier re-emission for a reused target at the same
+  coordinate and made results-page collector unavailability retryable. Local
+  Saccade MCP gates passed 100/100 with zero misses for remove/create,
+  same-ID moving, and same-ID stationary targets.
+- The one permitted real normal-page confirmation used the persisted Insane,
+  Tiny, 15 Seconds settings. It completed with 44/46 targets, 44/44 clicks,
+  zero click misses, score 1464, and p95 fact-to-receipt 7.5 ms. Results truth
+  and latency settlement returned normally instead of `SACCADE_INTERNAL`.
+- The replay showed the two missing occurrences were interspersed rather than a
+  permanent stream stop. A local CSS-only delayed-visibility fixture reproduced
+  the remaining race on Build 88: 0/10 receipts because the first mutation scan
+  saw a hidden target and pure CSS animation emitted no second mutation.
+- Build 90 adds 12 bounded action-only rAF rescans, ordered behind any pending
+  layout refresh. Saccade MCP local results: remove/create 100/100, p95 3.4 ms;
+  CSS-delayed reveal 100/100, p95 4.1 ms; same-ID moving 100/100, p95 3.3 ms;
+  same-ID stationary 100/100, p95 3.6 ms. Every run had zero misses, matching
+  native receipts, zero hot-loop LLM calls, and no screenshot/external-input
+  fallback.
+- `cargo test -p saccade-mcp` passed 39/39 with loopback permission. The CEF
+  Release build compiled and the signed Build 90 is installed locally. It is
+  not notarized. No video was recorded.
+- Strict real-page 100% remains unconfirmed because the single allowed real run
+  occurred before the final bounded-rescan fix. Do not record or notarize; the
+  next authorized session should perform one normal-page confirmation first.
