@@ -1,0 +1,57 @@
+{
+  "catalog_version": 1,
+  "controls": [
+    {
+      "id": "button",
+      "role": "button",
+      "implementation_family": "button",
+      "safe_state": ["enabled", "pressed", "expanded"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "button_effect",
+      "limitations": ["A delivered click is unverified unless navigation or pressed/expanded state changes."],
+      "fixtures": ["fixtures/controls/button.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "text_field",
+      "role": "text_field",
+      "implementation_family": "editable",
+      "safe_state": ["has_value", "enabled", "required", "readonly", "invalid"],
+      "affordances": ["type"],
+      "native_primitive": "unicode_text",
+      "verifier": "has_value",
+      "limitations": ["Contents are never disclosed; protected fields reject Agent type."],
+      "fixtures": ["fixtures/controls/text_field.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "checkbox",
+      "role": "checkbox",
+      "implementation_family": "toggle",
+      "safe_state": ["checked", "enabled", "required", "invalid"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "checked_transition",
+      "limitations": [],
+      "fixtures": ["fixtures/controls/checkbox.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "select",
+      "role": "select",
+      "implementation_family": "choice",
+      "safe_state": ["has_value", "enabled", "required", "invalid", "expanded"],
+      "affordances": ["select"],
+      "native_primitive": "select_option",
+      "verifier": "option_selected",
+      "limitations": ["Option submitted values are never disclosed; selection uses an option object identity."],
+      "fixtures": ["fixtures/controls/select.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    }
+  ]
+}

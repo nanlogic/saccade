@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://saccade.dev/schemas/profile-v1.json",
+  "title": "Saccade Profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "behavior", "ban"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "behavior": {
+      "type": "string",
+      "maxLength": 16384
+    },
+    "ban": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["control"],
+        "properties": {
+          "control": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "condition": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        }
+      }
+    }
+  }
+}

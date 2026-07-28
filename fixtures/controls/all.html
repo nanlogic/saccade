@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Saccade four-control fixture</title>
+    <style>
+      body { font: 16px system-ui; margin: 48px; }
+      main { display: grid; gap: 24px; max-width: 420px; }
+      label { display: grid; gap: 8px; }
+      button, input, select { font: inherit; min-height: 40px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <button id="save" type="button" aria-pressed="false">Save</button>
+      <label>Email <input id="email" type="email" required></label>
+      <label><input id="remember" type="checkbox"> Remember me</label>
+      <label>Color
+        <select id="color">
+          <option>Red</option>
+          <option>Blue</option>
+        </select>
+      </label>
+    </main>
+    <script>
+      document.getElementById('save').addEventListener('click', (event) => {
+        const button = event.currentTarget;
+        button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
+      });
+    </script>
+  </body>
+</html>

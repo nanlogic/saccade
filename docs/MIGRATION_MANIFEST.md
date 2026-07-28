@@ -1,0 +1,70 @@
+# Migration manifest
+
+This clean branch starts from `main` commit `8c4defb3f8b0` but intentionally
+does not carry the old tree forward wholesale. The original worktree remains a
+read-only source until each component is reviewed and migrated.
+
+## Approved to migrate
+
+| Area | Historical/current source | Destination | Rule |
+| --- | --- | --- | --- |
+| Observation and action types | `crates/saccade_protocol` plus current uncommitted contract-aligned changes | `crates/saccade_protocol` | Preserve only `saccade.observation/1` and `saccade-extension-host/1`; migrate tests with code. |
+| Extension ACL and consent | `extension/src/service_worker.js`, consent/storage helpers and tests | `extension/src` | Preserve agent-owned/user-shared isolation and session ACL. |
+| Extension observation | current `extension/src/collector.js`, `truth.js`, protocol helpers | `extension/src/controls` and collector | Move through Registry modules; do not copy monolithic classification as the final design. |
+| Native Messaging | current `bins/saccade-host` framing/session code | `crates/saccade_runtime` + `saccade-runtime native-host` | Preserve framing and validation; separate mode from shared runtime. |
+| MCP adapter | current `bins/saccade-mcp` | `saccade-runtime mcp` | Keep a strict adapter; no browser semantics in MCP. |
+| macOS input | current `bins/saccade-host/src/input/macos.rs` | runtime platform input | Preserve real CoreGraphics events and Accessibility checks; add missing primitives and semantic verifiers. |
+| Windows input | current `bins/saccade-host/src/input/windows.rs` | runtime platform input | Preserve `SendInput`; add missing primitives and semantic verifiers. |
+| Protected fill | current Extension + Host protected-value path | runtime/Extension | Values must never enter MCP, observations, audit, diagnostics, or artifacts. |
+| Installer/repair | current `installer`, packaging scripts and accepted DMG evidence | `installers/macos`, `installers/windows` | Migrate only after runtime paths/modes stabilize. |
+| Contract and coverage inventory | current working-tree docs | `docs` and later generated Catalog output | Contract stays normative; matrix stays evidence-oriented and must eventually be generated. |
+
+## Research/reference only
+
+| Area | Source | Permitted reuse |
+| --- | --- | --- |
+| CEF form/control work | historical CEF renderer/form scripts and reports | Semantics, fixtures, evidence patterns, and bounded algorithms only. |
+| PixelDetector/fusion/tracker | retired `saccade_detect` and reports | Optional detector research with explicit provenance; no production dependency. |
+| Canvas2D/WebGL probes | historical scripts and reports | Diagnostics, fixtures, and semantic-bridge design input. |
+| MouseMax/FormMax benchmarks | retired bins/reports | Conformance fixtures or archived benchmark evidence. |
+
+## Do not migrate
+
+- CEF or Servo browser shells, renderer bindings, engine IPC, browser-engine
+  profiles, patches, release packaging, or native input. This does not refer to
+  the three-field user Profiles in `PROFILE_ARCHITECTURE.md`.
+- Retired browser abstraction, replay, benchmark, or site-specific production
+  routes.
+- Compatibility protocols, alternate schemas, direct-coordinate tools, or
+  automatic Playwright/CDP/vision fallbacks.
+- Large historical plan/report trees into the default product workspace.
+
+## Migration sequence
+
+1. Create the minimal Rust/Extension/test skeleton and architecture gate.
+2. Add the Control Catalog schema and Markdown generator.
+3. Consolidate Host/MCP shared code behind one runtime binary with two modes.
+4. Migrate ACL, observation identity, token, revision, Native Messaging, and
+   owner-only IPC tests. See `docs/migrations/0002_runtime_route.md` and
+   `docs/migrations/0003_extension_managed_chrome.md`.
+5. Implement button, text-field, checkbox, and select module loops, then run
+   the isolated macOS Chrome for Testing development gate.
+6. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+   installation/action gates.
+7. Freeze Control SDK v1, then migrate the remaining common controls.
+8. Add truthful basic coverage for uncommon controls.
+9. Consider Canvas/WebGL semantic bridges before any detector capability.
+
+## Per-component acceptance record
+
+Every migrated component must record:
+
+- source commit and path;
+- destination module;
+- behavior intentionally retained or dropped;
+- unit/static checks;
+- native integration evidence where applicable;
+- value-leak scan;
+- public Catalog/matrix status.
+
+Nothing is migrated merely because it existed in the old tree.
