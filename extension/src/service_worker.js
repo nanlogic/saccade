@@ -51,7 +51,12 @@ async function connectHost() {
     if (!browserInstanceId) await initialize();
     const port = chrome.runtime.connectNative(NATIVE_HOST);
     nativePort = port;
-    port.onDisconnect.addListener(() => { if (nativePort === port) nativePort = undefined; scheduleReconnect(); });
+    port.onDisconnect.addListener(() => {
+      const detail = chrome.runtime.lastError?.message;
+      if (detail) console.error(`Saccade Native Host disconnected: ${detail}`);
+      if (nativePort === port) nativePort = undefined;
+      scheduleReconnect();
+    });
     port.onMessage.addListener((message) => {
       const command = parseHostMessage(message);
       if (!command) return;
@@ -126,9 +131,11 @@ async function handleHostCommand(command) {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId) || sessions.get(tabId)?.last?.document_id !== payload.document_id) throw new Error('tab observation is not current');
     const tab = await chrome.tabs.get(tabId);
-    await chrome.windows.update(tab.windowId, { focused: true });
-    await chrome.tabs.update(tabId, { active: true });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const browserWindow = await chrome.windows.get(tab.windowId);
+    let focusChanged = false;
+    if (!browserWindow.focused) { await chrome.windows.update(tab.windowId, { focused: true }); focusChanged = true; }
+    if (!tab.active) { await chrome.tabs.update(tabId, { active: true }); focusChanged = true; }
+    if (focusChanged) await new Promise((resolve) => setTimeout(resolve, 100));
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.prepare_action', request: payload }, { frameId: 0 });
     if (!result?.ok) throw new Error(result?.error || 'action preparation failed');
     reply(command, result.prepared);

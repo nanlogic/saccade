@@ -173,7 +173,7 @@ def open_fixture(mcp: Mcp, url: str) -> dict[str, Any]:
     return wait_observation(mcp, opened["tab_id"])
 
 
-def controls(mcp: Mcp, url: str) -> dict[str, Any]:
+def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     capabilities = mcp.tool("system.capabilities", {})
     observation = open_fixture(mcp, url)
     initial = observation
@@ -230,6 +230,7 @@ def controls(mcp: Mcp, url: str) -> dict[str, Any]:
     receipts.append(receipt)
     evidence = {
         "mode": "controls",
+        "browser": browser,
         "capabilities": capabilities,
         "initial_observation": initial,
         "receipts": receipts,
@@ -240,19 +241,25 @@ def controls(mcp: Mcp, url: str) -> dict[str, Any]:
     return evidence
 
 
-def profile(mcp: Mcp, url: str) -> dict[str, Any]:
+def profile(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     instructions = mcp.initialize.get("instructions", "")
     if "Saccade profile integration test." not in instructions:
         raise RuntimeError("Profile behavior was not placed in MCP instructions")
     observation = open_fixture(mcp, url)
     if any(item.get("name") == "Save" for item in observation["objects"]):
         raise RuntimeError("Profile-banned Save control reached MCP")
-    return {"mode": "profile", "initialize": mcp.initialize, "observation": observation}
+    return {
+        "mode": "profile",
+        "browser": browser,
+        "initialize": mcp.initialize,
+        "observation": observation,
+    }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=["controls", "profile"])
+    parser.add_argument("--browser", choices=["chrome", "edge"], required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path, required=True)
     parser.add_argument("--url", required=True)
@@ -262,7 +269,11 @@ def main() -> None:
     try:
         mcp = wait_for_mcp(args.runtime.resolve(), args.runtime_dir.resolve())
         try:
-            evidence = controls(mcp, args.url) if args.mode == "controls" else profile(mcp, args.url)
+            evidence = (
+                controls(mcp, args.url, args.browser)
+                if args.mode == "controls"
+                else profile(mcp, args.url, args.browser)
+            )
         finally:
             mcp.close()
         result = {"ok": True, **evidence}
@@ -270,6 +281,7 @@ def main() -> None:
         result = {
             "ok": False,
             "mode": args.mode,
+            "browser": args.browser,
             "error": str(error).replace(TEXT_SENTINEL, "[textfield content removed]"),
         }
     encoded = json.dumps(result, indent=2)

@@ -60,6 +60,20 @@ test('open ownership precedes response and fast-complete tabs still start collec
 test('prepare checks the revision basis after tab activation and focus', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(worker, /if \(!browserWindow\.focused\).*chrome\.windows\.update/s);
+  assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
   assert.match(collector, /request\.basis_revision !== revision/);
+});
+
+test('managed Chrome and Edge routes share one protocol and keep browser evidence separate', () => {
+  const dev = fs.readFileSync(path.join(__dirname, '../../scripts/dev.sh'), 'utf8');
+  const probe = fs.readFileSync(path.join(__dirname, '../../scripts/dev_probe.py'), 'utf8');
+  const host = fs.readFileSync(path.join(__dirname, '../../scripts/dev/com.nanlogic.saccade.dev.json.in'), 'utf8');
+  assert.match(dev, /Microsoft Edge\/NativeMessagingHosts/);
+  assert.match(dev, /test \[chrome\|edge\|all\]/);
+  assert.match(dev, /EVIDENCE_DIR\/\$test_stamp\/\$test_browser/);
+  assert.match(probe, /--browser/);
+  assert.match(probe, /"browser": browser/);
+  assert.match(host, /chrome-extension:\/\/bobfbgjplflcigednmccmbhlgclomgod\//);
 });

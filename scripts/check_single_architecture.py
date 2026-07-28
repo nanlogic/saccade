@@ -64,6 +64,9 @@ def main() -> None:
     require("extension/src/collector.js", "option_object_id")
     require("scripts/dev.sh", "--load-extension")
     require("scripts/dev.sh", "dev_probe.py")
+    require("scripts/dev.sh", "Microsoft Edge/NativeMessagingHosts")
+    require("scripts/dev.sh", 'test_route "${2:-chrome}"')
+    require("scripts/dev_probe.py", '"browser": browser')
     extension_manifest = json.loads(
         (ROOT / "extension/manifest.json").read_text(encoding="utf-8")
     )

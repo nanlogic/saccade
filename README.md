@@ -18,8 +18,8 @@ browser storage.
 ## Status
 
 Saccade is pre-release. The first vertical slice runs through the complete
-Extension → Native Host → Runtime → MCP route on a managed macOS Chrome for
-Testing profile.
+Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
+Testing and Microsoft Edge profiles.
 
 | Control | Action | Verified postcondition |
 | --- | --- | --- |
@@ -28,10 +28,10 @@ Testing profile.
 | Checkbox | native click | checked state changes |
 | Select | native selection by option identity | requested option becomes selected |
 
-The development run also covers stale-token rejection, Profile behavior,
-Profile bans, and editable-value leak checks. Catalog entries remain
-`implementation` until Chrome and Edge pass the release gate for the same
-candidate. Saccade does not ship a consumer installer yet.
+The paired development run covers stale-token rejection, Profile behavior,
+Profile bans, and editable-value leak checks in both browsers. Catalog entries
+remain `implementation` until Chrome and Edge pass the release gate for the
+same candidate. Saccade does not ship a consumer installer yet.
 
 See the [generated coverage table](docs/generated/control_coverage.md) for the
 current Registry and [control roadmap](docs/CONTROL_ROADMAP.md) for the planned
@@ -60,9 +60,11 @@ The managed development environment uses its own browser profile, Extension
 identity, Native Messaging manifest, Runtime app, and fixture server.
 
 ```sh
-./scripts/dev.sh up
+./scripts/dev.sh up chrome
 ./scripts/dev.sh status
-./scripts/dev.sh test
+./scripts/dev.sh test chrome
+./scripts/dev.sh test edge
+./scripts/dev.sh test all
 ./scripts/dev.sh down
 ```
 
@@ -70,6 +72,14 @@ The first `up` may download Chrome for Testing, request macOS Accessibility,
 and request administrator approval for the Chrome for Testing Native Messaging
 manifest. `down` stops recorded development processes and restores the prior
 Codex MCP configuration.
+
+The Edge route uses the stable app at `/Applications/Microsoft Edge.app` and a
+separate Saccade browser profile. Set `SACCADE_EDGE_PATH` when the executable
+lives elsewhere. Chrome and Edge run one at a time so one browser instance owns
+the Host session. `test all` runs them in sequence and writes evidence under
+separate `chrome/` and `edge/` directories. `up` synchronizes the Extension and
+fixtures into the fixed Saccade Dev directory before launch so macOS TCC does
+not make the managed jobs depend on repository-folder access.
 
 `test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits

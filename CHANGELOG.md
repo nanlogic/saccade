@@ -11,6 +11,7 @@ the clean public repository.
 - the Extension → Native Host → Runtime → MCP production route;
 - native macOS and Windows input adapters;
 - managed macOS Chrome for Testing development and evidence commands;
+- managed macOS Edge development with isolated profiles and evidence;
 - three-field Profiles with Agent behavior and named-control bans;
 - stale, replay, focus, coverage, postcondition, and value-leak checks.
 

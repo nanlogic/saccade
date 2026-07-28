@@ -50,11 +50,12 @@ approved component at a time and record its provenance below.
    `docs/migrations/0003_extension_managed_chrome.md`.
 5. Implement button, text-field, checkbox, and select module loops, then run
    the isolated macOS Chrome for Testing development gate.
-6. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
-   installation/action gates.
+6. Run the managed macOS Chrome and Edge gate.
 7. Freeze Control SDK v1, then migrate the remaining common controls.
-8. Add truthful basic coverage for uncommon controls.
-9. Consider Canvas/WebGL semantic bridges before any detector capability.
+8. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+   installation/action gates before publication.
+9. Add truthful basic coverage for uncommon controls.
+10. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 

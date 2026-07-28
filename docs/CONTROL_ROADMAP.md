@@ -25,10 +25,17 @@ candidate.
 
 Controls: button, text field, checkbox, select, and select options.
 
+Status: SDK v1 development freeze complete on 2026-07-28.
+
 The macOS Chrome for Testing development route has verified all four loops.
-Before the SDK contract freezes, run the same candidate through Edge, finish
-the clean signed-product gate, and record artifacts in the Catalog. Keep stale,
-replay, covered, focus, navigation, Profile-ban, and value-leak checks green.
+The managed Edge route uses the same Extension source, Host protocol, Runtime,
+MCP tools, native input, fixtures, and probe. `./scripts/dev.sh test all` runs
+both browser profiles in sequence and separates their evidence. Paired run
+`20260728T224742Z` passed both browsers on one source candidate and froze the
+module contract. The clean signed-product, Windows, and release gates remain
+open, so Catalog evidence and publication status stay `pending` and
+`implementation`. Keep stale, replay, covered, focus, navigation, Profile-ban,
+and value-leak checks green.
 
 ## Batch 1: editable controls
 
@@ -89,5 +96,5 @@ The Runtime still needs these release tracks:
 - release manifests, SBOM, checksums, versioning, and evidence publishing;
 - bounded performance, long-session, navigation, frame, and restart tests.
 
-The team completes Batch 0 before merging Batch 1. Later batches can reuse the
-frozen SDK without changing the production route or Profile schema.
+Batch 1 can now reuse the frozen SDK without changing the production route or
+Profile schema. Batch 0 release work continues in the product tracks above.

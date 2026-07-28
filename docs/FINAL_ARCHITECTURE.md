@@ -145,10 +145,11 @@ version.
 
 ## First proof slice
 
-Before broad migration, implement Catalog + Registry + Runtime boundaries and
-four representative loops: button, text field, checkbox, and select. Freeze the
-public SDK contract only after all four pass stale, permission, focus, topmost,
-redaction, native-input, postcondition, receipt, Chrome, and Edge gates.
+The first Catalog + Registry + Runtime slice contains button, text field,
+checkbox, and select. The SDK v1 module contract froze after all four passed
+stale, permission, focus, topmost, redaction, native-input, postcondition,
+receipt, Chrome, and Edge development gates on the same source candidate.
+Catalog publication still requires signed-product and release evidence.
 
 ## Non-goals
 

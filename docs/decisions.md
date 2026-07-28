@@ -53,3 +53,17 @@ available. `catalog/profile.schema.json` defines the public JSON.
 Accepted: `saccade.observation/1` and `saccade-extension-host/1` remain
 unchanged. The Runtime exposes the active Profile name and behavior through
 `saccade.system.capabilities` as `saccade.capabilities/4`.
+
+## 2026-07-28: First Control SDK slice frozen
+
+Accepted: the SDK v1 module boundary, Catalog fields, Registry dispatch,
+finite native primitives, and verifier contract are frozen for button, text
+field, checkbox, and select. Paired managed macOS run `20260728T224742Z`
+verified click, type, click, and select in Chrome for Testing and Microsoft Edge
+through the same Extension, Native Host, Runtime, MCP, and native-input route.
+
+Accepted: local development evidence freezes the engineering contract but does
+not publish support. Catalog rows remain `implementation` with browser evidence
+`pending` until signed-product and release-candidate gates pass. Later control
+families extend the Catalog and Registry without changing Profile fields or the
+two v1 wire schemas.

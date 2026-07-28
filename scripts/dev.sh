@@ -10,11 +10,15 @@ RUNTIME_DIR="$DEV_ROOT/runtime"
 STATE_DIR="$DEV_ROOT/state"
 LOG_DIR="$DEV_ROOT/logs"
 EVIDENCE_DIR="$DEV_ROOT/evidence"
+FIXTURE_ROOT="$DEV_ROOT/fixture-root"
+EXTENSION_ROOT="$DEV_ROOT/extension"
 CHROME_PROFILE="$DEV_ROOT/chrome-profile"
+EDGE_PROFILE="$DEV_ROOT/edge-profile"
 CHROME_CACHE="$HOME/Library/Caches/Saccade Dev/chrome-for-testing"
 HOST_DIR="$HOME/Library/Application Support/Google/Chrome for Testing/NativeMessagingHosts"
 HOST_DIR_COMPACT="$HOME/Library/Application Support/Google/ChromeForTesting/NativeMessagingHosts"
 HOST_DIR_CHROME="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+HOST_DIR_EDGE="$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
 SYSTEM_HOST_DIR="/Library/Google/ChromeForTesting/NativeMessagingHosts"
 SYSTEM_HOST_MANIFEST="$SYSTEM_HOST_DIR/com.nanlogic.saccade.dev.json"
 RUNTIME="$RUNTIME_MACOS/saccade-runtime"
@@ -24,36 +28,110 @@ PROFILE_BACKUP="$STATE_DIR/profile-before-test.json"
 PROFILE_MISSING="$STATE_DIR/profile-was-missing"
 
 mkdirs() {
-  mkdir -p "$BIN_DIR" "$RUNTIME_MACOS" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$CHROME_PROFILE"
-  chmod 700 "$DEV_ROOT" "$BIN_DIR" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$CHROME_PROFILE"
+  mkdir -p "$BIN_DIR" "$RUNTIME_MACOS" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$FIXTURE_ROOT" "$EXTENSION_ROOT" "$CHROME_PROFILE" "$EDGE_PROFILE"
+  chmod 700 "$DEV_ROOT" "$BIN_DIR" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$FIXTURE_ROOT" "$EXTENSION_ROOT" "$CHROME_PROFILE" "$EDGE_PROFILE"
   chmod 755 "$RUNTIME_APP" "$RUNTIME_APP/Contents" "$RUNTIME_MACOS"
 }
 
+require_browser() {
+  case "$1" in
+    chrome|edge) ;;
+    *) printf '%s\n' "browser must be chrome or edge" >&2; exit 2 ;;
+  esac
+}
+
+browser_pid_file() {
+  printf '%s/%s.pid\n' "$STATE_DIR" "$1"
+}
+
+browser_path_file() {
+  printf '%s/%s-path\n' "$STATE_DIR" "$1"
+}
+
+browser_job_label() {
+  printf 'com.nanlogic.saccade.dev.%s\n' "$1"
+}
+
+browser_job_target() {
+  printf 'gui/%s/%s\n' "$(id -u)" "$(browser_job_label "$1")"
+}
+
+browser_job_loaded() {
+  launchctl print "$(browser_job_target "$1")" >/dev/null 2>&1
+}
+
+fixture_job_label() {
+  printf '%s\n' 'com.nanlogic.saccade.dev.fixture'
+}
+
+fixture_job_target() {
+  printf 'gui/%s/%s\n' "$(id -u)" "$(fixture_job_label)"
+}
+
+fixture_job_loaded() {
+  launchctl print "$(fixture_job_target)" >/dev/null 2>&1
+}
+
+browser_profile() {
+  case "$1" in
+    chrome) printf '%s\n' "$CHROME_PROFILE" ;;
+    edge) printf '%s\n' "$EDGE_PROFILE" ;;
+  esac
+}
+
+other_browser() {
+  case "$1" in
+    chrome) printf '%s\n' edge ;;
+    edge) printf '%s\n' chrome ;;
+  esac
+}
+
 pid_alive() {
-  pid_file=$1
-  [ -f "$pid_file" ] || return 1
-  pid=$(sed -n '1p' "$pid_file")
-  case "$pid" in
+  pid_alive_file=$1
+  [ -f "$pid_alive_file" ] || return 1
+  pid_alive_pid=$(sed -n '1p' "$pid_alive_file")
+  case "$pid_alive_pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
-  kill -0 "$pid" 2>/dev/null
+  kill -0 "$pid_alive_pid" 2>/dev/null
 }
 
 stop_pid() {
-  pid_file=$1
-  if pid_alive "$pid_file"; then
-    pid=$(sed -n '1p' "$pid_file")
-    kill "$pid"
-    count=0
-    while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 50 ]; do
+  stop_pid_file=$1
+  if pid_alive "$stop_pid_file"; then
+    stop_pid_pid=$(sed -n '1p' "$stop_pid_file")
+    kill "$stop_pid_pid" 2>/dev/null || true
+    stop_pid_count=0
+    while kill -0 "$stop_pid_pid" 2>/dev/null && [ "$stop_pid_count" -lt 50 ]; do
       sleep 0.1
-      count=$((count + 1))
+      stop_pid_count=$((stop_pid_count + 1))
     done
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid"
+    if kill -0 "$stop_pid_pid" 2>/dev/null; then
+      kill -9 "$stop_pid_pid" 2>/dev/null || true
     fi
   fi
-  rm -f "$pid_file"
+  rm -f "$stop_pid_file"
+}
+
+clear_browser_singletons() {
+  singleton_browser=$1
+  [ "$singleton_browser" = edge ] || return 0
+  singleton_profile=$(browser_profile "$singleton_browser")
+  for singleton_name in SingletonSocket SingletonCookie SingletonLock; do
+    singleton_path="$singleton_profile/$singleton_name"
+    if [ -L "$singleton_path" ]; then
+      unlink "$singleton_path"
+    fi
+  done
+}
+
+stop_browser() {
+  stop_browser_name=$1
+  if browser_job_loaded "$stop_browser_name"; then
+    launchctl remove "$(browser_job_label "$stop_browser_name")"
+  fi
+  stop_pid "$(browser_pid_file "$stop_browser_name")"
+  clear_browser_singletons "$stop_browser_name"
 }
 
 find_codex() {
@@ -113,7 +191,7 @@ install_runtime() {
 }
 
 install_native_manifest() {
-  for host_dir in "$HOST_DIR" "$HOST_DIR_COMPACT" "$HOST_DIR_CHROME"; do
+  for host_dir in "$HOST_DIR" "$HOST_DIR_COMPACT" "$HOST_DIR_CHROME" "$HOST_DIR_EDGE"; do
     mkdir -p "$host_dir"
     host_manifest="$host_dir/com.nanlogic.saccade.dev.json"
     python3 - "$ROOT/scripts/dev/com.nanlogic.saccade.dev.json.in" "$host_manifest" "$RUNTIME" <<'PY'
@@ -143,30 +221,140 @@ ensure_chrome() {
   printf '%s\n' "$chrome" > "$STATE_DIR/chrome-path"
 }
 
+ensure_edge() {
+  edge=${SACCADE_EDGE_PATH:-}
+  if [ -z "$edge" ]; then
+    for candidate in \
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
+      "$HOME/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+    do
+      if [ -x "$candidate" ]; then
+        edge=$candidate
+        break
+      fi
+    done
+  fi
+  if [ -z "$edge" ] || [ ! -x "$edge" ]; then
+    printf '%s\n' "Microsoft Edge is not installed. Install the stable macOS app or set SACCADE_EDGE_PATH." >&2
+    exit 1
+  fi
+  printf '%s\n' "$edge" > "$STATE_DIR/edge-path"
+}
+
+ensure_browser() {
+  require_browser "$1"
+  case "$1" in
+    chrome) ensure_chrome ;;
+    edge) ensure_edge ;;
+  esac
+}
+
 start_fixture() {
   if pid_alive "$STATE_DIR/fixture.pid"; then
     return
   fi
-  nohup python3 -m http.server 8765 --bind 127.0.0.1 --directory "$ROOT" \
-    >"$LOG_DIR/fixture.log" 2>&1 &
-  printf '%s\n' "$!" > "$STATE_DIR/fixture.pid"
+  if fixture_job_loaded; then
+    launchctl remove "$(fixture_job_label)"
+  fi
+  launchctl submit \
+    -l "$(fixture_job_label)" \
+    -o "$LOG_DIR/fixture.stdout.log" \
+    -e "$LOG_DIR/fixture.log" \
+    -- /usr/bin/python3 -m http.server 8765 --bind 127.0.0.1 --directory "$FIXTURE_ROOT"
+  fixture_count=0
+  fixture_pid=
+  while [ "$fixture_count" -lt 50 ]; do
+    fixture_pid=$(launchctl print "$(fixture_job_target)" 2>/dev/null \
+      | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | sed -n '1p')
+    [ -n "$fixture_pid" ] && break
+    sleep 0.1
+    fixture_count=$((fixture_count + 1))
+  done
+  if [ -z "$fixture_pid" ]; then
+    printf '%s\n' 'launchd did not report a PID for the fixture server' >&2
+    exit 1
+  fi
+  printf '%s\n' "$fixture_pid" > "$STATE_DIR/fixture.pid"
+  fixture_ready_count=0
+  while [ "$fixture_ready_count" -lt 50 ]; do
+    if curl -fsS -o /dev/null "$FIXTURE_URL" 2>/dev/null; then
+      return
+    fi
+    sleep 0.1
+    fixture_ready_count=$((fixture_ready_count + 1))
+  done
+  printf '%s\n' 'fixture server did not become ready' >&2
+  exit 1
 }
 
-start_chrome() {
-  if pid_alive "$STATE_DIR/chrome.pid"; then
+install_fixtures() {
+  mkdir -p "$FIXTURE_ROOT/fixtures"
+  cp -R "$ROOT/fixtures/." "$FIXTURE_ROOT/fixtures/"
+  chmod -R u=rwX,go= "$FIXTURE_ROOT/fixtures"
+}
+
+install_extension() {
+  cp -R "$ROOT/extension/." "$EXTENSION_ROOT/"
+  chmod -R u=rwX,go= "$EXTENSION_ROOT"
+}
+
+stop_fixture() {
+  if fixture_job_loaded; then
+    launchctl remove "$(fixture_job_label)"
+  fi
+  stop_pid "$STATE_DIR/fixture.pid"
+}
+
+start_browser() {
+  start_browser_name=$1
+  require_browser "$start_browser_name"
+  start_browser_pid_file=$(browser_pid_file "$start_browser_name")
+  start_browser_inactive=$(other_browser "$start_browser_name")
+  stop_browser "$start_browser_inactive"
+  if pid_alive "$start_browser_pid_file"; then
     return
   fi
-  chrome=$(sed -n '1p' "$STATE_DIR/chrome-path")
-  nohup "$chrome" \
-    --user-data-dir="$CHROME_PROFILE" \
-    --load-extension="$ROOT/extension" \
-    --disable-extensions-except="$ROOT/extension" \
+  if browser_job_loaded "$start_browser_name"; then
+    launchctl remove "$(browser_job_label "$start_browser_name")"
+  fi
+  clear_browser_singletons "$start_browser_name"
+  start_browser_executable=$(sed -n '1p' "$(browser_path_file "$start_browser_name")")
+  start_browser_profile=$(browser_profile "$start_browser_name")
+  start_browser_label=$(browser_job_label "$start_browser_name")
+  launchctl submit \
+    -l "$start_browser_label" \
+    -o "$LOG_DIR/$start_browser_name.stdout.log" \
+    -e "$LOG_DIR/$start_browser_name.log" \
+    -- /usr/bin/env \
+    "HOME=$HOME" \
+    "USER=${USER:-$(id -un)}" \
+    "LOGNAME=${LOGNAME:-$(id -un)}" \
+    "TMPDIR=${TMPDIR:-/tmp}" \
+    'PATH=/usr/bin:/bin:/usr/sbin:/sbin' \
+    "$start_browser_executable" \
+    --user-data-dir="$start_browser_profile" \
+    --load-extension="$EXTENSION_ROOT" \
+    --disable-extensions-except="$EXTENSION_ROOT" \
     --enable-logging=stderr \
     '--vmodule=extensions*=1,native_message*=2' \
     --no-first-run \
     --no-default-browser-check \
-    about:blank >"$LOG_DIR/chrome.log" 2>&1 &
-  printf '%s\n' "$!" > "$STATE_DIR/chrome.pid"
+    about:blank
+  start_browser_count=0
+  start_browser_pid=
+  while [ "$start_browser_count" -lt 50 ]; do
+    start_browser_pid=$(launchctl print "$(browser_job_target "$start_browser_name")" 2>/dev/null \
+      | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | sed -n '1p')
+    [ -n "$start_browser_pid" ] && break
+    sleep 0.1
+    start_browser_count=$((start_browser_count + 1))
+  done
+  if [ -z "$start_browser_pid" ]; then
+    printf '%s\n' "launchd did not report a PID for $start_browser_name" >&2
+    exit 1
+  fi
+  printf '%s\n' "$start_browser_pid" > "$start_browser_pid_file"
+  printf '%s\n' "$start_browser_name" > "$STATE_DIR/active-browser"
 }
 
 install_codex_mcp() {
@@ -180,20 +368,25 @@ install_codex_mcp() {
 }
 
 up() {
+  up_browser=${1:-chrome}
+  require_browser "$up_browser"
   mkdirs
   install_runtime
   install_native_manifest
   install_codex_mcp
-  ensure_chrome
+  install_fixtures
+  install_extension
+  ensure_browser "$up_browser"
   start_fixture
-  start_chrome
+  stop_browser "$up_browser"
+  start_browser "$up_browser"
   runtime_hash=$(shasum -a 256 "$RUNTIME" | awk '{print $1}')
   requested_hash=$(sed -n '1p' "$STATE_DIR/accessibility-requested" 2>/dev/null || true)
   if [ "$requested_hash" != "$runtime_hash" ]; then
     SACCADE_RUNTIME_DIR="$RUNTIME_DIR" "$RUNTIME" repair
     printf '%s\n' "$runtime_hash" > "$STATE_DIR/accessibility-requested"
   fi
-  printf '%s\n' "Saccade Dev is starting. Run ./scripts/dev.sh status, then ./scripts/dev.sh test."
+  printf '%s\n' "Saccade Dev $up_browser is starting. Run ./scripts/dev.sh status, then ./scripts/dev.sh test $up_browser."
 }
 
 restore_profile() {
@@ -228,49 +421,65 @@ PY
 }
 
 test_route() {
+  test_browser=$1
+  test_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$test_browser"
   mkdirs
   restore_profile
-  up
-  stamp=$(date -u '+%Y%m%dT%H%M%SZ')
-  run_dir="$EVIDENCE_DIR/$stamp"
-  mkdir -p "$run_dir"
-  chmod 700 "$run_dir"
+  up "$test_browser"
+  test_run_dir="$EVIDENCE_DIR/$test_stamp/$test_browser"
+  mkdir -p "$test_run_dir"
+  chmod 700 "$test_run_dir"
   python3 "$ROOT/scripts/dev_probe.py" controls \
+    --browser "$test_browser" \
     --runtime "$RUNTIME" \
     --runtime-dir "$RUNTIME_DIR" \
     --url "$FIXTURE_URL" \
-    --output "$run_dir/controls.json"
+    --output "$test_run_dir/controls.json"
 
-  stop_pid "$STATE_DIR/chrome.pid"
+  stop_browser "$test_browser"
   write_test_profile
-  trap 'stop_pid "$STATE_DIR/chrome.pid"; restore_profile; start_chrome' EXIT
-  start_chrome
+  trap 'stop_browser "$test_browser"; restore_profile; start_browser "$test_browser"' EXIT
+  start_browser "$test_browser"
   python3 "$ROOT/scripts/dev_probe.py" profile \
+    --browser "$test_browser" \
     --runtime "$RUNTIME" \
     --runtime-dir "$RUNTIME_DIR" \
     --url "$FIXTURE_URL" \
-    --output "$run_dir/profile.json"
-  stop_pid "$STATE_DIR/chrome.pid"
+    --output "$test_run_dir/profile.json"
+  stop_browser "$test_browser"
   restore_profile
-  start_chrome
+  start_browser "$test_browser"
   trap - EXIT HUP INT TERM
-  printf '%s\n' "Four-control evidence: $run_dir"
+  printf '%s\n' "Four-control $test_browser evidence: $test_run_dir"
+}
+
+test_all() {
+  all_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  test_route chrome "$all_stamp"
+  test_route edge "$all_stamp"
+  printf '%s\n' "Chrome and Edge evidence: $EVIDENCE_DIR/$all_stamp"
 }
 
 status() {
   fixture=stopped
   chrome=stopped
+  edge=stopped
   pid_alive "$STATE_DIR/fixture.pid" && fixture=running
   pid_alive "$STATE_DIR/chrome.pid" && chrome=running
-  printf 'fixture=%s chrome=%s\n' "$fixture" "$chrome"
+  pid_alive "$STATE_DIR/edge.pid" && edge=running
+  active=$(sed -n '1p' "$STATE_DIR/active-browser" 2>/dev/null || true)
+  printf 'fixture=%s chrome=%s edge=%s active=%s\n' "$fixture" "$chrome" "$edge" "${active:-none}"
   if [ -x "$RUNTIME" ]; then
     SACCADE_RUNTIME_DIR="$RUNTIME_DIR" "$RUNTIME" doctor
   fi
 }
 
 down() {
-  stop_pid "$STATE_DIR/chrome.pid"
-  stop_pid "$STATE_DIR/fixture.pid"
+  stop_browser chrome
+  stop_browser edge
+  stop_fixture
+  rm -f "$STATE_DIR/active-browser"
   restore_profile
   if [ -f "$STATE_DIR/codex-path" ]; then
     codex=$(sed -n '1p' "$STATE_DIR/codex-path")
@@ -282,9 +491,15 @@ down() {
 }
 
 case "${1:-}" in
-  up) up ;;
-  test) test_route ;;
+  up) up "${2:-chrome}" ;;
+  test)
+    case "${2:-chrome}" in
+      all) test_all ;;
+      chrome|edge) test_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up|test|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|status|down>" >&2; exit 2 ;;
 esac

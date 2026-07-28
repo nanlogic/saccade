@@ -33,7 +33,7 @@
 - Static checks: Extension Node tests, Rust workspace tests and Clippy,
   Catalog generation, and the single-architecture gate.
 - Native development evidence: the macOS Chrome for Testing run at
-  `20260728T204730Z` produced four receipts with `accepted_by_os` dispatch and
+  `20260728T224742Z` produced four receipts with `accepted_by_os` dispatch and
   `verified` postconditions for click, type, click, and select. The same run
   rejected an old token, exposed Profile behavior through MCP, removed the
   Profile-banned Save control from observation, restored the default Profile,

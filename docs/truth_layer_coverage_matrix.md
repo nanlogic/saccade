@@ -18,9 +18,9 @@ them as current support.
 ## Current controls
 
 Saccade currently implements button, text field, checkbox, select, and select
-option observation. The four actionable controls passed the managed macOS
-Chrome for Testing closed-loop gate. Their Catalog rows remain
-`implementation` because clean Chrome and Edge evidence for one release
+option observation. The four actionable controls passed paired managed macOS
+Chrome for Testing and Microsoft Edge closed-loop gates. Their Catalog rows
+remain `implementation` because clean Chrome and Edge evidence for one release
 candidate is pending.
 
 ## Coverage tiers
