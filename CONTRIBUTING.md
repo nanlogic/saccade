@@ -1,19 +1,26 @@
 # Contributing to Saccade
 
-Saccade is an early dogfood project. Small, evidence-backed changes are easier
-to review than broad browser redesigns.
+Saccade accepts small, evidence-backed control and runtime changes. The
+architecture and wire boundaries remain fixed while coverage grows by control
+family.
 
 ## Before opening a pull request
 
-1. Read `AGENTS.md`, `docs/extension_observation_contract.md`, and any local
-   instructions in the directory you are changing.
-2. Reproduce the issue with the smallest local fixture possible.
-3. Preserve the core boundaries: explicit per-tab grants, protected-value
+1. Read `AGENTS.md`, `docs/FINAL_ARCHITECTURE.md`, and
+   `docs/extension_observation_contract.md`.
+2. Check `docs/CONTROL_ROADMAP.md` and work within one listed batch.
+3. Reproduce the behavior with the smallest local fixture possible.
+4. Preserve explicit per-tab grants, protected-value
    isolation, browser-instance provenance, page-revision checks, native input
    receipts, and fail-closed errors.
-4. Add or update the smallest relevant regression.
-5. Run focused checks for the changed component. Run broader workspace or
-   platform gates when the change affects shared contracts or packaging.
+5. Add the Catalog entry, Registry module, Extension projection, verifier,
+   fixture, leak check, and stale/focus/covered rejection tests together.
+6. Run focused checks for the changed component. Run the full README check list
+   before opening a pull request that changes a contract or control family.
+
+One pull request should contain one control family or one runtime boundary.
+Catalog status stays `implementation` until the same release candidate passes
+Chrome and Edge.
 
 ## Evidence hygiene
 
@@ -21,7 +28,7 @@ Never commit browser profiles, cookies, credentials, tokens, OTPs, payment
 data, private form values, screenshots of sensitive pages, or unrestricted
 debug logs. Test fixtures should use reserved domains and clearly fake values.
 Replay and reports should contain field identifiers, counts, statuses, and
-failure reasons—not user-entered values.
+failure reasons, never user-entered values.
 
 Compatibility claims must name the exact platform, engine build, site or local
 fixture, test route, and observed limitation. Do not generalize one successful

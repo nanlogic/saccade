@@ -3,8 +3,8 @@
 - Source commit: `8c4defb3f8b0ed9b0cb4cb6ff522f9a550ddb76b`.
 - Reviewed source paths: `crates/saccade_protocol/src/{lib,action,observation}.rs`,
   `crates/saccade_protocol/tests/canonical.rs`, `extension/src/truth.js`,
-  `extension/src/collector.js`, and their focused tests in the historical
-  `/Users/waynema/Documents/GitHub/SACCADE` worktree.
+  `extension/src/collector.js`, and their focused tests in the private
+  `nanlogic/saccade-legacy` archive.
 - Source state note: the approved protocol/Extension files were uncommitted,
   contract-aligned additions over the recorded source commit. They were
   reviewed file-by-file; the old tree was not copied wholesale.

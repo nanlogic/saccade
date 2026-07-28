@@ -1,83 +1,128 @@
-# Saccade Control Runtime
+# Saccade
 
-Saccade is an open closed-loop browser control runtime for already-logged-in
-Chrome and Edge tabs.
+[![CI](https://github.com/nanlogic/saccade/actions/workflows/ci.yml/badge.svg)](https://github.com/nanlogic/saccade/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-The only production route is:
+Saccade gives AI agents a compact semantic view of an authorized Chrome or
+Edge tab and executes browser actions through native operating-system input.
+Each action follows one closed loop:
 
 ```text
-Codex / Claude / other Agent
-             ↓
-         MCP adapter
-             ↓
-Saccade Runtime (owner-only local IPC)
-             ↓
-Chrome / Edge Extension
-             ↓
-Agent-owned or explicitly shared tab
+observe → prepare → revalidate → native input → reobserve → verify → receipt
 ```
 
-The Runtime is distributed as one executable with separate `native-host`,
-`mcp`, `doctor`, and `repair` modes. macOS and Windows use the same protocol,
-Catalog, Extension, and control modules; only packaging, signing, permissions,
-and operating-system input implementations differ.
+Agents receive semantic controls and opaque action tokens. They do not receive
+selectors, DOM paths, arbitrary coordinates, editable values, cookies, or
+browser storage.
 
-Start with:
+## Status
 
-- [`docs/FINAL_ARCHITECTURE.md`](docs/FINAL_ARCHITECTURE.md)
-- [`docs/PROFILE_ARCHITECTURE.md`](docs/PROFILE_ARCHITECTURE.md)
-- [`catalog/profile.schema.json`](catalog/profile.schema.json)
-- [`profiles/default.json`](profiles/default.json)
-- [`docs/MIGRATION_MANIFEST.md`](docs/MIGRATION_MANIFEST.md)
-- [`docs/extension_observation_contract.md`](docs/extension_observation_contract.md)
-- [`docs/truth_layer_coverage_matrix.md`](docs/truth_layer_coverage_matrix.md)
+Saccade is pre-release. The first vertical slice runs through the complete
+Extension → Native Host → Runtime → MCP route on a managed macOS Chrome for
+Testing profile.
 
-This branch begins as an intentionally minimal architecture skeleton. Production
-code is migrated from the historical worktree only when the migration manifest
-marks the component as approved.
+| Control | Action | Verified postcondition |
+| --- | --- | --- |
+| Button | native click | pressed or expanded state changes |
+| Text field | native click and Unicode input | field changes from empty to non-empty |
+| Checkbox | native click | checked state changes |
+| Select | native selection by option identity | requested option becomes selected |
 
-## Current development slice
+The development run also covers stale-token rejection, Profile behavior,
+Profile bans, and editable-value leak checks. Catalog entries remain
+`implementation` until Chrome and Edge pass the release gate for the same
+candidate. Saccade does not ship a consumer installer yet.
 
-The workspace now contains the Catalog/Registry, the four first control-family
-verifiers, Native Messaging framing, owner-only local IPC and HostClient,
-separate `saccade-runtime native-host` and `saccade-runtime mcp` modes, and
-audited macOS/Windows native-input adapters. It also loads the three-field
-Profile, filters banned controls, and supplies `behavior` to MCP. Browser-store
-Extension wiring now covers the first four controls, but clean cross-browser
-release evidence is still pending. Catalog rows therefore remain
-`implementation`, not `publishable`.
+See the [generated coverage table](docs/generated/control_coverage.md) for the
+current Registry and [control roadmap](docs/CONTROL_ROADMAP.md) for the planned
+batches.
 
-On macOS, start the isolated Chrome for Testing route with:
+## One route
 
 ```text
+Agent
+  → MCP mode
+  → owner-only local IPC
+  → Native Host mode
+  → Chrome/Edge Native Messaging
+  → Saccade Extension
+  → authorized tab
+```
+
+Saccade has no Playwright, CDP, embedded-browser, screenshot, vision, or
+coordinate fallback. The [final architecture](docs/FINAL_ARCHITECTURE.md) and
+[Truth Layer contract](docs/extension_observation_contract.md) define the
+route and its boundaries.
+
+## Development on macOS
+
+The managed development environment uses its own browser profile, Extension
+identity, Native Messaging manifest, Runtime app, and fixture server.
+
+```sh
 ./scripts/dev.sh up
 ./scripts/dev.sh status
 ./scripts/dev.sh test
 ./scripts/dev.sh down
 ```
 
-This uses a dedicated browser profile and the `com.nanlogic.saccade.dev`
-Native Messaging host. `up` builds and installs the Runtime as the fixed
-user-level, Apple Development-signed `Saccade Dev Runtime.app`, caches Chrome for Testing, starts the
-fixture server, and temporarily
-points the Codex `saccade` MCP entry at the development Runtime. `down` stops
-only recorded development processes and restores the prior MCP entry. The
-first `up` may download Chrome, request macOS Accessibility once, and request
-one administrator confirmation for Chrome for Testing's system-only Native
-Messaging manifest directory. The administrator confirmation is repeated only
-if that manifest changes or is removed.
+The first `up` may download Chrome for Testing, request macOS Accessibility,
+and request administrator approval for the Chrome for Testing Native Messaging
+manifest. `down` stops recorded development processes and restores the prior
+Codex MCP configuration.
 
-`test` reaches the browser only through MCP JSON-RPC and the production
-Extension, Native Host, owner IPC, and native-input route. Evidence is stored
-under `~/Library/Application Support/Saccade Dev/evidence`; textfield contents
-are excluded.
+`test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
+evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
+textfield contents.
 
-Run the current gates with:
+## Profiles
 
-```text
+A Profile has three fields: `name`, Agent-facing `behavior`, and `ban`.
+Profiles can hide named controls from the Agent, but cannot change a control's
+execution or verification loop.
+
+```json
+{
+  "name": "cautious",
+  "behavior": "Explain consequential actions before acting.",
+  "ban": [
+    { "control": "Delete account" },
+    { "control": "Continue", "condition": "payment" }
+  ]
+}
+```
+
+Read [Profile architecture](docs/PROFILE_ARCHITECTURE.md) and the
+[Profile schema](catalog/profile.schema.json) before adding Profile behavior.
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| `catalog/` | Machine-readable controls and Profile schema |
+| `extension/` | MV3 Extension, collector, ACL, and control modules |
+| `crates/saccade_protocol/` | Strict wire types and validation |
+| `crates/saccade_control_sdk/` | Catalog-backed Registry and verifiers |
+| `crates/saccade_runtime/` | Host session, Profile, IPC, MCP, and native input |
+| `fixtures/` | Browser conformance fixtures |
+| `scripts/` | Catalog generation, architecture checks, and managed development |
+
+User-visible changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## Checks
+
+```sh
+cargo fmt --all -- --check
 cargo test --workspace --offline
 cargo clippy --workspace --all-targets --offline -- -D warnings
 node --test extension/tests/*.test.js
 python3 scripts/generate_control_matrix.py
 python3 scripts/check_single_architecture.py
+git diff --exit-code -- docs/generated/control_coverage.md
 ```
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before adding a control family. Report
+security issues through GitHub's private vulnerability-reporting flow described
+in [SECURITY.md](SECURITY.md).
+
+Apache-2.0. See [TRADEMARKS.md](TRADEMARKS.md) for the Saccade name and marks.

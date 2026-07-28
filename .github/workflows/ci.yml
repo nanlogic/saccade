@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust components
+        run: rustup component add clippy rustfmt
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Rust tests
+        run: cargo test --workspace --locked
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Extension tests
+        run: node --test extension/tests/*.test.js
+      - name: Generate control coverage
+        run: python3 scripts/generate_control_matrix.py
+      - name: Check one architecture
+        run: python3 scripts/check_single_architecture.py
+      - name: Check generated files
+        run: git diff --exit-code -- docs/generated/control_coverage.md

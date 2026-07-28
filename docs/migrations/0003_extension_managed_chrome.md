@@ -1,7 +1,7 @@
 # Migration 0003: Extension and managed Chrome route
 
-- Source baseline: `8c4defb3f8b0ed9b0cb4cb6ff522f9a550ddb76b` in the historical
-  `/Users/waynema/Documents/GitHub/SACCADE` worktree.
+- Source baseline: `8c4defb3f8b0ed9b0cb4cb6ff522f9a550ddb76b` in the private
+  `nanlogic/saccade-legacy` archive.
 - Reviewed source paths: the uncommitted, contract-aligned
   `extension/manifest.json`, `extension/src/{protocol,consent,collector,service_worker}.js`,
   control-related portions of `extension/src/truth.js`, and their focused
@@ -33,7 +33,7 @@
 - Static checks: Extension Node tests, Rust workspace tests and Clippy,
   Catalog generation, and the single-architecture gate.
 - Native development evidence: the macOS Chrome for Testing run at
-  `20260728T200308Z` produced four receipts with `accepted_by_os` dispatch and
+  `20260728T204730Z` produced four receipts with `accepted_by_os` dispatch and
   `verified` postconditions for click, type, click, and select. The same run
   rejected an old token, exposed Profile behavior through MCP, removed the
   Profile-banned Save control from observation, restored the default Profile,

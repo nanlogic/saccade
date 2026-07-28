@@ -1,8 +1,9 @@
 # Migration manifest
 
-This clean branch starts from `main` commit `8c4defb3f8b0` but intentionally
-does not carry the old tree forward wholesale. The original worktree remains a
-read-only source until each component is reviewed and migrated.
+The public repository starts from root commit `9f2b9c55a238` and carries no
+legacy history. The private, archived `nanlogic/saccade-legacy` repository at
+commit `8c4defb3f8b0` remains a reviewed source. Contributors migrate one
+approved component at a time and record its provenance below.
 
 ## Approved to migrate
 

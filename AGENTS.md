@@ -1,55 +1,55 @@
-# Saccade Control Runtime contributor instructions
+# Saccade contributor instructions
 
-Read `docs/FINAL_ARCHITECTURE.md`, `docs/PROFILE_ARCHITECTURE.md`, and
+Read `docs/FINAL_ARCHITECTURE.md` and
 `docs/extension_observation_contract.md` before changing browser, Host,
-protocol, MCP, Profile, control-module, input, download, or packaging behavior.
+protocol, MCP, control-module, input, download, or packaging behavior. Read
+`docs/PROFILE_ARCHITECTURE.md` before changing Profile loading or filtering.
 
 ## One production route
 
 Chrome/Edge Extension → Native Messaging Host mode → owner-only local IPC →
-MCP mode. Do not add CEF, Servo, Playwright, CDP, or unregistered fallback
-routes. Profile filtering must remain inside this route.
+MCP mode. Do not add CEF, Servo, Playwright, CDP, visual-coordinate, or other
+fallback execution routes.
 
 ## Product invariants
 
-- Existing wire schemas remain `saccade.observation/1` and
-  `saccade-extension-host/1` until an explicit version decision is recorded.
-- Ordinary users install one signed product: DMG on macOS or Setup on Windows,
-  plus one browser-store extension confirmation.
-- The Runtime may share one executable, but Native Messaging and MCP retain
-  separate modes, framing, lifecycles, and protected-data boundaries.
+- Keep wire schemas at `saccade.observation/1` and
+  `saccade-extension-host/1` until an explicit version decision lands.
+- Ship one signed product: a DMG on macOS or Setup on Windows, plus one
+  browser-store Extension confirmation.
+- Keep Native Host and MCP modes separate in framing, lifecycle, and
+  protected-data boundaries even when one executable supplies both.
 - Every supported control follows observe → prepare → revalidate → native
-  execute → reobserve → verify → receipt/failure.
-- The current v1 schemas never send Agents locators, arbitrary coordinates,
-  editable values, protected values, cookies, or storage. Do not change that
-  behavior without an explicit version decision.
-- Control modules may request only allowlisted native-input primitives and
-  declarative verification rules. They cannot execute arbitrary Host code.
-- Profiles contain only `name`, Agent-facing `behavior`, and control `ban`
-  entries. Profile filtering must not alter a control module or its closed loop.
-- Common controls require full closed-loop Chrome and Edge evidence. Uncommon
-  controls require truthful basic recognition and explicit limitations.
-- Arbitrary Canvas/WebGL remains opaque unless an audited semantic bridge or a
-  separately approved detector capability supplies revalidatable objects.
+  execute → reobserve → verify → receipt or failure.
+- Agents never receive locators, arbitrary coordinates, editable values,
+  protected values, cookies, or browser storage.
+- Control modules request finite native-input primitives and declarative
+  verification rules. They cannot execute arbitrary Host code.
+- Profile filtering stays outside control modules and cannot weaken their
+  closed loop.
+- Common controls require current Chrome and Edge proof for the same release
+  candidate before the Catalog marks them `publishable`.
+- Uncommon controls require truthful recognition and explicit limitations.
+- Keep arbitrary Canvas/WebGL opaque unless an approved semantic bridge
+  supplies revalidatable objects.
 
-## Migration rule
+## Migration
 
-Do not copy the old repository wholesale. Move one approved component at a
-time according to `docs/MIGRATION_MANIFEST.md`, preserve its tests, and record
-the source commit/path. CEF and Servo remain historical research, not runtime
-dependencies.
+Use the private `nanlogic/saccade-legacy` archive only as a reviewed source.
+Move one approved component at a time according to
+`docs/MIGRATION_MANIFEST.md`, preserve its tests, and record its source commit
+and path. Do not copy the old tree or its monolithic classifiers.
 
-## Change discipline
+## Changes and checks
 
-- Treat `docs/PROFILE_ARCHITECTURE.md` as a public normative design document.
-  `catalog/profile.schema.json` is its machine-readable schema.
-  A change to its boundary must update `docs/FINAL_ARCHITECTURE.md`,
+- Keep the Control Catalog machine-readable and regenerate the public coverage
+  table after each Catalog change.
+- Treat `docs/PROFILE_ARCHITECTURE.md` as normative. A Profile boundary change
+  must update `docs/FINAL_ARCHITECTURE.md`,
   `docs/extension_observation_contract.md`, and `docs/decisions.md` in the same
-  review and keep the architecture gate green. A worker may draft the change;
-  the supervising agent owns the final cross-document decision and diff review.
-- Keep the Control Catalog machine-readable and generate the public coverage
-  matrix from it once the generator exists.
-- Do not label a control `Publishable` without current Chrome and Edge
-  artifacts for the same route and release candidate.
-- Run the narrowest relevant checks after each migration. Add the full required
-  check list when the Rust/Extension skeleton is introduced.
+  review.
+- Add one focused fixture and closed-loop test for each control behavior.
+- Run the narrowest checks while editing. Run the complete list from
+  `README.md` before merging a control family or changing a contract.
+- Keep local browser profiles, evidence, credentials, signing material, and
+  protected values out of Git.

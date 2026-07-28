@@ -3,10 +3,10 @@
 This is the only production contract for browser authorization, observation,
 action preparation, native input, receipts, downloads, and MCP exposure.
 
-This clean branch currently contains the accepted contract and migration
-skeleton, not yet the production implementation. Code and conformance paths
-named below are mandatory migration targets; absence of that code must never be
-reported as implemented support.
+The current implementation covers the first four Registry controls: button,
+text field, checkbox, and select. Other roles in this contract define the
+intended Truth Layer surface. They are not implemented until the Catalog lists
+their module, fixtures, verifier, and evidence status.
 
 The normative wire schemas remain `saccade.observation/1` and
 `saccade-extension-host/1`. "Truth Layer" names the behavior defined here; it
