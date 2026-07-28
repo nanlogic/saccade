@@ -98,12 +98,12 @@ impl Profile {
         snapshot
             .changes
             .retain(|change| !banned_ids.contains(&change.object_id));
-        snapshot.limitations.retain(|limitation| {
-            limitation
-                .object_id
-                .as_ref()
-                .map_or(true, |object_id| !banned_ids.contains(object_id))
-        });
+        snapshot
+            .limitations
+            .retain(|limitation| match limitation.object_id.as_ref() {
+                Some(object_id) => !banned_ids.contains(object_id),
+                None => true,
+            });
     }
 
     pub fn bans(&self, object: &ObservedObject) -> bool {
@@ -120,9 +120,10 @@ impl Profile {
         ));
         self.ban.iter().any(|rule| {
             normalized(&rule.control) == normalized_name
-                && rule.condition.as_ref().map_or(true, |condition| {
-                    associated_text.contains(&normalized(condition))
-                })
+                && match rule.condition.as_ref() {
+                    Some(condition) => associated_text.contains(&normalized(condition)),
+                    None => true,
+                }
         })
     }
 }

@@ -8,6 +8,7 @@ use saccade_protocol::{ActionOperation, ActionPayload, DispatchStatus, PreparedA
 
 use crate::NativeInput;
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeStep {
     PrimaryClick,
@@ -58,6 +59,7 @@ fn primitive_matches(
     )
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn event_plan(
     prepared: &PreparedAction,
     payload: &ActionPayload,
@@ -72,7 +74,7 @@ fn event_plan(
             prepared
                 .selection_index
                 .ok_or_else(|| anyhow::anyhow!("select preparation has no option index"))?;
-            if selection_name.map_or(true, str::is_empty) {
+            if !matches!(selection_name, Some(name) if !name.is_empty()) {
                 anyhow::bail!("select preparation has no visible option name");
             }
             Ok(vec![
