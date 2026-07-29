@@ -14,6 +14,9 @@ the clean public repository.
 - managed macOS Chrome for Testing development and evidence commands;
 - managed macOS Edge development with isolated profiles and evidence;
 - an ordinary 24-target native mouse-accuracy gate for managed Chrome and Edge;
+- an audited MouseAccuracy reflex target, bounded local MCP loop, and explicit
+  native/soft input receipts with causal score verification;
+- exact-PID managed-window move and resize phases for native accuracy evidence;
 - three-field Profiles with Agent behavior and named-control bans;
 - stale, replay, focus, coverage, postcondition, and value-leak checks;
 - stale-preparation observation resynchronization without weakening rejection;

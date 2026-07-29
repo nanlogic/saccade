@@ -9,6 +9,7 @@ import os
 import select
 import subprocess
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,26 @@ FIXTURE_SENTINELS = (
 )
 REDACTED_VALUES = TEXT_SENTINELS + FIXTURE_SENTINELS
 ACCURACY_TARGET_COUNT = 24
-ACCURACY_SIZES = (32, 40, 48)
+ACCURACY_WINDOW_PHASES = (
+    (1, "baseline", 24, 52, 800, 747),
+    (9, "moved", 60, 90, 760, 700),
+    (17, "moved_and_resized", 120, 70, 640, 680),
+)
+ACCURACY_LAYOUTS = ("buttons", "canvas")
+ACCURACY_DIFFICULTIES = ("ordinary", "hard")
+MOUSE_BACKENDS = ("native", "soft")
+MOUSEACCURACY_DIFFICULTY_VALUES = ("Easy", "Normal", "Hard", "Insane")
+MOUSEACCURACY_SIZE_VALUES = ("Large", "Medium", "Small", "Tiny")
+ACCURACY_SIZES = {
+    "buttons": {
+        "ordinary": (32, 40, 48),
+        "hard": (24, 32, 40),
+    },
+    "canvas": {
+        "ordinary": (14, 18, 22),
+        "hard": (10, 14, 18),
+    },
+}
 
 
 def redact_editable_values(value: str) -> str:
@@ -159,6 +179,7 @@ def act(
     name: str,
     operation: str,
     payload_for: Any,
+    backend: str = "web.act",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     last_error: Exception | None = None
     for _attempt in range(4):
@@ -174,7 +195,8 @@ def act(
             "payload": payload_for(observation),
         }
         try:
-            receipt = mcp.tool("web.act", request, timeout=40.0)
+            tool = "web.act_soft" if backend == "web.act_soft" else "web.act"
+            receipt = mcp.tool(tool, request, timeout=40.0)
             break
         except Exception as error:
             last_error = error
@@ -183,8 +205,9 @@ def act(
             observation = stable_observation(mcp, observation["tab_id"])
     else:
         raise RuntimeError(f"{operation} stayed stale after fresh observations: {last_error}")
-    if receipt.get("dispatch_status") != "accepted_by_os":
-        raise RuntimeError(f"{operation} native dispatch failed: {receipt.get('dispatch_status')}")
+    expected_dispatch = "accepted_by_software" if backend == "web.act_soft" else "accepted_by_os"
+    if receipt.get("dispatch_status") != expected_dispatch:
+        raise RuntimeError(f"{operation} dispatch failed: {receipt.get('dispatch_status')}")
     if receipt.get("postcondition") != "verified":
         raise RuntimeError(f"{operation} postcondition failed: {receipt.get('postcondition')}")
     return receipt, receipt["post_action_observation"]
@@ -304,30 +327,210 @@ def profile(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     }
 
 
-def accuracy_size(index: int) -> int:
+def reflex(
+    mcp: Mcp,
+    url: str,
+    browser: str,
+    mouse_backend: str,
+    max_actions: int,
+    timeout_ms: int,
+) -> dict[str, Any]:
+    settings: dict[str, Any] | None = None
+    if url.rstrip("/") == "https://mouseaccuracy.com/game":
+        settings = configure_mouseaccuracy(mcp)
+    opened = mcp.tool("tabs.open", {"url": url, "active": True})
+    wait_observation(mcp, opened["tab_id"])
+    report = mcp.tool(
+        "web.reflex.run",
+        {
+            "tab_id": opened["tab_id"],
+            "input_backend": mouse_backend,
+            "max_actions": max_actions,
+            "timeout_ms": timeout_ms,
+        },
+        timeout=timeout_ms / 1000 + 20.0,
+    )
+    return {
+        "mode": "reflex",
+        "browser": browser,
+        "url": url,
+        "mouse_backend": mouse_backend,
+        "settings": settings,
+        "passed": report.get("actions", 0) > 0 and report.get("failures") == 0,
+        "report": report,
+    }
+
+
+def mouseaccuracy_setting_value(
+    observation: dict[str, Any], values: tuple[str, ...]
+) -> str:
+    names = {item.get("name") for item in observation.get("objects", [])}
+    for value in values:
+        if f"Decrease {value}" in names and f"Increase {value}" in names:
+            return value
+    raise RuntimeError(f"MouseAccuracy setting is not one of the audited values: {values}")
+
+
+def drive_mouseaccuracy_setting(
+    mcp: Mcp,
+    observation: dict[str, Any],
+    direction: str,
+    values: tuple[str, ...],
+) -> tuple[str, list[str]]:
+    current = mouseaccuracy_setting_value(observation, values)
+    transitions = [current]
+    for _step in range(len(values) + 2):
+        if current == values[-1]:
+            return current, transitions
+        for attempt in range(5):
+            observation = stable_observation(mcp, observation["tab_id"])
+            current = mouseaccuracy_setting_value(observation, values)
+            target = named(observation, "button", f"{direction} {current}")
+            request = {
+                "browser_instance_id": observation["browser_instance_id"],
+                "tab_id": observation["tab_id"],
+                "document_id": observation["document_id"],
+                "basis_revision": observation["revision"],
+                "action_token": target["action_token"],
+                "operation": "click",
+                "payload": {"kind": "none"},
+            }
+            try:
+                receipt = mcp.tool("web.act", request, timeout=15.0)
+                observation = receipt["post_action_observation"]
+                break
+            except Exception as error:  # noqa: BLE001
+                if attempt == 4 or "stale" not in str(error):
+                    raise
+        next_value = mouseaccuracy_setting_value(observation, values)
+        current = next_value
+        transitions.append(current)
+    raise RuntimeError(
+        f"MouseAccuracy setting did not reach audited endpoint {values[-1]}: {transitions}"
+    )
+
+
+def configure_mouseaccuracy(mcp: Mcp) -> dict[str, Any]:
+    observation = open_fixture(mcp, "https://mouseaccuracy.com/")
+    difficulty, difficulty_transitions = drive_mouseaccuracy_setting(
+        mcp, observation, "Increase", MOUSEACCURACY_DIFFICULTY_VALUES
+    )
+    observation = stable_observation(mcp, observation["tab_id"])
+    size, size_transitions = drive_mouseaccuracy_setting(
+        mcp, observation, "Decrease", MOUSEACCURACY_SIZE_VALUES
+    )
+    return {
+        "difficulty": difficulty,
+        "target_size": size,
+        "difficulty_transitions": difficulty_transitions,
+        "target_size_transitions": size_transitions,
+        "verified_highest": difficulty == MOUSEACCURACY_DIFFICULTY_VALUES[-1]
+        and size == MOUSEACCURACY_SIZE_VALUES[-1],
+    }
+
+
+def accuracy_size(layout: str, difficulty: str, index: int) -> int:
     row = (index - 1) // 3
     column = (index - 1) % 3
-    return ACCURACY_SIZES[(row + column) % len(ACCURACY_SIZES)]
+    sizes = ACCURACY_SIZES[layout][difficulty]
+    return sizes[(row + column) % len(sizes)]
 
 
-def mouse_accuracy(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
+def accuracy_url(base_url: str, layout: str, difficulty: str) -> str:
+    parsed = urllib.parse.urlsplit(base_url)
+    query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+    query["layout"] = layout
+    query["difficulty"] = difficulty
+    return urllib.parse.urlunsplit((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        urllib.parse.urlencode(query),
+        parsed.fragment,
+    ))
+
+
+def set_managed_window_geometry(
+    window_pid: int, phase: tuple[int, str, int, int, int, int]
+) -> None:
+    _start, _name, x, y, width, height = phase
+    script = """
+on run argv
+  set targetPid to item 1 of argv as integer
+  set windowX to item 2 of argv as integer
+  set windowY to item 3 of argv as integer
+  set windowWidth to item 4 of argv as integer
+  set windowHeight to item 5 of argv as integer
+  tell application "System Events"
+    set targetProcess to first application process whose unix id is targetPid
+    tell front window of targetProcess
+      set position to {windowX, windowY}
+      set size to {windowWidth, windowHeight}
+    end tell
+  end tell
+end run
+"""
+    result = subprocess.run(
+        [
+            "osascript",
+            "-e",
+            script,
+            str(window_pid),
+            str(x),
+            str(y),
+            str(width),
+            str(height),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"managed browser window geometry failed: {result.stderr.strip()}")
+    time.sleep(0.35)
+
+
+def mouse_accuracy(
+    mcp: Mcp,
+    url: str,
+    browser: str,
+    window_pid: int | None,
+    layout: str,
+    difficulty: str,
+    mouse_backend: str,
+) -> dict[str, Any]:
+    if window_pid is None or window_pid <= 0:
+        raise RuntimeError("mouse accuracy requires the exact managed browser PID")
+    if mouse_backend == "soft" and layout != "canvas":
+        raise RuntimeError("soft mouse accuracy is restricted to the reflex-target canvas fixture")
+    phase = ACCURACY_WINDOW_PHASES[0]
+    set_managed_window_geometry(window_pid, phase)
+    url = accuracy_url(url, layout, difficulty)
     observation = open_fixture(mcp, url)
     trials: list[dict[str, Any]] = []
     for index in range(1, ACCURACY_TARGET_COUNT + 1):
+        for candidate in ACCURACY_WINDOW_PHASES:
+            if candidate[0] == index and candidate != phase:
+                phase = candidate
+                set_managed_window_geometry(window_pid, phase)
+                break
         name = f"Accuracy {index:02d}"
         started = time.monotonic()
         try:
             receipt, observation = act(
                 mcp,
                 observation,
-                "button",
+                "reflex_target" if layout == "canvas" else "button",
                 name,
                 "click",
                 lambda _: {"kind": "none"},
+                "web.act_soft" if mouse_backend == "soft" else "web.act",
             )
             trial = {
                 "target": name,
-                "size_css_px": accuracy_size(index),
+                "size_css_px": accuracy_size(layout, difficulty, index),
+                "window_phase": phase[1],
                 "hit": True,
                 "dispatch_status": receipt["dispatch_status"],
                 "postcondition": receipt["postcondition"],
@@ -335,7 +538,8 @@ def mouse_accuracy(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         except Exception as error:  # noqa: BLE001
             trial = {
                 "target": name,
-                "size_css_px": accuracy_size(index),
+                "size_css_px": accuracy_size(layout, difficulty, index),
+                "window_phase": phase[1],
                 "hit": False,
                 "error": redact_editable_values(str(error)),
             }
@@ -346,24 +550,43 @@ def mouse_accuracy(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     return {
         "mode": "mouse_accuracy",
         "browser": browser,
-        "definition": "Static semantic buttons at 32, 40, and 48 CSS px; native center click; no reflex loop or coordinate input.",
+        "definition": f"Mouse-accuracy gate on {layout} layout ({difficulty}) with { 'soft' if mouse_backend == 'soft' else 'native' } center click.",
+        "layout": layout,
+        "difficulty": difficulty,
+        "mouse_backend": mouse_backend,
+        "url": url,
         "attempts": len(trials),
         "hits": hits,
         "misses": len(trials) - hits,
         "accuracy_percent": round(hits * 100 / len(trials), 2),
         "passed": hits == len(trials),
+        "window_phases": [
+            {
+                "name": item[1],
+                "starts_at_target": item[0],
+                "position": [item[2], item[3]],
+                "size": [item[4], item[5]],
+            }
+            for item in ACCURACY_WINDOW_PHASES
+        ],
         "trials": trials,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["controls", "profile", "mouse_accuracy"])
+    parser.add_argument("mode", choices=["controls", "profile", "mouse_accuracy", "reflex"])
     parser.add_argument("--browser", choices=["chrome", "edge"], required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path, required=True)
     parser.add_argument("--url", required=True)
+    parser.add_argument("--accuracy-layout", choices=ACCURACY_LAYOUTS, default="buttons")
+    parser.add_argument("--accuracy-difficulty", choices=ACCURACY_DIFFICULTIES, default="ordinary")
+    parser.add_argument("--mouse-backend", choices=MOUSE_BACKENDS, default="native")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--window-pid", type=int)
+    parser.add_argument("--max-actions", type=int, default=500)
+    parser.add_argument("--timeout-ms", type=int, default=30_000)
     args = parser.parse_args()
 
     try:
@@ -373,8 +596,25 @@ def main() -> None:
                 evidence = controls(mcp, args.url, args.browser)
             elif args.mode == "profile":
                 evidence = profile(mcp, args.url, args.browser)
+            elif args.mode == "mouse_accuracy":
+                evidence = mouse_accuracy(
+                    mcp,
+                    args.url,
+                    args.browser,
+                    args.window_pid,
+                    args.accuracy_layout,
+                    args.accuracy_difficulty,
+                    args.mouse_backend,
+                )
             else:
-                evidence = mouse_accuracy(mcp, args.url, args.browser)
+                evidence = reflex(
+                    mcp,
+                    args.url,
+                    args.browser,
+                    args.mouse_backend,
+                    args.max_actions,
+                    args.timeout_ms,
+                )
         finally:
             mcp.close()
         result = {"ok": evidence.get("passed", True), **evidence}

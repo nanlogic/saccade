@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Saccade reflex target fixture</title>
+    <style>
+      body { margin: 0; overflow: hidden; background: #111827; }
+      canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+      [data-saccade-reflex-target] {
+        position: fixed; width: 18px; height: 18px; padding: 0; border: 0;
+        border-radius: 50%; background: transparent; cursor: crosshair;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas></canvas>
+    <button type="button" data-saccade-reflex-target data-saccade-reflex-occurrence="0" aria-label=""></button>
+    <script>
+      const canvas = document.querySelector('canvas');
+      const context = canvas.getContext('2d');
+      const target = document.querySelector('[data-saccade-reflex-target]');
+      let sequence = 0;
+
+      function place() {
+        const width = innerWidth;
+        const height = innerHeight;
+        canvas.width = Math.max(1, Math.floor(width * devicePixelRatio));
+        canvas.height = Math.max(1, Math.floor(height * devicePixelRatio));
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        const x = 24 + ((sequence * 131) % Math.max(1, width - 72));
+        const y = 48 + ((sequence * 79) % Math.max(1, height - 96));
+        target.style.left = `${x}px`;
+        target.style.top = `${y}px`;
+        context.beginPath();
+        context.arc(x + 9, y + 9, 9, 0, Math.PI * 2);
+        context.fillStyle = '#38bdf8';
+        context.fill();
+      }
+
+      target.addEventListener('click', () => {
+        sequence += 1;
+        target.dataset.saccadeReflexOccurrence = String(sequence);
+        place();
+      });
+      addEventListener('resize', place);
+      place();
+    </script>
+  </body>
+</html>

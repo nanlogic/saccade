@@ -4,11 +4,11 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Saccade gives AI agents a compact semantic view of an authorized Chrome or
-Edge tab and executes browser actions through native operating-system input.
+Edge tab and executes browser actions through registered closed-loop input.
 Each action follows one closed loop:
 
 ```text
-observe → prepare → revalidate → native input → reobserve → verify → receipt
+observe → prepare → revalidate → input → reobserve → verify → receipt
 ```
 
 Agents receive semantic controls and opaque action tokens. They do not receive
@@ -32,6 +32,7 @@ development closed-loop evidence.
 | Spin button | native click and numeric text input | field changes from empty to non-empty |
 | Checkbox | native click | checked state changes |
 | Select | native selection by option identity | requested option becomes selected |
+| Reflex target | native or audited soft click | same-loop score/occurrence advances |
 
 The paired development run covers stale-token rejection, Profile behavior,
 Profile bans, and editable-value leak checks in both browsers. Catalog entries
@@ -72,6 +73,8 @@ identity, Native Messaging manifest, Runtime app, and fixture server.
 ./scripts/dev.sh test all
 ./scripts/dev.sh accuracy chrome
 ./scripts/dev.sh accuracy all
+./scripts/dev.sh reflex chrome soft
+./scripts/dev.sh reflex chrome native
 ./scripts/dev.sh down
 ```
 
@@ -96,10 +99,18 @@ editable contents.
 
 `accuracy` runs an ordinary static-target gate through the same MCP and native
 input route. It clicks 24 semantic buttons across left, center, right, and
-scrolled positions: eight each at 32, 40, and 48 CSS pixels. Passing requires
-24 verified postconditions and zero misses; it is not the high-rate reflex
-loop. The managed window has fixed geometry so unrelated always-on-top desktop
-overlays do not invalidate the measurement.
+scrolled positions: eight each at 32, 40, and 48 CSS pixels. The 24 targets are
+split across baseline, moved, and moved-and-resized exact-window phases. Passing
+requires 24 verified postconditions and zero misses; it is not the high-rate reflex loop.
+An unrelated always-on-top desktop overlay can still cause a truthful
+unverified native result.
+
+`reflex` opens the real MouseAccuracy game, reaches its audited highest settings
+(`Insane` and `Tiny`) through semantic native button actions, then runs one
+bounded local MCP loop. `soft` is a token-bound Extension software mouse and
+`native` remains the real OS mouse. Neither accepts Agent coordinates. The
+canvas itself stays opaque; only the site's current audited DOM target bridge is
+actionable, and every successful receipt requires the score to advance.
 
 ## Profiles
 

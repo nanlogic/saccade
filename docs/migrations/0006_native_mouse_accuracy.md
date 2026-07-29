@@ -18,13 +18,17 @@
   tokens only.
 - Environment finding: an unrelated Codex Pet layer-3 window intercepted
   clicks over the right side of a 1200-pixel browser window. The closed loop
-  truthfully returned `unverified`. Managed browser geometry is now fixed at
-  800 by 747 for unobstructed measurement; old profiles are retained.
+  truthfully returned `unverified`. The gate addresses the exact managed browser
+  PID and now covers baseline, moved, and moved-and-resized phases; old profiles
+  are retained.
 - Recovery finding: after a Native Host reconnect, the collector could be one
   revision ahead of the Host indefinitely. Stale preparation still rejects,
   then emits a fresh full observation so a new request can recover.
 - Native evidence: paired managed rerun `20260729T053405Z` passed 24/24 targets
   in Chrome for Testing and 24/24 in Microsoft Edge with zero misses on reused
   browser profiles.
+- Dynamic-window evidence: managed Chrome run `20260729T064702Z` passed 24/24
+  targets with zero misses across baseline `(24,52,800×747)`, moved
+  `(60,90,760×700)`, and moved-and-resized `(120,70,640×680)` phases.
 - Public status: this is local development evidence. It does not promote any
   Catalog row or replace signed-product release evidence.

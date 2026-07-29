@@ -20,6 +20,9 @@ test('registry exposes only safe state for cataloged controls', () => {
   });
   assert.equal(registry.observe('checkbox', { checked: true }).state.checked, 'true');
   assert.equal(registry.observe('select', { hasValue: true }).state.has_value, 'true');
+  assert.deepEqual(registry.observe('reflex_target', { enabled: true }), {
+    kind: 'control', role: 'reflex_target', affordances: ['click'], state: { enabled: 'true', reflex_occurrence: '0' }, protected: false,
+  });
 });
 
 test('unavailable and protected controls do not advertise Host actions', () => {
@@ -54,8 +57,9 @@ test('control files can populate the browser global without CommonJS', () => {
   const vm = require('node:vm');
   const context = vm.createContext({});
   for (const file of ['common.js', 'button.js', 'text_field.js', 'search_field.js', 'text_area.js', 'content_editable.js', 'spin_button.js',
-    'checkbox.js', 'select.js', 'registry.js']) {
+    'checkbox.js', 'select.js', 'reflex_target.js', 'registry.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/controls', file), 'utf8'), context);
   }
   assert.equal(context.SaccadeControls.registry.observe('button', {}).role, 'button');
+  assert.equal(context.SaccadeControls.registry.observe('reflex_target', {}).role, 'reflex_target');
 });

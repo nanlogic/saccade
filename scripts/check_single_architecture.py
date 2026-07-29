@@ -58,10 +58,13 @@ def main() -> None:
     require("crates/saccade_runtime/src/session.rs", '"tabs.open"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.tabs.list"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.tabs.open"')
+    require("crates/saccade_runtime/src/mcp.rs", '"saccade.web.reflex.run"')
     require("extension/src/service_worker.js", "com.nanlogic.saccade.dev")
     require("extension/src/service_worker.js", "prepare_action")
     require("extension/src/collector.js", "registry.observe(role")
     require("extension/src/collector.js", "option_object_id")
+    require("extension/src/collector.js", "!element.classList.contains('hit')")
+    require("extension/src/collector.js", "soft click requires a current reflex target")
     require("scripts/dev.sh", "--load-extension")
     require("scripts/dev.sh", "dev_probe.py")
     require("scripts/dev.sh", "Microsoft Edge/NativeMessagingHosts")
@@ -83,7 +86,7 @@ def main() -> None:
     catalog = json.loads((ROOT / "catalog/controls.json").read_text(encoding="utf-8"))
     expected_roles = {
         "button", "text_field", "search_field", "text_area", "content_editable",
-        "spin_button", "checkbox", "select",
+        "spin_button", "checkbox", "select", "reflex_target",
     }
     if {item["role"] for item in catalog["controls"]} != expected_roles:
         raise SystemExit("Catalog roles changed outside the implemented control batches")

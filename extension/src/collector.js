@@ -8,6 +8,7 @@
   const objectTargets = new Map();
   const observers = [];
   const documentId = randomToken('document');
+  const reflexLoopClassToken = randomToken('loop');
   let objectSerial = 0;
   let revision = 0;
   let viewportRevision = 0;
@@ -32,6 +33,18 @@
   function safeName(element, role) {
     const aria = normalizedText(element.getAttribute('aria-label'), 512);
     if (aria) return aria;
+    if (role === 'button' && location.hostname === 'mouseaccuracy.com' && location.pathname === '/') {
+      let row = element.parentElement;
+      for (let depth = 0; row && depth < 5; depth += 1, row = row.parentElement) {
+        const buttons = Array.from(row.querySelectorAll(':scope button'));
+        const rowText = normalizedText(row.innerText, 160);
+        if (buttons.length === 2 && rowText && rowText.length <= 40
+          && buttons.every((button) => button.getBoundingClientRect().width === 40)) {
+          const index = buttons.indexOf(element);
+          if (index === 0 || index === 1) return `${index === 0 ? 'Decrease' : 'Increase'} ${rowText}`;
+        }
+      }
+    }
     if (role === 'content_editable') {
       const labelled = referencedText(element, 'aria-labelledby', 512);
       if (labelled) return labelled;
@@ -67,6 +80,12 @@
     const tag = element.tagName;
     const type = String(element.type || '').toLowerCase();
     const ariaRole = String(element.getAttribute('role') || '').toLowerCase();
+    const applicationBridge = element.hasAttribute('data-saccade-reflex-target');
+    const mouseAccuracyBridge = location.hostname === 'mouseaccuracy.com'
+      && location.pathname.startsWith('/game')
+      && element.classList.contains('target')
+      && !element.classList.contains('hit');
+    if (applicationBridge || mouseAccuracyBridge) return 'reflex_target';
     if (tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type))) return 'button';
     if (tag === 'INPUT' && type === 'checkbox' || ariaRole === 'checkbox') return 'checkbox';
     if (tag === 'SELECT') return 'select';
@@ -104,7 +123,14 @@
 
   function signalsFor(element, role) {
     const signals = { enabled: !element.disabled && element.getAttribute('aria-disabled') !== 'true' };
-    if (role === 'button') {
+    if (role === 'reflex_target') {
+      if (element === document.body && location.hostname === 'mouseaccuracy.com') signals.enabled = false;
+      const authored = element.getAttribute('data-saccade-reflex-occurrence');
+      const score = location.hostname === 'mouseaccuracy.com'
+        ? (document.body?.innerText || '').match(/SCORE\s*(\d+)/i)?.[1]
+        : undefined;
+      signals.occurrence = authored ?? score ?? '0';
+    } else if (role === 'button') {
       signals.pressed = ariaBoolean(element, 'pressed');
       signals.expanded = ariaBoolean(element, 'expanded');
     } else if (role === 'checkbox') {
@@ -146,6 +172,7 @@
     };
     if (name) object.name = name;
     if (description) object.description = description;
+    if (role === 'reflex_target') object.loop_class_token = reflexLoopClassToken;
     if (descriptor.affordances.length && getComputedStyle(element).pointerEvents !== 'none') {
       const token = randomToken('action');
       object.action_token = token;
@@ -176,8 +203,12 @@
     objectTargets.clear();
     const objects = [];
     let truncated = false;
+    if (location.hostname === 'mouseaccuracy.com' && location.pathname.startsWith('/game') && document.body) {
+      const loopStatus = observationObject(document.body, 'reflex_target', config.frameId);
+      if (loopStatus) objects.push(loopStatus);
+    }
     for (const element of document.querySelectorAll(
-      'button,input,textarea,select,[role="button"],[role="checkbox"],[role="textbox"],[contenteditable]',
+      'button,input,textarea,select,[role="button"],[role="checkbox"],[role="textbox"],[contenteditable],[data-saccade-reflex-target],.target',
     )) {
       const role = roleFor(element);
       if (!role) continue;
@@ -232,6 +263,27 @@
     return prepared;
   }
 
+  function softClick(request) {
+    prepare(request);
+    const target = tokenTargets.get(request.action_token);
+    if (!target || target.role !== 'reflex_target') throw new Error('soft click requires a current reflex target');
+    const box = boxFor(target.element);
+    const clientX = box.x + box.width / 2;
+    const clientY = box.y + box.height / 2;
+    for (const [type, EventClass, buttons] of [
+      ['pointermove', PointerEvent, 0], ['mousemove', MouseEvent, 0],
+      ['pointerdown', PointerEvent, 1], ['mousedown', MouseEvent, 1],
+      ['pointerup', PointerEvent, 0], ['mouseup', MouseEvent, 0], ['click', MouseEvent, 0],
+    ]) {
+      target.element.dispatchEvent(new EventClass(type, {
+        bubbles: true, cancelable: true, composed: true, clientX, clientY,
+        button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+      }));
+    }
+    requestAnimationFrame(collect);
+    return { accepted: true };
+  }
+
   function schedule() {
     if (scheduled || !config) return;
     scheduled = true;
@@ -256,6 +308,7 @@
       else if (message.kind === 'collector.configure') { configure(message.config); respond({ ok: true, document_id: documentId }); }
       else if (message.kind === 'collector.observe') { collect(); respond({ ok: true }); }
       else if (message.kind === 'collector.prepare_action') respond({ ok: true, prepared: prepare(message.request) });
+      else if (message.kind === 'collector.soft_click') respond({ ok: true, result: softClick(message.request) });
       else return false;
     } catch (error) {
       const detail = String(error.message || error);

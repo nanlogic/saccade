@@ -3,39 +3,180 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Saccade ordinary mouse accuracy fixture</title>
+    <title>Saccade mouse-accuracy fixture</title>
     <style>
-      body { margin: 0; font: 16px system-ui; background: #f5f5f5; }
-      main { display: grid; grid-template-columns: repeat(3, 1fr); gap: 160px 24px; padding: 40px; }
-      .cell { display: flex; min-width: 0; }
-      .cell:nth-child(3n + 1) { justify-content: flex-start; }
-      .cell:nth-child(3n + 2) { justify-content: center; }
-      .cell:nth-child(3n) { justify-content: flex-end; }
+      body { margin: 0; font: 14px system-ui; background: #f5f5f5; }
+      #targets {
+        width: 100%;
+        min-height: 100%;
+      }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 160px 24px; padding: 40px; }
+      .grid .cell { display: flex; min-width: 0; }
+      .grid .cell:nth-child(3n + 1) { justify-content: flex-start; }
+      .grid .cell:nth-child(3n + 2) { justify-content: center; }
+      .grid .cell:nth-child(3n) { justify-content: flex-end; }
+      .scene-layer { position: relative; width: 100%; height: 720px; }
+      .scene-canvas { width: 100%; height: 100%; display: block; background: #f5f5f5; }
+      .scene-targets {
+        position: absolute; inset: 0; pointer-events: none;
+      }
       button { box-sizing: border-box; padding: 0; font: 12px system-ui; }
+      .scene-hitbox {
+        position: absolute;
+        pointer-events: auto;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0);
+      }
+      .scene-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+      }
     </style>
   </head>
   <body>
-    <main id="targets"></main>
+    <main id="targets" class="grid"></main>
     <script>
-      const sizes = [32, 40, 48];
+      (() => {
       const root = document.getElementById('targets');
-      for (let index = 1; index <= 24; index += 1) {
-        const cell = document.createElement('div');
-        cell.className = 'cell';
+      const query = new URLSearchParams(location.search);
+      const layout = query.get('layout') || 'buttons';
+      const difficulty = query.get('difficulty') || 'ordinary';
+      const isCanvas = layout === 'canvas';
+      const targetCount = 24;
+      const targetSizes = isCanvas
+        ? { ordinary: [14, 18, 22], hard: [10, 14, 18] }
+        : { ordinary: [32, 40, 48], hard: [24, 32, 40] };
+      const sizes = targetSizes[difficulty] || targetSizes.ordinary;
+
+      function targetSize(index) {
+        return sizes[(Math.floor((index - 1) / 3) + (index - 1) % 3) % sizes.length];
+      }
+
+      function makeButton(index, size, left, top) {
+        const name = `Accuracy ${String(index).padStart(2, '0')}`;
         const button = document.createElement('button');
-        const size = sizes[(Math.floor((index - 1) / 3) + (index - 1) % 3) % sizes.length];
         button.type = 'button';
         button.style.width = `${size}px`;
         button.style.height = `${size}px`;
-        button.setAttribute('aria-label', `Accuracy ${String(index).padStart(2, '0')}`);
+        button.setAttribute('aria-label', name);
         button.setAttribute('aria-pressed', 'false');
         button.textContent = String(index).padStart(2, '0');
+        if (Number.isFinite(left) && Number.isFinite(top)) {
+          button.style.left = `${left}px`;
+          button.style.top = `${top}px`;
+        }
         button.addEventListener('click', () => {
           button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
+          if (isCanvas) {
+            paint();
+          }
         });
-        cell.appendChild(button);
-        root.appendChild(cell);
+        if (isCanvas) {
+          button.className = 'scene-hitbox';
+          button.setAttribute('data-saccade-reflex-target', '');
+          button.dataset.targetX = Number.isFinite(left) ? String(left) : '0';
+          button.dataset.targetY = Number.isFinite(top) ? String(top) : '0';
+          button.setAttribute('aria-label', name);
+          const label = document.createElement('span');
+          label.className = 'scene-label';
+          label.textContent = name;
+          button.appendChild(label);
+        }
+        return button;
       }
+
+      let seed = 0x9e3779b9;
+      function nextRand(range) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        return Math.floor((seed / 0x100000000) * range);
+      }
+
+      function paint() {
+        if (!isCanvas) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const dpr = devicePixelRatio || 1;
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, logicalWidth, logicalHeight);
+        for (const hitbox of hitboxes) {
+          const pressed = hitbox.getAttribute('aria-pressed') === 'true';
+          const name = hitbox.getAttribute('aria-label') || '';
+          const size = parseFloat(hitbox.style.width) || 0;
+          const x = Number(hitbox.dataset.targetX) || 0;
+          const y = Number(hitbox.dataset.targetY) || 0;
+          const radius = Math.max(7, size / 2);
+          ctx.beginPath();
+          ctx.arc(x + size / 2, y + size / 2, radius, 0, Math.PI * 2);
+          ctx.fillStyle = pressed ? '#4caf50' : '#1565c0';
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(x + size / 2, y + size / 2, Math.max(3, radius - 6), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = pressed ? '#0b5d2a' : '#0b2f5e';
+          ctx.font = `${Math.max(10, Math.floor(size * 0.4))}px system-ui`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(name.replace('Accuracy ', ''), x + size / 2, y + size / 2);
+        }
+        ctx.restore();
+      }
+
+      if (!isCanvas) {
+        for (let index = 1; index <= targetCount; index += 1) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          const button = makeButton(index, targetSize(index));
+          cell.appendChild(button);
+          root.appendChild(cell);
+        }
+        return;
+      }
+
+      root.className = 'scene-layer';
+      const canvas = document.createElement('canvas');
+      canvas.className = 'scene-canvas';
+      const dpr = devicePixelRatio || 1;
+      const logicalWidth = Math.max(420, window.innerWidth - 40);
+      const logicalHeight = Math.max(420, window.innerHeight - 40);
+      canvas.width = logicalWidth * dpr;
+      canvas.height = logicalHeight * dpr;
+      canvas.style.width = `${logicalWidth}px`;
+      canvas.style.height = `${logicalHeight}px`;
+      const ctx = canvas.getContext('2d', { alpha: true });
+      const overlay = document.createElement('div');
+      overlay.className = 'scene-targets';
+      const hitboxes = [];
+      root.appendChild(canvas);
+      root.appendChild(overlay);
+
+      const columns = 6;
+      const rows = 4;
+      const cellWidth = logicalWidth / columns;
+      const cellHeight = logicalHeight / rows;
+      const margin = 12;
+      for (let index = 1; index <= targetCount; index += 1) {
+        const zero = index - 1;
+        const col = zero % columns;
+        const row = Math.floor(zero / columns);
+        const size = targetSize(index);
+        const x = margin + col * cellWidth + nextRand(Math.max(6, cellWidth - size - margin * 2));
+        const y = margin + row * cellHeight + nextRand(Math.max(6, cellHeight - size - margin * 2));
+        const button = makeButton(index, size, x, y);
+        button.style.position = 'absolute';
+        hitboxes.push(button);
+        overlay.appendChild(button);
+      }
+      paint();
+      addEventListener('resize', () => {
+        paint();
+      });
+      })();
     </script>
   </body>
 </html>

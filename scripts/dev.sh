@@ -26,6 +26,12 @@ SYSTEM_HOST_MANIFEST="$SYSTEM_HOST_DIR/com.nanlogic.saccade.dev.json"
 RUNTIME="$RUNTIME_MACOS/saccade-runtime"
 FIXTURE_URL="http://127.0.0.1:8765/fixtures/controls/all.html"
 MOUSE_ACCURACY_URL="http://127.0.0.1:8765/fixtures/conformance/mouse_accuracy.html"
+MOUSE_ACCURACY_LAYOUT="${SACCADE_MOUSE_ACCURACY_LAYOUT:-buttons}"
+MOUSE_ACCURACY_DIFFICULTY="${SACCADE_MOUSE_ACCURACY_DIFFICULTY:-ordinary}"
+MOUSE_ACCURACY_BACKEND="${SACCADE_MOUSE_ACCURACY_BACKEND:-native}"
+REFLEX_URL="${SACCADE_REFLEX_URL:-https://mouseaccuracy.com/game}"
+REFLEX_MAX_ACTIONS="${SACCADE_REFLEX_MAX_ACTIONS:-500}"
+REFLEX_TIMEOUT_MS="${SACCADE_REFLEX_TIMEOUT_MS:-30000}"
 CODEX_BACKUP="$STATE_DIR/codex-saccade-backup.json"
 PROFILE_BACKUP="$STATE_DIR/profile-before-test.json"
 PROFILE_MISSING="$STATE_DIR/profile-was-missing"
@@ -522,15 +528,20 @@ accuracy_route() {
   restore_profile
   up "$accuracy_browser"
   accuracy_run_dir="$EVIDENCE_DIR/$accuracy_stamp/$accuracy_browser"
+  accuracy_browser_pid=$(sed -n '1p' "$(browser_pid_file "$accuracy_browser")")
   mkdir -p "$accuracy_run_dir"
   chmod 700 "$accuracy_run_dir"
   python3 "$ROOT/scripts/dev_probe.py" mouse_accuracy \
     --browser "$accuracy_browser" \
     --runtime "$RUNTIME" \
     --runtime-dir "$RUNTIME_DIR" \
+    --window-pid "$accuracy_browser_pid" \
+    --mouse-backend "$MOUSE_ACCURACY_BACKEND" \
+    --accuracy-layout "$MOUSE_ACCURACY_LAYOUT" \
+    --accuracy-difficulty "$MOUSE_ACCURACY_DIFFICULTY" \
     --url "$MOUSE_ACCURACY_URL" \
     --output "$accuracy_run_dir/mouse_accuracy.json"
-  printf '%s\n' "Ordinary mouse-accuracy $accuracy_browser evidence: $accuracy_run_dir/mouse_accuracy.json"
+  printf '%s\n' "Mouse-accuracy $accuracy_browser evidence: layout=$MOUSE_ACCURACY_LAYOUT difficulty=$MOUSE_ACCURACY_DIFFICULTY backend=$MOUSE_ACCURACY_BACKEND evidence: $accuracy_run_dir/mouse_accuracy.json"
 }
 
 accuracy_all() {
@@ -538,6 +549,33 @@ accuracy_all() {
   accuracy_route chrome "$accuracy_all_stamp"
   accuracy_route edge "$accuracy_all_stamp"
   printf '%s\n' "Chrome and Edge ordinary mouse-accuracy evidence: $EVIDENCE_DIR/$accuracy_all_stamp"
+}
+
+reflex_route() {
+  reflex_browser=$1
+  reflex_backend=${2:-soft}
+  require_browser "$reflex_browser"
+  case "$reflex_backend" in
+    native|soft) ;;
+    *) printf '%s\n' "input backend must be native or soft" >&2; exit 2 ;;
+  esac
+  mkdirs
+  restore_profile
+  up "$reflex_browser"
+  reflex_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  reflex_run_dir="$EVIDENCE_DIR/$reflex_stamp/$reflex_browser"
+  mkdir -p "$reflex_run_dir"
+  chmod 700 "$reflex_run_dir"
+  python3 "$ROOT/scripts/dev_probe.py" reflex \
+    --browser "$reflex_browser" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --mouse-backend "$reflex_backend" \
+    --max-actions "$REFLEX_MAX_ACTIONS" \
+    --timeout-ms "$REFLEX_TIMEOUT_MS" \
+    --url "$REFLEX_URL" \
+    --output "$reflex_run_dir/reflex.json"
+  printf '%s\n' "Reflex $reflex_browser/$reflex_backend evidence: $reflex_run_dir/reflex.json"
 }
 
 status() {
@@ -585,7 +623,8 @@ case "${1:-}" in
       *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
     esac
     ;;
+  reflex) reflex_route "${2:-chrome}" "${3:-soft}" ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|accuracy [chrome|edge|all]|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|status|down>" >&2; exit 2 ;;
 esac

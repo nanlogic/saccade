@@ -56,10 +56,12 @@ approved component at a time and record its provenance below.
    `docs/migrations/0005_editable_controls.md`.
 8. Migrate the reviewed macOS HID click sequence and add the ordinary mouse
    gate. See `docs/migrations/0006_native_mouse_accuracy.md`.
-9. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+9. Migrate the reviewed current-target classifier and bounded reflex-loop
+   behavior. See `docs/migrations/0007_reflex_target_soft_mouse.md`.
+10. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
    installation/action gates before publication.
-10. Add truthful basic coverage for uncommon controls.
-11. Consider Canvas/WebGL semantic bridges before any detector capability.
+11. Add truthful basic coverage for uncommon controls.
+12. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 

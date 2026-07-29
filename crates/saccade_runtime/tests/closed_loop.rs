@@ -191,6 +191,31 @@ fn button_click_requires_a_semantic_effect() {
 }
 
 #[test]
+fn reflex_target_verifies_only_when_the_same_loop_class_advances() {
+    let mut before_target = object(
+        "reflex",
+        SemanticRole::ReflexTarget,
+        Affordance::Click,
+        &[("enabled", "true"), ("reflex_occurrence", "0")],
+    );
+    before_target.name = None;
+    before_target.loop_class_token = Some("loop.0123456789abcdef0123456789abcdef0123456789".into());
+    let mut after_target = before_target.clone();
+    after_target.document_bounds.x += 40.0;
+    after_target
+        .state
+        .insert("reflex_occurrence".into(), "1".into());
+    let (receipt, calls) = run(
+        snapshot(1, vec![before_target.clone()]),
+        snapshot(2, vec![after_target]),
+        request(&before_target, ActionOperation::Click, ActionPayload::None),
+        prepared(&before_target, ActionOperation::Click),
+    );
+    assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
+    assert_eq!(calls, vec![NativePrimitive::PrimaryClick]);
+}
+
+#[test]
 fn text_field_verifies_has_value_without_disclosing_contents() {
     let before_target = object(
         "field",

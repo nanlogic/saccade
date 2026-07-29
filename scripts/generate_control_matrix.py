@@ -13,11 +13,11 @@ OUTPUT = ROOT / "docs" / "generated" / "control_coverage.md"
 
 ALLOWED_ROLES = {
     "button", "text_field", "search_field", "text_area", "content_editable",
-    "spin_button", "checkbox", "select",
+    "spin_button", "checkbox", "select", "reflex_target",
 }
 ALLOWED_STATES = {
     "has_value", "checked", "enabled", "selected", "expanded", "required",
-    "readonly", "pressed", "invalid",
+    "readonly", "pressed", "invalid", "reflex_occurrence",
 }
 
 

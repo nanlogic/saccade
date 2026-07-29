@@ -162,9 +162,13 @@ impl ClosedLoopEngine {
             return Err(ClosedLoopError::Stale);
         }
         let fresh = after.document_id != before.document_id || after.revision > before.revision;
-        let postcondition = if dispatch_status == DispatchStatus::AcceptedByOs && fresh {
+        let accepted = matches!(
+            dispatch_status,
+            DispatchStatus::AcceptedByOs | DispatchStatus::AcceptedBySoftware
+        );
+        let postcondition = if accepted && fresh {
             verify_with_documents(module, before, target, &request.payload, &after)
-        } else if dispatch_status == DispatchStatus::AcceptedByOs {
+        } else if accepted {
             PostconditionStatus::VisibleStateUnchanged
         } else {
             PostconditionStatus::Unverified

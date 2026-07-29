@@ -40,6 +40,7 @@ pub struct ControlDefinition {
 #[serde(rename_all = "snake_case")]
 pub enum ImplementationFamily {
     Button,
+    Reflex,
     Editable,
     Toggle,
     Choice,
@@ -57,6 +58,7 @@ pub enum NativePrimitive {
 #[serde(rename_all = "snake_case")]
 pub enum Verifier {
     ButtonEffect,
+    TargetAdvanced,
     HasValue,
     CheckedTransition,
     OptionSelected,
@@ -130,6 +132,7 @@ impl Registry {
             SemanticRole::SpinButton,
             SemanticRole::Checkbox,
             SemanticRole::Select,
+            SemanticRole::ReflexTarget,
         ]);
         if modules.keys().copied().collect::<BTreeSet<_>>() != expected {
             return Err(RegistryError::InvalidCatalog(
@@ -204,6 +207,11 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
             NativePrimitive::SelectOption,
             Verifier::OptionSelected,
         ),
+        SemanticRole::ReflexTarget => (
+            ImplementationFamily::Reflex,
+            NativePrimitive::PrimaryClick,
+            Verifier::TargetAdvanced,
+        ),
         _ => {
             return Err(RegistryError::InvalidCatalog(
                 "role has no audited control module".into(),
@@ -254,6 +262,7 @@ pub fn verify(
             if ["pressed", "expanded"]
                 .iter()
                 .any(|key| before.state.get(*key) != after_target.state.get(*key))
+                || before.name != after_target.name
             {
                 PostconditionStatus::Verified
             } else {
@@ -298,6 +307,18 @@ pub fn verify(
                 PostconditionStatus::VisibleStateUnchanged
             }
         }
+        Verifier::TargetAdvanced => {
+            if after.objects.iter().any(|object| {
+                object.role == SemanticRole::ReflexTarget
+                    && object.loop_class_token == before.loop_class_token
+                    && object.state.get("reflex_occurrence")
+                        != before.state.get("reflex_occurrence")
+            }) {
+                PostconditionStatus::Verified
+            } else {
+                PostconditionStatus::VisibleStateUnchanged
+            }
+        }
     }
 }
 
@@ -323,7 +344,7 @@ mod tests {
     #[test]
     fn builtins_are_catalog_backed_and_not_publishable() {
         let registry = Registry::builtin().unwrap();
-        assert_eq!(registry.modules.len(), 8);
+        assert_eq!(registry.modules.len(), 9);
         assert!(registry
             .modules
             .values()

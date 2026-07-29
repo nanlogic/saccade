@@ -104,6 +104,19 @@
       "fixtures": ["fixtures/controls/select.html"],
       "evidence": { "chrome": "pending", "edge": "pending" },
       "publication_status": "implementation"
+    },
+    {
+      "id": "reflex_target",
+      "role": "reflex_target",
+      "implementation_family": "reflex",
+      "safe_state": ["enabled", "reflex_occurrence"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "target_advanced",
+      "limitations": ["Only audited benchmark or application-provided target bridges are recognized; arbitrary Canvas pixels remain opaque."],
+      "fixtures": ["fixtures/conformance/reflex_target.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
     }
   ]
 }

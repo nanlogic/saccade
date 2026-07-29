@@ -73,6 +73,25 @@ test('prepare checks the revision basis after tab activation and focus', () => {
   assert.match(collector, /detail === 'stale action basis'\) collect\(\)/);
 });
 
+test('reflex bridge is token-bound and soft clicks stay limited to audited targets', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /data-saccade-reflex-target/);
+  assert.match(collector, /!element\.classList\.contains\('hit'\)/);
+  assert.match(collector, /element === document\.body/);
+  assert.match(collector, /location\.hostname === 'mouseaccuracy\.com'/);
+  assert.match(collector, /location\.pathname\.startsWith\('\/game'\)/);
+  assert.match(collector, /'Decrease' : 'Increase'/);
+  assert.match(collector, /loop_class_token = reflexLoopClassToken/);
+  assert.match(collector, /soft click requires a current reflex target/);
+  assert.ok(collector.indexOf('prepare(request);') < collector.indexOf('target.element.dispatchEvent'));
+  assert.match(collector, /SCORE\\s\*\(\\d\+\)/);
+  assert.match(collector, /target\.element\.dispatchEvent/);
+  assert.match(collector, /requestAnimationFrame\(collect\)/);
+  assert.match(worker, /command\.kind === 'soft_click'/);
+  assert.match(worker, /collector\.soft_click/);
+});
+
 test('managed Chrome and Edge routes share one protocol and keep browser evidence separate', () => {
   const dev = fs.readFileSync(path.join(__dirname, '../../scripts/dev.sh'), 'utf8');
   const probe = fs.readFileSync(path.join(__dirname, '../../scripts/dev_probe.py'), 'utf8');
@@ -85,6 +104,8 @@ test('managed Chrome and Edge routes share one protocol and keep browser evidenc
   assert.match(dev, /test \[chrome\|edge\|all\]/);
   assert.match(dev, /accuracy \[chrome\|edge\|all\]/);
   assert.match(probe, /mouse_accuracy/);
+  assert.match(probe, /ACCURACY_WINDOW_PHASES/);
+  assert.match(dev, /--window-pid/);
   assert.match(dev, /EVIDENCE_DIR\/\$test_stamp\/\$test_browser/);
   assert.match(probe, /--browser/);
   assert.match(probe, /"browser": browser/);

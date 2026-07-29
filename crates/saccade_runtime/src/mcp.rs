@@ -119,6 +119,8 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
         "tabs.open",
         "web.observe",
         "web.act",
+        "web.act_soft",
+        "web.reflex.run",
     ]
     .contains(&method)
     {
@@ -126,7 +128,14 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
     }
     validate_arguments(method, &arguments)?;
     let timeout = match method {
-        "web.act" => Duration::from_secs(30),
+        "web.act" | "web.act_soft" => Duration::from_secs(30),
+        "web.reflex.run" => Duration::from_millis(
+            arguments
+                .get("timeout_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or(30_000)
+                + 10_000,
+        ),
         "tabs.open" => Duration::from_secs(15),
         _ => Duration::from_secs(10),
     };
@@ -140,7 +149,7 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
         "web.observe" => {
             serde_json::from_value::<ObservationSnapshot>(result.clone())?.validate()?
         }
-        "web.act" => {
+        "web.act" | "web.act_soft" => {
             let receipt: ActionReceipt = serde_json::from_value(result.clone())?;
             receipt.post_action_observation.validate()?;
         }
@@ -150,7 +159,7 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
 }
 
 fn validate_arguments(method: &str, value: &Value) -> Result<()> {
-    if method == "web.act" {
+    if matches!(method, "web.act" | "web.act_soft") {
         serde_json::from_value::<ActionRequest>(value.clone())?.validate()?;
         return Ok(());
     }
@@ -161,6 +170,10 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
         "system.capabilities" | "tabs.list" => (&[], &[]),
         "tabs.open" => (&["url", "active"], &["url"]),
         "web.observe" => (&["tab_id"], &["tab_id"]),
+        "web.reflex.run" => (
+            &["tab_id", "input_backend", "max_actions", "timeout_ms"],
+            &["tab_id"],
+        ),
         _ => bail!("tool has no parameter contract"),
     };
     for key in object.keys() {
@@ -189,6 +202,31 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
         "web.observe" => {
             string(value, "tab_id")?;
         }
+        "web.reflex.run" => {
+            string(value, "tab_id")?;
+            if value
+                .get("input_backend")
+                .is_some_and(|backend| !matches!(backend.as_str(), Some("native" | "soft")))
+            {
+                bail!("input_backend must be native or soft");
+            }
+            let max_actions = value
+                .get("max_actions")
+                .map(|number| number.as_u64().context("max_actions must be an integer"))
+                .transpose()?
+                .unwrap_or(500);
+            if !(1..=10_000).contains(&max_actions) {
+                bail!("max_actions must be between 1 and 10000");
+            }
+            let timeout_ms = value
+                .get("timeout_ms")
+                .map(|number| number.as_u64().context("timeout_ms must be an integer"))
+                .transpose()?
+                .unwrap_or(30_000);
+            if !(1..=60_000).contains(&timeout_ms) {
+                bail!("timeout_ms must be between 1 and 60000");
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -201,6 +239,8 @@ fn tools() -> Vec<Value> {
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
         json!({"name":"saccade.web.observe","description":"Read the latest authorized observation.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1}},"required":["tab_id"],"additionalProperties":false}}),
         json!({"name":"saccade.web.act","description":"Run one revision-bound native closed loop.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.act_soft","description":"Run one token-bound software click closed loop for an audited reflex target.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"input_backend":{"enum":["native","soft"],"default":"native"},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
     ]
 }
 
@@ -240,7 +280,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request.method, "initialize");
-        assert_eq!(tools().len(), 5);
+        assert_eq!(tools().len(), 7);
         assert!(serde_json::from_value::<RpcRequest>(
             json!({"jsonrpc":"2.0","id":1,"method":"ping","unexpected":true})
         )

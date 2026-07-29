@@ -8,14 +8,15 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use saccade_protocol::{
     ActionPayload, ActionReceipt, ActionRequest, ControlError, ControlRequest, ControlResponse,
-    HostGrant, LocalAddress, NativeEnvelope, ObservationSnapshot, PreparedAction, HOST_PROTOCOL,
-    SESSION_CAPABILITY_SCHEME,
+    DispatchStatus, HostGrant, LocalAddress, NativeEnvelope, ObservationSnapshot,
+    PostconditionStatus, PreparedAction, SemanticRole, HOST_PROTOCOL, SESSION_CAPABILITY_SCHEME,
 };
 use serde_json::{json, Value};
 
@@ -28,6 +29,14 @@ const EXTENSION_TIMEOUT: Duration = Duration::from_secs(10);
 const POST_ACTION_TIMEOUT: Duration = Duration::from_secs(2);
 const POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(300);
 const SELECT_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(750);
+const REFLEX_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(1);
+
+struct SettlementPolicy<'a> {
+    quiet_window: Duration,
+    allow_document_transition: bool,
+    reflex_loop_class: Option<&'a str>,
+    reflex_occurrence: Option<&'a str>,
+}
 
 pub trait ExtensionOutbound: Send + Sync {
     fn send(&self, message: &NativeEnvelope) -> Result<()>;
@@ -176,6 +185,7 @@ impl NativeHostSession {
                 "host_protocol":HOST_PROTOCOL,
                 "perception":"dom_extension",
                 "input":"os_native",
+                "input_backends":["native","soft"],
                 "native_accessibility_trusted":crate::platform_input::accessibility_trusted(),
                 "browser_support":["chrome","edge"],
                 "extension_connected":self.extension_connected.load(Ordering::Acquire),
@@ -215,22 +225,29 @@ impl NativeHostSession {
                     EXTENSION_TIMEOUT,
                 )
             }
-            "web.act" => self.act(params),
+            "web.act" => self.act(params, InputBackend::Native),
+            "web.act_soft" => self.act(params, InputBackend::Soft),
+            "web.reflex.run" => self.reflex_run(params),
             _ => bail!("unknown host method {method}"),
         }
     }
 
-    fn act(&self, params: Value) -> Result<Value> {
+    fn act(&self, params: Value, backend: InputBackend) -> Result<Value> {
         let request: ActionRequest = serde_json::from_value(params)?;
         request.validate()?;
         let before = self.current_observation(&request.tab_id)?;
-        if !before
+        let target = before
             .objects
             .iter()
-            .any(|object| object.action_token.as_deref() == Some(&request.action_token))
-        {
-            bail!("action token is not present in the current Profile-filtered observation");
-        }
+            .find(|object| object.action_token.as_deref() == Some(&request.action_token))
+            .context("action token is not present in the current Profile-filtered observation")?;
+        let target_role = target.role;
+        let reflex_loop_class = (target_role == SemanticRole::ReflexTarget)
+            .then(|| target.loop_class_token.clone())
+            .flatten();
+        let reflex_occurrence = (target_role == SemanticRole::ReflexTarget)
+            .then(|| target.state.get("reflex_occurrence").cloned())
+            .flatten();
         let extension_payload = match &request.payload {
             ActionPayload::Select { .. } => serde_json::to_value(&request.payload)?,
             _ => json!({"kind":"none"}),
@@ -250,20 +267,198 @@ impl NativeHostSession {
         )?)?;
 
         let mut engine = self.engine.lock().map_err(lock_error)?;
-        let mut native = self.native.lock().map_err(lock_error)?;
         let mut source = SessionObservationSource {
             session: self,
             tab_id: request.tab_id.clone(),
             basis_document_id: request.document_id.clone(),
-            quiet_window: if request.operation == saccade_protocol::ActionOperation::Select {
+            quiet_window: if target_role == SemanticRole::ReflexTarget {
+                REFLEX_POST_ACTION_QUIET_WINDOW
+            } else if request.operation == saccade_protocol::ActionOperation::Select {
                 SELECT_POST_ACTION_QUIET_WINDOW
             } else {
                 POST_ACTION_QUIET_WINDOW
             },
+            allow_document_transition: target_role != SemanticRole::ReflexTarget,
+            reflex_loop_class,
+            reflex_occurrence,
         };
-        let receipt: ActionReceipt =
-            engine.execute(&request, &before, &prepared, native.as_mut(), &mut source)?;
+        let receipt: ActionReceipt = match backend {
+            InputBackend::Native => {
+                let mut native = self.native.lock().map_err(lock_error)?;
+                engine.execute(&request, &before, &prepared, native.as_mut(), &mut source)?
+            }
+            InputBackend::Soft => {
+                if target_role != SemanticRole::ReflexTarget {
+                    bail!("soft input is restricted to audited reflex targets");
+                }
+                let mut software = SoftwareInput { session: self };
+                engine.execute(&request, &before, &prepared, &mut software, &mut source)?
+            }
+        };
         Ok(serde_json::to_value(receipt)?)
+    }
+
+    fn reflex_run(&self, params: Value) -> Result<Value> {
+        let object = params
+            .as_object()
+            .context("web.reflex.run params must be an object")?;
+        for key in object.keys() {
+            if !["tab_id", "input_backend", "max_actions", "timeout_ms"].contains(&key.as_str()) {
+                bail!("unexpected web.reflex.run argument {key}");
+            }
+        }
+        let tab_id = required_string(&params, "tab_id")?;
+        let backend_value = params.get("input_backend");
+        let backend_name = backend_value
+            .map(|value| value.as_str().context("input_backend must be a string"))
+            .transpose()?
+            .unwrap_or("native");
+        let backend = match backend_name {
+            "native" => InputBackend::Native,
+            "soft" => InputBackend::Soft,
+            _ => bail!("input_backend must be native or soft"),
+        };
+        let max_actions = params
+            .get("max_actions")
+            .map(|value| value.as_u64().context("max_actions must be an integer"))
+            .transpose()?
+            .unwrap_or(500) as usize;
+        let timeout_ms = params
+            .get("timeout_ms")
+            .map(|value| value.as_u64().context("timeout_ms must be an integer"))
+            .transpose()?
+            .unwrap_or(30_000);
+        if !(1..=10_000).contains(&max_actions) || !(1..=60_000).contains(&timeout_ms) {
+            bail!("reflex bounds are outside the registered contract");
+        }
+
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(timeout_ms);
+        let mut observation = self.current_observation(tab_id)?;
+        observation.validate()?;
+        let mut receipts = Vec::new();
+        let mut latencies = Vec::new();
+        let mut failures = 0_u64;
+        let mut stale_retries = 0_u64;
+        let mut stop_reason = "timeout";
+
+        while Instant::now() < deadline && receipts.len() < max_actions {
+            let target = observation.objects.iter().rev().find(|object| {
+                object.role == SemanticRole::ReflexTarget && object.action_token.is_some()
+            });
+            let Some(target) = target else {
+                thread::sleep(Duration::from_millis(2));
+                observation = self.current_observation(tab_id)?;
+                continue;
+            };
+            let request = ActionRequest {
+                browser_instance_id: observation.browser_instance_id.clone(),
+                tab_id: observation.tab_id.clone(),
+                document_id: observation.document_id.clone(),
+                basis_revision: observation.revision,
+                action_token: target
+                    .action_token
+                    .clone()
+                    .context("reflex target has no token")?,
+                operation: saccade_protocol::ActionOperation::Click,
+                payload: ActionPayload::None,
+            };
+            let before_occurrence = target.state.get("reflex_occurrence").cloned();
+            let before_loop_class = target.loop_class_token.clone();
+            let action_started = Instant::now();
+            let result = self.act(serde_json::to_value(&request)?, backend);
+            let receipt: ActionReceipt = match result {
+                Ok(value) => serde_json::from_value(value)?,
+                Err(error) if is_reflex_stale(&error.to_string()) => {
+                    stale_retries += 1;
+                    observation = self.current_observation(tab_id)?;
+                    continue;
+                }
+                Err(error) => {
+                    failures += 1;
+                    stop_reason = "action_rejected";
+                    receipts.push(json!({
+                        "sequence":receipts.len() + 1,
+                        "error":error.to_string()
+                    }));
+                    break;
+                }
+            };
+            let latency_ms = action_started.elapsed().as_secs_f64() * 1000.0;
+            if receipt.dispatch_status == DispatchStatus::StaleBeforeDispatch {
+                stale_retries += 1;
+                observation = receipt.post_action_observation;
+                continue;
+            }
+            let expected_dispatch = match backend {
+                InputBackend::Soft => DispatchStatus::AcceptedBySoftware,
+                InputBackend::Native => DispatchStatus::AcceptedByOs,
+            };
+            let verified = receipt.dispatch_status == expected_dispatch
+                && receipt.postcondition == PostconditionStatus::Verified;
+            let after_occurrence = receipt
+                .post_action_observation
+                .objects
+                .iter()
+                .rev()
+                .find(|object| object.role == SemanticRole::ReflexTarget)
+                .and_then(|object| object.state.get("reflex_occurrence"))
+                .cloned();
+            let after_same_loop_occurrences = receipt
+                .post_action_observation
+                .objects
+                .iter()
+                .filter(|object| {
+                    object.role == SemanticRole::ReflexTarget
+                        && object.loop_class_token == before_loop_class
+                })
+                .filter_map(|object| object.state.get("reflex_occurrence").cloned())
+                .collect::<Vec<_>>();
+            receipts.push(json!({
+                "sequence":receipts.len() + 1,
+                "basis_revision":receipt.basis_revision,
+                "post_revision":receipt.post_revision,
+                "dispatch_status":receipt.dispatch_status,
+                "postcondition":receipt.postcondition,
+                "before_occurrence":before_occurrence,
+                "after_occurrence":after_occurrence,
+                "after_same_loop_occurrences":after_same_loop_occurrences,
+                "observation_to_receipt_ms":latency_ms
+            }));
+            latencies.push(latency_ms);
+            observation = receipt.post_action_observation;
+            if !verified {
+                failures += 1;
+                stop_reason = "unverified";
+                break;
+            }
+        }
+        if receipts.len() >= max_actions {
+            stop_reason = "max_actions";
+        }
+        latencies.sort_by(f64::total_cmp);
+        let percentile = |ratio: f64| -> f64 {
+            if latencies.is_empty() {
+                return 0.0;
+            }
+            let index = ((latencies.len() - 1) as f64 * ratio).ceil() as usize;
+            latencies[index]
+        };
+        Ok(json!({
+            "schema":"saccade.reflex.report/1",
+            "input_backend":backend_name,
+            "actions":receipts.len().saturating_sub(failures as usize),
+            "failures":failures,
+            "stale_retries":stale_retries,
+            "duration_ms":started.elapsed().as_secs_f64() * 1000.0,
+            "latency_ms":{
+                "p50":percentile(0.50),
+                "p95":percentile(0.95),
+                "max":latencies.last().copied().unwrap_or(0.0)
+            },
+            "stop_reason":stop_reason,
+            "receipts":receipts
+        }))
     }
 
     fn request_extension(&self, kind: &str, payload: Value, timeout: Duration) -> Result<Value> {
@@ -364,7 +559,7 @@ impl NativeHostSession {
         tab_id: &str,
         document_id: &str,
         revision: u64,
-        quiet_window: Duration,
+        policy: SettlementPolicy<'_>,
     ) -> Result<(ObservationSnapshot, bool)> {
         let deadline = Instant::now() + POST_ACTION_TIMEOUT;
         let mut observations = self.observations.lock().map_err(lock_error)?;
@@ -375,13 +570,32 @@ impl NativeHostSession {
             let current = observations
                 .get(tab_id)
                 .context("tab observation disappeared")?;
-            if current.document_id != latest_document_id || current.revision > latest_revision {
+            if current.revision > revision
+                && policy
+                    .reflex_loop_class
+                    .zip(policy.reflex_occurrence)
+                    .is_some_and(|(loop_class, occurrence)| {
+                        current.objects.iter().any(|object| {
+                            object.role == SemanticRole::ReflexTarget
+                                && object.loop_class_token.as_deref() == Some(loop_class)
+                                && object.state.get("reflex_occurrence").map(String::as_str)
+                                    != Some(occurrence)
+                        })
+                    })
+            {
+                return Ok((current.clone(), true));
+            }
+            if current.revision > latest_revision
+                || (policy.allow_document_transition && current.document_id != latest_document_id)
+            {
                 latest_document_id.clone_from(&current.document_id);
                 latest_revision = current.revision;
-                quiet_deadline = Some(Instant::now() + quiet_window);
+                quiet_deadline = Some(Instant::now() + policy.quiet_window);
             }
             let now = Instant::now();
-            if quiet_deadline.is_some_and(|quiet| now >= quiet) {
+            if policy.reflex_loop_class.is_none()
+                && quiet_deadline.is_some_and(|quiet| now >= quiet)
+            {
                 return Ok((current.clone(), true));
             }
             let remaining = deadline.saturating_duration_since(now);
@@ -435,11 +649,66 @@ impl NativeHostSession {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputBackend {
+    Native,
+    Soft,
+}
+
+struct SoftwareInput<'a> {
+    session: &'a NativeHostSession,
+}
+
+impl NativeInput for SoftwareInput<'_> {
+    fn execute(
+        &mut self,
+        primitive: saccade_control_sdk::NativePrimitive,
+        prepared: &PreparedAction,
+        payload: &ActionPayload,
+        _: Option<&str>,
+    ) -> DispatchStatus {
+        if primitive != saccade_control_sdk::NativePrimitive::PrimaryClick
+            || prepared.operation != saccade_protocol::ActionOperation::Click
+            || payload != &ActionPayload::None
+        {
+            return DispatchStatus::Unsupported;
+        }
+        let request = json!({
+            "browser_instance_id":prepared.browser_instance_id,
+            "tab_id":prepared.tab_id,
+            "document_id":prepared.document_id,
+            "basis_revision":prepared.basis_revision,
+            "action_token":prepared.action_token,
+            "operation":prepared.operation,
+            "payload":{"kind":"none"}
+        });
+        match self
+            .session
+            .request_extension("soft_click", request, EXTENSION_TIMEOUT)
+        {
+            Ok(response) if response.get("accepted").and_then(Value::as_bool) == Some(true) => {
+                DispatchStatus::AcceptedBySoftware
+            }
+            Err(error)
+                if error.to_string().contains("stale action basis")
+                    || error.to_string().contains("not current")
+                    || error.to_string().contains("current reflex target") =>
+            {
+                DispatchStatus::StaleBeforeDispatch
+            }
+            _ => DispatchStatus::Rejected,
+        }
+    }
+}
+
 struct SessionObservationSource<'a> {
     session: &'a NativeHostSession,
     tab_id: String,
     basis_document_id: String,
     quiet_window: Duration,
+    allow_document_transition: bool,
+    reflex_loop_class: Option<String>,
+    reflex_occurrence: Option<String>,
 }
 
 impl ObservationSource for SessionObservationSource<'_> {
@@ -458,10 +727,27 @@ impl ObservationSource for SessionObservationSource<'_> {
                 &self.tab_id,
                 &self.basis_document_id,
                 after_revision,
-                self.quiet_window,
+                SettlementPolicy {
+                    quiet_window: self.quiet_window,
+                    allow_document_transition: self.allow_document_transition,
+                    reflex_loop_class: self.reflex_loop_class.as_deref(),
+                    reflex_occurrence: self.reflex_occurrence.as_deref(),
+                },
             )
             .map_err(|error| ClosedLoopError::ObservationSource(error.to_string()))
     }
+}
+
+fn is_reflex_stale(detail: &str) -> bool {
+    [
+        "stale action basis",
+        "request identity or revision is stale",
+        "action token is not current",
+        "action token is not present in the current",
+        "tab observation is not current",
+    ]
+    .iter()
+    .any(|needle| detail.contains(needle))
 }
 
 fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
@@ -554,6 +840,21 @@ mod tests {
             loop_class_token: None,
             protected: false,
         }
+    }
+
+    fn reflex_target(x: f64) -> ObservedObject {
+        let mut target = field(false);
+        target.object_id = "reflex-1".into();
+        target.role = SemanticRole::ReflexTarget;
+        target.name = None;
+        target.document_bounds.x = x;
+        target.state = BTreeMap::from([
+            ("enabled".into(), "true".into()),
+            ("reflex_occurrence".into(), x.to_string()),
+        ]);
+        target.affordances = BTreeSet::from([Affordance::Click]);
+        target.loop_class_token = Some("loop.0123456789abcdef0123456789abcdef0123456789".into());
+        target
     }
 
     fn snapshot(revision: u64, object: ObservedObject) -> ObservationSnapshot {
@@ -693,6 +994,106 @@ mod tests {
         assert!(!serde_json::to_string(&receipt)
             .unwrap()
             .contains("SENTINEL-SECRET"));
+    }
+
+    #[test]
+    fn soft_click_is_revalidated_and_receipted_as_software() {
+        let (out_tx, out_rx) = mpsc::channel();
+        let (native_tx, native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        let before_target = reflex_target(10.0);
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(1, before_target.clone())).unwrap(),
+            })
+            .unwrap();
+        let request = ActionRequest {
+            browser_instance_id: "browser-1".into(),
+            tab_id: "tab-1".into(),
+            document_id: "document-1".into(),
+            basis_revision: 1,
+            action_token: before_target.action_token.clone().unwrap(),
+            operation: ActionOperation::Click,
+            payload: ActionPayload::None,
+        };
+        let control = ControlRequest {
+            id: 10,
+            method: "web.act_soft".into(),
+            params: serde_json::to_value(&request).unwrap(),
+            capability: session.capability(),
+        };
+        let worker_session = Arc::clone(&session);
+        let worker = std::thread::spawn(move || worker_session.handle_control(control));
+
+        let prepare = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(prepare.kind, "prepare_action");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: prepare.request_id,
+                payload: serde_json::to_value(PreparedAction {
+                    browser_instance_id: "browser-1".into(),
+                    tab_id: "tab-1".into(),
+                    document_id: "document-1".into(),
+                    basis_revision: 1,
+                    viewport_revision: 1,
+                    object_id: "reflex-1".into(),
+                    action_token: request.action_token.clone(),
+                    operation: ActionOperation::Click,
+                    screen_bounds: before_target.document_bounds,
+                    visible: true,
+                    topmost: true,
+                    focus_verified: true,
+                    selection_index: None,
+                })
+                .unwrap(),
+            })
+            .unwrap();
+        let software = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(software.kind, "soft_click");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: software.request_id,
+                payload: json!({"accepted":true}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(2, reflex_target(50.0))).unwrap(),
+            })
+            .unwrap();
+
+        let response = worker.join().unwrap();
+        assert!(response.ok, "{:?}", response.error);
+        let receipt: ActionReceipt = serde_json::from_value(response.result.unwrap()).unwrap();
+        assert_eq!(receipt.dispatch_status, DispatchStatus::AcceptedBySoftware);
+        assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
+        assert!(native_rx.try_recv().is_err());
     }
 
     #[test]

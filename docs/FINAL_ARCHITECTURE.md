@@ -44,7 +44,7 @@ and packaging libraries. They do not share stdin/stdout: Chrome owns the Native
 Messaging channel and each Agent owns its MCP channel.
 
 The Runtime validates identity, revision, focus, topmost state, and geometry,
-dispatches native input, waits for fresh observations, and records receipts.
+dispatches a registered input backend, waits for fresh observations, and records receipts.
 It also loads the three-field Profile described in `PROFILE_ARCHITECTURE.md`.
 The Profile supplies behavior text to the Agent and bans named controls from
 the Agent surface.
@@ -81,13 +81,15 @@ discover
   → observe
   → prepare
   → revalidate
-  → execute real OS input
+  → execute a registered input backend
   → reobserve
   → verify a control-specific postcondition
   → receipt | failed | limited
 ```
 
-An OS-accepted input event is not automatically a successful control action.
+The default backend executes real OS input. The audited reflex module may also
+request token-bound software pointer input inside the Extension. An accepted
+input event is not automatically a successful control action.
 For example, checkbox success requires a checked-state transition; link success
 may require a document transition or an agent-owned new tab. If the semantic
 postcondition cannot be proved, the receipt says delivered/unverified rather
@@ -101,9 +103,12 @@ Similar controls share code. Agents continue to use generic observe/act tools;
 the Registry dispatches the correct module from the opaque token.
 
 Modules cannot send arbitrary code to the Host. The Host exposes a finite set of
-native primitives such as pointer movement, allowed buttons, wheel, allowlisted
-key chords, Unicode text, selection, and bounded drag. The current v1 route uses
-opaque action tokens.
+primitives such as pointer movement, allowed buttons, wheel, allowlisted key
+chords, Unicode text, selection, and bounded drag. The `native` backend uses OS
+input. The `soft` backend is restricted to the audited reflex-target click and
+dispatches from the Extension only after the same token and revision
+revalidation. It accepts no Agent coordinate or locator. The current v1 route
+uses opaque action tokens.
 
 Modules own semantic interpretation and the control-specific closed loop. They
 execute through registered primitives and report what occurred. Profile
@@ -129,6 +134,12 @@ that are absent from the filtered current observation. The current
 Canvas/WebGL support prioritizes application-provided semantic bridges. Pixel
 or visual detectors, if later approved, produce short-lived candidates with
 explicit provenance; a changed image is not a semantic success receipt.
+
+A canvas remains opaque unless an audited semantic bridge supplies current DOM
+objects with revalidatable identity. MouseAccuracy is one such narrow bridge:
+only its current `.target:not(.hit)` object is actionable. Historical hit
+effects remain non-actionable and score advancement, not canvas motion, proves
+success.
 
 ## Platform delivery
 
@@ -159,7 +170,7 @@ actionable controls. This extension changes neither Profile fields nor the two
 v1 wire schemas; its Catalog rows remain `implementation` pending release
 evidence.
 
-The managed ordinary mouse gate uses the same semantic button token,
+The managed ordinary native-mouse gate uses the same semantic button token,
 preparation, CoreGraphics input, reobservation, and button-effect verifier. It
 does not expose or accept Agent coordinates. Run `20260729T053405Z` verified
 24/24 static targets in Chrome and 24/24 in Edge at 32, 40, and 48 CSS pixels.
@@ -171,7 +182,24 @@ DOM hit testing proves page-level topmost state. An unrelated always-on-top OS
 window can still intercept an event after preparation; v1 reports the missing
 semantic effect as unverified rather than claiming success. Release evidence
 must therefore use a controlled unobstructed browser window. OS-window
-occlusion preflight remains a separate platform gate.
+occlusion preflight remains a separate platform gate. Development evidence also
+moves and resizes the exact managed browser PID between phases so screen bounds
+are recomputed rather than assumed from launch geometry.
+Managed Chrome run `20260729T064702Z` passed 24/24 native targets with zero
+misses across all three phases.
+
+The audited reflex extension adds a `reflex_target` Catalog module and one
+bounded local MCP loop. One MCP request keeps observe → act → verify local to
+the Runtime hot path. `native` receipts require `AcceptedByOs`; `soft` receipts
+require `AcceptedBySoftware`. Both require the same loop-class occurrence or
+score to advance. Profile remains `name / behavior / ban` and cannot select or
+weaken an input backend. This is additive development behavior under the v1
+wire names; its Catalog row remains `implementation`.
+
+Managed Chrome development run `20260729T064526Z` drove MouseAccuracy to
+`Insane + Tiny` and produced 31 score-verified software hits with zero failures.
+Observation-to-receipt latency was 14.72 ms p50 and 15.76 ms p95. This is local
+development evidence, not publication evidence.
 
 ## Non-goals
 

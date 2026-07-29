@@ -124,6 +124,8 @@ pub struct PreparedAction {
 #[serde(rename_all = "snake_case")]
 pub enum DispatchStatus {
     AcceptedByOs,
+    AcceptedBySoftware,
+    StaleBeforeDispatch,
     PermissionRequired,
     FocusMismatch,
     Unsupported,

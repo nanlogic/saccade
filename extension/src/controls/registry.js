@@ -11,6 +11,7 @@
     ['text_area', controls.text_area || require('./text_area.js')],
     ['content_editable', controls.content_editable || require('./content_editable.js')],
     ['spin_button', controls.spin_button || require('./spin_button.js')],
+    ['reflex_target', controls.reflex_target || require('./reflex_target.js')],
   ]);
 
   function observe(role, signals) {

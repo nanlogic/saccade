@@ -94,7 +94,7 @@ async function authorizeTab(tabId) {
       'src/protocol.js', 'src/consent.js', 'src/controls/common.js', 'src/controls/button.js',
       'src/controls/text_field.js', 'src/controls/search_field.js', 'src/controls/text_area.js',
       'src/controls/content_editable.js', 'src/controls/spin_button.js',
-      'src/controls/checkbox.js', 'src/controls/select.js',
+      'src/controls/checkbox.js', 'src/controls/select.js', 'src/controls/reflex_target.js',
       'src/controls/registry.js', 'src/collector.js',
     ] });
   }
@@ -141,6 +141,12 @@ async function handleHostCommand(command) {
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.prepare_action', request: payload }, { frameId: 0 });
     if (!result?.ok) throw new Error(result?.error || 'action preparation failed');
     reply(command, result.prepared);
+  } else if (command.kind === 'soft_click') {
+    const tabId = numericTabId(payload.tab_id);
+    if (!isAuthorized(tabId) || sessions.get(tabId)?.last?.document_id !== payload.document_id) throw new Error('tab observation is not current');
+    const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_click', request: payload }, { frameId: 0 });
+    if (!result?.ok) throw new Error(result?.error || 'soft click failed');
+    reply(command, result.result);
   } else {
     throw new Error(`unsupported host command: ${command.kind}`);
   }

@@ -97,14 +97,44 @@ and the reviewed legacy human-input sequence `move → 50 ms → down → 50 ms 
 up`. Only this finite native event behavior was migrated from private legacy
 commit `8c4defb3f8b0`; the old CEF/Servo MouseAccuracy route was not migrated.
 
-Accepted: managed browsers use fixed unobstructed window geometry and repair
-their isolated profile's crash-exit marker before launch. This followed a
-truthful failed run where a Codex Pet layer-3 window intercepted right-side
-clicks. DOM topmost cannot preflight unrelated OS windows under the v1 schema;
-an intercepted click therefore remains unverified. Paired run
+Accepted: the gate addresses the exact managed browser PID and repairs its
+isolated profile's crash-exit marker before launch. Targets are split across
+baseline, moved, and moved-and-resized window phases so prepared screen bounds
+cannot rely on launch geometry. This followed a truthful failed run where a
+Codex Pet layer-3 window intercepted right-side clicks. DOM topmost cannot
+preflight unrelated OS windows under the v1 schema; an intercepted click
+therefore remains unverified. Paired run
 `20260729T053405Z` passed 24/24 in Chrome and 24/24 in Edge on reused managed
-profiles. Local evidence does not promote Catalog status.
+profiles; dynamic-window Chrome run `20260729T064702Z` passed 24/24 with zero
+misses. Local evidence does not promote Catalog status.
 
 Accepted: a stale prepare remains rejected. When the collector is newer than
 the Host after startup or reconnection, that rejection also triggers a fresh
 full observation so the next revision-bound attempt can recover.
+
+## 2026-07-29: Reflex targets support native and soft input backends
+
+Accepted: the single Extension → Native Host → owner-only IPC → MCP route has
+two explicitly reported input backends. `native` posts real OS input and returns
+`accepted_by_os`. `soft` is restricted to the Catalog-backed `reflex_target`,
+dispatches a software pointer event inside the Extension, and returns
+`accepted_by_software`. Both use the same opaque token, prepare, revision,
+visibility, topmost, replay, reobservation, and semantic-verification checks.
+Agents never provide or receive coordinates or locators.
+
+Accepted: one MCP call may run the bounded reflex hot loop locally. Ordinary
+stale targets are reobserved and never replayed. A hit is verified only when
+the same loop class advances its safe occurrence counter. MouseAccuracy's
+narrow semantic bridge recognizes only current `.target:not(.hit)` objects and
+uses score advancement as the occurrence. Its canvas is not treated as a
+general actionable surface.
+
+Accepted: Profile remains exactly `name / behavior / ban`; it neither selects
+an input backend nor changes a control loop. The new semantic role and dispatch
+statuses are additive under the existing v1 wire names. The reflex Catalog row
+remains `implementation` pending release evidence.
+
+Accepted development evidence: managed Chrome run `20260729T064526Z` reached
+`Insane + Tiny`, recorded 31 `accepted_by_software + verified` score advances
+with zero failures, and measured 14.72 ms p50 / 15.76 ms p95
+observation-to-receipt latency. It does not promote Catalog status.

@@ -12,5 +12,6 @@
 | spin_button | editable | type | unicode_text | has_value | pending | pending | implementation |
 | checkbox | toggle | click | primary_click | checked_transition | pending | pending | implementation |
 | select | choice | select | select_option | option_selected | pending | pending | implementation |
+| reflex_target | reflex | click | primary_click | target_advanced | pending | pending | implementation |
 
 No row is `publishable` until current Chrome and Edge artifacts pass for the same release candidate.

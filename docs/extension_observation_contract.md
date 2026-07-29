@@ -280,7 +280,7 @@ authorized observation
   -> Agent action request
   -> Extension prepared action
   -> Host identity/revision/token/affordance revalidation
-  -> native OS input
+  -> registered input backend
   -> settled fresh observation
   -> action receipt
 ```
@@ -289,11 +289,16 @@ The Extension scrolls the target into view and prepares current screen geometry,
 visibility, topmost hit-test state, and focus state. The Host rejects arbitrary
 coordinates and unrestricted key sequences, rechecks the current browser
 instance, tab, document, revision, token, and affordance, rejects replay, then
-dispatches native input.
+dispatches input. The default `native` backend uses OS input. The `soft` backend
+is available only to an audited `reflex_target`; it computes the current target
+center inside the Extension and never accepts or discloses an Agent coordinate
+or locator.
 
 A receipt binds before, prepared, and post-action revisions and includes the
 post-action observation. `AcceptedByOs` means the operating system accepted the
-input request; it does not by itself prove the user's intended business result.
+input request. `AcceptedBySoftware` means the audited Extension software-pointer
+dispatch was accepted. Neither status by itself proves the user's intended
+business result.
 A postcondition is verified only to the level explicitly represented by the
 fresh observation.
 
@@ -324,16 +329,25 @@ yet created is never invented. A trigger may declare
 
 The one audited local-loop exception begins from a current reflex-target action
 token. It is fixed to one browser instance, tab, document, operation, and
-audited target class. When `start_action=true`, the supplied click token is an
-explicit trigger: the Host arms the loop, then revalidates and clicks it through
-native input.
+audited target class. `saccade.web.reflex.run` keeps repeated observation and
+action transactions local after one MCP request. Each occurrence still receives
+a fresh token and is prepared and revalidated before either registered backend
+dispatches it.
 
-The Extension emits one current, visible, topmost occurrence at a time. Multiple
-independent targets are processed sequentially. The Host rejects repeated
-occurrences, stale revisions, changed identities, hidden targets, uncertain
-geometry, or permission loss. Timeout is at most 30 seconds and action count at
-most 500. Extension UI and MCP can both stop it. Reports contain count, failures,
-and p50/p95/max observation-to-dispatch latency.
+The Host rejects repeated occurrences, stale revisions, changed identities,
+hidden targets, uncertain geometry, or permission loss. A stale target is
+reobserved; it is never replayed. The loop is bounded by the MCP schema (currently
+60 seconds and 10,000 requested actions). Reports contain count, failures,
+stale retries, backend, causal occurrence transitions, and p50/p95/max
+observation-to-receipt latency.
+
+MouseAccuracy supplies an audited DOM semantic bridge over its canvas game.
+Only `.target:not(.hit)` is actionable. Its safe `reflex_occurrence` is the
+visible score, and verification requires that score to advance within the same
+loop class. A non-actionable loop-status object carries that score so a receipt
+does not wait for the next target to spawn. Target geometry, disappearance,
+animation, or a revision change alone cannot verify a hit. Arbitrary
+Canvas/WebGL remains opaque.
 
 This loop is a bounded implementation feature, not a general page-script,
 selector, coordinate, or detector protocol.
