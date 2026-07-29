@@ -84,10 +84,13 @@ pub(super) fn dispatch(
                 post_unicode(text)?;
             }
             NativeStep::ChoicePopupDelay => {
-                std::thread::sleep(std::time::Duration::from_millis(150));
+                std::thread::sleep(std::time::Duration::from_millis(750));
             }
             NativeStep::ChoiceTypeahead => post_unicode(selection_name.unwrap_or_default())?,
             NativeStep::Return => post_virtual_key(KEY_RETURN)?,
+            NativeStep::PostActionDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
         }
     }
     Ok(DispatchStatus::AcceptedByOs)

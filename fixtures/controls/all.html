@@ -3,18 +3,27 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Saccade four-control fixture</title>
+    <title>Saccade cataloged-controls fixture</title>
     <style>
       body { font: 16px system-ui; margin: 48px; }
       main { display: grid; gap: 24px; max-width: 420px; }
       label { display: grid; gap: 8px; }
-      button, input, select { font: inherit; min-height: 40px; }
+      button, input, select, textarea, [contenteditable] { font: inherit; min-height: 40px; }
+      [contenteditable] { border: 1px solid #777; padding: 8px; }
     </style>
   </head>
   <body>
     <main>
       <button id="save" type="button" aria-pressed="false">Save</button>
       <label>Email <input id="email" type="email" required></label>
+      <label>Search <input id="search" type="search" required></label>
+      <label>Notes <textarea id="notes" required></textarea></label>
+      <div id="draft" contenteditable="true" role="textbox" aria-label="Draft"></div>
+      <label>Quantity <input id="quantity" type="number" min="1" max="9999" step="1" required></label>
+      <label>Read-only search <input type="search" readonly value="FIXTURE-SEARCH-SECRET"></label>
+      <label>Read-only notes <textarea readonly>FIXTURE-NOTES-SECRET</textarea></label>
+      <div contenteditable="true" role="textbox" aria-label="Read-only draft" aria-readonly="true">FIXTURE-DRAFT-SECRET</div>
+      <label>Read-only quantity <input type="number" readonly value="8675309"></label>
       <label><input id="remember" type="checkbox"> Remember me</label>
       <label>Color
         <select id="color">

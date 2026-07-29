@@ -6,6 +6,10 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | button | button | click | primary_click | button_effect | pending | pending | implementation |
 | text_field | editable | type | unicode_text | has_value | pending | pending | implementation |
+| search_field | editable | type | unicode_text | has_value | pending | pending | implementation |
+| text_area | editable | type | unicode_text | has_value | pending | pending | implementation |
+| content_editable | editable | type | unicode_text | has_value | pending | pending | implementation |
+| spin_button | editable | type | unicode_text | has_value | pending | pending | implementation |
 | checkbox | toggle | click | primary_click | checked_transition | pending | pending | implementation |
 | select | choice | select | select_option | option_selected | pending | pending | implementation |
 

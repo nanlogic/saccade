@@ -16,7 +16,7 @@
         "required": ["id", "role", "implementation_family", "safe_state", "affordances", "native_primitive", "verifier", "limitations", "fixtures", "evidence", "publication_status"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-          "role": { "enum": ["button", "text_field", "checkbox", "select"] },
+          "role": { "enum": ["button", "text_field", "search_field", "text_area", "content_editable", "spin_button", "checkbox", "select"] },
           "implementation_family": { "enum": ["button", "editable", "toggle", "choice"] },
           "safe_state": { "type": "array", "uniqueItems": true, "items": { "enum": ["has_value", "checked", "enabled", "selected", "expanded", "required", "readonly", "pressed", "invalid"] } },
           "affordances": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["click", "type", "select"] } },

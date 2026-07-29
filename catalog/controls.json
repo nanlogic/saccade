@@ -28,6 +28,58 @@
       "publication_status": "implementation"
     },
     {
+      "id": "search_field",
+      "role": "search_field",
+      "implementation_family": "editable",
+      "safe_state": ["has_value", "enabled", "required", "readonly", "invalid"],
+      "affordances": ["type"],
+      "native_primitive": "unicode_text",
+      "verifier": "has_value",
+      "limitations": ["Contents are never disclosed; search suggestions and composition candidate UI are not observed."],
+      "fixtures": ["fixtures/controls/search_field.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "text_area",
+      "role": "text_area",
+      "implementation_family": "editable",
+      "safe_state": ["has_value", "enabled", "required", "readonly", "invalid"],
+      "affordances": ["type"],
+      "native_primitive": "unicode_text",
+      "verifier": "has_value",
+      "limitations": ["Contents, length, selection, and line count are never disclosed."],
+      "fixtures": ["fixtures/controls/text_area.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "content_editable",
+      "role": "content_editable",
+      "implementation_family": "editable",
+      "safe_state": ["has_value", "readonly"],
+      "affordances": ["type"],
+      "native_primitive": "unicode_text",
+      "verifier": "has_value",
+      "limitations": ["Only external page-authored labels name the control; editable contents, formatting, and selection are never disclosed."],
+      "fixtures": ["fixtures/controls/content_editable.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "spin_button",
+      "role": "spin_button",
+      "implementation_family": "editable",
+      "safe_state": ["has_value", "enabled", "required", "readonly", "invalid"],
+      "affordances": ["type"],
+      "native_primitive": "unicode_text",
+      "verifier": "has_value",
+      "limitations": ["Numeric contents and min, max, and step values are never disclosed; v1 types text and does not operate spinner arrows."],
+      "fixtures": ["fixtures/controls/spin_button.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
       "id": "checkbox",
       "role": "checkbox",
       "implementation_family": "toggle",

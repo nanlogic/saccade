@@ -81,8 +81,12 @@ def main() -> None:
         if forbidden in manifests.lower():
             raise SystemExit(f"forbidden production dependency: {forbidden}")
     catalog = json.loads((ROOT / "catalog/controls.json").read_text(encoding="utf-8"))
-    if {item["role"] for item in catalog["controls"]} != {"button", "text_field", "checkbox", "select"}:
-        raise SystemExit("first-slice Catalog roles changed")
+    expected_roles = {
+        "button", "text_field", "search_field", "text_area", "content_editable",
+        "spin_button", "checkbox", "select",
+    }
+    if {item["role"] for item in catalog["controls"]} != expected_roles:
+        raise SystemExit("Catalog roles changed outside the implemented control batches")
     if any(item["publication_status"] != "implementation" for item in catalog["controls"]):
         raise SystemExit("local development evidence cannot publish a Catalog row")
     print("single architecture gate: ok")

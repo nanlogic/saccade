@@ -219,6 +219,45 @@ fn text_field_verifies_has_value_without_disclosing_contents() {
 }
 
 #[test]
+fn editable_family_reuses_native_type_and_redacted_has_value_verification() {
+    for (role, id) in [
+        (SemanticRole::SearchField, "search"),
+        (SemanticRole::TextArea, "notes"),
+        (SemanticRole::ContentEditable, "draft"),
+        (SemanticRole::SpinButton, "quantity"),
+    ] {
+        let before_target = object(
+            id,
+            role,
+            Affordance::Type,
+            &[("enabled", "true"), ("has_value", "false")],
+        );
+        let mut after_target = before_target.clone();
+        after_target.state.insert("has_value".into(), "true".into());
+        let supplied = if role == SemanticRole::SpinButton {
+            "7319"
+        } else {
+            "editable-sentinel-Ω"
+        };
+        let (receipt, calls) = run(
+            snapshot(1, vec![before_target.clone()]),
+            snapshot(2, vec![after_target]),
+            request(
+                &before_target,
+                ActionOperation::Type,
+                ActionPayload::Text {
+                    text: supplied.into(),
+                },
+            ),
+            prepared(&before_target, ActionOperation::Type),
+        );
+        assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
+        assert!(!serde_json::to_string(&receipt).unwrap().contains(supplied));
+        assert_eq!(calls, vec![NativePrimitive::UnicodeText]);
+    }
+}
+
+#[test]
 fn checkbox_verifies_checked_transition() {
     let before_target = object(
         "check",

@@ -3,8 +3,9 @@
 This is the only production contract for browser authorization, observation,
 action preparation, native input, receipts, downloads, and MCP exposure.
 
-The current implementation covers the first four Registry controls: button,
-text field, checkbox, and select. Other roles in this contract define the
+The current implementation covers eight Registry controls: button, text field,
+search field, textarea, contenteditable, spin button, checkbox, and select,
+plus select-option observation. Other roles in this contract define the
 intended Truth Layer surface. They are not implemented until the Catalog lists
 their module, fixtures, verifier, and evidence status.
 

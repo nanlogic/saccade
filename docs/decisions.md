@@ -67,3 +67,18 @@ not publish support. Catalog rows remain `implementation` with browser evidence
 `pending` until signed-product and release-candidate gates pass. Later control
 families extend the Catalog and Registry without changing Profile fields or the
 two v1 wire schemas.
+
+## 2026-07-29: First editable family extends the frozen SDK
+
+Accepted: search field, textarea, contenteditable, and spin button extend the
+Catalog and Registry by reusing the finite Unicode-text primitive and
+`has_value` verifier. Each role keeps its own safe-state projection;
+contenteditable names come only from external accessible metadata, never from
+editable text. Readonly variants expose no action token or affordance.
+
+Accepted: paired managed macOS run `20260729T043308Z` verified all eight
+current controls in Chrome for Testing and Microsoft Edge through the same
+Extension, Native Host, Runtime, MCP, and native-input route. Editable inputs
+and fixture sentinels were absent from saved evidence. This is development
+evidence only: Catalog status remains `implementation` and release evidence
+remains `pending`. Profile fields and both v1 wire schemas are unchanged.

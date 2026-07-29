@@ -151,6 +151,14 @@ stale, permission, focus, topmost, redaction, native-input, postcondition,
 receipt, Chrome, and Edge development gates on the same source candidate.
 Catalog publication still requires signed-product and release evidence.
 
+The next Catalog extension adds search field, textarea, contenteditable, and
+spin button. These modules reuse the finite Unicode-text primitive and
+`has_value` verifier but keep role-specific safe projections. Paired managed
+Chrome and Edge development run `20260729T043308Z` verified all eight current
+actionable controls. This extension changes neither Profile fields nor the two
+v1 wire schemas; its Catalog rows remain `implementation` pending release
+evidence.
+
 ## Non-goals
 
 - A second embedded browser product.

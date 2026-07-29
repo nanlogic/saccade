@@ -41,10 +41,20 @@ and value-leak checks green.
 
 Controls: search field, textarea, contenteditable, and spin button.
 
-Reuse the text-field native plan and redaction rules. Add role-specific name
-derivation and `has_value` verification. Cover multiline input, IME/composition,
-readonly, invalid, required, and numeric constraints without exposing content
-or numeric values.
+Status: development gate complete on 2026-07-29.
+
+The family reuses the text-field native click-plus-Unicode plan and
+`has_value` verifier while keeping role-specific safe state and name
+derivation. Focused fixtures cover actionable and readonly controls; the
+textarea gate includes multiline Unicode input, and no editable or numeric
+contents enter observations, receipts, diagnostics, or saved evidence. Paired
+managed run `20260729T043308Z` produced eight verified receipts in Chrome for
+Testing and eight in Microsoft Edge through the same source candidate. Full
+IME candidate-window behavior and numeric constraint manipulation remain
+future focused gates; this batch claims native Unicode text entry only.
+
+Catalog rows stay `implementation` with release evidence `pending` until the
+signed-product release gate passes.
 
 ## Batch 2: toggles and choices
 
@@ -96,5 +106,6 @@ The Runtime still needs these release tracks:
 - release manifests, SBOM, checksums, versioning, and evidence publishing;
 - bounded performance, long-session, navigation, frame, and restart tests.
 
-Batch 1 can now reuse the frozen SDK without changing the production route or
-Profile schema. Batch 0 release work continues in the product tracks above.
+Batch 2 can extend the frozen SDK without changing the production route or
+Profile schema. Batch 0 and Batch 1 release work continues in the product
+tracks above.

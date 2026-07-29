@@ -17,14 +17,19 @@ browser storage.
 
 ## Status
 
-Saccade is pre-release. The first vertical slice runs through the complete
+Saccade is pre-release. The current vertical slice runs through the complete
 Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
-Testing and Microsoft Edge profiles.
+Testing and Microsoft Edge profiles. Eight actionable controls currently have
+development closed-loop evidence.
 
 | Control | Action | Verified postcondition |
 | --- | --- | --- |
 | Button | native click | pressed or expanded state changes |
 | Text field | native click and Unicode input | field changes from empty to non-empty |
+| Search field | native click and Unicode input | field changes from empty to non-empty |
+| Textarea | native click and multiline Unicode input | field changes from empty to non-empty |
+| Contenteditable | native click and Unicode input | editable region changes from empty to non-empty |
+| Spin button | native click and numeric text input | field changes from empty to non-empty |
 | Checkbox | native click | checked state changes |
 | Select | native selection by option identity | requested option becomes selected |
 
@@ -79,11 +84,13 @@ lives elsewhere. Chrome and Edge run one at a time so one browser instance owns
 the Host session. `test all` runs them in sequence and writes evidence under
 separate `chrome/` and `edge/` directories. `up` synchronizes the Extension and
 fixtures into the fixed Saccade Dev directory before launch so macOS TCC does
-not make the managed jobs depend on repository-folder access.
+not make the managed jobs depend on repository-folder access. Development
+profiles are versioned by Extension version so MV3 service-worker updates are
+tested from a fresh browser profile without overwriting user Profile JSON.
 
 `test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
-textfield contents.
+editable contents.
 
 ## Profiles
 

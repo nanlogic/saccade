@@ -7,7 +7,8 @@ the clean public repository.
 
 ### Added
 
-- one Catalog-backed Registry for button, text field, checkbox, and select;
+- one Catalog-backed Registry for button, text field, search field, textarea,
+  contenteditable, spin button, checkbox, and select;
 - the Extension → Native Host → Runtime → MCP production route;
 - native macOS and Windows input adapters;
 - managed macOS Chrome for Testing development and evidence commands;
@@ -19,4 +20,4 @@ the clean public repository.
 
 - same-candidate Chrome and Edge release evidence;
 - signed consumer packaging and browser-store Extension builds;
-- the control batches listed in `docs/CONTROL_ROADMAP.md`.
+- the remaining control batches listed in `docs/CONTROL_ROADMAP.md`.

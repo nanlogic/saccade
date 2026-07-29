@@ -11,7 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "catalog" / "controls.json"
 OUTPUT = ROOT / "docs" / "generated" / "control_coverage.md"
 
-ALLOWED_ROLES = {"button", "text_field", "checkbox", "select"}
+ALLOWED_ROLES = {
+    "button", "text_field", "search_field", "text_area", "content_editable",
+    "spin_button", "checkbox", "select",
+}
 ALLOWED_STATES = {
     "has_value", "checked", "enabled", "selected", "expanded", "required",
     "readonly", "pressed", "invalid",
@@ -30,14 +33,14 @@ def load_and_validate() -> dict:
         ids.add(control["id"])
         roles.add(control["role"])
         if control["role"] not in ALLOWED_ROLES:
-            raise SystemExit(f"unapproved first-slice role: {control['role']}")
+            raise SystemExit(f"unapproved Catalog role: {control['role']}")
         if not set(control["safe_state"]) <= ALLOWED_STATES:
             raise SystemExit(f"unapproved state in {control['id']}")
         evidence = control["evidence"]
         if control["publication_status"] == "publishable" and evidence != {"chrome": "passed", "edge": "passed"}:
             raise SystemExit(f"{control['id']} cannot be publishable without Chrome and Edge evidence")
     if roles != ALLOWED_ROLES:
-        raise SystemExit("the first proof slice must contain exactly four roles")
+        raise SystemExit("Catalog roles do not match the implemented control batches")
     return data
 
 

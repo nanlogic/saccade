@@ -32,6 +32,11 @@
   function safeName(element, role) {
     const aria = normalizedText(element.getAttribute('aria-label'), 512);
     if (aria) return aria;
+    if (role === 'content_editable') {
+      const labelled = referencedText(element, 'aria-labelledby', 512);
+      if (labelled) return labelled;
+    }
+    if (role === 'content_editable') return normalizedText(element.getAttribute('title'), 512);
     const labelled = referencedText(element, 'aria-labelledby', 512);
     if (labelled) return labelled;
     const labels = normalizedText(Array.from(element.labels || [], (label) => {
@@ -65,7 +70,13 @@
     if (tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type))) return 'button';
     if (tag === 'INPUT' && type === 'checkbox' || ariaRole === 'checkbox') return 'checkbox';
     if (tag === 'SELECT') return 'select';
+    if (tag === 'INPUT' && type === 'number') return 'spin_button';
+    if (tag === 'INPUT' && type === 'search') return 'search_field';
+    if (tag === 'TEXTAREA') return 'text_area';
+    if (tag === 'INPUT' && ariaRole === 'searchbox') return 'search_field';
     if (tag === 'INPUT' && ['text', 'email', 'tel', 'url', 'password'].includes(type)) return 'text_field';
+    if (ariaRole === 'textbox' && element.isContentEditable) return 'content_editable';
+    if (element.isContentEditable) return 'content_editable';
     return null;
   }
 
@@ -105,6 +116,9 @@
       signals.required = Boolean(element.required);
       signals.invalid = element.getAttribute('aria-invalid') === 'true';
       signals.expanded = ariaBoolean(element, 'expanded') || false;
+    } else if (role === 'content_editable') {
+      signals.hasValue = Boolean(normalizedText(element.textContent, 1));
+      signals.readonly = element.getAttribute('aria-readonly') === 'true';
     } else {
       signals.hasValue = Boolean(element.value);
       signals.required = Boolean(element.required);
@@ -162,7 +176,9 @@
     objectTargets.clear();
     const objects = [];
     let truncated = false;
-    for (const element of document.querySelectorAll('button,input,select,[role="button"],[role="checkbox"]')) {
+    for (const element of document.querySelectorAll(
+      'button,input,textarea,select,[role="button"],[role="checkbox"],[role="textbox"],[contenteditable]',
+    )) {
       const role = roleFor(element);
       if (!role) continue;
       const object = observationObject(element, role, config.frameId);

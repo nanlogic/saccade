@@ -40,12 +40,18 @@ test('development manifest preserves identity and excludes out-of-scope capabili
   assert.doesNotMatch(worker, /Playwright|CDP|protected_fill|loop\.start/);
 });
 
-test('collector routes only the four families through the Registry', () => {
+test('collector routes editable-family controls through the Registry', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /registry\.observe\(role/);
   assert.match(collector, /registry\.option\(/);
   assert.match(collector, /option_object_id/);
-  assert.match(collector, /copy\.querySelectorAll\('button,input,select,textarea,option'\)/);
+  assert.match(collector, /document\.querySelectorAll\(/);
+  assert.match(collector, /\[contenteditable\]/);
+  assert.match(collector, /type === 'search'/);
+  assert.match(collector, /type === 'number'/);
+  assert.match(collector, /spin_button/);
+  assert.match(collector, /content_editable/);
+  assert.match(collector, /isContentEditable/);
   assert.doesNotMatch(collector, /element\.value[^\n]*name|XPath|canvas|webgl/i);
 });
 
@@ -71,6 +77,7 @@ test('managed Chrome and Edge routes share one protocol and keep browser evidenc
   const probe = fs.readFileSync(path.join(__dirname, '../../scripts/dev_probe.py'), 'utf8');
   const host = fs.readFileSync(path.join(__dirname, '../../scripts/dev/com.nanlogic.saccade.dev.json.in'), 'utf8');
   assert.match(dev, /Microsoft Edge\/NativeMessagingHosts/);
+  assert.match(dev, /profile-\$EXTENSION_VERSION/);
   assert.match(dev, /test \[chrome\|edge\|all\]/);
   assert.match(dev, /EVIDENCE_DIR\/\$test_stamp\/\$test_browser/);
   assert.match(probe, /--browser/);

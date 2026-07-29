@@ -1,4 +1,4 @@
-//! Native Host session authority for the first four control families.
+//! Native Host session authority for the cataloged control families.
 
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};

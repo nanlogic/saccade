@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+EXTENSION_VERSION=$(sed -n 's/^[[:space:]]*"version": "\([0-9][0-9.]*\)",*$/\1/p' "$ROOT/extension/manifest.json" | sed -n '1p')
+: "${EXTENSION_VERSION:?development Extension manifest has no version}"
 DEV_ROOT="$HOME/Library/Application Support/Saccade Dev"
 BIN_DIR="$DEV_ROOT/bin"
 RUNTIME_APP="$HOME/Applications/Saccade Dev Runtime.app"
@@ -12,8 +14,8 @@ LOG_DIR="$DEV_ROOT/logs"
 EVIDENCE_DIR="$DEV_ROOT/evidence"
 FIXTURE_ROOT="$DEV_ROOT/fixture-root"
 EXTENSION_ROOT="$DEV_ROOT/extension"
-CHROME_PROFILE="$DEV_ROOT/chrome-profile"
-EDGE_PROFILE="$DEV_ROOT/edge-profile"
+CHROME_PROFILE="$DEV_ROOT/chrome-profile-$EXTENSION_VERSION"
+EDGE_PROFILE="$DEV_ROOT/edge-profile-$EXTENSION_VERSION"
 CHROME_CACHE="$HOME/Library/Caches/Saccade Dev/chrome-for-testing"
 HOST_DIR="$HOME/Library/Application Support/Google/Chrome for Testing/NativeMessagingHosts"
 HOST_DIR_COMPACT="$HOME/Library/Application Support/Google/ChromeForTesting/NativeMessagingHosts"
@@ -115,7 +117,6 @@ stop_pid() {
 
 clear_browser_singletons() {
   singleton_browser=$1
-  [ "$singleton_browser" = edge ] || return 0
   singleton_profile=$(browser_profile "$singleton_browser")
   for singleton_name in SingletonSocket SingletonCookie SingletonLock; do
     singleton_path="$singleton_profile/$singleton_name"
@@ -125,13 +126,33 @@ clear_browser_singletons() {
   done
 }
 
+browser_profile_owner() {
+  owner_browser=$1
+  owner_profile=$(browser_profile "$owner_browser")
+  owner_lock="$owner_profile/SingletonLock"
+  [ -L "$owner_lock" ] || return 1
+  owner_target=$(readlink "$owner_lock")
+  owner_pid=${owner_target##*-}
+  case "$owner_pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  owner_command=$(ps -p "$owner_pid" -o command= 2>/dev/null || true)
+  case "$owner_command" in
+    *"--user-data-dir=$owner_profile"*) printf '%s\n' "$owner_pid" ;;
+    *) return 1 ;;
+  esac
+}
+
 stop_browser() {
   stop_browser_name=$1
   if browser_job_loaded "$stop_browser_name"; then
     launchctl remove "$(browser_job_label "$stop_browser_name")"
   fi
   stop_pid "$(browser_pid_file "$stop_browser_name")"
-  clear_browser_singletons "$stop_browser_name"
+  stop_browser_owner=$(browser_profile_owner "$stop_browser_name" || true)
+  if [ -z "$stop_browser_owner" ]; then
+    clear_browser_singletons "$stop_browser_name"
+  fi
 }
 
 find_codex() {
@@ -317,6 +338,11 @@ start_browser() {
   if browser_job_loaded "$start_browser_name"; then
     launchctl remove "$(browser_job_label "$start_browser_name")"
   fi
+  start_browser_owner=$(browser_profile_owner "$start_browser_name" || true)
+  if [ -n "$start_browser_owner" ]; then
+    printf '%s\n' "$start_browser_name profile is already owned by unrecorded PID $start_browser_owner" >&2
+    exit 1
+  fi
   clear_browser_singletons "$start_browser_name"
   start_browser_executable=$(sed -n '1p' "$(browser_path_file "$start_browser_name")")
   start_browser_profile=$(browser_profile "$start_browser_name")
@@ -451,7 +477,7 @@ test_route() {
   restore_profile
   start_browser "$test_browser"
   trap - EXIT HUP INT TERM
-  printf '%s\n' "Four-control $test_browser evidence: $test_run_dir"
+  printf '%s\n' "Cataloged-control $test_browser evidence: $test_run_dir"
 }
 
 test_all() {

@@ -31,7 +31,7 @@ pub(super) fn dispatch(
                 }
             }
             NativeStep::ChoicePopupDelay => {
-                std::thread::sleep(std::time::Duration::from_millis(150));
+                std::thread::sleep(std::time::Duration::from_millis(750));
             }
             NativeStep::ChoiceTypeahead => {
                 for unit in selection_name.unwrap_or_default().encode_utf16() {
@@ -40,6 +40,9 @@ pub(super) fn dispatch(
                 }
             }
             NativeStep::Return => send_virtual_key(0x0d)?,
+            NativeStep::PostActionDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
         }
     }
     Ok(DispatchStatus::AcceptedByOs)

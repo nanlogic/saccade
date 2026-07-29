@@ -16,6 +16,7 @@ enum NativeStep {
     ChoicePopupDelay,
     ChoiceTypeahead,
     Return,
+    PostActionDelay,
 }
 
 /// Audited finite adapter. Control modules cannot call platform code directly.
@@ -82,6 +83,7 @@ fn event_plan(
                 NativeStep::ChoicePopupDelay,
                 NativeStep::ChoiceTypeahead,
                 NativeStep::Return,
+                NativeStep::PostActionDelay,
             ])
         }
         _ => anyhow::bail!("operation and native payload do not match"),
@@ -184,7 +186,8 @@ mod tests {
                 NativeStep::PrimaryClick,
                 NativeStep::ChoicePopupDelay,
                 NativeStep::ChoiceTypeahead,
-                NativeStep::Return
+                NativeStep::Return,
+                NativeStep::PostActionDelay
             ]
         );
     }

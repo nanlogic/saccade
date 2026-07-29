@@ -13,7 +13,27 @@ from pathlib import Path
 from typing import Any
 
 
-TEXT_SENTINEL = "SACCADE-DEV-INPUT-SENTINEL"
+EDITABLE_INPUTS = (
+    ("text_field", "Email", "SACCADE-DEV-EMAIL-Ω"),
+    ("search_field", "Search", "SACCADE-DEV-SEARCH-Ω"),
+    ("text_area", "Notes", "SACCADE DEV LINE ONE\nLINE TWO Ω"),
+    ("content_editable", "Draft", "SACCADE-DEV-DRAFT-Ω"),
+    ("spin_button", "Quantity", "7319"),
+)
+TEXT_SENTINELS = tuple(value for _role, _name, value in EDITABLE_INPUTS)
+FIXTURE_SENTINELS = (
+    "FIXTURE-SEARCH-SECRET",
+    "FIXTURE-NOTES-SECRET",
+    "FIXTURE-DRAFT-SECRET",
+    "8675309",
+)
+REDACTED_VALUES = TEXT_SENTINELS + FIXTURE_SENTINELS
+
+
+def redact_editable_values(value: str) -> str:
+    for sentinel in REDACTED_VALUES:
+        value = value.replace(sentinel, "[editable content removed]")
+    return value
 
 
 class Mcp:
@@ -173,10 +193,35 @@ def open_fixture(mcp: Mcp, url: str) -> dict[str, Any]:
     return wait_observation(mcp, opened["tab_id"])
 
 
+def validate_editable_projection(observation: dict[str, Any]) -> None:
+    expected_state = {
+        "search_field": {"has_value", "enabled", "required", "readonly", "invalid"},
+        "text_area": {"has_value", "enabled", "required", "readonly", "invalid"},
+        "content_editable": {"has_value", "readonly"},
+        "spin_button": {"has_value", "enabled", "required", "readonly", "invalid"},
+    }
+    for role, name, _text in EDITABLE_INPUTS[1:]:
+        item = named(observation, role, name)
+        if set(item.get("state", {})) != expected_state[role]:
+            raise RuntimeError(f"{role} exposed an unexpected state surface")
+        if item.get("affordances") != ["type"] or not item.get("action_token"):
+            raise RuntimeError(f"{role} did not expose its closed-loop type action")
+    for role, name in (
+        ("search_field", "Read-only search"),
+        ("text_area", "Read-only notes"),
+        ("content_editable", "Read-only draft"),
+        ("spin_button", "Read-only quantity"),
+    ):
+        item = named(observation, role, name)
+        if item.get("affordances") or item.get("action_token"):
+            raise RuntimeError(f"read-only {role} exposed an action")
+
+
 def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     capabilities = mcp.tool("system.capabilities", {})
     observation = open_fixture(mcp, url)
     initial = observation
+    validate_editable_projection(initial)
     receipts: list[dict[str, Any]] = []
 
     button_basis = observation
@@ -198,15 +243,16 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         stale_token_rejected = True
     else:
         raise RuntimeError("a consumed action token was accepted twice")
-    receipt, observation = act(
-        mcp,
-        observation,
-        "text_field",
-        "Email",
-        "type",
-        lambda _: {"kind": "text", "text": TEXT_SENTINEL},
-    )
-    receipts.append(receipt)
+    for role, name, supplied_text in EDITABLE_INPUTS:
+        receipt, observation = act(
+            mcp,
+            observation,
+            role,
+            name,
+            "type",
+            lambda _current, text=supplied_text: {"kind": "text", "text": text},
+        )
+        receipts.append(receipt)
     receipt, observation = act(
         mcp,
         observation,
@@ -236,8 +282,8 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         "receipts": receipts,
         "stale_token_rejected": stale_token_rejected,
     }
-    if TEXT_SENTINEL in json.dumps(evidence):
-        raise RuntimeError("textfield contents leaked into evidence")
+    if any(sentinel in json.dumps(evidence) for sentinel in REDACTED_VALUES):
+        raise RuntimeError("editable contents leaked into evidence")
     return evidence
 
 
@@ -282,11 +328,11 @@ def main() -> None:
             "ok": False,
             "mode": args.mode,
             "browser": args.browser,
-            "error": str(error).replace(TEXT_SENTINEL, "[textfield content removed]"),
+            "error": redact_editable_values(str(error)),
         }
     encoded = json.dumps(result, indent=2)
-    if TEXT_SENTINEL in encoded:
-        raise RuntimeError("textfield contents leaked into evidence")
+    if any(sentinel in encoded for sentinel in REDACTED_VALUES):
+        raise RuntimeError("editable contents leaked into evidence")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(encoded + "\n", encoding="utf-8")
     print(json.dumps({"ok": result["ok"], "mode": args.mode, "evidence": str(args.output)}))

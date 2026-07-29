@@ -124,12 +124,16 @@ impl Registry {
         let expected = BTreeSet::from([
             SemanticRole::Button,
             SemanticRole::TextField,
+            SemanticRole::SearchField,
+            SemanticRole::TextArea,
+            SemanticRole::ContentEditable,
+            SemanticRole::SpinButton,
             SemanticRole::Checkbox,
             SemanticRole::Select,
         ]);
         if modules.keys().copied().collect::<BTreeSet<_>>() != expected {
             return Err(RegistryError::InvalidCatalog(
-                "first slice must contain exactly four modules".into(),
+                "Catalog must contain exactly the implemented modules".into(),
             ));
         }
         Ok(Self { modules })
@@ -181,7 +185,11 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
             NativePrimitive::PrimaryClick,
             Verifier::ButtonEffect,
         ),
-        SemanticRole::TextField => (
+        SemanticRole::TextField
+        | SemanticRole::SearchField
+        | SemanticRole::TextArea
+        | SemanticRole::ContentEditable
+        | SemanticRole::SpinButton => (
             ImplementationFamily::Editable,
             NativePrimitive::UnicodeText,
             Verifier::HasValue,
@@ -198,7 +206,7 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
         ),
         _ => {
             return Err(RegistryError::InvalidCatalog(
-                "role has no audited first-slice module".into(),
+                "role has no audited control module".into(),
             ))
         }
     };
@@ -315,7 +323,7 @@ mod tests {
     #[test]
     fn builtins_are_catalog_backed_and_not_publishable() {
         let registry = Registry::builtin().unwrap();
-        assert_eq!(registry.modules.len(), 4);
+        assert_eq!(registry.modules.len(), 8);
         assert!(registry
             .modules
             .values()

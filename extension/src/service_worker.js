@@ -92,7 +92,9 @@ async function authorizeTab(tabId) {
   if (!ready) {
     await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: [
       'src/protocol.js', 'src/consent.js', 'src/controls/common.js', 'src/controls/button.js',
-      'src/controls/text_field.js', 'src/controls/checkbox.js', 'src/controls/select.js',
+      'src/controls/text_field.js', 'src/controls/search_field.js', 'src/controls/text_area.js',
+      'src/controls/content_editable.js', 'src/controls/spin_button.js',
+      'src/controls/checkbox.js', 'src/controls/select.js',
       'src/controls/registry.js', 'src/collector.js',
     ] });
   }
