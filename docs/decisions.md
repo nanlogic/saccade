@@ -82,3 +82,29 @@ Extension, Native Host, Runtime, MCP, and native-input route. Editable inputs
 and fixture sentinels were absent from saved evidence. This is development
 evidence only: Catalog status remains `implementation` and release evidence
 remains `pending`. Profile fields and both v1 wire schemas are unchanged.
+
+## 2026-07-29: Ordinary native mouse accuracy has a separate gate
+
+Accepted: `./scripts/dev.sh accuracy all` runs 24 static semantic button
+targets in managed Chrome and Edge. It covers left, center, right, and scrolled
+positions with eight targets each at 32, 40, and 48 CSS pixels. It requests
+only button action tokens through MCP and requires `accepted_by_os` plus a
+verified pressed-state transition for every target. It does not use a reflex
+loop, locator, Agent coordinate, screenshot, CDP, or browser input API.
+
+Accepted: macOS primary click now uses a CoreGraphics HID-system event source
+and the reviewed legacy human-input sequence `move → 50 ms → down → 50 ms →
+up`. Only this finite native event behavior was migrated from private legacy
+commit `8c4defb3f8b0`; the old CEF/Servo MouseAccuracy route was not migrated.
+
+Accepted: managed browsers use fixed unobstructed window geometry and repair
+their isolated profile's crash-exit marker before launch. This followed a
+truthful failed run where a Codex Pet layer-3 window intercepted right-side
+clicks. DOM topmost cannot preflight unrelated OS windows under the v1 schema;
+an intercepted click therefore remains unverified. Paired run
+`20260729T053405Z` passed 24/24 in Chrome and 24/24 in Edge on reused managed
+profiles. Local evidence does not promote Catalog status.
+
+Accepted: a stale prepare remains rejected. When the collector is newer than
+the Host after startup or reconnection, that rejection also triggers a fresh
+full observation so the next revision-bound attempt can recover.

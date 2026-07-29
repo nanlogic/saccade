@@ -25,6 +25,7 @@ SYSTEM_HOST_DIR="/Library/Google/ChromeForTesting/NativeMessagingHosts"
 SYSTEM_HOST_MANIFEST="$SYSTEM_HOST_DIR/com.nanlogic.saccade.dev.json"
 RUNTIME="$RUNTIME_MACOS/saccade-runtime"
 FIXTURE_URL="http://127.0.0.1:8765/fixtures/controls/all.html"
+MOUSE_ACCURACY_URL="http://127.0.0.1:8765/fixtures/conformance/mouse_accuracy.html"
 CODEX_BACKUP="$STATE_DIR/codex-saccade-backup.json"
 PROFILE_BACKUP="$STATE_DIR/profile-before-test.json"
 PROFILE_MISSING="$STATE_DIR/profile-was-missing"
@@ -141,6 +142,28 @@ browser_profile_owner() {
     *"--user-data-dir=$owner_profile"*) printf '%s\n' "$owner_pid" ;;
     *) return 1 ;;
   esac
+}
+
+mark_browser_profile_clean() {
+  clean_browser=$1
+  clean_preferences="$(browser_profile "$clean_browser")/Default/Preferences"
+  [ -f "$clean_preferences" ] || return 0
+  python3 - "$clean_preferences" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+preferences = Path(sys.argv[1])
+data = json.loads(preferences.read_text(encoding="utf-8"))
+profile = data.setdefault("profile", {})
+profile["exit_type"] = "Normal"
+profile["exited_cleanly"] = True
+temporary = preferences.with_name(f"{preferences.name}.saccade-tmp")
+temporary.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+os.chmod(temporary, preferences.stat().st_mode)
+temporary.replace(preferences)
+PY
 }
 
 stop_browser() {
@@ -344,6 +367,7 @@ start_browser() {
     exit 1
   fi
   clear_browser_singletons "$start_browser_name"
+  mark_browser_profile_clean "$start_browser_name"
   start_browser_executable=$(sed -n '1p' "$(browser_path_file "$start_browser_name")")
   start_browser_profile=$(browser_profile "$start_browser_name")
   start_browser_label=$(browser_job_label "$start_browser_name")
@@ -365,6 +389,9 @@ start_browser() {
     '--vmodule=extensions*=1,native_message*=2' \
     --no-first-run \
     --no-default-browser-check \
+    --disable-session-crashed-bubble \
+    --window-position=24,52 \
+    --window-size=800,747 \
     about:blank
   start_browser_count=0
   start_browser_pid=
@@ -487,6 +514,32 @@ test_all() {
   printf '%s\n' "Chrome and Edge evidence: $EVIDENCE_DIR/$all_stamp"
 }
 
+accuracy_route() {
+  accuracy_browser=$1
+  accuracy_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$accuracy_browser"
+  mkdirs
+  restore_profile
+  up "$accuracy_browser"
+  accuracy_run_dir="$EVIDENCE_DIR/$accuracy_stamp/$accuracy_browser"
+  mkdir -p "$accuracy_run_dir"
+  chmod 700 "$accuracy_run_dir"
+  python3 "$ROOT/scripts/dev_probe.py" mouse_accuracy \
+    --browser "$accuracy_browser" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --url "$MOUSE_ACCURACY_URL" \
+    --output "$accuracy_run_dir/mouse_accuracy.json"
+  printf '%s\n' "Ordinary mouse-accuracy $accuracy_browser evidence: $accuracy_run_dir/mouse_accuracy.json"
+}
+
+accuracy_all() {
+  accuracy_all_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  accuracy_route chrome "$accuracy_all_stamp"
+  accuracy_route edge "$accuracy_all_stamp"
+  printf '%s\n' "Chrome and Edge ordinary mouse-accuracy evidence: $EVIDENCE_DIR/$accuracy_all_stamp"
+}
+
 status() {
   fixture=stopped
   chrome=stopped
@@ -525,7 +578,14 @@ case "${1:-}" in
       *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
     esac
     ;;
+  accuracy)
+    case "${2:-chrome}" in
+      all) accuracy_all ;;
+      chrome|edge) accuracy_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|accuracy [chrome|edge|all]|status|down>" >&2; exit 2 ;;
 esac

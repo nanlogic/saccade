@@ -13,8 +13,10 @@ the clean public repository.
 - native macOS and Windows input adapters;
 - managed macOS Chrome for Testing development and evidence commands;
 - managed macOS Edge development with isolated profiles and evidence;
+- an ordinary 24-target native mouse-accuracy gate for managed Chrome and Edge;
 - three-field Profiles with Agent behavior and named-control bans;
-- stale, replay, focus, coverage, postcondition, and value-leak checks.
+- stale, replay, focus, coverage, postcondition, and value-leak checks;
+- stale-preparation observation resynchronization without weakening rejection;
 
 ### Pending
 

@@ -70,6 +70,8 @@ identity, Native Messaging manifest, Runtime app, and fixture server.
 ./scripts/dev.sh test chrome
 ./scripts/dev.sh test edge
 ./scripts/dev.sh test all
+./scripts/dev.sh accuracy chrome
+./scripts/dev.sh accuracy all
 ./scripts/dev.sh down
 ```
 
@@ -91,6 +93,13 @@ tested from a fresh browser profile without overwriting user Profile JSON.
 `test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
 editable contents.
+
+`accuracy` runs an ordinary static-target gate through the same MCP and native
+input route. It clicks 24 semantic buttons across left, center, right, and
+scrolled positions: eight each at 32, 40, and 48 CSS pixels. Passing requires
+24 verified postconditions and zero misses; it is not the high-rate reflex
+loop. The managed window has fixed geometry so unrelated always-on-top desktop
+overlays do not invalidate the measurement.
 
 ## Profiles
 

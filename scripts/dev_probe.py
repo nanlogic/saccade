@@ -28,6 +28,8 @@ FIXTURE_SENTINELS = (
     "8675309",
 )
 REDACTED_VALUES = TEXT_SENTINELS + FIXTURE_SENTINELS
+ACCURACY_TARGET_COUNT = 24
+ACCURACY_SIZES = (32, 40, 48)
 
 
 def redact_editable_values(value: str) -> str:
@@ -302,9 +304,61 @@ def profile(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     }
 
 
+def accuracy_size(index: int) -> int:
+    row = (index - 1) // 3
+    column = (index - 1) % 3
+    return ACCURACY_SIZES[(row + column) % len(ACCURACY_SIZES)]
+
+
+def mouse_accuracy(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
+    observation = open_fixture(mcp, url)
+    trials: list[dict[str, Any]] = []
+    for index in range(1, ACCURACY_TARGET_COUNT + 1):
+        name = f"Accuracy {index:02d}"
+        started = time.monotonic()
+        try:
+            receipt, observation = act(
+                mcp,
+                observation,
+                "button",
+                name,
+                "click",
+                lambda _: {"kind": "none"},
+            )
+            trial = {
+                "target": name,
+                "size_css_px": accuracy_size(index),
+                "hit": True,
+                "dispatch_status": receipt["dispatch_status"],
+                "postcondition": receipt["postcondition"],
+            }
+        except Exception as error:  # noqa: BLE001
+            trial = {
+                "target": name,
+                "size_css_px": accuracy_size(index),
+                "hit": False,
+                "error": redact_editable_values(str(error)),
+            }
+        trial["round_trip_ms"] = round((time.monotonic() - started) * 1000, 1)
+        trials.append(trial)
+
+    hits = sum(1 for trial in trials if trial["hit"])
+    return {
+        "mode": "mouse_accuracy",
+        "browser": browser,
+        "definition": "Static semantic buttons at 32, 40, and 48 CSS px; native center click; no reflex loop or coordinate input.",
+        "attempts": len(trials),
+        "hits": hits,
+        "misses": len(trials) - hits,
+        "accuracy_percent": round(hits * 100 / len(trials), 2),
+        "passed": hits == len(trials),
+        "trials": trials,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["controls", "profile"])
+    parser.add_argument("mode", choices=["controls", "profile", "mouse_accuracy"])
     parser.add_argument("--browser", choices=["chrome", "edge"], required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path, required=True)
@@ -315,14 +369,15 @@ def main() -> None:
     try:
         mcp = wait_for_mcp(args.runtime.resolve(), args.runtime_dir.resolve())
         try:
-            evidence = (
-                controls(mcp, args.url, args.browser)
-                if args.mode == "controls"
-                else profile(mcp, args.url, args.browser)
-            )
+            if args.mode == "controls":
+                evidence = controls(mcp, args.url, args.browser)
+            elif args.mode == "profile":
+                evidence = profile(mcp, args.url, args.browser)
+            else:
+                evidence = mouse_accuracy(mcp, args.url, args.browser)
         finally:
             mcp.close()
-        result = {"ok": True, **evidence}
+        result = {"ok": evidence.get("passed", True), **evidence}
     except Exception as error:
         result = {
             "ok": False,

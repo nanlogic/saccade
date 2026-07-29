@@ -23,6 +23,7 @@ struct CGPoint {
 extern "C" {
     fn CGPreflightPostEventAccess() -> bool;
     fn CGRequestPostEventAccess() -> bool;
+    fn CGEventSourceCreate(state_id: i32) -> CGEventSourceRef;
     fn CGEventCreateMouseEvent(
         source: CGEventSourceRef,
         mouse_type: u32,
@@ -46,8 +47,19 @@ extern "C" {
 const HID_EVENT_TAP: u32 = 0;
 const LEFT_MOUSE_DOWN: u32 = 1;
 const LEFT_MOUSE_UP: u32 = 2;
+const MOUSE_MOVED: u32 = 5;
 const LEFT_BUTTON: u32 = 0;
 const KEY_RETURN: u16 = 0x24;
+const HID_SYSTEM_STATE: i32 = 1;
+
+struct EventSource(CGEventSourceRef);
+
+impl Drop for EventSource {
+    fn drop(&mut self) {
+        // SAFETY: the source was created by CGEventSourceCreate and is released once.
+        unsafe { CFRelease(self.0.cast_const()) };
+    }
+}
 
 pub(super) fn accessibility_trusted() -> bool {
     // SAFETY: no arguments; preflights the permission used by CGEventPost.
@@ -74,8 +86,12 @@ pub(super) fn dispatch(
     for step in event_plan(prepared, payload, selection_name)? {
         match step {
             NativeStep::PrimaryClick => {
-                post_mouse(LEFT_MOUSE_DOWN, point)?;
-                post_mouse(LEFT_MOUSE_UP, point)?;
+                let source = event_source()?;
+                post_mouse(source.0, MOUSE_MOVED, point)?;
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                post_mouse(source.0, LEFT_MOUSE_DOWN, point)?;
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                post_mouse(source.0, LEFT_MOUSE_UP, point)?;
             }
             NativeStep::UnicodeText => {
                 let ActionPayload::Text { text } = payload else {
@@ -111,9 +127,18 @@ fn post_virtual_key(key: u16) -> Result<()> {
     Ok(())
 }
 
-fn post_mouse(mouse_type: u32, point: CGPoint) -> Result<()> {
-    // SAFETY: null source is allowed; checked event is posted and released once.
-    let event = unsafe { CGEventCreateMouseEvent(ptr::null_mut(), mouse_type, point, LEFT_BUTTON) };
+fn event_source() -> Result<EventSource> {
+    // SAFETY: HID_SYSTEM_STATE is a documented CGEventSourceStateID.
+    let source = unsafe { CGEventSourceCreate(HID_SYSTEM_STATE) };
+    if source.is_null() {
+        bail!("CoreGraphics could not create a HID event source");
+    }
+    Ok(EventSource(source))
+}
+
+fn post_mouse(source: CGEventSourceRef, mouse_type: u32, point: CGPoint) -> Result<()> {
+    // SAFETY: source is live; checked event is posted and released once.
+    let event = unsafe { CGEventCreateMouseEvent(source, mouse_type, point, LEFT_BUTTON) };
     if event.is_null() {
         bail!("CoreGraphics could not create a mouse event");
     }

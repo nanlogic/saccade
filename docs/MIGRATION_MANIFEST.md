@@ -54,10 +54,12 @@ approved component at a time and record its provenance below.
 7. Freeze Control SDK v1, then migrate common controls one family at a time.
    The first editable family is recorded in
    `docs/migrations/0005_editable_controls.md`.
-8. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+8. Migrate the reviewed macOS HID click sequence and add the ordinary mouse
+   gate. See `docs/migrations/0006_native_mouse_accuracy.md`.
+9. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
    installation/action gates before publication.
-9. Add truthful basic coverage for uncommon controls.
-10. Consider Canvas/WebGL semantic bridges before any detector capability.
+10. Add truthful basic coverage for uncommon controls.
+11. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 

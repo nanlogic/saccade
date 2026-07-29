@@ -375,7 +375,15 @@ Conformance must prove at least:
 - tokens are single-use and cross-tab/browser reuse fails;
 - frame, opaque-surface, truncation, and stream gaps are explicit;
 - receipts contain the settled post-action observation;
+- the ordinary native mouse gate verifies zero misses across standard target
+  sizes and horizontal positions in a controlled unobstructed browser window;
 - unknown fields, roles, states, operations, and protocol versions fail closed.
+
+Extension `elementFromPoint` establishes DOM-level topmost state. The v1 wire
+format does not carry OS-window ownership, so an always-on-top desktop overlay
+cannot be preflighted by the Extension. If one intercepts native input, the
+required semantic postcondition remains unverified; it is never reported as a
+successful action.
 
 The development manifest carries a fixed public key. Official Host manifests
 allow only approved development/store Extension identities. Consumer macOS is

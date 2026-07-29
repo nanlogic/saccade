@@ -159,6 +159,20 @@ actionable controls. This extension changes neither Profile fields nor the two
 v1 wire schemas; its Catalog rows remain `implementation` pending release
 evidence.
 
+The managed ordinary mouse gate uses the same semantic button token,
+preparation, CoreGraphics input, reobservation, and button-effect verifier. It
+does not expose or accept Agent coordinates. Run `20260729T053405Z` verified
+24/24 static targets in Chrome and 24/24 in Edge at 32, 40, and 48 CSS pixels.
+The macOS adapter's HID event source and move/down/up timing were migrated from
+the reviewed legacy human-input gate, not from its retired CEF/Servo execution
+route.
+
+DOM hit testing proves page-level topmost state. An unrelated always-on-top OS
+window can still intercept an event after preparation; v1 reports the missing
+semantic effect as unverified rather than claiming success. Release evidence
+must therefore use a controlled unobstructed browser window. OS-window
+occlusion preflight remains a separate platform gate.
+
 ## Non-goals
 
 - A second embedded browser product.

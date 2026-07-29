@@ -70,6 +70,7 @@ test('prepare checks the revision basis after tab activation and focus', () => {
   assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
   assert.match(collector, /request\.basis_revision !== revision/);
+  assert.match(collector, /detail === 'stale action basis'\) collect\(\)/);
 });
 
 test('managed Chrome and Edge routes share one protocol and keep browser evidence separate', () => {
@@ -78,7 +79,12 @@ test('managed Chrome and Edge routes share one protocol and keep browser evidenc
   const host = fs.readFileSync(path.join(__dirname, '../../scripts/dev/com.nanlogic.saccade.dev.json.in'), 'utf8');
   assert.match(dev, /Microsoft Edge\/NativeMessagingHosts/);
   assert.match(dev, /profile-\$EXTENSION_VERSION/);
+  assert.match(dev, /--disable-session-crashed-bubble/);
+  assert.match(dev, /--window-size=800,747/);
+  assert.match(dev, /profile\["exit_type"\] = "Normal"/);
   assert.match(dev, /test \[chrome\|edge\|all\]/);
+  assert.match(dev, /accuracy \[chrome\|edge\|all\]/);
+  assert.match(probe, /mouse_accuracy/);
   assert.match(dev, /EVIDENCE_DIR\/\$test_stamp\/\$test_browser/);
   assert.match(probe, /--browser/);
   assert.match(probe, /"browser": browser/);

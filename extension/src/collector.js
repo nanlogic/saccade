@@ -257,7 +257,11 @@
       else if (message.kind === 'collector.observe') { collect(); respond({ ok: true }); }
       else if (message.kind === 'collector.prepare_action') respond({ ok: true, prepared: prepare(message.request) });
       else return false;
-    } catch (error) { respond({ ok: false, error: String(error.message || error) }); }
+    } catch (error) {
+      const detail = String(error.message || error);
+      if (message.kind === 'collector.prepare_action' && detail === 'stale action basis') collect();
+      respond({ ok: false, error: detail });
+    }
     return true;
   });
 })();
