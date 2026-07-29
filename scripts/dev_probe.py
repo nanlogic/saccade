@@ -27,6 +27,8 @@ FIXTURE_SENTINELS = (
     "FIXTURE-NOTES-SECRET",
     "FIXTURE-DRAFT-SECRET",
     "8675309",
+    "FIXTURE-HIDDEN-TEXT-SECRET",
+    "FIXTURE-NESTED-TEXT-SECRET",
 )
 REDACTED_VALUES = TEXT_SENTINELS + FIXTURE_SENTINELS
 ACCURACY_TARGET_COUNT = 24
@@ -151,10 +153,17 @@ def wait_observation(mcp: Mcp, tab_id: str, timeout: float = 20.0) -> dict[str, 
 
 
 def named(observation: dict[str, Any], role: str, name: str) -> dict[str, Any]:
-    for item in observation["objects"]:
-        if item.get("role") == role and item.get("name") == name:
-            return item
+    matches = named_items(observation, role, name)
+    if matches:
+        return matches[0]
     raise RuntimeError(f"observation has no {role} named {name!r}")
+
+
+def named_items(observation: dict[str, Any], role: str, name: str) -> list[dict[str, Any]]:
+    return [
+        item for item in observation["objects"]
+        if item.get("role") == role and item.get("name") == name
+    ]
 
 
 def stable_observation(mcp: Mcp, tab_id: str, timeout: float = 5.0) -> dict[str, Any]:
@@ -242,11 +251,40 @@ def validate_editable_projection(observation: dict[str, Any]) -> None:
             raise RuntimeError(f"read-only {role} exposed an action")
 
 
+def validate_structural_projection(observation: dict[str, Any]) -> None:
+    expected = {
+        ("heading", "Catalog controls"),
+        ("paragraph", "This page proves native control loops and bounded structural reading."),
+        ("list_item", "Observe the current page"),
+        ("list_item", "Act through native input"),
+        ("cell", "Evidence"),
+        ("cell", "Chrome and Edge"),
+        ("alert", "Fixture ready"),
+        ("status", "No actions yet"),
+    }
+    projected = {(item.get("role"), item.get("text")) for item in observation.get("objects", [])}
+    missing = expected - projected
+    if missing:
+        raise RuntimeError(f"structural reading omitted {sorted(missing)!r}")
+    heading = next(item for item in observation["objects"] if item.get("role") == "heading")
+    if heading.get("state") != {"level": "1"}:
+        raise RuntimeError("heading level was not projected")
+    alert = next(item for item in observation["objects"] if item.get("role") == "alert")
+    if alert.get("state") != {"busy": "false"}:
+        raise RuntimeError("alert busy state was not projected")
+    for item in observation.get("objects", []):
+        if item.get("kind") != "text":
+            continue
+        if item.get("affordances") or item.get("action_token") or item.get("name"):
+            raise RuntimeError("structural text exposed an action or duplicate accessible name")
+
+
 def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     capabilities = mcp.tool("system.capabilities", {})
     observation = open_fixture(mcp, url)
     initial = observation
     validate_editable_projection(initial)
+    validate_structural_projection(initial)
     image = named(initial, "image", "Gear Up cover")
     if image.get("description") != "Semantic identity: gear-up-cover-v2.1":
         raise RuntimeError("image semantic identity bridge was not projected")
@@ -342,11 +380,51 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         },
     )
     receipts.append(receipt)
+    choice_url = urllib.parse.urljoin(url, "listbox_combobox.html")
+    choice_observation = open_fixture(mcp, choice_url)
+    choice_observation = stable_observation(mcp, choice_observation["tab_id"])
+    named(choice_observation, "option", "Denver")
+    urgent_options = named_items(choice_observation, "option", "Urgent")
+    if len(urgent_options) != 2 or urgent_options[0]["object_id"] == urgent_options[1]["object_id"]:
+        raise RuntimeError("duplicate ARIA options did not preserve distinct object identity")
+    receipt, choice_observation = act(
+        mcp,
+        choice_observation,
+        "select",
+        "Priority",
+        "select",
+        lambda current: {
+            "kind": "select",
+            "option_object_id": named_items(current, "option", "Urgent")[-1]["object_id"],
+        },
+    )
+    receipts.append(receipt)
+    selected_urgent = [
+        item.get("state", {}).get("selected")
+        for item in named_items(choice_observation, "option", "Urgent")
+    ]
+    if selected_urgent != ["false", "true"]:
+        raise RuntimeError("duplicate option identity did not select only the requested object")
+    receipt, choice_observation = act(
+        mcp,
+        choice_observation,
+        "select",
+        "City",
+        "select",
+        lambda current: {
+            "kind": "select",
+            "option_object_id": named(current, "option", "Denver")["object_id"],
+        },
+    )
+    receipts.append(receipt)
+    if named(choice_observation, "select", "City").get("state", {}).get("expanded") != "false":
+        raise RuntimeError("combobox popup did not settle closed after selection")
     evidence = {
         "mode": "controls",
         "browser": browser,
         "capabilities": capabilities,
         "initial_observation": initial,
+        "choice_observation": choice_observation,
         "receipts": receipts,
         "stale_token_rejected": stale_token_rejected,
     }

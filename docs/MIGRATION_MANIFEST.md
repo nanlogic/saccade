@@ -64,10 +64,16 @@ approved component at a time and record its provenance below.
 11. Add radio, ARIA switch, tab, and expanded menu-item loops as new
     contract-aligned modules. No legacy classifier is reused. See
     `docs/migrations/0009_toggle_command_controls.md`.
-12. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
-   installation/action gates before publication.
-13. Add truthful basic coverage for uncommon controls.
-14. Consider Canvas/WebGL semantic bridges before any detector capability.
+12. Add bounded structural page reading from the current observation contract.
+    No legacy classifier is reused. See
+    `docs/migrations/0010_structural_page_reading.md`.
+13. Extend the existing select module to ARIA listbox and combobox with enabled
+    option identity and indexed native keyboard selection. No legacy classifier
+    is reused. See `docs/migrations/0011_aria_choice_controls.md`.
+14. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+    installation/action gates before publication.
+15. Add truthful basic coverage for uncommon controls.
+16. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 

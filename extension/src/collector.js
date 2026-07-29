@@ -3,9 +3,11 @@
   const { OBSERVATION_SCHEMA, randomToken } = globalThis.SaccadeProtocol;
   const { isProtectedFieldType } = globalThis.SaccadeConsent;
   const MAX_OBJECTS = 10000;
-  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="textbox"],[contenteditable],[data-saccade-reflex-target],.target';
+  const MAX_STRUCTURAL_TEXT_BYTES = 256 * 1024;
+  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],.target';
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
-  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR}`;
+  const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,th,td,[role="heading"],[role="paragraph"],[role="listitem"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"]';
+  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR}`;
   const identities = new WeakMap();
   const tokenTargets = new Map();
   const objectTargets = new Map();
@@ -140,6 +142,8 @@
     if ((tag === 'INPUT' && type === 'radio') || ariaRole === 'radio') return 'radio';
     if (ariaRole === 'switch') return 'switch';
     if (ariaRole === 'tab') return 'tab';
+    if (ariaRole === 'listbox' && comboboxForListbox(element)) return null;
+    if (ariaRole === 'listbox' || ariaRole === 'combobox') return 'select';
     const buttonLike = tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type));
     if (buttonLike && /\b(upload|choose|select|browse|attach|replace|add)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
     if (buttonLike) return 'button';
@@ -230,10 +234,12 @@
     } else if (role === 'menu_item') {
       signals.expanded = ariaBoolean(element, 'expanded');
     } else if (role === 'select') {
-      signals.hasValue = element.selectedIndex >= 0;
-      signals.required = Boolean(element.required);
+      signals.hasValue = element.tagName === 'SELECT'
+        ? element.selectedIndex >= 0
+        : optionsForChoice(element).some((option) => option.getAttribute('aria-selected') === 'true');
+      signals.required = Boolean(element.required) || element.getAttribute('aria-required') === 'true';
       signals.invalid = element.getAttribute('aria-invalid') === 'true';
-      signals.expanded = ariaBoolean(element, 'expanded') || false;
+      signals.expanded = ariaBoolean(element, 'expanded') ?? element.getAttribute('role') === 'listbox';
     } else if (role === 'content_editable') {
       signals.hasValue = Boolean(normalizedText(element.textContent, 1));
       signals.readonly = element.getAttribute('aria-readonly') === 'true';
@@ -276,11 +282,42 @@
     return object;
   }
 
+  function comboboxForListbox(listbox) {
+    if (!listbox.id) return null;
+    for (const candidate of document.querySelectorAll('[role="combobox"][aria-controls],[role="combobox"][aria-owns]')) {
+      const ids = `${candidate.getAttribute('aria-controls') || ''} ${candidate.getAttribute('aria-owns') || ''}`.split(/\s+/);
+      if (ids.includes(listbox.id)) return candidate;
+    }
+    return null;
+  }
+
+  function choiceOwner(option) {
+    const native = option.closest('select');
+    if (native) return native;
+    const listbox = option.closest('[role="listbox"]');
+    if (!listbox) return null;
+    return comboboxForListbox(listbox) || listbox;
+  }
+
+  function optionsForChoice(owner) {
+    if (owner.tagName === 'SELECT') return Array.from(owner.options);
+    const ids = `${owner.getAttribute('aria-controls') || ''} ${owner.getAttribute('aria-owns') || ''}`.split(/\s+/).filter(Boolean);
+    const roots = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    if (!roots.length && owner.getAttribute('role') === 'listbox') roots.push(owner);
+    return roots.flatMap((root) => Array.from(root.querySelectorAll('[role="option"]')));
+  }
+
+  function optionEnabled(option, owner) {
+    return !option.disabled && option.getAttribute('aria-disabled') !== 'true'
+      && !owner.disabled && owner.getAttribute('aria-disabled') !== 'true';
+  }
+
   function optionObject(option, frameId) {
     const name = safeName(option, 'option');
-    let owner = option.parentElement;
-    while (owner && owner.tagName !== 'SELECT') owner = owner.parentElement;
-    const descriptor = { ...registry.option(name || '', option.selected, !option.disabled && !owner.disabled) };
+    const owner = choiceOwner(option);
+    if (!owner) return null;
+    const selected = option.tagName === 'OPTION' ? option.selected : option.getAttribute('aria-selected') === 'true';
+    const descriptor = { ...registry.option(name || '', selected, optionEnabled(option, owner)) };
     if (!name) delete descriptor.name;
     const box = boxFor(owner);
     const id = objectId(option);
@@ -309,6 +346,67 @@
     const identity = normalizedText(element.getAttribute('data-saccade-image-identity'), 256);
     if (identity) object.description = `Semantic identity: ${identity}`;
     return object;
+  }
+
+  function structuralRole(element) {
+    const tag = element.tagName;
+    const role = String(element.getAttribute('role') || '').toLowerCase();
+    if (/^H[1-6]$/.test(tag) || role === 'heading') return 'heading';
+    if (tag === 'P' || role === 'paragraph') return 'paragraph';
+    if (tag === 'LI' || role === 'listitem') return 'list_item';
+    if (tag === 'TH' || tag === 'TD' || ['cell', 'columnheader', 'rowheader'].includes(role)) return 'cell';
+    if (role === 'alert') return 'alert';
+    if (role === 'status') return 'status';
+    return null;
+  }
+
+  function structuralText(element) {
+    if (element.closest('[aria-hidden="true"],[hidden],template,script,style,noscript')) return undefined;
+    if (element.closest(CONTROL_SELECTOR)) return undefined;
+    const chunks = [];
+    const visit = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        chunks.push(node.nodeValue || '');
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node !== element) {
+        if (node.matches(`${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},script,style,template,noscript`)) return;
+        if (node.getAttribute('aria-hidden') === 'true' || node.hidden) return;
+        const style = getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
+      }
+      for (const child of node.childNodes) visit(child);
+    };
+    visit(element);
+    return normalizedText(chunks.join(' '), 4096);
+  }
+
+  function structuralObject(element, frameId) {
+    const role = structuralRole(element);
+    const text = role ? structuralText(element) : undefined;
+    if (!role || !text) return null;
+    const box = boxFor(element);
+    const visibility = visibilityFor(element, box);
+    if (visibility === 'hidden') return null;
+    const state = {};
+    if (role === 'heading') {
+      const authored = Number.parseInt(element.getAttribute('aria-level') || '', 10);
+      const native = /^H[1-6]$/.test(element.tagName) ? Number(element.tagName.slice(1)) : undefined;
+      const level = Number.isInteger(authored) && authored > 0 ? authored : native;
+      if (level) state.level = String(level);
+    }
+    if (['alert', 'status'].includes(role) && element.hasAttribute('aria-busy')) {
+      state.busy = String(element.getAttribute('aria-busy') === 'true');
+    }
+    const id = objectId(element);
+    objectTargets.set(id, element);
+    return {
+      object_id: id, object_revision: revision + 1, frame_id: frameId,
+      kind: 'text', role, text, state, affordances: [], protected: false,
+      document_bounds: { x: box.x + scrollX, y: box.y + scrollY, width: box.width, height: box.height },
+      viewport_bounds: box, visibility, transition: 'none',
+    };
   }
 
   function collect() {
@@ -345,7 +443,10 @@
       const object = observationObject(element, role, config.frameId);
       if (object) objects.push(object);
       if (role === 'select' && object) {
-        for (const option of element.options) objects.push(optionObject(option, config.frameId));
+        for (const option of optionsForChoice(element)) {
+          const choice = optionObject(option, config.frameId);
+          if (choice) objects.push(choice);
+        }
       }
       if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
     }
@@ -353,6 +454,19 @@
       for (const element of document.querySelectorAll(IMAGE_SELECTOR)) {
         const object = imageObject(element, config.frameId);
         if (object) objects.push(object);
+        if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
+      }
+    }
+    let structuralTextBytes = 0;
+    if (!truncated) {
+      const encoder = new TextEncoder();
+      for (const element of document.querySelectorAll(STRUCTURAL_SELECTOR)) {
+        const object = structuralObject(element, config.frameId);
+        if (!object) continue;
+        const bytes = encoder.encode(object.text).byteLength;
+        if (structuralTextBytes + bytes > MAX_STRUCTURAL_TEXT_BYTES) { truncated = true; break; }
+        structuralTextBytes += bytes;
+        objects.push(object);
         if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
       }
     }
@@ -392,10 +506,13 @@
     if (request.operation === 'select') {
       const optionId = request.payload?.kind === 'select' ? request.payload.option_object_id : '';
       const option = objectTargets.get(optionId);
-      let owner = option?.parentElement;
-      while (owner && owner.tagName !== 'SELECT') owner = owner.parentElement;
-      if (!option || option.tagName !== 'OPTION' || owner !== target.element) throw new Error('select option is not bound to this control');
-      prepared.selection_index = Array.from(target.element.options).indexOf(option);
+      const owner = option ? choiceOwner(option) : null;
+      const choices = owner ? optionsForChoice(owner).filter((item) => optionEnabled(item, owner)) : [];
+      if (!option || !option.matches('option,[role="option"]') || owner !== target.element || !optionEnabled(option, owner)) {
+        throw new Error('select option is not bound and enabled for this control');
+      }
+      prepared.selection_index = choices.indexOf(option);
+      if (prepared.selection_index < 0) throw new Error('select option has no native keyboard position');
     }
     if (request.operation === 'upload' && target.role === 'file_input') {
       activeFileTrigger = target.element;

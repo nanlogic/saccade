@@ -1,7 +1,9 @@
 # Truth Layer coverage
 
 The machine-readable [Control Catalog](../catalog/controls.json) defines the
-current Registry. The [generated coverage table](generated/control_coverage.md)
+current Registry. `catalog/development_evidence.json` records fixture and
+external development proof separately from release evidence. The
+[generated coverage table](generated/control_coverage.md)
 is the public status for implemented controls. The
 [control roadmap](CONTROL_ROADMAP.md) lists planned batches without presenting
 them as current support.

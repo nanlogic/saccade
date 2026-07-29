@@ -33,12 +33,8 @@ pub(super) fn dispatch(
             NativeStep::ChoicePopupDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(750));
             }
-            NativeStep::ChoiceTypeahead => {
-                for unit in selection_name.unwrap_or_default().encode_utf16() {
-                    send_key(unit, false)?;
-                    send_key(unit, true)?;
-                }
-            }
+            NativeStep::ChoiceHome => send_virtual_key(0x24)?,
+            NativeStep::ChoiceNext => send_virtual_key(0x28)?,
             NativeStep::Return => send_virtual_key(0x0d)?,
             NativeStep::PostActionDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(300));

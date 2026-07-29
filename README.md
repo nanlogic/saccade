@@ -20,9 +20,11 @@ browser storage.
 Saccade is pre-release. The current vertical slice runs through the complete
 Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
 Testing and Microsoft Edge profiles. Fifteen actionable controls are currently
-in the Registry. Button, editable controls, checkbox, radio, switch, select,
-tab, and menu item have paired Chrome/Edge development evidence; link, reflex
-target, and file input currently have focused Chrome evidence.
+in the Registry. Button, editable controls, checkbox, radio, switch, the
+native-select slice, tab, and menu item have paired Chrome/Edge development
+evidence; link, reflex target, and file input currently have focused Chrome
+evidence. ARIA listbox and combobox source and fixtures are implemented, but
+their expanded select row is pending a fresh managed-browser run.
 
 Radio, ARIA switch, tab, and menu item also pass public W3C WAI-ARIA examples
 in both browsers. Run `20260729T211221Z` matched all four Saccade native results
@@ -41,7 +43,7 @@ action fallback.
 | Checkbox | native click | checked state changes |
 | Radio | native click | target checked state changes |
 | ARIA switch | native click | checked state changes |
-| Select | native selection by option identity | requested option becomes selected |
+| Select, listbox, combobox | native indexed selection by option identity | requested option becomes selected |
 | Tab | native click | target becomes selected |
 | Menu item | native click | expanded state changes |
 | Reflex target | native or audited soft click | same-loop score/occurrence advances |
@@ -54,7 +56,8 @@ same candidate. Saccade does not ship a consumer installer yet.
 
 See the [generated coverage table](docs/generated/control_coverage.md) for the
 current Registry and [control roadmap](docs/CONTROL_ROADMAP.md) for the planned
-batches.
+batches. The [Developer Preview release plan](docs/RELEASE_PLAN.md) defines the
+product, evidence, packaging, and launch gates.
 
 ## One route
 

@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "catalog" / "controls.json"
+DEVELOPMENT_EVIDENCE = ROOT / "catalog" / "development_evidence.json"
 OUTPUT = ROOT / "docs" / "generated" / "control_coverage.md"
 
 ALLOWED_ROLES = {
@@ -22,8 +23,9 @@ ALLOWED_STATES = {
 }
 
 
-def load_and_validate() -> dict:
+def load_and_validate() -> tuple[dict, dict]:
     data = json.loads(CATALOG.read_text(encoding="utf-8"))
+    development = json.loads(DEVELOPMENT_EVIDENCE.read_text(encoding="utf-8"))
     if set(data) != {"catalog_version", "controls"} or data["catalog_version"] != 1:
         raise SystemExit("invalid Catalog envelope")
     ids: set[str] = set()
@@ -42,18 +44,70 @@ def load_and_validate() -> dict:
             raise SystemExit(f"{control['id']} cannot be publishable without Chrome and Edge evidence")
     if roles != ALLOWED_ROLES:
         raise SystemExit("Catalog roles do not match the implemented control batches")
-    return data
+    if set(development) != {"evidence_version", "controls"} or development["evidence_version"] != 1:
+        raise SystemExit("invalid development evidence envelope")
+    if set(development["controls"]) != roles:
+        raise SystemExit("development evidence roles do not match the Catalog")
+    expected_tiers = {"fixture", "external"}
+    expected_browsers = {"chrome", "edge"}
+    for role, evidence in development["controls"].items():
+        if set(evidence) != expected_tiers:
+            raise SystemExit(f"invalid development evidence tiers for {role}")
+        for tier, browsers in evidence.items():
+            if set(browsers) != expected_browsers or not set(browsers.values()) <= {"passed", "pending"}:
+                raise SystemExit(f"invalid {tier} browser evidence for {role}")
+        if any(
+            evidence["external"][browser] == "passed"
+            and evidence["fixture"][browser] != "passed"
+            for browser in expected_browsers
+        ):
+            raise SystemExit(f"external evidence requires fixture evidence for {role}")
+    return data, development
 
 
-def render(data: dict) -> str:
+def paired(evidence: dict) -> str:
+    return f"{evidence['chrome']} / {evidence['edge']}"
+
+
+def render(data: dict, development: dict) -> str:
+    fixture_both = sum(
+        all(status == "passed" for status in evidence["fixture"].values())
+        for evidence in development["controls"].values()
+    )
+    external_both = sum(
+        all(status == "passed" for status in evidence["external"].values())
+        for evidence in development["controls"].values()
+    )
+    publishable = sum(control["publication_status"] == "publishable" for control in data["controls"])
     lines = [
         "# Generated Control Coverage",
         "",
-        "> Generated from `catalog/controls.json`; do not edit by hand.",
+        "> Generated from `catalog/controls.json` and `catalog/development_evidence.json`; do not edit by hand.",
+        "",
+        "## Evidence summary",
+        "",
+        f"Implemented: {len(data['controls'])}. Chrome + Edge fixture: {fixture_both}. Chrome + Edge external: {external_both}. Publishable: {publishable}.",
+        "",
+        "Chrome / Edge values are shown in that order.",
+        "",
+        "| Control | Implemented | Fixture C / E | External C / E | Release C / E |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for control in data["controls"]:
+        evidence = development["controls"][control["role"]]
+        lines.append(
+            f"| {control['id']} | yes | {paired(evidence['fixture'])} | "
+            f"{paired(evidence['external'])} | {paired(control['evidence'])} |"
+        )
+    lines.extend([
+        "",
+        "`Fixture` and `External` are local development evidence. `Release` stays pending until a signed release candidate passes.",
+        "",
+        "## Module details",
         "",
         "| Control | Family | Affordance | Native primitive | Verifier | Chrome | Edge | Status |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
+    ])
     for control in data["controls"]:
         lines.append(
             "| {id} | {implementation_family} | {affordances} | {native_primitive} | "
@@ -74,7 +128,8 @@ def render(data: dict) -> str:
 
 def main() -> None:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(render(load_and_validate()), encoding="utf-8")
+    data, development = load_and_validate()
+    OUTPUT.write_text(render(data, development), encoding="utf-8")
     print(OUTPUT.relative_to(ROOT))
 
 

@@ -215,3 +215,30 @@ Accepted evidence: run `20260729T211221Z` matched radio, switch, tab, and menu
 item on W3C WAI-ARIA examples in Chrome and Edge. The external gate exposed and
 fixed missing names for ARIA radios, `aria-hidden` text leaking into switch
 names, and native-anchor precedence over explicit menu-item roles.
+
+## 2026-07-29: Structural reading is bounded and non-actionable
+
+Accepted: the Extension projects visible headings, paragraphs, list items,
+table cells, alerts, and status messages as `kind=text`. These objects carry
+bounded visible text and safe structural state only. They never carry names,
+affordances, or action tokens. The protocol rejects actionable text objects.
+
+The collector excludes hidden nodes, nested controls and images, editable
+contents, and nested structural objects that would duplicate their text. A
+256 KiB UTF-8 budget is lower than the protocol-wide 2 MiB disclosure limit;
+reaching it reports a truncated snapshot. Same-origin frame composition and
+container-level list/table objects remain separate work.
+
+## 2026-07-29: ARIA choices reuse select without becoming generic clicks
+
+Accepted: native select, ARIA listbox, and ARIA combobox project as the existing
+`select` role. Their choices remain distinct option objects, including options
+with duplicate visible names. Preparation rejects disabled, detached, or
+wrong-owner choices and computes the selected option's position among enabled
+siblings.
+
+The finite native plan clicks the current owner, waits for its popup, sends
+Home, sends a bounded number of Down keys, and confirms with Return. This avoids
+name-based typeahead ambiguity and preserves option object identity through
+verification. The expanded choice fixture resets earlier select development
+evidence to pending until Chrome and Edge rerun it.

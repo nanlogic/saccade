@@ -71,6 +71,23 @@ fn values_and_unknown_state_fail_closed() {
 }
 
 #[test]
+fn structural_text_is_non_actionable() {
+    let mut value = snapshot();
+    let object = &mut value.objects[0];
+    object.kind = ObjectKind::Text;
+    object.role = SemanticRole::Heading;
+    object.name = None;
+    object.text = Some("Account settings".into());
+    object.state = BTreeMap::from([("level".into(), "2".into())]);
+    object.affordances.clear();
+    object.action_token = None;
+    value.validate().unwrap();
+
+    value.objects[0].affordances.insert(Affordance::Click);
+    assert_eq!(value.validate(), Err(ObservationError::InvalidActionToken));
+}
+
+#[test]
 fn migrated_canonical_fixture_is_valid() {
     let fixture = include_str!("../../../tests/protocol/canonical_observation.json");
     let observation: ObservationSnapshot = serde_json::from_str(fixture).unwrap();

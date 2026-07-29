@@ -68,8 +68,15 @@ Status: radio and ARIA switch development loops completed on 2026-07-29.
 Native radio selection proved group exclusivity, and ARIA switch clicks proved
 checked-state transitions in paired managed Chrome and Edge runs. Public W3C
 radio and switch pages passed Saccade and matched the Playwright oracle in run
-`20260729T211221Z`. Listbox,
-combobox, duplicate-name, dynamic-option, and popup-settling work remains.
+`20260729T211221Z`.
+
+ARIA listbox and combobox now reuse the `select` role, option-object identity,
+and option-selected verifier. Preparation binds an enabled option to its owner
+and computes its enabled keyboard position. The finite native plan clicks the
+owner, waits for its popup, returns to the first enabled option, advances by
+index, and confirms. Fixtures cover a disabled option, duplicate visible
+names, a dynamically inserted option, and popup close. Static and Runtime
+tests pass; managed Chrome, Edge, and public-page evidence remains pending.
 
 ## Batch 3: navigation and command controls
 
@@ -99,10 +106,18 @@ visible text, avoid duplicate labels, report truncation, compose same-origin
 frames, and emit limitations for cross-origin frames, closed shadow roots,
 Canvas, WebGL, video, and built-in PDF documents.
 
-Status: the first image slice is deliberately narrow. A named image may expose
-an application-declared `data-saccade-image-identity` as a non-actionable
+Status: visible headings, paragraphs, list items, table cells, alerts, and
+status messages now project as bounded, non-actionable text objects. The
+collector excludes hidden content, nested controls, editable values, and
+duplicate nested structural objects. It reports truncation after a 256 KiB
+structural-text budget. Node and Rust gates pass; managed Chrome and Edge proof
+is blocked until the local development signing identity is restored.
+
+The image slice remains deliberately narrow. A named image may expose an
+application-declared `data-saccade-image-identity` as a non-actionable
 description. It does not inspect pixels, disclose URLs, or imply equality when
-the bridge is absent. The remaining page-understanding work stays planned.
+the bridge is absent. Lists and table containers, frames, opaque surfaces, and
+restricted-document reporting remain planned.
 
 ## Batch 5: specialized native controls
 

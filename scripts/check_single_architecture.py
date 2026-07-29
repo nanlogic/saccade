@@ -95,6 +95,15 @@ def main() -> None:
     }
     if {item["role"] for item in catalog["controls"]} != expected_roles:
         raise SystemExit("Catalog roles changed outside the implemented control batches")
+    catalog_schema = json.loads(
+        (ROOT / "catalog/control_catalog.schema.json").read_text(encoding="utf-8")
+    )
+    item_properties = catalog_schema["properties"]["controls"]["items"]["properties"]
+    if set(item_properties["role"]["enum"]) != expected_roles:
+        raise SystemExit("Control Catalog schema roles do not match implemented roles")
+    catalog_verifiers = {item["verifier"] for item in catalog["controls"]}
+    if not catalog_verifiers <= set(item_properties["verifier"]["enum"]):
+        raise SystemExit("Control Catalog schema omits an implemented verifier")
     if any(item["publication_status"] != "implementation" for item in catalog["controls"]):
         raise SystemExit("local development evidence cannot publish a Catalog row")
     print("single architecture gate: ok")

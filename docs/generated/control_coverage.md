@@ -1,6 +1,34 @@
 # Generated Control Coverage
 
-> Generated from `catalog/controls.json`; do not edit by hand.
+> Generated from `catalog/controls.json` and `catalog/development_evidence.json`; do not edit by hand.
+
+## Evidence summary
+
+Implemented: 15. Chrome + Edge fixture: 11. Chrome + Edge external: 4. Publishable: 0.
+
+Chrome / Edge values are shown in that order.
+
+| Control | Implemented | Fixture C / E | External C / E | Release C / E |
+| --- | --- | --- | --- | --- |
+| button | yes | passed / passed | passed / pending | pending / pending |
+| text_field | yes | passed / passed | pending / pending | pending / pending |
+| link | yes | passed / pending | passed / pending | pending / pending |
+| search_field | yes | passed / passed | pending / pending | pending / pending |
+| text_area | yes | passed / passed | pending / pending | pending / pending |
+| content_editable | yes | passed / passed | pending / pending | pending / pending |
+| spin_button | yes | passed / passed | pending / pending | pending / pending |
+| checkbox | yes | passed / passed | pending / pending | pending / pending |
+| radio | yes | passed / passed | passed / passed | pending / pending |
+| switch | yes | passed / passed | passed / passed | pending / pending |
+| select | yes | pending / pending | pending / pending | pending / pending |
+| reflex_target | yes | passed / pending | passed / pending | pending / pending |
+| tab | yes | passed / passed | passed / passed | pending / pending |
+| menu_item | yes | passed / passed | passed / passed | pending / pending |
+| file_input | yes | passed / pending | passed / pending | pending / pending |
+
+`Fixture` and `External` are local development evidence. `Release` stays pending until a signed release candidate passes.
+
+## Module details
 
 | Control | Family | Affordance | Native primitive | Verifier | Chrome | Edge | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |

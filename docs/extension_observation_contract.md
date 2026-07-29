@@ -5,8 +5,10 @@ action preparation, native input, receipts, downloads, and MCP exposure.
 
 The current implementation covers fifteen Registry controls: button, link,
 text field, search field, textarea, contenteditable, spin button, checkbox,
-radio, ARIA switch, select, tab, menu item, reflex target, and file input, plus
-select-option observation. Other roles in this contract define the intended
+radio, ARIA switch, native select, ARIA listbox/combobox, tab, menu item,
+reflex target, and file input, plus option observation. ARIA choice controls
+have implementation tests but still await managed-browser evidence. Other
+roles in this contract define the intended
 Truth Layer surface. They are not
 implemented until the Catalog lists their module, fixtures, verifier, and
 evidence status.

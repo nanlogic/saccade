@@ -14,7 +14,8 @@ enum NativeStep {
     PrimaryClick,
     UnicodeText,
     ChoicePopupDelay,
-    ChoiceTypeahead,
+    ChoiceHome,
+    ChoiceNext,
     Return,
     PostActionDelay,
     FileDialogDelay,
@@ -88,13 +89,17 @@ fn event_plan(
             if !matches!(selection_name, Some(name) if !name.is_empty()) {
                 anyhow::bail!("select preparation has no visible option name");
             }
-            Ok(vec![
+            let mut steps = vec![
                 NativeStep::PrimaryClick,
                 NativeStep::ChoicePopupDelay,
-                NativeStep::ChoiceTypeahead,
-                NativeStep::Return,
-                NativeStep::PostActionDelay,
-            ])
+                NativeStep::ChoiceHome,
+            ];
+            steps.extend(
+                std::iter::repeat(NativeStep::ChoiceNext)
+                    .take(prepared.selection_index.unwrap() as usize),
+            );
+            steps.extend([NativeStep::Return, NativeStep::PostActionDelay]);
+            Ok(steps)
         }
         (ActionOperation::Upload, ActionPayload::File { path }) if !path.is_empty() => Ok(vec![
             NativeStep::PrimaryClick,
@@ -206,7 +211,9 @@ mod tests {
             vec![
                 NativeStep::PrimaryClick,
                 NativeStep::ChoicePopupDelay,
-                NativeStep::ChoiceTypeahead,
+                NativeStep::ChoiceHome,
+                NativeStep::ChoiceNext,
+                NativeStep::ChoiceNext,
                 NativeStep::Return,
                 NativeStep::PostActionDelay
             ]

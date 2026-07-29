@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ARIA choice controls</title>
+<style>
+  body { font: 16px system-ui; margin: 48px; }
+  [role="listbox"], [role="combobox"] { border: 1px solid #777; margin: 12px 0; padding: 8px; width: 240px; }
+  [role="option"][aria-selected="true"] { background: #cdf; }
+  [role="option"][aria-disabled="true"] { color: #888; }
+  #city-options[hidden] { display: none; }
+</style>
+<h1>ARIA choice controls</h1>
+<div id="priority" role="listbox" tabindex="0" aria-label="Priority">
+  <div role="option" aria-selected="true">Normal</div>
+  <div role="option" aria-selected="false" aria-disabled="true">Blocked</div>
+  <div role="option" aria-selected="false">Urgent</div>
+  <div role="option" aria-selected="false">Urgent</div>
+</div>
+<div id="city" role="combobox" tabindex="0" aria-label="City" aria-controls="city-options" aria-expanded="false"></div>
+<div id="city-options" role="listbox" aria-label="City choices" hidden>
+  <div role="option" aria-selected="true">Austin</div>
+  <div role="option" aria-selected="false">Boston</div>
+  <div role="option" aria-selected="false">Chicago</div>
+</div>
+<script>
+  function wire(owner, listbox) {
+    const available = () => Array.from(listbox.querySelectorAll('[role="option"]')).filter(option => option.getAttribute('aria-disabled') !== 'true');
+    const select = (options, index) => options.forEach((option, candidate) => option.setAttribute('aria-selected', String(candidate === index)));
+    owner.addEventListener('click', () => {
+      owner.focus();
+      if (owner.getAttribute('role') === 'combobox') {
+        listbox.hidden = false;
+        owner.setAttribute('aria-expanded', 'true');
+      }
+    });
+    owner.addEventListener('keydown', event => {
+      const options = available();
+      let index = options.findIndex(option => option.getAttribute('aria-selected') === 'true');
+      if (event.key === 'Home') index = 0;
+      else if (event.key === 'ArrowDown') index = Math.min(options.length - 1, index + 1);
+      else if (event.key === 'Enter') {
+        select(options, Math.max(0, index));
+        if (owner.getAttribute('role') === 'combobox') {
+          listbox.hidden = true;
+          owner.setAttribute('aria-expanded', 'false');
+        }
+        return;
+      } else return;
+      select(options, index);
+      event.preventDefault();
+    });
+  }
+  wire(document.getElementById('priority'), document.getElementById('priority'));
+  wire(document.getElementById('city'), document.getElementById('city-options'));
+  setTimeout(() => {
+    const option = document.createElement('div');
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', 'false');
+    option.textContent = 'Denver';
+    document.getElementById('city-options').append(option);
+  }, 150);
+</script>

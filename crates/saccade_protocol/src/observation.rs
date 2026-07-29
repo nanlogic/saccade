@@ -344,6 +344,11 @@ impl ObservationSnapshot {
             if object.kind != ObjectKind::Text && object.text.is_some() {
                 return Err(ObservationError::ValueExposed);
             }
+            if object.kind == ObjectKind::Text
+                && (!object.affordances.is_empty() || object.action_token.is_some())
+            {
+                return Err(ObservationError::InvalidActionToken);
+            }
             for key in object.state.keys() {
                 if !allowed_state(key) {
                     return Err(ObservationError::ValueExposed);

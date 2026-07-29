@@ -139,8 +139,8 @@
       "affordances": ["select"],
       "native_primitive": "select_option",
       "verifier": "option_selected",
-      "limitations": ["Option submitted values are never disclosed; selection uses an option object identity."],
-      "fixtures": ["fixtures/controls/select.html"],
+      "limitations": ["Option submitted values are never disclosed; native select, ARIA listbox, and ARIA combobox selection use an enabled option object identity."],
+      "fixtures": ["fixtures/controls/select.html", "fixtures/controls/listbox_combobox.html"],
       "evidence": { "chrome": "pending", "edge": "pending" },
       "publication_status": "implementation"
     },
