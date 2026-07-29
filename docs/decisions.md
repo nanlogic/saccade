@@ -138,3 +138,35 @@ Accepted development evidence: managed Chrome run `20260729T064526Z` reached
 `Insane + Tiny`, recorded 31 `accepted_by_software + verified` score advances
 with zero failures, and measured 14.72 ms p50 / 15.76 ms p95
 observation-to-receipt latency. It does not promote Catalog status.
+
+## 2026-07-29: Link and file selection extend the Registry
+
+Accepted: `link` uses the existing native primary-click primitive and verifies
+only a document transition. A delayed navigation may therefore complete after
+the bounded receipt window while the receipt remains unverified; OS delivery
+or scrolling alone is never upgraded to success.
+
+Accepted: `file_input` uses a finite native chooser primitive and `upload`
+operation. The Agent may supply one absolute accessible regular non-symlink
+file path only in the immediate action payload. The path is not forwarded to
+the Extension and is absent from observations, receipts, diagnostics, logs,
+and evidence. Directory, symlink, and multi-file selection remain unsupported.
+
+Accepted: an unambiguous visible button that creates an ephemeral native file
+input may project as `file_input`. Its safe name must describe choosing or
+uploading files, and verification requires a real file-input `change` with a
+non-empty selection. That verifies chooser acceptance, not remote upload
+persistence; a server-loaded page effect must prove the latter.
+
+Accepted development evidence: authenticated itch.io dogfood selected the
+37.8 MB Gear Up PDF with `accepted_by_os + verified`, leaked no path into the
+receipt, observed the file-row count advance from three to four, and confirmed
+the fourth row plus `Graphics=true` disclosure in a fresh edit document.
+Catalog status remains `implementation` and Edge/release evidence remains
+pending.
+
+Accepted: managed development browser profiles have an explicit generation
+independent of Extension version, while unpacked Extension directories are
+versioned. A broken or stale MV3 worker can be isolated by advancing the profile
+generation without reading or copying cookies; the prior profile remains
+untouched.

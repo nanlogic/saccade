@@ -7,8 +7,9 @@ the clean public repository.
 
 ### Added
 
-- one Catalog-backed Registry for button, text field, search field, textarea,
-  contenteditable, spin button, checkbox, and select;
+- one Catalog-backed Registry for button, link, text field, search field,
+  textarea, contenteditable, spin button, checkbox, select, reflex target, and
+  file input;
 - the Extension → Native Host → Runtime → MCP production route;
 - native macOS and Windows input adapters;
 - managed macOS Chrome for Testing development and evidence commands;
@@ -20,6 +21,12 @@ the clean public repository.
 - three-field Profiles with Agent behavior and named-control bans;
 - stale, replay, focus, coverage, postcondition, and value-leak checks;
 - stale-preparation observation resynchronization without weakening rejection;
+- observation refresh filtering so unrelated page mutations do not churn
+  otherwise-current control tokens;
+- native link navigation and file selection, including transient chooser
+  buttons, path-free receipts, and bounded macOS/Windows chooser plans;
+- versioned unpacked-Extension directories and browser-profile generations so
+  MV3 worker updates do not require reading or copying login cookies;
 
 ### Pending
 

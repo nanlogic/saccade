@@ -66,7 +66,7 @@ async function connectHost() {
     });
     post('hello', { browser_instance_id: browserInstanceId });
     setTimeout(() => { if (nativePort === port) reconnectAttempts = 0; }, 5000);
-    for (const tabId of new Set([...agentOwnedTabs, ...userSharedTabs])) authorizeTab(tabId).catch(() => {});
+    for (const tabId of new Set([...agentOwnedTabs, ...userSharedTabs])) authorizeTab(tabId).catch(reportAuthorizationFailure);
   })().finally(() => { connectPromise = undefined; });
   return connectPromise;
 }
@@ -91,17 +91,28 @@ async function authorizeTab(tabId) {
   try { ready = (await chrome.tabs.sendMessage(tabId, { kind: 'collector.ping' }, { frameId: 0 }))?.ok === true; } catch (_error) { /* inject below */ }
   if (!ready) {
     await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: [
-      'src/protocol.js', 'src/consent.js', 'src/controls/common.js', 'src/controls/button.js',
+      'src/protocol.js', 'src/consent.js', 'src/controls/common.js', 'src/controls/button.js', 'src/controls/link.js',
       'src/controls/text_field.js', 'src/controls/search_field.js', 'src/controls/text_area.js',
       'src/controls/content_editable.js', 'src/controls/spin_button.js',
-      'src/controls/checkbox.js', 'src/controls/select.js', 'src/controls/reflex_target.js',
+      'src/controls/checkbox.js', 'src/controls/select.js', 'src/controls/reflex_target.js', 'src/controls/file_input.js',
       'src/controls/registry.js', 'src/collector.js',
     ] });
   }
   sessions.set(tabId, { last: null });
-  await chrome.tabs.sendMessage(tabId, { kind: 'collector.configure', config: {
-    browserInstanceId, tabId: String(tabId), frameId: `frame.${tabId}.0`,
-  } }, { frameId: 0 });
+  try {
+    const configured = await chrome.tabs.sendMessage(tabId, { kind: 'collector.configure', config: {
+      browserInstanceId, tabId: String(tabId), frameId: `frame.${tabId}.0`,
+    } }, { frameId: 0 });
+    if (!configured?.ok) throw new Error(configured?.error || 'collector configuration failed');
+  } catch (error) {
+    const detail = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 512);
+    sessions.set(tabId, { last: null, error: detail });
+    throw error;
+  }
+}
+
+function reportAuthorizationFailure(error) {
+  console.error(`Saccade collector authorization failed: ${String(error?.message || error)}`);
 }
 
 function reply(command, payload) {
@@ -116,7 +127,10 @@ async function handleHostCommand(command) {
       try {
         const tab = await chrome.tabs.get(tabId);
         if (!isSupportedUrl(tab.url)) continue;
-        tabs.push({ tab_id: String(tabId), title: tab.title || '', url: tab.url || '', active: Boolean(tab.active) });
+        const session = sessions.get(tabId);
+        const item = { tab_id: String(tabId), title: tab.title || '', url: tab.url || '', active: Boolean(tab.active), observation_ready: Boolean(session?.last) };
+        if (session?.error) item.collector_error = session.error;
+        tabs.push(item);
       } catch (_error) { agentOwnedTabs.delete(tabId); userSharedTabs.delete(tabId); }
     }
     await persistAcl();
@@ -128,7 +142,7 @@ async function handleHostCommand(command) {
     await persistAcl();
     reply(command, { tab_id: String(tab.id), opened: true });
     const current = await chrome.tabs.get(tab.id);
-    if (current.status === 'complete' && isSupportedUrl(current.url)) authorizeTab(tab.id).catch(() => {});
+    if (current.status === 'complete' && isSupportedUrl(current.url)) authorizeTab(tab.id).catch(reportAuthorizationFailure);
   } else if (command.kind === 'prepare_action') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId) || sessions.get(tabId)?.last?.document_id !== payload.document_id) throw new Error('tab observation is not current');
@@ -160,6 +174,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     respond({ ok: false }); return false;
   }
   session.last = message.payload;
+  delete session.error;
   if (nativePort) post('observation', message.payload);
   respond({ ok: true });
   return false;
@@ -173,7 +188,7 @@ chrome.tabs.onRemoved.addListener((tabId) => { sessions.delete(tabId); agentOwne
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (!isAuthorized(tabId)) return;
   if (change.status === 'loading') sessions.delete(tabId);
-  if (change.status === 'complete' && isSupportedUrl(tab.url)) authorizeTab(tabId).catch(() => {});
+  if (change.status === 'complete' && isSupportedUrl(tab.url)) authorizeTab(tabId).catch(reportAuthorizationFailure);
 });
 chrome.runtime.onStartup.addListener(() => { connectHost().catch(scheduleReconnect); });
 chrome.runtime.onInstalled.addListener(() => { connectHost().catch(scheduleReconnect); });

@@ -191,6 +191,58 @@ fn button_click_requires_a_semantic_effect() {
 }
 
 #[test]
+fn link_requires_a_document_transition() {
+    let mut link = object(
+        "project-link",
+        SemanticRole::Link,
+        Affordance::Click,
+        &[("enabled", "true")],
+    );
+    link.kind = ObjectKind::Link;
+    link.transition = Transition::NavigationPossible;
+    let before = snapshot(1, vec![link.clone()]);
+    let mut after = snapshot(2, vec![]);
+    after.document_id = "document-2".into();
+    after.frames[0].document_id = "document-2".into();
+    let (receipt, calls) = run(
+        before,
+        after,
+        request(&link, ActionOperation::Click, ActionPayload::None),
+        prepared(&link, ActionOperation::Click),
+    );
+    assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
+    assert_eq!(calls, vec![NativePrimitive::PrimaryClick]);
+}
+
+#[test]
+fn file_input_verifies_boolean_state_without_receipting_path() {
+    let input = object(
+        "upload",
+        SemanticRole::FileInput,
+        Affordance::Upload,
+        &[("enabled", "true"), ("has_value", "false")],
+    );
+    let mut after_input = input.clone();
+    after_input.state.insert("has_value".into(), "true".into());
+    let supplied = "/tmp/private-release-name.pdf";
+    let (receipt, calls) = run(
+        snapshot(1, vec![input.clone()]),
+        snapshot(2, vec![after_input]),
+        request(
+            &input,
+            ActionOperation::Upload,
+            ActionPayload::File {
+                path: supplied.into(),
+            },
+        ),
+        prepared(&input, ActionOperation::Upload),
+    );
+    assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
+    assert_eq!(calls, vec![NativePrimitive::FileChooser]);
+    assert!(!serde_json::to_string(&receipt).unwrap().contains(supplied));
+}
+
+#[test]
 fn reflex_target_verifies_only_when_the_same_loop_class_advances() {
     let mut before_target = object(
         "reflex",

@@ -35,6 +35,7 @@ extern "C" {
         virtual_key: u16,
         key_down: bool,
     ) -> CGEventRef;
+    fn CGEventSetFlags(event: CGEventRef, flags: u64);
     fn CGEventKeyboardSetUnicodeString(event: CGEventRef, length: usize, string: *const u16);
     fn CGEventPost(tap: u32, event: CGEventRef);
 }
@@ -50,6 +51,11 @@ const LEFT_MOUSE_UP: u32 = 2;
 const MOUSE_MOVED: u32 = 5;
 const LEFT_BUTTON: u32 = 0;
 const KEY_RETURN: u16 = 0x24;
+const KEY_COMMAND: u16 = 0x37;
+const KEY_SHIFT: u16 = 0x38;
+const KEY_G: u16 = 0x05;
+const FLAG_SHIFT: u64 = 1 << 17;
+const FLAG_COMMAND: u64 = 1 << 20;
 const HID_SYSTEM_STATE: i32 = 1;
 
 struct EventSource(CGEventSourceRef);
@@ -107,6 +113,25 @@ pub(super) fn dispatch(
             NativeStep::PostActionDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(300));
             }
+            NativeStep::FileDialogDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+            }
+            NativeStep::FileDialogGoTo => post_key_chord(&[KEY_COMMAND, KEY_SHIFT], KEY_G)?,
+            NativeStep::FileDialogFieldDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            NativeStep::FilePathText => {
+                let ActionPayload::File { path } = payload else {
+                    bail!("file chooser requires a path payload");
+                };
+                post_unicode(path)?;
+            }
+            NativeStep::FileDialogSelectionDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(750));
+            }
+            NativeStep::FileDialogUploadDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+            }
         }
     }
     Ok(DispatchStatus::AcceptedByOs)
@@ -123,6 +148,45 @@ fn post_virtual_key(key: u16) -> Result<()> {
             CGEventPost(HID_EVENT_TAP, event);
             CFRelease(event.cast_const());
         }
+    }
+    Ok(())
+}
+
+fn post_key_chord(modifiers: &[u16], key: u16) -> Result<()> {
+    let mut flags = 0;
+    for modifier in modifiers {
+        flags |= match *modifier {
+            KEY_COMMAND => FLAG_COMMAND,
+            KEY_SHIFT => FLAG_SHIFT,
+            _ => bail!("unsupported native key modifier"),
+        };
+        post_key_event(*modifier, true)?;
+    }
+    for key_down in [true, false] {
+        let event = unsafe { CGEventCreateKeyboardEvent(ptr::null_mut(), key, key_down) };
+        if event.is_null() {
+            bail!("CoreGraphics could not create a keyboard chord event");
+        }
+        unsafe {
+            CGEventSetFlags(event, flags);
+            CGEventPost(HID_EVENT_TAP, event);
+            CFRelease(event.cast_const());
+        }
+    }
+    for modifier in modifiers.iter().rev() {
+        post_key_event(*modifier, false)?;
+    }
+    Ok(())
+}
+
+fn post_key_event(key: u16, key_down: bool) -> Result<()> {
+    let event = unsafe { CGEventCreateKeyboardEvent(ptr::null_mut(), key, key_down) };
+    if event.is_null() {
+        bail!("CoreGraphics could not create a keyboard event");
+    }
+    unsafe {
+        CGEventPost(HID_EVENT_TAP, event);
+        CFRelease(event.cast_const());
     }
     Ok(())
 }

@@ -35,6 +35,7 @@ pub enum Affordance {
     Scroll,
     Drag,
     Select,
+    Upload,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

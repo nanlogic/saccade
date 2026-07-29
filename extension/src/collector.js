@@ -3,9 +3,11 @@
   const { OBSERVATION_SCHEMA, randomToken } = globalThis.SaccadeProtocol;
   const { isProtectedFieldType } = globalThis.SaccadeConsent;
   const MAX_OBJECTS = 10000;
+  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="textbox"],[contenteditable],[data-saccade-reflex-target],.target';
   const identities = new WeakMap();
   const tokenTargets = new Map();
   const objectTargets = new Map();
+  const fileTriggerHasValue = new WeakSet();
   const observers = [];
   const documentId = randomToken('document');
   const reflexLoopClassToken = randomToken('loop');
@@ -14,6 +16,7 @@
   let viewportRevision = 0;
   let config = null;
   let scheduled = false;
+  let activeFileTrigger = null;
 
   function normalizedText(value, limit) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -59,7 +62,8 @@
       return copy.innerText || copy.textContent || '';
     }).join(' '), 512);
     if (labels) return labels;
-    if (role === 'button' || role === 'option') {
+    if (role === 'button' || role === 'option' || role === 'link'
+      || (role === 'file_input' && element.tagName !== 'INPUT')) {
       const visible = normalizedText(element.innerText || element.textContent, 512);
       if (visible) return visible;
     }
@@ -67,7 +71,7 @@
   }
 
   function safeDescription(element, name, protectedField) {
-    if (protectedField) return undefined;
+    if (protectedField || roleFor(element) === 'file_input') return undefined;
     const described = referencedText(element, 'aria-describedby', 1024);
     if (described) return described;
     const placeholder = normalizedText(element.getAttribute('placeholder'), 1024);
@@ -86,7 +90,11 @@
       && element.classList.contains('target')
       && !element.classList.contains('hit');
     if (applicationBridge || mouseAccuracyBridge) return 'reflex_target';
-    if (tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type))) return 'button';
+    if (tag === 'A' && element.hasAttribute('href')) return 'link';
+    if (tag === 'INPUT' && type === 'file') return 'file_input';
+    const buttonLike = tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type));
+    if (buttonLike && /\b(upload|choose|select|browse|attach)\b.*\b(files?|documents?|attachments?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
+    if (buttonLike) return 'button';
     if (tag === 'INPUT' && type === 'checkbox' || ariaRole === 'checkbox') return 'checkbox';
     if (tag === 'SELECT') return 'select';
     if (tag === 'INPUT' && type === 'number') return 'spin_button';
@@ -116,6 +124,26 @@
     return 'visible';
   }
 
+  function visibleFileTrigger(input) {
+    const visible = (element) => visibilityFor(element, boxFor(element)) === 'visible';
+    const labelled = Array.from(input.labels || []).find(visible);
+    if (labelled) return labelled;
+    if (input.id) {
+      const controlled = Array.from(document.querySelectorAll('[aria-controls]')).find((element) => (
+        String(element.getAttribute('aria-controls') || '').split(/\s+/).includes(input.id)
+          && element.matches('button,[role="button"],label') && visible(element)
+      ));
+      if (controlled) return controlled;
+    }
+    let ancestor = input.parentElement;
+    for (let depth = 0; ancestor && ancestor !== document.body && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
+      if (ancestor.querySelectorAll('input[type="file"]').length !== 1) continue;
+      const candidates = Array.from(ancestor.querySelectorAll('button,[role="button"],label')).filter(visible);
+      if (candidates.length === 1) return candidates[0];
+    }
+    return input;
+  }
+
   function ariaBoolean(element, name) {
     const value = element.getAttribute(`aria-${name}`);
     return value === null ? undefined : value === 'true';
@@ -130,6 +158,12 @@
         ? (document.body?.innerText || '').match(/SCORE\s*(\d+)/i)?.[1]
         : undefined;
       signals.occurrence = authored ?? score ?? '0';
+    } else if (role === 'link') {
+      signals.current = element.getAttribute('aria-current') || undefined;
+      signals.expanded = ariaBoolean(element, 'expanded');
+    } else if (role === 'file_input') {
+      signals.hasValue = element.tagName === 'INPUT' ? Boolean(element.files?.length) : fileTriggerHasValue.has(element);
+      signals.required = Boolean(element.required);
     } else if (role === 'button') {
       signals.pressed = ariaBoolean(element, 'pressed');
       signals.expanded = ariaBoolean(element, 'expanded');
@@ -157,8 +191,9 @@
 
   function observationObject(element, role, frameId) {
     const descriptor = registry.observe(role, signalsFor(element, role));
-    const box = boxFor(element);
-    const visibility = visibilityFor(element, box);
+    const interactionElement = role === 'file_input' ? visibleFileTrigger(element) : element;
+    const box = boxFor(interactionElement);
+    const visibility = visibilityFor(interactionElement, box);
     if (visibility === 'hidden') return null;
     const id = objectId(element);
     objectTargets.set(id, element);
@@ -168,15 +203,15 @@
       object_id: id, object_revision: revision + 1, frame_id: frameId,
       ...descriptor,
       document_bounds: { x: box.x + scrollX, y: box.y + scrollY, width: box.width, height: box.height },
-      viewport_bounds: box, visibility, transition: 'none',
+      viewport_bounds: box, visibility, transition: role === 'link' ? 'navigation_possible' : 'none',
     };
     if (name) object.name = name;
     if (description) object.description = description;
     if (role === 'reflex_target') object.loop_class_token = reflexLoopClassToken;
-    if (descriptor.affordances.length && getComputedStyle(element).pointerEvents !== 'none') {
+    if (descriptor.affordances.length && getComputedStyle(interactionElement).pointerEvents !== 'none') {
       const token = randomToken('action');
       object.action_token = token;
-      tokenTargets.set(token, { element, role, objectId: id, affordances: descriptor.affordances });
+      tokenTargets.set(token, { element: interactionElement, role, objectId: id, affordances: descriptor.affordances });
     }
     return object;
   }
@@ -207,9 +242,7 @@
       const loopStatus = observationObject(document.body, 'reflex_target', config.frameId);
       if (loopStatus) objects.push(loopStatus);
     }
-    for (const element of document.querySelectorAll(
-      'button,input,textarea,select,[role="button"],[role="checkbox"],[role="textbox"],[contenteditable],[data-saccade-reflex-target],.target',
-    )) {
+    for (const element of document.querySelectorAll(CONTROL_SELECTOR)) {
       const role = roleFor(element);
       if (!role) continue;
       const object = observationObject(element, role, config.frameId);
@@ -260,6 +293,11 @@
       if (!option || option.tagName !== 'OPTION' || owner !== target.element) throw new Error('select option is not bound to this control');
       prepared.selection_index = Array.from(target.element.options).indexOf(option);
     }
+    if (request.operation === 'upload' && target.role === 'file_input') {
+      activeFileTrigger = target.element;
+      const expectedTrigger = activeFileTrigger;
+      setTimeout(() => { if (activeFileTrigger === expectedTrigger) activeFileTrigger = null; }, 10000);
+    }
     return prepared;
   }
 
@@ -290,13 +328,38 @@
     requestAnimationFrame(() => { scheduled = false; collect(); });
   }
 
+  function mutationCanChangeObservation(record) {
+    if (location.hostname === 'mouseaccuracy.com' && location.pathname.startsWith('/game')) return true;
+    const element = record.target.nodeType === Node.ELEMENT_NODE
+      ? record.target : record.target.parentElement;
+    if (!element) return false;
+    if (element.matches(CONTROL_SELECTOR) || element.closest(CONTROL_SELECTOR)) return true;
+    if (record.type === 'attributes') return Boolean(element.querySelector(CONTROL_SELECTOR));
+    if (record.type !== 'childList') return false;
+    return [...record.addedNodes, ...record.removedNodes].some((node) => {
+      if (node.nodeType !== Node.ELEMENT_NODE) return false;
+      return node.matches(CONTROL_SELECTOR) || Boolean(node.querySelector(CONTROL_SELECTOR));
+    });
+  }
+
   function configure(next) {
     config = next;
     for (const observer of observers.splice(0)) observer.disconnect();
-    const observer = new MutationObserver(schedule);
+    const observer = new MutationObserver((records) => {
+      if (records.some(mutationCanChangeObservation)) schedule();
+    });
     observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
     observers.push(observer);
-    for (const event of ['input', 'change', 'focusin', 'focusout']) document.addEventListener(event, schedule, true);
+    for (const event of ['input', 'focusin', 'focusout']) document.addEventListener(event, schedule, true);
+    document.addEventListener('change', (event) => {
+      const changed = event.target;
+      if (activeFileTrigger && changed instanceof HTMLInputElement
+        && String(changed.type).toLowerCase() === 'file' && changed.files?.length) {
+        fileTriggerHasValue.add(activeFileTrigger);
+        activeFileTrigger = null;
+      }
+      schedule();
+    }, true);
     addEventListener('scroll', schedule, { passive: true });
     addEventListener('resize', schedule, { passive: true });
     return collect();

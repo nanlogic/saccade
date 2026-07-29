@@ -17,12 +17,14 @@ them as current support.
 
 ## Current controls
 
-Saccade currently implements button, text field, search field, textarea,
-contenteditable, spin button, checkbox, select, and select-option observation.
-All eight actionable controls passed paired managed macOS Chrome for Testing
-and Microsoft Edge development closed-loop gates in run `20260729T043308Z`.
-Their Catalog rows remain `implementation` because signed-product Chrome and
-Edge evidence for one release candidate is pending.
+Saccade currently implements button, link, text field, search field, textarea,
+contenteditable, spin button, checkbox, select, reflex target, file input, and
+select-option observation. The first eight actionable controls passed paired
+managed macOS Chrome for Testing and Microsoft Edge development closed-loop
+gates in run `20260729T043308Z`. Reflex target, link, and file input have focused
+managed Chrome evidence, including authenticated file-selection dogfood, but
+not paired release evidence. Every Catalog row remains `implementation` because
+signed-product Chrome and Edge evidence for one release candidate is pending.
 
 ## Coverage tiers
 

@@ -86,7 +86,7 @@ def main() -> None:
     catalog = json.loads((ROOT / "catalog/controls.json").read_text(encoding="utf-8"))
     expected_roles = {
         "button", "text_field", "search_field", "text_area", "content_editable",
-        "spin_button", "checkbox", "select", "reflex_target",
+        "spin_button", "checkbox", "select", "reflex_target", "link", "file_input",
     }
     if {item["role"] for item in catalog["controls"]} != expected_roles:
         raise SystemExit("Catalog roles changed outside the implemented control batches")

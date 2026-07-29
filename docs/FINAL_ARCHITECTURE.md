@@ -201,6 +201,25 @@ Managed Chrome development run `20260729T064526Z` drove MouseAccuracy to
 Observation-to-receipt latency was 14.72 ms p50 and 15.76 ms p95. This is local
 development evidence, not publication evidence.
 
+The next audited slice adds link navigation and single-file selection without
+changing the Profile or v1 wire names. Link verification requires a new
+document identity. File selection accepts an absolute accessible regular
+non-symlink path only in the immediate MCP action payload, keeps that path out
+of the Extension and every receipt/evidence surface, and drives the operating
+system chooser through a finite primitive. A real file-input change verifies
+chooser selection; server upload persistence remains a separate page-level
+fact.
+
+The 2026-07-29 authenticated itch.io dogfood selected a 37.8 MB Gear Up PDF
+through the real macOS chooser with `AcceptedByOs + Verified`, produced no path
+in the receipt, and then observed a fourth server-loaded file row. A fresh edit
+document also preserved `Graphics=true` in the project's generative-AI
+disclosure. The preceding Link click was accepted by the OS but its document
+transition arrived after the receipt settlement window, so that receipt stayed
+truthfully unverified. These are local Chrome development findings; both new
+Catalog rows remain `implementation` pending same-candidate Chrome/Edge release
+evidence.
+
 ## Non-goals
 
 - A second embedded browser product.

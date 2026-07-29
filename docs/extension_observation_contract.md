@@ -3,11 +3,12 @@
 This is the only production contract for browser authorization, observation,
 action preparation, native input, receipts, downloads, and MCP exposure.
 
-The current implementation covers eight Registry controls: button, text field,
-search field, textarea, contenteditable, spin button, checkbox, and select,
-plus select-option observation. Other roles in this contract define the
-intended Truth Layer surface. They are not implemented until the Catalog lists
-their module, fixtures, verifier, and evidence status.
+The current implementation covers eleven Registry controls: button, link,
+text field, search field, textarea, contenteditable, spin button, checkbox,
+select, reflex target, and file input, plus select-option observation. Other
+roles in this contract define the intended Truth Layer surface. They are not
+implemented until the Catalog lists their module, fixtures, verifier, and
+evidence status.
 
 The normative wire schemas remain `saccade.observation/1` and
 `saccade-extension-host/1`. "Truth Layer" names the behavior defined here; it
@@ -220,7 +221,7 @@ visibility, transition, and authorization fields.
 | ARIA switch | `switch` | name, description | checked, enabled | click, hover, focus |
 | Select/combobox | `select` | name, description | has_value, enabled, required, invalid, expanded | click, focus, select |
 | Option | `option` | page-authored option name, never submitted `value` | selected, enabled | none; selected through its owning select token |
-| File input | `file_input` | name; never local path or filename | has_value, enabled, required | click, focus; file selection remains a dedicated flow |
+| File input or unambiguous visible file-chooser trigger | `file_input` | name; never local path or filename | has_value, enabled, required | upload through the dedicated native chooser flow |
 | Range/slider | `slider` | name, description; no current numeric value in v1 | enabled, required | focus; unsupported manipulation is explicit |
 | Number/spin button | `spin_button` | name, description; never contents | has_value, enabled, required, readonly, invalid | click, focus, type |
 | Tab/menu item | `tab` or `menu_item` | name, description | selected or expanded, enabled | click, hover, focus |
@@ -262,7 +263,10 @@ format, prefix, suffix, validation message containing the value, or source.
 Editable controls never expose their contents in observations, changes,
 receipts, logs, diagnostics, or artifacts. Values intentionally supplied by an
 Agent may exist only in the immediate fixed action payload required to type
-them.
+them. A file-selection path follows the same immediate-payload boundary: it is
+validated as an absolute accessible regular non-symlink file, consumed by the
+finite native chooser primitive, and omitted from Extension messages,
+observations, receipts, logs, diagnostics, and evidence.
 
 Passwords, one-time codes, payment secrets, and other locally protected values
 must use the Extension's human-only protected-value UI. The value travels
@@ -372,6 +376,16 @@ browser download manager. A top-level PDF requires explicit local confirmation.
 The Host accepts completed files only inside the owner Downloads directory,
 records size and SHA-256, and may ask the operating system to open the file.
 File contents are not exposed to MCP. PDF parsing and filling are outside v1.
+
+File selection is not a download route. A cataloged `file_input` may accept one
+Agent-supplied local file through the native operating-system chooser. A
+verified `has_file` postcondition means a real file-input change accepted a
+non-empty selection. It does not by itself claim that a remote server finished
+receiving or persisting the file; that requires a separate current page effect
+such as a new file row surviving a fresh server-loaded document. Visible
+buttons that create an ephemeral file input are eligible only when their safe
+name unambiguously describes choosing or uploading a file, and verification
+still requires the real input change event.
 
 ## Conformance and release gate
 

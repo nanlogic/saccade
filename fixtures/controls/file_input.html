@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>File input fixture</title>
+<label for="upload">Upload release PDF</label>
+<input id="upload" type="file" accept="application/pdf" required>
+<div id="custom-upload">
+  <input id="hidden-upload" type="file" accept="application/pdf" hidden>
+  <button type="button" aria-controls="hidden-upload" onclick="document.getElementById('hidden-upload').click()">Upload files</button>
+</div>
+<button type="button" onclick="document.getElementById('ephemeral-upload').click()">Upload files</button>
+<input id="ephemeral-upload" type="file" hidden>

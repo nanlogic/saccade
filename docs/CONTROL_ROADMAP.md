@@ -73,6 +73,11 @@ agent-owned child tabs, selected-tab changes, expanded menus, and bound-label
 control transitions. A revision change without one of these effects stays
 unverified.
 
+Status: link implementation and focused authenticated Chrome dogfood completed
+on 2026-07-29. It uses native primary click and requires a document transition.
+Tab, menu item, bound label, named generic control, child-tab verification, and
+same-candidate Edge/release evidence remain open.
+
 ## Batch 4: page understanding
 
 Objects: headings, paragraphs, lists, tables, alerts, status messages, images,
@@ -90,8 +95,16 @@ bounded drag/drop.
 
 Start with truthful recognition and limitations. Add action only after a native
 browser gate proves locale behavior, chooser ownership, cancellation, bounds,
-and postconditions. File paths and selected filenames stay outside MCP and
-receipts.
+and postconditions. Selected filenames and paths stay outside observations and
+receipts; one supplied path may exist only in the immediate MCP action payload.
+
+Status: single-file selection implementation and authenticated Chrome dogfood
+completed on 2026-07-29. The absolute regular non-symlink path exists only in
+the immediate MCP action payload and the finite OS chooser plan; it does not
+reach the Extension or receipt. A real file-input change verifies chooser
+acceptance, while server transfer persistence requires a separate page effect.
+Multi-file, directory, cancellation, locale, Windows, Edge, and release gates
+remain open.
 
 ## Product work outside control modules
 

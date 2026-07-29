@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Saccade Extension (Development)",
   "description": "Authorized closed-loop observation and native-input bridge for Saccade.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtC/G61gnFJPwXR5toQSPVNWVc6+5OVLa1MakG7LF5ctF46EZAnsby1ZjAECVbSIl8PyxJtgYy/4IVzlZ7Vl4Chqt/u/z6tt9Wi2D+wvlnNYSy2weVb2eh/B0Ag1D0/FXPXuxr/gRToHMRMmaUBLMH2r1HAsSSyykDPyc+r3RH4bhkxMz5ERWRSPFYodyZMwDhXnIyNWI4Yd2VvZMqFMrHjHyzV9Ypdw094JIywGYqu2ujhH9GY0BYWn3b9tAOuur2+KdO4aTY+7Ca8FkG+2PL6SaEZoxxfe64vmJk6AaDtHGdRX1Uo6lqOB4JWwnI3Z9F8gOGO1x4QZK0a1e0gEyvwIDAQAB",
   "minimum_chrome_version": "120",
   "background": { "service_worker": "src/service_worker.js" },

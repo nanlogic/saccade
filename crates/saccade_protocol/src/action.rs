@@ -13,6 +13,7 @@ pub enum ActionOperation {
     Scroll,
     Drag,
     Select,
+    Upload,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -23,6 +24,7 @@ pub enum ActionPayload {
     Scroll { delta_x: f64, delta_y: f64 },
     Drag { delta_x: f64, delta_y: f64 },
     Select { option_object_id: String },
+    File { path: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,6 +76,7 @@ impl ActionRequest {
                 | (ActionOperation::Scroll, ActionPayload::Scroll { .. })
                 | (ActionOperation::Drag, ActionPayload::Drag { .. })
                 | (ActionOperation::Select, ActionPayload::Select { .. })
+                | (ActionOperation::Upload, ActionPayload::File { .. })
         );
         if !payload_matches {
             return Err(ActionValidationError::PayloadMismatch);
@@ -93,6 +96,13 @@ impl ActionRequest {
             }
             ActionPayload::Select { option_object_id }
                 if option_object_id.is_empty() || option_object_id.len() > 256 =>
+            {
+                Err(ActionValidationError::PayloadLimit)
+            }
+            ActionPayload::File { path }
+                if path.is_empty()
+                    || path.len() > 4096
+                    || path.chars().any(|character| character == '\0') =>
             {
                 Err(ActionValidationError::PayloadLimit)
             }

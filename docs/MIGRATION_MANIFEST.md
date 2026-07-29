@@ -58,10 +58,13 @@ approved component at a time and record its provenance below.
    gate. See `docs/migrations/0006_native_mouse_accuracy.md`.
 9. Migrate the reviewed current-target classifier and bounded reflex-loop
    behavior. See `docs/migrations/0007_reflex_target_soft_mouse.md`.
-10. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+10. Add link and single-file chooser loops as new contract-aligned modules. No
+    legacy upload code is approved or reused. See
+    `docs/migrations/0008_link_file_input.md`.
+11. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
    installation/action gates before publication.
-11. Add truthful basic coverage for uncommon controls.
-12. Consider Canvas/WebGL semantic bridges before any detector capability.
+12. Add truthful basic coverage for uncommon controls.
+13. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 

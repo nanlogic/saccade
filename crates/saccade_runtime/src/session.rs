@@ -235,6 +235,17 @@ impl NativeHostSession {
     fn act(&self, params: Value, backend: InputBackend) -> Result<Value> {
         let request: ActionRequest = serde_json::from_value(params)?;
         request.validate()?;
+        if let ActionPayload::File { path } = &request.payload {
+            let upload = Path::new(path);
+            if !upload.is_absolute() {
+                bail!("upload path must be absolute");
+            }
+            let metadata = fs::symlink_metadata(upload)
+                .with_context(|| "upload path is not an accessible regular file")?;
+            if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+                bail!("upload path must be a regular non-symlink file");
+            }
+        }
         let before = self.current_observation(&request.tab_id)?;
         let target = before
             .objects

@@ -40,10 +40,12 @@ pub struct ControlDefinition {
 #[serde(rename_all = "snake_case")]
 pub enum ImplementationFamily {
     Button,
+    Navigation,
     Reflex,
     Editable,
     Toggle,
     Choice,
+    File,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,16 +54,19 @@ pub enum NativePrimitive {
     PrimaryClick,
     UnicodeText,
     SelectOption,
+    FileChooser,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verifier {
     ButtonEffect,
+    DocumentTransition,
     TargetAdvanced,
     HasValue,
     CheckedTransition,
     OptionSelected,
+    HasFile,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -125,6 +130,7 @@ impl Registry {
         }
         let expected = BTreeSet::from([
             SemanticRole::Button,
+            SemanticRole::Link,
             SemanticRole::TextField,
             SemanticRole::SearchField,
             SemanticRole::TextArea,
@@ -133,6 +139,7 @@ impl Registry {
             SemanticRole::Checkbox,
             SemanticRole::Select,
             SemanticRole::ReflexTarget,
+            SemanticRole::FileInput,
         ]);
         if modules.keys().copied().collect::<BTreeSet<_>>() != expected {
             return Err(RegistryError::InvalidCatalog(
@@ -188,6 +195,11 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
             NativePrimitive::PrimaryClick,
             Verifier::ButtonEffect,
         ),
+        SemanticRole::Link => (
+            ImplementationFamily::Navigation,
+            NativePrimitive::PrimaryClick,
+            Verifier::DocumentTransition,
+        ),
         SemanticRole::TextField
         | SemanticRole::SearchField
         | SemanticRole::TextArea
@@ -211,6 +223,11 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
             ImplementationFamily::Reflex,
             NativePrimitive::PrimaryClick,
             Verifier::TargetAdvanced,
+        ),
+        SemanticRole::FileInput => (
+            ImplementationFamily::File,
+            NativePrimitive::FileChooser,
+            Verifier::HasFile,
         ),
         _ => {
             return Err(RegistryError::InvalidCatalog(
@@ -236,6 +253,7 @@ fn operation_affordance(operation: ActionOperation) -> Option<Affordance> {
         ActionOperation::Click => Some(Affordance::Click),
         ActionOperation::Type => Some(Affordance::Type),
         ActionOperation::Select => Some(Affordance::Select),
+        ActionOperation::Upload => Some(Affordance::Upload),
         _ => None,
     }
 }
@@ -269,6 +287,7 @@ pub fn verify(
                 PostconditionStatus::Unverified
             }
         }
+        Verifier::DocumentTransition => PostconditionStatus::Unverified,
         Verifier::HasValue => {
             let Some(after_target) = after_target else {
                 return PostconditionStatus::TargetInvalidated;
@@ -319,6 +338,16 @@ pub fn verify(
                 PostconditionStatus::VisibleStateUnchanged
             }
         }
+        Verifier::HasFile => {
+            let Some(after_target) = after_target else {
+                return PostconditionStatus::TargetInvalidated;
+            };
+            if state_is(after_target, "has_value", true) {
+                PostconditionStatus::Verified
+            } else {
+                PostconditionStatus::VisibleStateUnchanged
+            }
+        }
     }
 }
 
@@ -329,8 +358,10 @@ pub fn verify_with_documents(
     payload: &ActionPayload,
     after: &ObservationSnapshot,
 ) -> PostconditionStatus {
-    if definition.verifier == Verifier::ButtonEffect
-        && before_snapshot.document_id != after.document_id
+    if matches!(
+        definition.verifier,
+        Verifier::ButtonEffect | Verifier::DocumentTransition
+    ) && before_snapshot.document_id != after.document_id
     {
         return PostconditionStatus::Verified;
     }
@@ -344,7 +375,7 @@ mod tests {
     #[test]
     fn builtins_are_catalog_backed_and_not_publishable() {
         let registry = Registry::builtin().unwrap();
-        assert_eq!(registry.modules.len(), 9);
+        assert_eq!(registry.modules.len(), 11);
         assert!(registry
             .modules
             .values()

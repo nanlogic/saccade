@@ -19,12 +19,14 @@ browser storage.
 
 Saccade is pre-release. The current vertical slice runs through the complete
 Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
-Testing and Microsoft Edge profiles. Eight actionable controls currently have
-development closed-loop evidence.
+Testing and Microsoft Edge profiles. Eleven actionable controls are currently
+in the Registry. The first eight have paired Chrome/Edge development evidence;
+link, reflex target, and file input currently have focused Chrome evidence.
 
 | Control | Action | Verified postcondition |
 | --- | --- | --- |
 | Button | native click | pressed or expanded state changes |
+| Link | native click | top-level document identity changes |
 | Text field | native click and Unicode input | field changes from empty to non-empty |
 | Search field | native click and Unicode input | field changes from empty to non-empty |
 | Textarea | native click and multiline Unicode input | field changes from empty to non-empty |
@@ -33,6 +35,7 @@ development closed-loop evidence.
 | Checkbox | native click | checked state changes |
 | Select | native selection by option identity | requested option becomes selected |
 | Reflex target | native or audited soft click | same-loop score/occurrence advances |
+| File input | native operating-system chooser | real file input accepts a non-empty selection |
 
 The paired development run covers stale-token rejection, Profile behavior,
 Profile bans, and editable-value leak checks in both browsers. Catalog entries
@@ -90,8 +93,11 @@ the Host session. `test all` runs them in sequence and writes evidence under
 separate `chrome/` and `edge/` directories. `up` synchronizes the Extension and
 fixtures into the fixed Saccade Dev directory before launch so macOS TCC does
 not make the managed jobs depend on repository-folder access. Development
-profiles are versioned by Extension version so MV3 service-worker updates are
-tested from a fresh browser profile without overwriting user Profile JSON.
+profiles use an explicit generation independent of Extension version, while
+the unpacked Extension directory is versioned. This forces MV3 code updates to
+load without reading or copying browser cookies; advancing the profile
+generation leaves the prior profile untouched. User Profile JSON remains in
+the Runtime directory and is never overwritten.
 
 `test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits

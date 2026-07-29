@@ -17,6 +17,12 @@ enum NativeStep {
     ChoiceTypeahead,
     Return,
     PostActionDelay,
+    FileDialogDelay,
+    FileDialogGoTo,
+    FileDialogFieldDelay,
+    FilePathText,
+    FileDialogSelectionDelay,
+    FileDialogUploadDelay,
 }
 
 /// Audited finite adapter. Control modules cannot call platform code directly.
@@ -56,6 +62,10 @@ fn primitive_matches(
             NativePrimitive::SelectOption,
             ActionOperation::Select,
             ActionPayload::Select { .. }
+        ) | (
+            NativePrimitive::FileChooser,
+            ActionOperation::Upload,
+            ActionPayload::File { .. }
         )
     )
 }
@@ -86,6 +96,17 @@ fn event_plan(
                 NativeStep::PostActionDelay,
             ])
         }
+        (ActionOperation::Upload, ActionPayload::File { path }) if !path.is_empty() => Ok(vec![
+            NativeStep::PrimaryClick,
+            NativeStep::FileDialogDelay,
+            NativeStep::FileDialogGoTo,
+            NativeStep::FileDialogFieldDelay,
+            NativeStep::FilePathText,
+            NativeStep::Return,
+            NativeStep::FileDialogSelectionDelay,
+            NativeStep::Return,
+            NativeStep::FileDialogUploadDelay,
+        ]),
         _ => anyhow::bail!("operation and native payload do not match"),
     }
 }
@@ -188,6 +209,34 @@ mod tests {
                 NativeStep::ChoiceTypeahead,
                 NativeStep::Return,
                 NativeStep::PostActionDelay
+            ]
+        );
+    }
+
+    #[test]
+    fn file_plan_uses_only_the_bounded_native_chooser_sequence() {
+        let mut prepared = prepared_text_field();
+        prepared.operation = ActionOperation::Upload;
+        prepared.selection_index = None;
+        assert_eq!(
+            event_plan(
+                &prepared,
+                &ActionPayload::File {
+                    path: "/tmp/release.pdf".into()
+                },
+                None,
+            )
+            .unwrap(),
+            vec![
+                NativeStep::PrimaryClick,
+                NativeStep::FileDialogDelay,
+                NativeStep::FileDialogGoTo,
+                NativeStep::FileDialogFieldDelay,
+                NativeStep::FilePathText,
+                NativeStep::Return,
+                NativeStep::FileDialogSelectionDelay,
+                NativeStep::Return,
+                NativeStep::FileDialogUploadDelay,
             ]
         );
     }

@@ -28,6 +28,19 @@
       "publication_status": "implementation"
     },
     {
+      "id": "link",
+      "role": "link",
+      "implementation_family": "navigation",
+      "safe_state": ["enabled", "current", "expanded"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "document_transition",
+      "limitations": ["Destination URLs are not disclosed; same-document links remain unverified without an observable state transition."],
+      "fixtures": ["fixtures/controls/link.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
       "id": "search_field",
       "role": "search_field",
       "implementation_family": "editable",
@@ -115,6 +128,19 @@
       "verifier": "target_advanced",
       "limitations": ["Only audited benchmark or application-provided target bridges are recognized; arbitrary Canvas pixels remain opaque."],
       "fixtures": ["fixtures/conformance/reflex_target.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "file_input",
+      "role": "file_input",
+      "implementation_family": "file",
+      "safe_state": ["has_value", "enabled", "required"],
+      "affordances": ["upload"],
+      "native_primitive": "file_chooser",
+      "verifier": "has_file",
+      "limitations": ["The supplied absolute path is immediate action input only and never appears in observations or receipts; directory and multi-file selection are unsupported.", "A verified chooser receipt proves a real file input accepted one file; server-side transfer and persistence require a separate observable page effect."],
+      "fixtures": ["fixtures/controls/file_input.html"],
       "evidence": { "chrome": "pending", "edge": "pending" },
       "publication_status": "implementation"
     }

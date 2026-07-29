@@ -43,6 +43,28 @@ pub(super) fn dispatch(
             NativeStep::PostActionDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(300));
             }
+            NativeStep::FileDialogDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(750));
+            }
+            NativeStep::FileDialogGoTo => {}
+            NativeStep::FileDialogFieldDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            NativeStep::FilePathText => {
+                let ActionPayload::File { path } = payload else {
+                    bail!("file chooser requires a path payload");
+                };
+                for unit in path.encode_utf16() {
+                    send_key(unit, false)?;
+                    send_key(unit, true)?;
+                }
+            }
+            NativeStep::FileDialogSelectionDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(750));
+            }
+            NativeStep::FileDialogUploadDelay => {
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+            }
         }
     }
     Ok(DispatchStatus::AcceptedByOs)

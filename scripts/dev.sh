@@ -4,6 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 EXTENSION_VERSION=$(sed -n 's/^[[:space:]]*"version": "\([0-9][0-9.]*\)",*$/\1/p' "$ROOT/extension/manifest.json" | sed -n '1p')
 : "${EXTENSION_VERSION:?development Extension manifest has no version}"
+BROWSER_PROFILE_GENERATION=2
 DEV_ROOT="$HOME/Library/Application Support/Saccade Dev"
 BIN_DIR="$DEV_ROOT/bin"
 RUNTIME_APP="$HOME/Applications/Saccade Dev Runtime.app"
@@ -13,9 +14,11 @@ STATE_DIR="$DEV_ROOT/state"
 LOG_DIR="$DEV_ROOT/logs"
 EVIDENCE_DIR="$DEV_ROOT/evidence"
 FIXTURE_ROOT="$DEV_ROOT/fixture-root"
-EXTENSION_ROOT="$DEV_ROOT/extension"
-CHROME_PROFILE="$DEV_ROOT/chrome-profile-$EXTENSION_VERSION"
-EDGE_PROFILE="$DEV_ROOT/edge-profile-$EXTENSION_VERSION"
+EXTENSION_ROOT="$DEV_ROOT/extension-$EXTENSION_VERSION"
+CHROME_PROFILE="$DEV_ROOT/chrome-profile-v$BROWSER_PROFILE_GENERATION"
+EDGE_PROFILE="$DEV_ROOT/edge-profile-v$BROWSER_PROFILE_GENERATION"
+LEGACY_CHROME_PROFILE="$DEV_ROOT/chrome-profile-0.3.3"
+LEGACY_EDGE_PROFILE="$DEV_ROOT/edge-profile-0.3.3"
 CHROME_CACHE="$HOME/Library/Caches/Saccade Dev/chrome-for-testing"
 HOST_DIR="$HOME/Library/Application Support/Google/Chrome for Testing/NativeMessagingHosts"
 HOST_DIR_COMPACT="$HOME/Library/Application Support/Google/ChromeForTesting/NativeMessagingHosts"
@@ -37,9 +40,20 @@ PROFILE_BACKUP="$STATE_DIR/profile-before-test.json"
 PROFILE_MISSING="$STATE_DIR/profile-was-missing"
 
 mkdirs() {
-  mkdir -p "$BIN_DIR" "$RUNTIME_MACOS" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$FIXTURE_ROOT" "$EXTENSION_ROOT" "$CHROME_PROFILE" "$EDGE_PROFILE"
-  chmod 700 "$DEV_ROOT" "$BIN_DIR" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$FIXTURE_ROOT" "$EXTENSION_ROOT" "$CHROME_PROFILE" "$EDGE_PROFILE"
+  mkdir -p "$BIN_DIR" "$RUNTIME_MACOS" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$FIXTURE_ROOT" "$EXTENSION_ROOT"
+  chmod 700 "$DEV_ROOT" "$BIN_DIR" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$FIXTURE_ROOT" "$EXTENSION_ROOT"
   chmod 755 "$RUNTIME_APP" "$RUNTIME_APP/Contents" "$RUNTIME_MACOS"
+}
+
+migrate_browser_profiles() {
+  if [ ! -e "$CHROME_PROFILE" ] && [ -d "$LEGACY_CHROME_PROFILE" ]; then
+    mv "$LEGACY_CHROME_PROFILE" "$CHROME_PROFILE"
+  fi
+  if [ ! -e "$EDGE_PROFILE" ] && [ -d "$LEGACY_EDGE_PROFILE" ]; then
+    mv "$LEGACY_EDGE_PROFILE" "$EDGE_PROFILE"
+  fi
+  mkdir -p "$CHROME_PROFILE" "$EDGE_PROFILE"
+  chmod 700 "$CHROME_PROFILE" "$EDGE_PROFILE"
 }
 
 require_browser() {
@@ -430,6 +444,8 @@ up() {
   up_browser=${1:-chrome}
   require_browser "$up_browser"
   mkdirs
+  stop_browser "$up_browser"
+  migrate_browser_profiles
   install_runtime
   install_native_manifest
   install_codex_mcp

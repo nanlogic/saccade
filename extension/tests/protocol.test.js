@@ -51,8 +51,21 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /type === 'number'/);
   assert.match(collector, /spin_button/);
   assert.match(collector, /content_editable/);
+  assert.match(collector, /visibleFileTrigger/);
+  assert.match(collector, /aria-controls/);
+  assert.match(collector, /input\[type="file"\]/);
+  assert.match(collector, /fileTriggerHasValue/);
+  assert.match(collector, /activeFileTrigger/);
+  assert.match(collector, /changed\.files\?\.length/);
   assert.match(collector, /isContentEditable/);
   assert.doesNotMatch(collector, /element\.value[^\n]*name|XPath|canvas|webgl/i);
+});
+
+test('unrelated page mutations do not churn current control tokens', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /mutationCanChangeObservation/);
+  assert.match(collector, /records\.some\(mutationCanChangeObservation\)/);
+  assert.match(collector, /element\.matches\(CONTROL_SELECTOR\)/);
 });
 
 test('open ownership precedes response and fast-complete tabs still start collection', () => {
@@ -97,7 +110,7 @@ test('managed Chrome and Edge routes share one protocol and keep browser evidenc
   const probe = fs.readFileSync(path.join(__dirname, '../../scripts/dev_probe.py'), 'utf8');
   const host = fs.readFileSync(path.join(__dirname, '../../scripts/dev/com.nanlogic.saccade.dev.json.in'), 'utf8');
   assert.match(dev, /Microsoft Edge\/NativeMessagingHosts/);
-  assert.match(dev, /profile-\$EXTENSION_VERSION/);
+  assert.match(dev, /profile-v\$BROWSER_PROFILE_GENERATION/);
   assert.match(dev, /--disable-session-crashed-bubble/);
   assert.match(dev, /--window-size=800,747/);
   assert.match(dev, /profile\["exit_type"\] = "Normal"/);
