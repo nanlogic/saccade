@@ -1,6 +1,6 @@
 //! Native Host session authority for the cataloged control families.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
@@ -74,7 +74,7 @@ pub struct NativeHostSession {
     endpoint: Mutex<Option<LocalAddress>>,
     browser_instance_id: Mutex<Option<String>>,
     extension_connected: AtomicBool,
-    observations: Mutex<BTreeMap<String, ObservationSnapshot>>,
+    observations: Mutex<ObservationState>,
     observation_changed: Condvar,
     pending: Mutex<BTreeMap<u64, mpsc::Sender<Value>>>,
     next_request_id: AtomicU64,
@@ -82,6 +82,12 @@ pub struct NativeHostSession {
     profile: Profile,
     engine: Mutex<ClosedLoopEngine>,
     native: Mutex<Box<dyn NativeInput>>,
+}
+
+#[derive(Default)]
+struct ObservationState {
+    current: BTreeMap<String, ObservationSnapshot>,
+    retired_documents: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl NativeHostSession {
@@ -121,7 +127,7 @@ impl NativeHostSession {
             endpoint: Mutex::new(None),
             browser_instance_id: Mutex::new(None),
             extension_connected: AtomicBool::new(false),
-            observations: Mutex::new(BTreeMap::new()),
+            observations: Mutex::new(ObservationState::default()),
             observation_changed: Condvar::new(),
             pending: Mutex::new(BTreeMap::new()),
             next_request_id: AtomicU64::new(1),
@@ -533,14 +539,32 @@ impl NativeHostSession {
             bail!("browser instance mismatch");
         }
         let mut observations = self.observations.lock().map_err(lock_error)?;
-        if observations.get(&snapshot.tab_id).is_some_and(|previous| {
-            previous.document_id == snapshot.document_id && snapshot.revision <= previous.revision
-        }) {
-            bail!("observation revision did not advance");
+        if observations
+            .retired_documents
+            .get(&snapshot.tab_id)
+            .is_some_and(|documents| documents.contains(&snapshot.document_id))
+        {
+            bail!("observation belongs to a retired document");
+        }
+        if let Some(previous) = observations.current.get(&snapshot.tab_id) {
+            if previous.document_id == snapshot.document_id {
+                if snapshot.revision <= previous.revision {
+                    bail!("observation revision did not advance");
+                }
+            } else {
+                let retired_document = previous.document_id.clone();
+                observations
+                    .retired_documents
+                    .entry(snapshot.tab_id.clone())
+                    .or_default()
+                    .insert(retired_document);
+            }
         }
         self.profile.filter_observation(&mut snapshot);
         snapshot.validate()?;
-        observations.insert(snapshot.tab_id.clone(), snapshot);
+        observations
+            .current
+            .insert(snapshot.tab_id.clone(), snapshot);
         drop(observations);
         self.observation_changed.notify_all();
         Ok(())
@@ -565,6 +589,7 @@ impl NativeHostSession {
         self.observations
             .lock()
             .map_err(lock_error)?
+            .current
             .get(tab_id)
             .cloned()
             .context("no current observation for tab")
@@ -584,6 +609,7 @@ impl NativeHostSession {
         let mut quiet_deadline = None;
         loop {
             let current = observations
+                .current
                 .get(tab_id)
                 .context("tab observation disappeared")?;
             if current.revision > revision
@@ -899,6 +925,66 @@ mod tests {
             limitations: vec![],
             gap: false,
         }
+    }
+
+    #[test]
+    fn late_observation_cannot_restore_a_retired_document() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = NativeHostSession::with_adapters(
+            dir.path().to_path_buf(),
+            Arc::new(CapturingOutbound(out_tx)),
+            Box::new(FakeNative(native_tx)),
+        )
+        .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+
+        let first = snapshot(1, field(false));
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(&first).unwrap(),
+            })
+            .unwrap();
+
+        let mut second = snapshot(1, field(false));
+        second.document_id = "document-2".into();
+        second.frames[0].document_id = "document-2".into();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(&second).unwrap(),
+            })
+            .unwrap();
+
+        let mut late = first;
+        late.revision = 2;
+        assert!(session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(late).unwrap(),
+            })
+            .unwrap_err()
+            .to_string()
+            .contains("retired document"));
+        assert_eq!(
+            session.current_observation("tab-1").unwrap().document_id,
+            "document-2"
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@
     "checkbox": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "pending", "edge": "pending" } },
     "radio": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "passed", "edge": "passed" } },
     "switch": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "passed", "edge": "passed" } },
-    "select": { "fixture": { "chrome": "pending", "edge": "pending" }, "external": { "chrome": "pending", "edge": "pending" } },
+    "select": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "pending", "edge": "pending" } },
     "reflex_target": { "fixture": { "chrome": "passed", "edge": "pending" }, "external": { "chrome": "passed", "edge": "pending" } },
     "tab": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "passed", "edge": "passed" } },
     "menu_item": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "passed", "edge": "passed" } },

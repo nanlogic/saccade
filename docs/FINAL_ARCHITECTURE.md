@@ -190,6 +190,17 @@ Edge run `20260729T192757Z` each produced 12 native verified receipts on the
 same source candidate. These are development artifacts; Catalog release
 evidence remains pending.
 
+The select family also covers native select, ARIA listbox, and ARIA combobox
+through enabled option-object identity and bounded indexed keyboard input.
+Paired managed run `20260729T225249Z` produced 14 native verified receipts in
+both Chrome and Edge and covered bounded structural reading, Profile behavior,
+Profile bans, and stale-token rejection. This remains development evidence.
+
+Observation order is monotonic per tab. Revisions advance within a document;
+when a new document identity is accepted, the Host retires the prior identity
+and rejects any delayed snapshot from it. This prevents a late pre-navigation
+message from replacing the current observation or contaminating a receipt.
+
 Public-page compatibility is a separate development gate. Saccade must first
 produce its own native verified receipts. A Playwright harness may then run in
 fresh contexts as an out-of-band reference oracle for accessible name, state,

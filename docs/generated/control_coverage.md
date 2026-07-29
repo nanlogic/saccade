@@ -4,7 +4,7 @@
 
 ## Evidence summary
 
-Implemented: 15. Chrome + Edge fixture: 11. Chrome + Edge external: 4. Publishable: 0.
+Implemented: 15. Chrome + Edge fixture: 12. Chrome + Edge external: 4. Publishable: 0.
 
 Chrome / Edge values are shown in that order.
 
@@ -20,7 +20,7 @@ Chrome / Edge values are shown in that order.
 | checkbox | yes | passed / passed | pending / pending | pending / pending |
 | radio | yes | passed / passed | passed / passed | pending / pending |
 | switch | yes | passed / passed | passed / passed | pending / pending |
-| select | yes | pending / pending | pending / pending | pending / pending |
+| select | yes | passed / passed | pending / pending | pending / pending |
 | reflex_target | yes | passed / pending | passed / pending | pending / pending |
 | tab | yes | passed / passed | passed / passed | pending / pending |
 | menu_item | yes | passed / passed | passed / passed | pending / pending |

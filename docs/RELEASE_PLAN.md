@@ -7,7 +7,8 @@ installs one signed app, confirms one browser Extension, selects a Profile, and
 runs a public-page proof without building the repository.
 
 The preview will ship the 15 current Catalog controls. Bounded page reading and
-ARIA listbox/combobox source are implemented. Fresh managed-browser and public
+ARIA listbox/combobox source are implemented and passed paired managed-browser
+development proof in run `20260729T225249Z`. Frozen release-candidate and public
 page evidence remain release blockers. Slider, date/time variants, color, and
 drag and drop can follow after the preview if the coverage table names those
 gaps.

@@ -37,6 +37,13 @@ the clean public repository.
   isolated Playwright comparison oracle and screenshots;
 - accessible fallback names that omit `aria-hidden` descendants and explicit
   ARIA menu-item precedence over native link projection;
+- bounded non-actionable structural reading for headings, paragraphs, list
+  items, table cells, alerts, and status messages;
+- native select, ARIA listbox, and ARIA combobox selection through enabled
+  option-object identity, including duplicate visible names;
+- session-only Extension popup controls for sharing and revoking existing tabs;
+- monotonic per-tab document handling so delayed retired-document observations
+  cannot replace current state or contaminate action receipts;
 
 ### Pending
 

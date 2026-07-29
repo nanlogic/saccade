@@ -240,8 +240,10 @@ siblings.
 The finite native plan clicks the current owner, waits for its popup, sends
 Home, sends a bounded number of Down keys, and confirms with Return. This avoids
 name-based typeahead ambiguity and preserves option object identity through
-verification. The expanded choice fixture resets earlier select development
-evidence to pending until Chrome and Edge rerun it.
+verification. Paired managed run `20260729T225249Z` produced 14
+`accepted_by_os + verified` receipts in both Chrome and Edge, including native
+select, duplicate-name ARIA listbox identity, and ARIA combobox selection. This
+restores fixture development evidence only; release evidence remains pending.
 
 ## 2026-07-29: Existing tabs are shared from one session-only popup
 
@@ -256,3 +258,18 @@ clears collector tokens, and disconnects its mutation observer. Agent-owned
 tabs remain visibly distinct and are revoked by closing them. The popup does
 not create a second authorization store or communicate with Native Messaging
 directly.
+
+## 2026-07-29: A tab document stream cannot move backward
+
+Accepted: revisions are monotonic within a document, while navigation creates
+a new document identity. Once the Host accepts a new document for a tab, it
+retires the preceding identity and rejects delayed snapshots from it. A late
+old-document message cannot overwrite the current observation or verify an
+action against the wrong document.
+
+This was exposed by intermittent Chrome/Edge text-field failures whose receipt
+started on one document but settled against a delayed snapshot from its
+predecessor. After the Host monotonicity fix, paired run `20260729T225249Z`
+completed 14 native verified receipts plus Profile and stale-token gates in
+each browser. Catalog status remains `implementation` because this is local
+development evidence.

@@ -216,9 +216,13 @@ def act(
         raise RuntimeError(f"{operation} stayed stale after fresh observations: {last_error}")
     expected_dispatch = "accepted_by_software" if backend == "web.act_soft" else "accepted_by_os"
     if receipt.get("dispatch_status") != expected_dispatch:
-        raise RuntimeError(f"{operation} dispatch failed: {receipt.get('dispatch_status')}")
+        raise RuntimeError(
+            f"{role} {name!r} {operation} dispatch failed: {receipt.get('dispatch_status')}"
+        )
     if receipt.get("postcondition") != "verified":
-        raise RuntimeError(f"{operation} postcondition failed: {receipt.get('postcondition')}")
+        raise RuntimeError(
+            f"{role} {name!r} {operation} postcondition failed: {receipt.get('postcondition')}"
+        )
     return receipt, receipt["post_action_observation"]
 
 

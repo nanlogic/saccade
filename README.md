@@ -21,10 +21,12 @@ Saccade is pre-release. The current vertical slice runs through the complete
 Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
 Testing and Microsoft Edge profiles. Fifteen actionable controls are currently
 in the Registry. Button, editable controls, checkbox, radio, switch, the
-native-select slice, tab, and menu item have paired Chrome/Edge development
-evidence; link, reflex target, and file input currently have focused Chrome
-evidence. ARIA listbox and combobox source and fixtures are implemented, but
-their expanded select row is pending a fresh managed-browser run.
+select/listbox/combobox slice, tab, and menu item have paired Chrome/Edge
+development evidence; link, reflex target, and file input currently have
+focused Chrome evidence. Paired managed run `20260729T225249Z` produced 14
+`accepted_by_os + verified` receipts in each browser, including native select,
+ARIA listbox, ARIA combobox, structural reading, stale-token rejection, and
+Profile gates.
 
 Radio, ARIA switch, tab, and menu item also pass public W3C WAI-ARIA examples
 in both browsers. Run `20260729T211221Z` matched all four Saccade native results

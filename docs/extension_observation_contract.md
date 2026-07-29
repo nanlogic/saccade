@@ -7,8 +7,8 @@ The current implementation covers fifteen Registry controls: button, link,
 text field, search field, textarea, contenteditable, spin button, checkbox,
 radio, ARIA switch, native select, ARIA listbox/combobox, tab, menu item,
 reflex target, and file input, plus option observation. ARIA choice controls
-have implementation tests but still await managed-browser evidence. Other
-roles in this contract define the intended
+have implementation tests and paired managed Chrome/Edge development evidence.
+Other roles in this contract define the intended
 Truth Layer surface. They are not
 implemented until the Catalog lists their module, fixtures, verifier, and
 evidence status.
@@ -106,6 +106,10 @@ binds:
 Navigation creates a new document identity and invalidates all earlier facts
 and tokens. Object identity is runtime-only and held with `WeakMap`; it is not
 a selector, stable locator, DOM path, or identifier the Agent can construct.
+
+For one tab, the Host retires the previous document identity when a new one is
+accepted. A delayed snapshot from a retired document cannot replace the current
+snapshot, even if its per-document revision is numerically higher.
 
 An observation is a claim about the Extension's current safe projection. It is
 not a claim that canvas, WebGL, video, closed shadow roots, restricted frames,

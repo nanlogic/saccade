@@ -76,7 +76,10 @@ and computes its enabled keyboard position. The finite native plan clicks the
 owner, waits for its popup, returns to the first enabled option, advances by
 index, and confirms. Fixtures cover a disabled option, duplicate visible
 names, a dynamically inserted option, and popup close. Static and Runtime
-tests pass; managed Chrome, Edge, and public-page evidence remains pending.
+tests pass. Paired managed run `20260729T225249Z` subsequently produced 14
+`accepted_by_os + verified` receipts in each browser and covered native select,
+ARIA listbox, and ARIA combobox. Public-page and release-candidate evidence
+remain pending.
 
 ## Batch 3: navigation and command controls
 
@@ -110,8 +113,8 @@ Status: visible headings, paragraphs, list items, table cells, alerts, and
 status messages now project as bounded, non-actionable text objects. The
 collector excludes hidden content, nested controls, editable values, and
 duplicate nested structural objects. It reports truncation after a 256 KiB
-structural-text budget. Node and Rust gates pass; managed Chrome and Edge proof
-is blocked until the local development signing identity is restored.
+structural-text budget. Node and Rust gates pass, and paired managed run
+`20260729T225249Z` proved the projection in Chrome and Edge.
 
 The image slice remains deliberately narrow. A named image may expose an
 application-declared `data-saccade-image-identity` as a non-actionable
