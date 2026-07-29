@@ -35,9 +35,26 @@ test('development manifest preserves identity and excludes out-of-scope capabili
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
   assert.deepEqual(manifest.permissions, ['tabs', 'nativeMessaging', 'scripting', 'storage']);
+  assert.equal(manifest.action.default_popup, 'popup.html');
   assert.match(worker, /com\.nanlogic\.saccade\.dev/);
   assert.doesNotMatch(worker, /chrome\.(downloads|debugger)/);
   assert.doesNotMatch(worker, /Playwright|CDP|protected_fill|loop\.start/);
+});
+
+test('tab sharing UI mutates only the session ACL and revocation clears collector authority', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const popup = fs.readFileSync(path.join(__dirname, '../popup.js'), 'utf8');
+  assert.match(worker, /sender\.url !== chrome\.runtime\.getURL\('popup\.html'\)/);
+  assert.match(worker, /userSharedTabs\.add\(tabId\)/);
+  assert.match(worker, /userSharedTabs\.delete\(tabId\)/);
+  assert.match(worker, /collector\.deauthorize/);
+  assert.match(worker, /Agent-owned tabs are revoked by closing the tab/);
+  assert.match(collector, /function deauthorize/);
+  assert.match(collector, /tokenTargets\.clear\(\)/);
+  assert.match(popup, /ui\.tab\.share/);
+  assert.match(popup, /ui\.tab\.revoke/);
+  assert.doesNotMatch(popup, /storage\.(local|session)|executeScript|connectNative/);
 });
 
 test('collector routes editable-family controls through the Registry', () => {

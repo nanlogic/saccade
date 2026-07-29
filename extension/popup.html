@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Saccade</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="mark" aria-hidden="true"></span>
+        <div><h1>Saccade</h1><p id="state">Checking this tab…</p></div>
+      </header>
+      <p id="detail">Only the tab you share can be observed and controlled.</p>
+      <button id="toggle" type="button" disabled>Share this tab</button>
+      <p class="meta"><span id="host">Runtime: checking</span><span>Session-only access</span></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

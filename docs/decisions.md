@@ -242,3 +242,17 @@ Home, sends a bounded number of Down keys, and confirms with Return. This avoids
 name-based typeahead ambiguity and preserves option object identity through
 verification. The expanded choice fixture resets earlier select development
 evidence to pending until Chrome and Edge rerun it.
+
+## 2026-07-29: Existing tabs are shared from one session-only popup
+
+Accepted: the Extension action popup shows whether the active tab is Agent
+Off, user-shared, or Agent-owned. Only the popup may add or remove a user tab
+from the existing `chrome.storage.session` ACL. Sharing supports HTTP and HTTPS
+only, configures the collector before reporting success, and rolls back the ACL
+if collector setup fails.
+
+Revocation removes the user-shared tab, discards its observation session,
+clears collector tokens, and disconnects its mutation observer. Agent-owned
+tabs remain visibly distinct and are revoked by closing them. The popup does
+not create a second authorization store or communicate with Native Messaging
+directly.

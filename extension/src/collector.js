@@ -586,11 +586,19 @@
     return collect();
   }
 
+  function deauthorize() {
+    config = null;
+    tokenTargets.clear();
+    objectTargets.clear();
+    for (const observer of observers.splice(0)) observer.disconnect();
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     try {
       if (message.kind === 'collector.ping') respond({ ok: true });
       else if (message.kind === 'collector.configure') { configure(message.config); respond({ ok: true, document_id: documentId }); }
       else if (message.kind === 'collector.observe') { collect(); respond({ ok: true }); }
+      else if (message.kind === 'collector.deauthorize') { deauthorize(); respond({ ok: true }); }
       else if (message.kind === 'collector.prepare_action') respond({ ok: true, prepared: prepare(message.request) });
       else if (message.kind === 'collector.soft_click') respond({ ok: true, result: softClick(message.request) });
       else return false;

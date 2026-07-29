@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; font: 14px/1.4 system-ui, sans-serif; }
+body { margin: 0; min-width: 320px; background: #0d1518; color: #e9f5f5; }
+main { padding: 18px; }
+header { display: flex; gap: 12px; align-items: center; }
+.mark { width: 28px; height: 28px; border: 3px solid #73e4d1; border-radius: 50%; box-shadow: inset 8px 0 #73e4d1; }
+h1, p { margin: 0; }
+h1 { font-size: 18px; letter-spacing: .01em; }
+#state { color: #9fb9b8; margin-top: 2px; }
+#detail { min-height: 40px; margin: 18px 0 14px; color: #c4d5d4; }
+button { width: 100%; min-height: 42px; border: 0; border-radius: 8px; background: #73e4d1; color: #071110; font: 600 14px system-ui; cursor: pointer; }
+button.danger { background: #ffb5a8; }
+button:disabled { cursor: default; opacity: .45; }
+.meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; color: #78918f; font-size: 12px; }

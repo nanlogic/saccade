@@ -21,7 +21,8 @@ imply Windows support.
   projection in managed Chrome and Edge. Report frame and opaque-surface limits.
 - Prove listbox and combobox option identity, popup settling, disabled choices,
   duplicate names, and dynamic options in managed Chrome and Edge.
-- Add Extension UI for sharing one existing tab and revoking that share.
+- Prove the Extension popup share/revoke flow in Chrome and Edge, including
+  unsupported pages, browser restart, and immediate token invalidation.
 - Produce a signed and notarized macOS app, Native Messaging manifests, and
   Chrome Web Store and Edge Add-ons builds.
 - Prove clean install, upgrade, repair, browser restart, Host restart, and

@@ -70,10 +70,12 @@ approved component at a time and record its provenance below.
 13. Extend the existing select module to ARIA listbox and combobox with enabled
     option identity and indexed native keyboard selection. No legacy classifier
     is reused. See `docs/migrations/0011_aria_choice_controls.md`.
-14. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+14. Add the session-only Extension popup for sharing and revoking one current
+    tab. See `docs/migrations/0012_shared_tab_ui.md`.
+15. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
     installation/action gates before publication.
-15. Add truthful basic coverage for uncommon controls.
-16. Consider Canvas/WebGL semantic bridges before any detector capability.
+16. Add truthful basic coverage for uncommon controls.
+17. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 

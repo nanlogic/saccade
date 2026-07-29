@@ -117,6 +117,12 @@ the Runtime directory and is never overwritten.
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
 editable contents.
 
+To share an existing HTTP or HTTPS tab, open the Saccade Extension popup in
+that tab and choose **Share this tab**. The popup reports Agent On only for the
+current session ACL. Choose **Stop sharing** to remove the tab, discard its
+observation session, and invalidate collector tokens. Agent-owned tabs opened
+through `tabs.open` are revoked by closing them.
+
 `compare` first requires Saccade to complete the radio, switch, tab, and menu
 item loops independently on public W3C WAI-ARIA pages. It then runs an isolated
 Playwright oracle in fresh contexts, compares accessible names and false-to-true

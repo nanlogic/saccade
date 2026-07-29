@@ -33,6 +33,25 @@ async function initialize() {
 
 function isAuthorized(tabId) { return agentOwnedTabs.has(tabId) || userSharedTabs.has(tabId); }
 
+async function tabStatus(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  const supported = isSupportedUrl(tab.url);
+  const session = sessions.get(tabId);
+  return {
+    tab_id: String(tabId), supported, agent_owned: agentOwnedTabs.has(tabId),
+    shared: userSharedTabs.has(tabId), authorized: isAuthorized(tabId),
+    observation_ready: Boolean(session?.last), collector_error: session?.error,
+    host_connected: Boolean(nativePort),
+  };
+}
+
+async function revokeSharedTab(tabId) {
+  userSharedTabs.delete(tabId);
+  sessions.delete(tabId);
+  await persistAcl();
+  try { await chrome.tabs.sendMessage(tabId, { kind: 'collector.deauthorize' }, { frameId: 0 }); } catch (_error) { /* already gone */ }
+}
+
 function post(kind, payload = {}, requestId) {
   if (!nativePort) throw new Error('native host is disconnected');
   nativePort.postMessage(envelope(kind, payload, requestId));
@@ -168,6 +187,32 @@ async function handleHostCommand(command) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message.kind === 'ui.tab.status' || message.kind === 'ui.tab.share' || message.kind === 'ui.tab.revoke') {
+    const run = async () => {
+      if (sender.url !== chrome.runtime.getURL('popup.html')) throw new Error('tab access changes require the Saccade popup');
+      const tabId = numericTabId(message.tab_id);
+      if (message.kind === 'ui.tab.share') {
+        const tab = await chrome.tabs.get(tabId);
+        if (!isSupportedUrl(tab.url)) throw new Error('Only HTTP and HTTPS tabs can be shared');
+        userSharedTabs.add(tabId);
+        await persistAcl();
+        try {
+          await authorizeTab(tabId);
+        } catch (error) {
+          await revokeSharedTab(tabId);
+          throw error;
+        }
+      } else if (message.kind === 'ui.tab.revoke') {
+        if (agentOwnedTabs.has(tabId)) throw new Error('Agent-owned tabs are revoked by closing the tab');
+        await revokeSharedTab(tabId);
+      }
+      return tabStatus(tabId);
+    };
+    run().then((status) => respond({ ok: true, status })).catch((error) => {
+      respond({ ok: false, error: String(error.message || error).slice(0, 512) });
+    });
+    return true;
+  }
   if (message.kind !== 'collector.observation') return false;
   const tabId = sender.tab?.id;
   const session = tabId === undefined ? null : sessions.get(tabId);
