@@ -26,6 +26,25 @@
     return text ? text.slice(0, limit) : undefined;
   }
 
+  function accessibleFallbackText(element, limit) {
+    const chunks = [];
+    const visit = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        chunks.push(node.nodeValue || '');
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node !== element) {
+        if (node.getAttribute('aria-hidden') === 'true') return;
+        const style = getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
+      }
+      for (const child of node.childNodes) visit(child);
+    };
+    visit(element);
+    return normalizedText(chunks.join(' '), limit);
+  }
+
   function referencedText(element, attribute, limit) {
     const ids = String(element.getAttribute(attribute) || '').split(/\s+/).filter(Boolean);
     return normalizedText(ids.map((id) => {
@@ -69,9 +88,9 @@
       return copy.innerText || copy.textContent || '';
     }).join(' '), 512);
     if (labels) return labels;
-    if (['button', 'option', 'link', 'switch', 'tab', 'menu_item'].includes(role)
+    if (['button', 'option', 'link', 'radio', 'switch', 'tab', 'menu_item'].includes(role)
       || (role === 'file_input' && element.tagName !== 'INPUT')) {
-      const visible = normalizedText(element.innerText || element.textContent, 512);
+      const visible = accessibleFallbackText(element, 512);
       if (visible) return visible;
     }
     return normalizedText(element.getAttribute('title'), 512);
@@ -115,12 +134,12 @@
       && element.classList.contains('target')
       && !element.classList.contains('hit');
     if (applicationBridge || mouseAccuracyBridge) return 'reflex_target';
+    if (ariaRole === 'menuitem') return 'menu_item';
     if (tag === 'A' && element.hasAttribute('href')) return 'link';
     if (tag === 'INPUT' && type === 'file') return 'file_input';
-    if (tag === 'INPUT' && type === 'radio' || ariaRole === 'radio') return 'radio';
+    if ((tag === 'INPUT' && type === 'radio') || ariaRole === 'radio') return 'radio';
     if (ariaRole === 'switch') return 'switch';
     if (ariaRole === 'tab') return 'tab';
-    if (ariaRole === 'menuitem') return 'menu_item';
     const buttonLike = tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type));
     if (buttonLike && /\b(upload|choose|select|browse|attach|replace|add)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
     if (buttonLike) return 'button';

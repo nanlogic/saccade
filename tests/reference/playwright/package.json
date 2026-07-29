@@ -1,0 +1,9 @@
+{
+  "name": "saccade-playwright-reference",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Out-of-band public-page oracle; never a Saccade execution route.",
+  "devDependencies": {
+    "playwright": "1.62.0"
+  }
+}

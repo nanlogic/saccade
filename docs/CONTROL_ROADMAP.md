@@ -66,7 +66,9 @@ options, disabled choices, and popup settling.
 
 Status: radio and ARIA switch development loops completed on 2026-07-29.
 Native radio selection proved group exclusivity, and ARIA switch clicks proved
-checked-state transitions in paired managed Chrome and Edge runs. Listbox,
+checked-state transitions in paired managed Chrome and Edge runs. Public W3C
+radio and switch pages passed Saccade and matched the Playwright oracle in run
+`20260729T211221Z`. Listbox,
 combobox, duplicate-name, dynamic-option, and popup-settling work remains.
 
 ## Batch 3: navigation and command controls
@@ -83,7 +85,8 @@ on 2026-07-29. It uses native primary click and requires a document transition.
 Tab and menu item development loops completed on 2026-07-29. Tabs require a
 false-to-true selected transition. Menu items currently require an expanded
 transition, so command-only menu items remain unverified. Both passed paired
-managed Chrome and Edge runs. Bound label, named generic control, child-tab
+managed Chrome and Edge runs and public W3C pages in comparison run
+`20260729T211221Z`. Bound label, named generic control, child-tab
 verification, and release evidence remain open.
 
 ## Batch 4: page understanding

@@ -24,6 +24,11 @@ in the Registry. Button, editable controls, checkbox, radio, switch, select,
 tab, and menu item have paired Chrome/Edge development evidence; link, reflex
 target, and file input currently have focused Chrome evidence.
 
+Radio, ARIA switch, tab, and menu item also pass public W3C WAI-ARIA examples
+in both browsers. Run `20260729T211221Z` matched all four Saccade native results
+against an isolated Playwright reference oracle without using Playwright as an
+action fallback.
+
 | Control | Action | Verified postcondition |
 | --- | --- | --- |
 | Button | native click | pressed or expanded state changes |
@@ -79,6 +84,7 @@ identity, Native Messaging manifest, Runtime app, and fixture server.
 ./scripts/dev.sh test chrome
 ./scripts/dev.sh test edge
 ./scripts/dev.sh test all
+./scripts/dev.sh compare all
 ./scripts/dev.sh accuracy chrome
 ./scripts/dev.sh accuracy all
 ./scripts/dev.sh reflex chrome soft
@@ -107,6 +113,12 @@ the Runtime directory and is never overwritten.
 `test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
 editable contents.
+
+`compare` first requires Saccade to complete the radio, switch, tab, and menu
+item loops independently on public W3C WAI-ARIA pages. It then runs an isolated
+Playwright oracle in fresh contexts, compares accessible names and false-to-true
+state transitions, and saves oracle screenshots. Playwright is test-only: it
+cannot create, repair, or replace a Saccade receipt.
 
 `accuracy` runs an ordinary static-target gate through the same MCP and native
 input route. It clicks 24 semantic buttons across left, center, right, and
@@ -169,7 +181,9 @@ cargo fmt --all -- --check
 cargo test --workspace --offline
 cargo clippy --workspace --all-targets --offline -- -D warnings
 node --test extension/tests/*.test.js
+node --check tests/reference/playwright/oracle.cjs
 python3 -m unittest tests/test_dev_profile.py
+python3 -m py_compile scripts/external_dogfood.py scripts/compare_external_evidence.py
 python3 scripts/generate_control_matrix.py
 python3 scripts/check_single_architecture.py
 git diff --exit-code -- docs/generated/control_coverage.md

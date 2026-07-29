@@ -28,6 +28,12 @@ dogfood, but not paired release evidence. Every Catalog row remains
 `implementation` because signed-product Chrome and Edge evidence for one
 release candidate is pending.
 
+Public W3C WAI-ARIA run `20260729T211221Z` independently produced native
+verified Saccade receipts for radio, switch, tab, and menu item in Chrome and
+Edge. A separate Playwright oracle matched all four semantic names and state
+transitions and saved screenshots. Playwright results are comparative only and
+do not count as Saccade receipts or release evidence.
+
 ## Coverage tiers
 
 Common controls require semantic identity, safe state, revision-bound native

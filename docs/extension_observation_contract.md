@@ -210,6 +210,11 @@ Derivation MUST NOT read `value`, `defaultValue`, selected text from an editable
 control, password-manager state, or editable `textContent`. Accessible metadata
 is descriptive evidence, not proof of visibility or actionability.
 
+For an explicit ARIA widget role, that role takes precedence over a native
+anchor fallback. Visible-text name fallback excludes descendants marked
+`aria-hidden=true`; state words hidden from accessibility remain state, not part
+of the control name.
+
 Names and descriptions are whitespace-normalized and length-bounded. A
 control may remain unnamed; the Agent must not invent a label from geometry or
 neighbor proximity.

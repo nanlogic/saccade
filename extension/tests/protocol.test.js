@@ -66,6 +66,8 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /data-saccade-image-identity/);
   assert.match(collector, /function imageObject/);
   assert.match(collector, /Semantic identity:/);
+  assert.match(collector, /accessibleFallbackText/);
+  assert.match(collector, /aria-hidden/);
   assert.doesNotMatch(collector, /element\.value[^\n]*name|XPath|canvas|webgl/i);
 });
 
@@ -123,6 +125,9 @@ test('managed Chrome and Edge routes share one protocol and keep browser evidenc
   assert.match(dev, /--window-size=800,747/);
   assert.match(dev, /profile\["exit_type"\] = "Normal"/);
   assert.match(dev, /test \[chrome\|edge\|all\]/);
+  assert.match(dev, /compare \[chrome\|edge\|all\]/);
+  assert.match(dev, /external_dogfood\.py/);
+  assert.match(dev, /reference\/playwright/);
   assert.match(dev, /accuracy \[chrome\|edge\|all\]/);
   assert.match(probe, /mouse_accuracy/);
   assert.match(probe, /ACCURACY_WINDOW_PHASES/);

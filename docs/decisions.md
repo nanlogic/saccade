@@ -201,3 +201,17 @@ Accepted development evidence: Chrome run `20260729T192723Z` and Edge run
 same source candidate, rejected the consumed stale token, passed Profile
 filtering, and projected the explicit image identity without an action token.
 Catalog rows remain `implementation` with release evidence `pending`.
+
+## 2026-07-29: Public dogfood precedes compatibility claims
+
+Accepted: a deterministic fixture proves the control contract but does not by
+itself prove public-page compatibility. A control-family claim requires Saccade
+to run independently on public pages through Extension, Native Host, Runtime,
+MCP, and native input. A separate Playwright harness may compare accessible
+names, state transitions, and screenshots only after Saccade passes. Playwright
+is not a fallback and cannot create or upgrade a Saccade receipt.
+
+Accepted evidence: run `20260729T211221Z` matched radio, switch, tab, and menu
+item on W3C WAI-ARIA examples in Chrome and Edge. The external gate exposed and
+fixed missing names for ARIA radios, `aria-hidden` text leaking into switch
+names, and native-anchor precedence over explicit menu-item roles.

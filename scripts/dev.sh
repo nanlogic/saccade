@@ -536,6 +536,45 @@ test_all() {
   printf '%s\n' "Chrome and Edge evidence: $EVIDENCE_DIR/$all_stamp"
 }
 
+compare_route() {
+  compare_browser=$1
+  compare_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$compare_browser"
+  mkdirs
+  restore_profile
+  up "$compare_browser"
+  compare_run_dir="$EVIDENCE_DIR/$compare_stamp/$compare_browser/external"
+  compare_oracle_dir="$compare_run_dir/playwright"
+  mkdir -p "$compare_run_dir" "$compare_oracle_dir"
+  chmod 700 "$compare_run_dir" "$compare_oracle_dir"
+  python3 "$ROOT/scripts/external_dogfood.py" \
+    --browser "$compare_browser" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --output "$compare_run_dir/saccade.json"
+  compare_package_dir="$ROOT/tests/reference/playwright"
+  if [ ! -d "$compare_package_dir/node_modules/playwright" ]; then
+    npm --prefix "$compare_package_dir" ci
+  fi
+  compare_executable=$(sed -n '1p' "$(browser_path_file "$compare_browser")")
+  node "$compare_package_dir/oracle.cjs" \
+    --browser "$compare_browser" \
+    --executable "$compare_executable" \
+    --output "$compare_oracle_dir"
+  python3 "$ROOT/scripts/compare_external_evidence.py" \
+    --saccade "$compare_run_dir/saccade.json" \
+    --playwright "$compare_oracle_dir/oracle.json" \
+    --output "$compare_run_dir/comparison.json"
+  printf '%s\n' "External Saccade/Playwright $compare_browser comparison: $compare_run_dir"
+}
+
+compare_all() {
+  compare_all_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  compare_route chrome "$compare_all_stamp"
+  compare_route edge "$compare_all_stamp"
+  printf '%s\n' "Chrome and Edge external comparisons: $EVIDENCE_DIR/$compare_all_stamp"
+}
+
 accuracy_route() {
   accuracy_browser=$1
   accuracy_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
@@ -653,6 +692,13 @@ case "${1:-}" in
       *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
     esac
     ;;
+  compare)
+    case "${2:-chrome}" in
+      all) compare_all ;;
+      chrome|edge) compare_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
   accuracy)
     case "${2:-chrome}" in
       all) accuracy_all ;;
@@ -664,5 +710,5 @@ case "${1:-}" in
   profile) profile_command "$@" ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|compare [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
 esac

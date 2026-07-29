@@ -84,6 +84,9 @@ def main() -> None:
     for forbidden in ("playwright", "cef", "servo", "chromiumoxide", "headless_chrome"):
         if forbidden in manifests.lower():
             raise SystemExit(f"forbidden production dependency: {forbidden}")
+    reference = (ROOT / "tests/reference/playwright/README.md").read_text(encoding="utf-8")
+    if "not a Saccade action route" not in reference or "cannot" not in reference:
+        raise SystemExit("Playwright reference harness lost its non-production boundary")
     catalog = json.loads((ROOT / "catalog/controls.json").read_text(encoding="utf-8"))
     expected_roles = {
         "button", "text_field", "search_field", "text_area", "content_editable",

@@ -23,6 +23,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Extension tests
         run: node --test extension/tests/*.test.js
+      - name: Reference harness syntax
+        run: |
+          node --check tests/reference/playwright/oracle.cjs
+          python3 -m py_compile scripts/external_dogfood.py scripts/compare_external_evidence.py
       - name: Development script syntax
         run: sh -n scripts/dev.sh
       - name: Development Profile tests

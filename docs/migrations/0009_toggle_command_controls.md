@@ -31,3 +31,11 @@ Managed Chrome run `20260729T192723Z` and Edge run `20260729T192757Z` each
 recorded 12 native verified receipts, stale-token rejection, Profile filtering,
 and an editable-value leak scan. Evidence is local development evidence, so all
 Catalog rows remain `implementation` and browser evidence remains `pending`.
+
+Public-page comparison run `20260729T211221Z` added W3C WAI-ARIA radio, switch,
+tab, and menubar examples. Chrome and Edge each produced four independent
+Saccade native verified receipts, then an isolated Playwright oracle matched
+all four names and false-to-true state transitions. External dogfood corrected
+three fixture-blind issues: ARIA radio fallback names, `aria-hidden` text
+exclusion, and explicit `role=menuitem` precedence over native anchor
+projection.

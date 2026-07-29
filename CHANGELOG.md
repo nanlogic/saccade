@@ -33,6 +33,10 @@ the clean public repository.
   Profile;
 - explicit restricted reporting for browser-owned confirmation dialogs;
 - non-actionable, application-declared semantic image identity;
+- public W3C WAI-ARIA dogfood for radio, switch, tab, and menu item, with an
+  isolated Playwright comparison oracle and screenshots;
+- accessible fallback names that omit `aria-hidden` descendants and explicit
+  ARIA menu-item precedence over native link projection;
 
 ### Pending
 

@@ -190,6 +190,13 @@ Edge run `20260729T192757Z` each produced 12 native verified receipts on the
 same source candidate. These are development artifacts; Catalog release
 evidence remains pending.
 
+Public-page compatibility is a separate development gate. Saccade must first
+produce its own native verified receipts. A Playwright harness may then run in
+fresh contexts as an out-of-band reference oracle for accessible name, state,
+and screenshot comparison. It is absent from the production route and cannot
+create or upgrade a Saccade receipt. Run `20260729T211221Z` matched radio,
+switch, tab, and menu item on public W3C examples in Chrome and Edge.
+
 The managed ordinary native-mouse gate uses the same semantic button token,
 preparation, CoreGraphics input, reobservation, and button-effect verifier. It
 does not expose or accept Agent coordinates. Run `20260729T053405Z` verified
