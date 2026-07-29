@@ -57,6 +57,11 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /fileTriggerHasValue/);
   assert.match(collector, /activeFileTrigger/);
   assert.match(collector, /changed\.files\?\.length/);
+  assert.match(collector, /replace\|add/);
+  assert.match(collector, /images\?\|covers\?\|screenshots\?/);
+  assert.match(collector, /seenFileTriggers/);
+  assert.match(collector, /repeatedActionKeys/);
+  assert.match(collector, /copy\.querySelectorAll\('button,input,select,textarea,\[contenteditable\]'\)/);
   assert.match(collector, /isContentEditable/);
   assert.doesNotMatch(collector, /element\.value[^\n]*name|XPath|canvas|webgl/i);
 });

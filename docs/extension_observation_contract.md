@@ -193,6 +193,12 @@ page-authored sources:
 
 `description` may use visible text referenced by `aria-describedby`, then a
 page-authored placeholder or title that was not already used as the name.
+When two or more buttons or links have the same generic name, `description`
+may instead contain a short, visible, non-editable label from the nearest
+bounded action group. This disambiguates repeated actions such as file-row
+management without exposing a locator or reading any input value. Local file
+input names and paths remain forbidden; a server-rendered public upload name is
+ordinary visible page content.
 
 Derivation MUST NOT read `value`, `defaultValue`, selected text from an editable
 control, password-manager state, or editable `textContent`. Accessible metadata

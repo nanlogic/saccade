@@ -25,6 +25,8 @@ the clean public repository.
   otherwise-current control tokens;
 - native link navigation and file selection, including transient chooser
   buttons, path-free receipts, and bounded macOS/Windows chooser plans;
+- bounded visible action-group context for repeated generic controls, plus
+  deduplicated file/image chooser triggers for cover and screenshot uploads;
 - versioned unpacked-Extension directories and browser-profile generations so
   MV3 worker updates do not require reading or copying login cookies;
 

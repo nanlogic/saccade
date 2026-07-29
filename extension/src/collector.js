@@ -17,6 +17,7 @@
   let config = null;
   let scheduled = false;
   let activeFileTrigger = null;
+  let repeatedActionKeys = new Set();
 
   function normalizedText(value, limit) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -70,6 +71,24 @@
     return normalizedText(element.getAttribute('title'), 512);
   }
 
+  function repeatedActionContext(element, role, name) {
+    if (!name || !['button', 'link'].includes(role)) return undefined;
+    if (!repeatedActionKeys.has(`${role}\0${name}`)) return undefined;
+
+    let group = element.parentElement;
+    for (let depth = 0; group && group !== document.body && depth < 6; depth += 1, group = group.parentElement) {
+      const copy = group.cloneNode(true);
+      for (const nested of copy.querySelectorAll('button,input,select,textarea,[contenteditable]')) nested.remove();
+      for (const link of copy.querySelectorAll('a[href]')) {
+        if (/^(change display name|move up|move down)$/i.test(normalizedText(link.textContent, 64) || '')) link.remove();
+      }
+      const context = normalizedText(copy.textContent, 256);
+      if (context && /[\p{L}\p{N}]/u.test(context)
+        && !name.toLocaleLowerCase().includes(context.toLocaleLowerCase())) return context;
+    }
+    return undefined;
+  }
+
   function safeDescription(element, name, protectedField) {
     if (protectedField || roleFor(element) === 'file_input') return undefined;
     const described = referencedText(element, 'aria-describedby', 1024);
@@ -93,7 +112,7 @@
     if (tag === 'A' && element.hasAttribute('href')) return 'link';
     if (tag === 'INPUT' && type === 'file') return 'file_input';
     const buttonLike = tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type));
-    if (buttonLike && /\b(upload|choose|select|browse|attach)\b.*\b(files?|documents?|attachments?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
+    if (buttonLike && /\b(upload|choose|select|browse|attach|replace|add)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
     if (buttonLike) return 'button';
     if (tag === 'INPUT' && type === 'checkbox' || ariaRole === 'checkbox') return 'checkbox';
     if (tag === 'SELECT') return 'select';
@@ -197,8 +216,10 @@
     if (visibility === 'hidden') return null;
     const id = objectId(element);
     objectTargets.set(id, element);
-    const name = safeName(element, role);
-    const description = safeDescription(element, name, descriptor.protected);
+    const name = safeName(element, role)
+      || (role === 'file_input' && interactionElement !== element ? safeName(interactionElement, role) : undefined);
+    const description = safeDescription(element, name, descriptor.protected)
+      || repeatedActionContext(element, role, name);
     const object = {
       object_id: id, object_revision: revision + 1, frame_id: frameId,
       ...descriptor,
@@ -237,14 +258,32 @@
     tokenTargets.clear();
     objectTargets.clear();
     const objects = [];
+    const seenFileTriggers = new Set();
     let truncated = false;
     if (location.hostname === 'mouseaccuracy.com' && location.pathname.startsWith('/game') && document.body) {
       const loopStatus = observationObject(document.body, 'reflex_target', config.frameId);
       if (loopStatus) objects.push(loopStatus);
     }
-    for (const element of document.querySelectorAll(CONTROL_SELECTOR)) {
+    const candidates = Array.from(document.querySelectorAll(CONTROL_SELECTOR));
+    const actionNameCounts = new Map();
+    for (const element of candidates) {
+      const role = roleFor(element);
+      if (!['button', 'link'].includes(role)) continue;
+      const name = safeName(element, role);
+      if (!name) continue;
+      const key = `${role}\0${name}`;
+      actionNameCounts.set(key, (actionNameCounts.get(key) || 0) + 1);
+    }
+    repeatedActionKeys = new Set([...actionNameCounts].filter(([, count]) => count > 1).map(([key]) => key));
+
+    for (const element of candidates) {
       const role = roleFor(element);
       if (!role) continue;
+      if (role === 'file_input') {
+        const trigger = visibleFileTrigger(element);
+        if (seenFileTriggers.has(trigger)) continue;
+        seenFileTriggers.add(trigger);
+      }
       const object = observationObject(element, role, config.frameId);
       if (object) objects.push(object);
       if (role === 'select' && object) {

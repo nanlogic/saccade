@@ -211,14 +211,26 @@ chooser selection; server upload persistence remains a separate page-level
 fact.
 
 The 2026-07-29 authenticated itch.io dogfood selected a 37.8 MB Gear Up PDF
-through the real macOS chooser with `AcceptedByOs + Verified`, produced no path
-in the receipt, and then observed a fourth server-loaded file row. A fresh edit
-document also preserved `Graphics=true` in the project's generative-AI
-disclosure. The preceding Link click was accepted by the OS but its document
-transition arrived after the receipt settlement window, so that receipt stayed
-truthfully unverified. These are local Chrome development findings; both new
-Catalog rows remain `implementation` pending same-candidate Chrome/Edge release
-evidence.
+through the real macOS chooser with `AcceptedByOs + Verified` and produced no
+path in the receipt. The collector then used bounded visible action-group text
+to distinguish four repeated file rows. Saccade made the v2 PDF public, checked
+the required confirmation for `gear_up_cards.pdf`, deleted that old file, and
+loaded a fresh document containing only the rules PDF, LICENSE, and v2 PDF.
+The same document preserved `Graphics=true` in the project's generative-AI
+disclosure.
+
+The same run routed `Replace Cover Image` and `Add screenshots` through the
+file-input loop. Three screenshot selections returned `AcceptedByOs + Verified`;
+a fresh document contained three screenshot rows. The cover upload invalidated
+and replaced its chooser target, but the current Truth Layer withholds image
+pixels and cannot prove the new cover's pixel identity. Screenshot deletion
+also exposed an itch.io browser-owned confirmation dialog, which required a
+human confirmation because browser chrome remains outside the v1 route.
+
+The preceding Link click was accepted by the OS but its document transition
+arrived after the receipt settlement window, so that receipt stayed
+unverified. These are local Chrome development findings; both new Catalog rows
+remain `implementation` pending same-candidate Chrome/Edge release evidence.
 
 ## Non-goals
 
