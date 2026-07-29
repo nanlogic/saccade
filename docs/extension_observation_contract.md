@@ -3,10 +3,11 @@
 This is the only production contract for browser authorization, observation,
 action preparation, native input, receipts, downloads, and MCP exposure.
 
-The current implementation covers eleven Registry controls: button, link,
+The current implementation covers fifteen Registry controls: button, link,
 text field, search field, textarea, contenteditable, spin button, checkbox,
-select, reflex target, and file input, plus select-option observation. Other
-roles in this contract define the intended Truth Layer surface. They are not
+radio, ARIA switch, select, tab, menu item, reflex target, and file input, plus
+select-option observation. Other roles in this contract define the intended
+Truth Layer surface. They are not
 implemented until the Catalog lists their module, fixtures, verifier, and
 evidence status.
 
@@ -107,6 +108,11 @@ a selector, stable locator, DOM path, or identifier the Agent can construct.
 An observation is a claim about the Extension's current safe projection. It is
 not a claim that canvas, WebGL, video, closed shadow roots, restricted frames,
 or browser-owned documents have been semantically understood.
+
+Browser-owned alert, confirm, permission, download, and chooser dialogs do not
+become page objects. Capabilities mark browser-owned confirm dialogs as
+restricted and require human confirmation. A page click that opens one remains
+delivered/unverified until a later page observation proves the intended effect.
 
 ## Agent-facing object model
 
@@ -246,6 +252,12 @@ visibility, transition, and authorization fields.
 An affordance is omitted unless the current implementation can validate and
 execute it through the single native-input route. Unsupported controls remain
 observable when useful, but are not made actionable by guessing.
+
+An image with a safe name may opt into the audited
+`data-saccade-image-identity` bridge. Saccade exposes the bounded page-authored
+identity as `description` prefixed by `Semantic identity:`. This proves the
+application's semantic declaration. It does not hash, inspect, describe, or
+compare pixels and does not expose `src` or `currentSrc`.
 
 ## Safe state allowlist
 

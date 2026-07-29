@@ -61,10 +61,13 @@ approved component at a time and record its provenance below.
 10. Add link and single-file chooser loops as new contract-aligned modules. No
     legacy upload code is approved or reused. See
     `docs/migrations/0008_link_file_input.md`.
-11. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+11. Add radio, ARIA switch, tab, and expanded menu-item loops as new
+    contract-aligned modules. No legacy classifier is reused. See
+    `docs/migrations/0009_toggle_command_controls.md`.
+12. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
    installation/action gates before publication.
-12. Add truthful basic coverage for uncommon controls.
-13. Consider Canvas/WebGL semantic bridges before any detector capability.
+13. Add truthful basic coverage for uncommon controls.
+14. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 

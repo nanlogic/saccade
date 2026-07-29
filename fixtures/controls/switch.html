@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Switch fixture</title>
+<button role="switch" aria-checked="false">Notifications</button>
+<script>document.querySelector('[role=switch]').onclick = event => event.currentTarget.setAttribute('aria-checked', String(event.currentTarget.getAttribute('aria-checked') !== 'true'));</script>
+</html>

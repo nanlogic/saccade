@@ -43,6 +43,12 @@ The modes share protocol, session, control-registry, verifier, audit, download,
 and packaging libraries. They do not share stdin/stdout: Chrome owns the Native
 Messaging channel and each Agent owns its MCP channel.
 
+`saccade.system.capabilities` lists browser-owned confirmation dialogs as a
+restricted surface. Chrome and Edge do not expose those dialogs to the page
+Extension as revalidatable objects. Saccade requires human confirmation and
+does not intercept `window.confirm`, synthesize an Enter key, or add a browser
+chrome fallback.
+
 The Runtime validates identity, revision, focus, topmost state, and geometry,
 dispatches a registered input backend, waits for fresh observations, and records receipts.
 It also loads the three-field Profile described in `PROFILE_ARCHITECTURE.md`.
@@ -141,6 +147,12 @@ only its current `.target:not(.hit)` object is actionable. Historical hit
 effects remain non-actionable and score advancement, not canvas motion, proves
 success.
 
+Named images may carry the audited `data-saccade-image-identity` bridge. The
+Extension projects that bounded page-authored identity as description on a
+non-actionable image object. A fresh document can prove semantic image identity
+without exposing a source URL, screenshot, or pixels. Pages without the bridge
+receive no pixel-identity claim.
+
 ## Platform delivery
 
 - macOS: signed and notarized DMG containing `Saccade.app`; CoreGraphics input;
@@ -169,6 +181,14 @@ Chrome and Edge development run `20260729T043308Z` verified all eight current
 actionable controls. This extension changes neither Profile fields nor the two
 v1 wire schemas; its Catalog rows remain `implementation` pending release
 evidence.
+
+The 2026-07-29 toggle and command extension adds radio, ARIA switch, tab, and
+menu item without changing the native primitive boundary. Radio and switch
+verify checked transitions, tab verifies becoming selected, and menu item v1
+verifies an expanded transition. Managed Chrome run `20260729T192723Z` and
+Edge run `20260729T192757Z` each produced 12 native verified receipts on the
+same source candidate. These are development artifacts; Catalog release
+evidence remains pending.
 
 The managed ordinary native-mouse gate uses the same semantic button token,
 preparation, CoreGraphics input, reobservation, and button-effect verifier. It

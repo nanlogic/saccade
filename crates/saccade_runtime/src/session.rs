@@ -190,6 +190,11 @@ impl NativeHostSession {
                 "browser_support":["chrome","edge"],
                 "extension_connected":self.extension_connected.load(Ordering::Acquire),
                 "first_slice":["button","text_field","checkbox","select"],
+                "restricted_surfaces":[{
+                    "kind":"browser_owned_confirm",
+                    "automatic_action":false,
+                    "human_confirmation":"required"
+                }],
                 "profile":{
                     "name":self.profile.name,
                     "behavior":self.profile.behavior
@@ -1164,6 +1169,10 @@ mod tests {
         });
         let capabilities = capabilities.result.unwrap();
         assert_eq!(capabilities["schema"], "saccade.capabilities/4");
+        assert_eq!(
+            capabilities["restricted_surfaces"][0]["kind"],
+            "browser_owned_confirm"
+        );
         assert_eq!(
             capabilities["profile"],
             json!({"name":"focused","behavior":"Use the visible controls in order."})

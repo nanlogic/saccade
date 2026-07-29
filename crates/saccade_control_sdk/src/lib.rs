@@ -65,6 +65,8 @@ pub enum Verifier {
     TargetAdvanced,
     HasValue,
     CheckedTransition,
+    SelectedTransition,
+    ExpandedTransition,
     OptionSelected,
     HasFile,
 }
@@ -137,7 +139,11 @@ impl Registry {
             SemanticRole::ContentEditable,
             SemanticRole::SpinButton,
             SemanticRole::Checkbox,
+            SemanticRole::Radio,
+            SemanticRole::Switch,
             SemanticRole::Select,
+            SemanticRole::Tab,
+            SemanticRole::MenuItem,
             SemanticRole::ReflexTarget,
             SemanticRole::FileInput,
         ]);
@@ -209,10 +215,20 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
             NativePrimitive::UnicodeText,
             Verifier::HasValue,
         ),
-        SemanticRole::Checkbox => (
+        SemanticRole::Checkbox | SemanticRole::Radio | SemanticRole::Switch => (
             ImplementationFamily::Toggle,
             NativePrimitive::PrimaryClick,
             Verifier::CheckedTransition,
+        ),
+        SemanticRole::Tab => (
+            ImplementationFamily::Navigation,
+            NativePrimitive::PrimaryClick,
+            Verifier::SelectedTransition,
+        ),
+        SemanticRole::MenuItem => (
+            ImplementationFamily::Navigation,
+            NativePrimitive::PrimaryClick,
+            Verifier::ExpandedTransition,
         ),
         SemanticRole::Select => (
             ImplementationFamily::Choice,
@@ -311,6 +327,28 @@ pub fn verify(
                 PostconditionStatus::VisibleStateUnchanged
             }
         }
+        Verifier::SelectedTransition => {
+            let Some(after_target) = after_target else {
+                return PostconditionStatus::TargetInvalidated;
+            };
+            if before.state.get("selected") != after_target.state.get("selected")
+                && state_is(after_target, "selected", true)
+            {
+                PostconditionStatus::Verified
+            } else {
+                PostconditionStatus::VisibleStateUnchanged
+            }
+        }
+        Verifier::ExpandedTransition => {
+            let Some(after_target) = after_target else {
+                return PostconditionStatus::TargetInvalidated;
+            };
+            if before.state.get("expanded") != after_target.state.get("expanded") {
+                PostconditionStatus::Verified
+            } else {
+                PostconditionStatus::VisibleStateUnchanged
+            }
+        }
         Verifier::OptionSelected => {
             let ActionPayload::Select { option_object_id } = payload else {
                 return PostconditionStatus::Unverified;
@@ -375,7 +413,7 @@ mod tests {
     #[test]
     fn builtins_are_catalog_backed_and_not_publishable() {
         let registry = Registry::builtin().unwrap();
-        assert_eq!(registry.modules.len(), 11);
+        assert_eq!(registry.modules.len(), 15);
         assert!(registry
             .modules
             .values()

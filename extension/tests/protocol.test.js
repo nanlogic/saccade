@@ -63,6 +63,9 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /repeatedActionKeys/);
   assert.match(collector, /copy\.querySelectorAll\('button,input,select,textarea,\[contenteditable\]'\)/);
   assert.match(collector, /isContentEditable/);
+  assert.match(collector, /data-saccade-image-identity/);
+  assert.match(collector, /function imageObject/);
+  assert.match(collector, /Semantic identity:/);
   assert.doesNotMatch(collector, /element\.value[^\n]*name|XPath|canvas|webgl/i);
 });
 
@@ -70,7 +73,7 @@ test('unrelated page mutations do not churn current control tokens', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /mutationCanChangeObservation/);
   assert.match(collector, /records\.some\(mutationCanChangeObservation\)/);
-  assert.match(collector, /element\.matches\(CONTROL_SELECTOR\)/);
+  assert.match(collector, /element\.matches\(OBSERVED_SELECTOR\)/);
 });
 
 test('open ownership precedes response and fast-complete tabs still start collection', () => {

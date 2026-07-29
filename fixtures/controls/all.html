@@ -9,6 +9,7 @@
       main { display: grid; gap: 24px; max-width: 420px; }
       label { display: grid; gap: 8px; }
       button, input, select, textarea, [contenteditable] { font: inherit; min-height: 40px; }
+      [role="switch"], [role="tab"], [role="menuitem"] { padding: 8px 16px; }
       [contenteditable] { border: 1px solid #777; padding: 8px; }
     </style>
   </head>
@@ -25,17 +26,42 @@
       <div contenteditable="true" role="textbox" aria-label="Read-only draft" aria-readonly="true">FIXTURE-DRAFT-SECRET</div>
       <label>Read-only quantity <input type="number" readonly value="8675309"></label>
       <label><input id="remember" type="checkbox"> Remember me</label>
+      <fieldset>
+        <legend>Plan</legend>
+        <label><input id="eco-plan" type="radio" name="plan" checked> Eco plan</label>
+        <label><input id="fast-plan" type="radio" name="plan"> Fast plan</label>
+      </fieldset>
+      <button id="notifications" role="switch" aria-checked="false">Notifications</button>
       <label>Color
         <select id="color">
           <option>Red</option>
           <option>Blue</option>
         </select>
       </label>
+      <div role="tablist" aria-label="Sections">
+        <button role="tab" aria-selected="true">Overview</button>
+        <button role="tab" aria-selected="false">Details</button>
+      </div>
+      <button id="more-actions" role="menuitem" aria-expanded="false">More actions</button>
+      <img alt="Gear Up cover" data-saccade-image-identity="gear-up-cover-v2.1" width="80" height="64" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='64'%3E%3Crect width='80' height='64' fill='%23022'/%3E%3C/svg%3E">
     </main>
     <script>
       document.getElementById('save').addEventListener('click', (event) => {
         const button = event.currentTarget;
         button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
+      });
+      document.getElementById('notifications').addEventListener('click', (event) => {
+        const target = event.currentTarget;
+        target.setAttribute('aria-checked', String(target.getAttribute('aria-checked') !== 'true'));
+      });
+      document.querySelectorAll('[role="tab"]').forEach((tab) => tab.addEventListener('click', (event) => {
+        document.querySelectorAll('[role="tab"]').forEach((item) => {
+          item.setAttribute('aria-selected', String(item === event.currentTarget));
+        });
+      }));
+      document.getElementById('more-actions').addEventListener('click', (event) => {
+        const target = event.currentTarget;
+        target.setAttribute('aria-expanded', String(target.getAttribute('aria-expanded') !== 'true'));
       });
     </script>
   </body>

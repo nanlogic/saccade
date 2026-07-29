@@ -247,6 +247,11 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     observation = open_fixture(mcp, url)
     initial = observation
     validate_editable_projection(initial)
+    image = named(initial, "image", "Gear Up cover")
+    if image.get("description") != "Semantic identity: gear-up-cover-v2.1":
+        raise RuntimeError("image semantic identity bridge was not projected")
+    if image.get("affordances") or image.get("action_token"):
+        raise RuntimeError("image identity observation exposed an action")
     receipts: list[dict[str, Any]] = []
 
     button_basis = observation
@@ -283,6 +288,44 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         observation,
         "checkbox",
         "Remember me",
+        "click",
+        lambda _: {"kind": "none"},
+    )
+    receipts.append(receipt)
+    receipt, observation = act(
+        mcp,
+        observation,
+        "radio",
+        "Fast plan",
+        "click",
+        lambda _: {"kind": "none"},
+    )
+    receipts.append(receipt)
+    if named(observation, "radio", "Eco plan").get("state", {}).get("checked") != "false":
+        raise RuntimeError("radio group did not preserve native exclusivity")
+    receipt, observation = act(
+        mcp,
+        observation,
+        "switch",
+        "Notifications",
+        "click",
+        lambda _: {"kind": "none"},
+    )
+    receipts.append(receipt)
+    receipt, observation = act(
+        mcp,
+        observation,
+        "tab",
+        "Details",
+        "click",
+        lambda _: {"kind": "none"},
+    )
+    receipts.append(receipt)
+    receipt, observation = act(
+        mcp,
+        observation,
+        "menu_item",
+        "More actions",
         "click",
         lambda _: {"kind": "none"},
     )

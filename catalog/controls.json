@@ -106,6 +106,32 @@
       "publication_status": "implementation"
     },
     {
+      "id": "radio",
+      "role": "radio",
+      "implementation_family": "toggle",
+      "safe_state": ["checked", "enabled", "required", "invalid"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "checked_transition",
+      "limitations": ["Verification proves the target became checked; group exclusivity remains page-owned."],
+      "fixtures": ["fixtures/controls/radio.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "switch",
+      "role": "switch",
+      "implementation_family": "toggle",
+      "safe_state": ["checked", "enabled"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "checked_transition",
+      "limitations": ["Only switches with explicit checked semantics are recognized."],
+      "fixtures": ["fixtures/controls/switch.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
       "id": "select",
       "role": "select",
       "implementation_family": "choice",
@@ -128,6 +154,32 @@
       "verifier": "target_advanced",
       "limitations": ["Only audited benchmark or application-provided target bridges are recognized; arbitrary Canvas pixels remain opaque."],
       "fixtures": ["fixtures/conformance/reflex_target.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "tab",
+      "role": "tab",
+      "implementation_family": "navigation",
+      "safe_state": ["selected", "enabled"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "selected_transition",
+      "limitations": ["Only tabs with explicit selected semantics are recognized."],
+      "fixtures": ["fixtures/controls/tab.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
+      "id": "menu_item",
+      "role": "menu_item",
+      "implementation_family": "navigation",
+      "safe_state": ["expanded", "enabled"],
+      "affordances": ["click"],
+      "native_primitive": "primary_click",
+      "verifier": "expanded_transition",
+      "limitations": ["v1 verifies menu items that expose an expanded-state transition; command-only items remain unverified."],
+      "fixtures": ["fixtures/controls/menu_item.html"],
       "evidence": { "chrome": "pending", "edge": "pending" },
       "publication_status": "implementation"
     },

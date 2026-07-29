@@ -19,6 +19,10 @@ test('registry exposes only safe state for cataloged controls', () => {
     enabled: 'true', has_value: 'true', required: 'false', readonly: 'false', invalid: 'false',
   });
   assert.equal(registry.observe('checkbox', { checked: true }).state.checked, 'true');
+  assert.equal(registry.observe('radio', { checked: true }).state.checked, 'true');
+  assert.equal(registry.observe('switch', { checked: true }).state.checked, 'true');
+  assert.equal(registry.observe('tab', { selected: true }).state.selected, 'true');
+  assert.equal(registry.observe('menu_item', { expanded: true }).state.expanded, 'true');
   assert.equal(registry.observe('select', { hasValue: true }).state.has_value, 'true');
   assert.equal(registry.observe('link', { current: 'page' }).kind, 'link');
   assert.deepEqual(registry.observe('file_input', { hasValue: false }).affordances, ['upload']);
@@ -35,6 +39,10 @@ test('unavailable and protected controls do not advertise Host actions', () => {
   assert.deepEqual(registry.observe('text_area', { readonly: true }).affordances, []);
   assert.deepEqual(registry.observe('spin_button', { readonly: true }).affordances, []);
   assert.deepEqual(registry.observe('content_editable', { readonly: true }).affordances, []);
+  assert.deepEqual(registry.observe('radio', { enabled: false }).affordances, []);
+  assert.deepEqual(registry.observe('switch', { enabled: false }).affordances, []);
+  assert.deepEqual(registry.observe('tab', { enabled: false }).affordances, []);
+  assert.deepEqual(registry.observe('menu_item', { enabled: false }).affordances, []);
   assert.deepEqual(registry.observe('content_editable', { required: true, invalid: true, hasValue: true }).state, {
     has_value: 'true', readonly: 'false',
   });
@@ -59,10 +67,12 @@ test('control files can populate the browser global without CommonJS', () => {
   const vm = require('node:vm');
   const context = vm.createContext({});
   for (const file of ['common.js', 'button.js', 'link.js', 'text_field.js', 'search_field.js', 'text_area.js', 'content_editable.js', 'spin_button.js',
-    'checkbox.js', 'select.js', 'reflex_target.js', 'file_input.js', 'registry.js']) {
+    'checkbox.js', 'radio.js', 'switch.js', 'select.js', 'tab.js', 'menu_item.js',
+    'reflex_target.js', 'file_input.js', 'registry.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/controls', file), 'utf8'), context);
   }
   assert.equal(context.SaccadeControls.registry.observe('button', {}).role, 'button');
   assert.equal(context.SaccadeControls.registry.observe('reflex_target', {}).role, 'reflex_target');
   assert.equal(context.SaccadeControls.registry.observe('file_input', {}).role, 'file_input');
+  assert.equal(context.SaccadeControls.registry.observe('menu_item', {}).role, 'menu_item');
 });

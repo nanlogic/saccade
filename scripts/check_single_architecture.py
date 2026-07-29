@@ -52,6 +52,7 @@ def main() -> None:
     require("crates/saccade_runtime/src/profile.rs", "pub struct Profile")
     require("crates/saccade_runtime/src/profile.rs", "pub struct BanRule")
     require("crates/saccade_runtime/src/session.rs", '"saccade.capabilities/4"')
+    require("crates/saccade_runtime/src/session.rs", '"browser_owned_confirm"')
     require("crates/saccade_runtime/src/session.rs", '"native_accessibility_trusted"')
     require("crates/saccade_runtime/src/session.rs", "filter_observation")
     require("crates/saccade_runtime/src/session.rs", '"tabs.list"')
@@ -86,7 +87,8 @@ def main() -> None:
     catalog = json.loads((ROOT / "catalog/controls.json").read_text(encoding="utf-8"))
     expected_roles = {
         "button", "text_field", "search_field", "text_area", "content_editable",
-        "spin_button", "checkbox", "select", "reflex_target", "link", "file_input",
+        "spin_button", "checkbox", "radio", "switch", "select", "tab", "menu_item",
+        "reflex_target", "link", "file_input",
     }
     if {item["role"] for item in catalog["controls"]} != expected_roles:
         raise SystemExit("Catalog roles changed outside the implemented control batches")

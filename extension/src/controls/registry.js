@@ -4,7 +4,11 @@
     ['link', require('./link.js')],
     ['text_field', require('./text_field.js')],
     ['checkbox', require('./checkbox.js')],
+    ['radio', require('./radio.js')],
+    ['switch', require('./switch.js')],
     ['select', require('./select.js')],
+    ['tab', require('./tab.js')],
+    ['menu_item', require('./menu_item.js')],
     ['search_field', require('./search_field.js')],
     ['text_area', require('./text_area.js')],
     ['content_editable', require('./content_editable.js')],
@@ -15,7 +19,10 @@
 
   function moduleFor(role) {
     const controlModule = globalThis.SaccadeControls?.[role] || nodeModules.get(role);
-    if (!controlModule) throw new Error(`unregistered control role: ${role}`);
+    if (!controlModule) {
+      const loaded = Object.keys(globalThis.SaccadeControls || {}).sort().join(',');
+      throw new Error(`unregistered control role: ${role}; loaded: ${loaded}`);
+    }
     return controlModule;
   }
 

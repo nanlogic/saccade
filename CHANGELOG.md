@@ -8,8 +8,8 @@ the clean public repository.
 ### Added
 
 - one Catalog-backed Registry for button, link, text field, search field,
-  textarea, contenteditable, spin button, checkbox, select, reflex target, and
-  file input;
+  textarea, contenteditable, spin button, checkbox, radio, ARIA switch, select,
+  tab, menu item, reflex target, and file input;
 - the Extension → Native Host → Runtime → MCP production route;
 - native macOS and Windows input adapters;
 - managed macOS Chrome for Testing development and evidence commands;
@@ -29,6 +29,10 @@ the clean public repository.
   deduplicated file/image chooser triggers for cover and screenshot uploads;
 - versioned unpacked-Extension directories and browser-profile generations so
   MV3 worker updates do not require reading or copying login cookies;
+- human-only managed Profile selection with the bundled smart-barbarian-eco
+  Profile;
+- explicit restricted reporting for browser-owned confirmation dialogs;
+- non-actionable, application-declared semantic image identity;
 
 ### Pending
 

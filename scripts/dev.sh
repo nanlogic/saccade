@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 EXTENSION_VERSION=$(sed -n 's/^[[:space:]]*"version": "\([0-9][0-9.]*\)",*$/\1/p' "$ROOT/extension/manifest.json" | sed -n '1p')
 : "${EXTENSION_VERSION:?development Extension manifest has no version}"
-BROWSER_PROFILE_GENERATION=2
+BROWSER_PROFILE_GENERATION=3
 DEV_ROOT="$HOME/Library/Application Support/Saccade Dev"
 BIN_DIR="$DEV_ROOT/bin"
 RUNTIME_APP="$HOME/Applications/Saccade Dev Runtime.app"
@@ -623,6 +623,27 @@ down() {
   printf '%s\n' "Saccade Dev processes stopped and the prior Codex MCP entry restored."
 }
 
+profile_command() {
+  profile_action=${2:-show}
+  case "$profile_action" in
+    show)
+      python3 "$ROOT/scripts/dev_profile.py" show --runtime-dir "$RUNTIME_DIR" --profiles-dir "$ROOT/profiles"
+      ;;
+    set)
+      [ -n "${3:-}" ] || { printf '%s\n' 'profile set requires a profile name or JSON path' >&2; exit 2; }
+      python3 "$ROOT/scripts/dev_profile.py" set --runtime-dir "$RUNTIME_DIR" --profiles-dir "$ROOT/profiles" --profile "$3"
+      profile_active=$(sed -n '1p' "$STATE_DIR/active-browser" 2>/dev/null || true)
+      if [ -n "$profile_active" ]; then stop_browser "$profile_active"; start_browser "$profile_active"; fi
+      ;;
+    reset)
+      python3 "$ROOT/scripts/dev_profile.py" reset --runtime-dir "$RUNTIME_DIR" --profiles-dir "$ROOT/profiles"
+      profile_active=$(sed -n '1p' "$STATE_DIR/active-browser" 2>/dev/null || true)
+      if [ -n "$profile_active" ]; then stop_browser "$profile_active"; start_browser "$profile_active"; fi
+      ;;
+    *) printf '%s\n' 'profile action must be show, set, or reset' >&2; exit 2 ;;
+  esac
+}
+
 case "${1:-}" in
   up) up "${2:-chrome}" ;;
   test)
@@ -640,7 +661,8 @@ case "${1:-}" in
     esac
     ;;
   reflex) reflex_route "${2:-chrome}" "${3:-soft}" ;;
+  profile) profile_command "$@" ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
 esac

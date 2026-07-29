@@ -19,9 +19,10 @@ browser storage.
 
 Saccade is pre-release. The current vertical slice runs through the complete
 Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
-Testing and Microsoft Edge profiles. Eleven actionable controls are currently
-in the Registry. The first eight have paired Chrome/Edge development evidence;
-link, reflex target, and file input currently have focused Chrome evidence.
+Testing and Microsoft Edge profiles. Fifteen actionable controls are currently
+in the Registry. Button, editable controls, checkbox, radio, switch, select,
+tab, and menu item have paired Chrome/Edge development evidence; link, reflex
+target, and file input currently have focused Chrome evidence.
 
 | Control | Action | Verified postcondition |
 | --- | --- | --- |
@@ -33,7 +34,11 @@ link, reflex target, and file input currently have focused Chrome evidence.
 | Contenteditable | native click and Unicode input | editable region changes from empty to non-empty |
 | Spin button | native click and numeric text input | field changes from empty to non-empty |
 | Checkbox | native click | checked state changes |
+| Radio | native click | target checked state changes |
+| ARIA switch | native click | checked state changes |
 | Select | native selection by option identity | requested option becomes selected |
+| Tab | native click | target becomes selected |
+| Menu item | native click | expanded state changes |
 | Reflex target | native or audited soft click | same-loop score/occurrence advances |
 | File input | native operating-system chooser | real file input accepts a non-empty selection |
 
@@ -152,6 +157,11 @@ Read [Profile architecture](docs/PROFILE_ARCHITECTURE.md) and the
 
 User-visible changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
+Select a managed-development Profile with
+`./scripts/dev.sh profile set smart-barbarian-eco`; inspect it with
+`./scripts/dev.sh profile show` and restore the default with
+`./scripts/dev.sh profile reset`.
+
 ## Checks
 
 ```sh
@@ -159,6 +169,7 @@ cargo fmt --all -- --check
 cargo test --workspace --offline
 cargo clippy --workspace --all-targets --offline -- -D warnings
 node --test extension/tests/*.test.js
+python3 -m unittest tests/test_dev_profile.py
 python3 scripts/generate_control_matrix.py
 python3 scripts/check_single_architecture.py
 git diff --exit-code -- docs/generated/control_coverage.md

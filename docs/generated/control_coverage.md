@@ -12,8 +12,12 @@
 | content_editable | editable | type | unicode_text | has_value | pending | pending | implementation |
 | spin_button | editable | type | unicode_text | has_value | pending | pending | implementation |
 | checkbox | toggle | click | primary_click | checked_transition | pending | pending | implementation |
+| radio | toggle | click | primary_click | checked_transition | pending | pending | implementation |
+| switch | toggle | click | primary_click | checked_transition | pending | pending | implementation |
 | select | choice | select | select_option | option_selected | pending | pending | implementation |
 | reflex_target | reflex | click | primary_click | target_advanced | pending | pending | implementation |
+| tab | navigation | click | primary_click | selected_transition | pending | pending | implementation |
+| menu_item | navigation | click | primary_click | expanded_transition | pending | pending | implementation |
 | file_input | file | upload | file_chooser | has_file | pending | pending | implementation |
 
 No row is `publishable` until current Chrome and Edge artifacts pass for the same release candidate.

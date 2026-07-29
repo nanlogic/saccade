@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Menu item fixture</title>
+<button role="menuitem" aria-expanded="false">More actions</button>
+<script>document.querySelector('[role=menuitem]').onclick = event => event.currentTarget.setAttribute('aria-expanded', String(event.currentTarget.getAttribute('aria-expanded') !== 'true'));</script>
+</html>

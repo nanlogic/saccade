@@ -170,3 +170,34 @@ independent of Extension version, while unpacked Extension directories are
 versioned. A broken or stale MV3 worker can be isolated by advancing the profile
 generation without reading or copying cookies; the prior profile remains
 untouched.
+
+## 2026-07-29: Browser-owned confirmation remains human-only
+
+Accepted: `saccade.system.capabilities` lists `browser_owned_confirm` as a
+restricted surface with human confirmation required. Chrome and Edge do not
+expose these dialogs to the page Extension as revision-bound objects. Saccade
+does not intercept `window.confirm`, send an unrestricted key, or add a browser
+chrome automation route. A receipt stays unverified until page state proves the
+result after the human confirms.
+
+## 2026-07-29: Image identity uses an explicit semantic bridge
+
+Accepted: a named image may declare a bounded
+`data-saccade-image-identity`. The Extension exposes it as a non-actionable
+image description so an Agent can assert the same identity after a fresh
+document load. Saccade does not expose image URLs, screenshots, or pixels and
+does not claim pixel equality when a page omits the bridge.
+
+## 2026-07-29: Radio, switch, tab, and menu item stay independent loops
+
+Accepted: all four controls reuse the finite native primary-click primitive,
+but they do not collapse into a generic clickable widget. Radio and switch
+verify checked-state transitions, tab verifies becoming selected, and the v1
+menu-item action verifies an expanded-state transition. Native radio behavior
+must also preserve group exclusivity in the browser fixture.
+
+Accepted development evidence: Chrome run `20260729T192723Z` and Edge run
+`20260729T192757Z` each produced 12 `accepted_by_os + verified` receipts on the
+same source candidate, rejected the consumed stale token, passed Profile
+filtering, and projected the explicit image identity without an action token.
+Catalog rows remain `implementation` with release evidence `pending`.

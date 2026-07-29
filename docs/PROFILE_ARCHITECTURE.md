@@ -84,3 +84,15 @@ not reveal the ban list.
 
 Profile fields do not enter `saccade.observation/1` or
 `saccade-extension-host/1`. Both wire schemas keep their current meanings.
+
+The managed development environment provides a human-only Profile entry point:
+
+```sh
+./scripts/dev.sh profile set smart-barbarian-eco
+./scripts/dev.sh profile show
+./scripts/dev.sh profile reset
+```
+
+`set` validates the same three-field shape, writes `profile.json` atomically,
+and restarts the managed browser Host. A new MCP connection then loads the
+selected Profile. Saccade does not expose Profile mutation as an Agent tool.

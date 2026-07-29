@@ -354,6 +354,33 @@ fn checkbox_verifies_checked_transition() {
 }
 
 #[test]
+fn radio_switch_tab_and_menu_item_use_role_specific_transitions() {
+    for (role, state_key) in [
+        (SemanticRole::Radio, "checked"),
+        (SemanticRole::Switch, "checked"),
+        (SemanticRole::Tab, "selected"),
+        (SemanticRole::MenuItem, "expanded"),
+    ] {
+        let before_target = object(
+            "new-control",
+            role,
+            Affordance::Click,
+            &[("enabled", "true"), (state_key, "false")],
+        );
+        let mut after_target = before_target.clone();
+        after_target.state.insert(state_key.into(), "true".into());
+        let (receipt, calls) = run(
+            snapshot(1, vec![before_target.clone()]),
+            snapshot(2, vec![after_target]),
+            request(&before_target, ActionOperation::Click, ActionPayload::None),
+            prepared(&before_target, ActionOperation::Click),
+        );
+        assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
+        assert_eq!(calls, vec![NativePrimitive::PrimaryClick]);
+    }
+}
+
+#[test]
 fn select_verifies_the_named_option_identity() {
     let select = object(
         "select",

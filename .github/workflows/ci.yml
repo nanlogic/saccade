@@ -25,6 +25,8 @@ jobs:
         run: node --test extension/tests/*.test.js
       - name: Development script syntax
         run: sh -n scripts/dev.sh
+      - name: Development Profile tests
+        run: python3 -m unittest tests/test_dev_profile.py
       - name: Generate control coverage
         run: python3 scripts/generate_control_matrix.py
       - name: Check one architecture

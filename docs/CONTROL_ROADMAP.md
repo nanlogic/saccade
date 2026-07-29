@@ -64,6 +64,11 @@ Reuse the checkbox transition verifier and select option identity. Prove radio
 group exclusivity, switch checked transitions, duplicate option names, dynamic
 options, disabled choices, and popup settling.
 
+Status: radio and ARIA switch development loops completed on 2026-07-29.
+Native radio selection proved group exclusivity, and ARIA switch clicks proved
+checked-state transitions in paired managed Chrome and Edge runs. Listbox,
+combobox, duplicate-name, dynamic-option, and popup-settling work remains.
+
 ## Batch 3: navigation and command controls
 
 Controls: link, tab, menu item, bound label, and named generic control.
@@ -75,8 +80,11 @@ unverified.
 
 Status: link implementation and focused authenticated Chrome dogfood completed
 on 2026-07-29. It uses native primary click and requires a document transition.
-Tab, menu item, bound label, named generic control, child-tab verification, and
-same-candidate Edge/release evidence remain open.
+Tab and menu item development loops completed on 2026-07-29. Tabs require a
+false-to-true selected transition. Menu items currently require an expanded
+transition, so command-only menu items remain unverified. Both passed paired
+managed Chrome and Edge runs. Bound label, named generic control, child-tab
+verification, and release evidence remain open.
 
 ## Batch 4: page understanding
 
@@ -87,6 +95,11 @@ This batch improves observation rather than native action. It must compact
 visible text, avoid duplicate labels, report truncation, compose same-origin
 frames, and emit limitations for cross-origin frames, closed shadow roots,
 Canvas, WebGL, video, and built-in PDF documents.
+
+Status: the first image slice is deliberately narrow. A named image may expose
+an application-declared `data-saccade-image-identity` as a non-actionable
+description. It does not inspect pixels, disclose URLs, or imply equality when
+the bridge is absent. The remaining page-understanding work stays planned.
 
 ## Batch 5: specialized native controls
 

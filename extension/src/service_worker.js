@@ -94,7 +94,8 @@ async function authorizeTab(tabId) {
       'src/protocol.js', 'src/consent.js', 'src/controls/common.js', 'src/controls/button.js', 'src/controls/link.js',
       'src/controls/text_field.js', 'src/controls/search_field.js', 'src/controls/text_area.js',
       'src/controls/content_editable.js', 'src/controls/spin_button.js',
-      'src/controls/checkbox.js', 'src/controls/select.js', 'src/controls/reflex_target.js', 'src/controls/file_input.js',
+      'src/controls/checkbox.js', 'src/controls/radio.js', 'src/controls/switch.js', 'src/controls/select.js',
+      'src/controls/tab.js', 'src/controls/menu_item.js', 'src/controls/reflex_target.js', 'src/controls/file_input.js',
       'src/controls/registry.js', 'src/collector.js',
     ] });
   }

@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Tab fixture</title>
+<div role="tablist"><button role="tab" aria-selected="true">Overview</button><button role="tab" aria-selected="false">Details</button></div>
+<script>document.querySelectorAll('[role=tab]').forEach(tab => tab.onclick = event => { document.querySelectorAll('[role=tab]').forEach(item => item.setAttribute('aria-selected', String(item === event.currentTarget))); });</script>
+</html>

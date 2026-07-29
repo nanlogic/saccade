@@ -3,7 +3,9 @@
   const { OBSERVATION_SCHEMA, randomToken } = globalThis.SaccadeProtocol;
   const { isProtectedFieldType } = globalThis.SaccadeConsent;
   const MAX_OBJECTS = 10000;
-  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="textbox"],[contenteditable],[data-saccade-reflex-target],.target';
+  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="textbox"],[contenteditable],[data-saccade-reflex-target],.target';
+  const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
+  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR}`;
   const identities = new WeakMap();
   const tokenTargets = new Map();
   const objectTargets = new Map();
@@ -54,6 +56,10 @@
       if (labelled) return labelled;
     }
     if (role === 'content_editable') return normalizedText(element.getAttribute('title'), 512);
+    if (role === 'image') {
+      const alt = normalizedText(element.getAttribute('alt'), 512);
+      if (alt) return alt;
+    }
     const labelled = referencedText(element, 'aria-labelledby', 512);
     if (labelled) return labelled;
     const labels = normalizedText(Array.from(element.labels || [], (label) => {
@@ -63,7 +69,7 @@
       return copy.innerText || copy.textContent || '';
     }).join(' '), 512);
     if (labels) return labels;
-    if (role === 'button' || role === 'option' || role === 'link'
+    if (['button', 'option', 'link', 'switch', 'tab', 'menu_item'].includes(role)
       || (role === 'file_input' && element.tagName !== 'INPUT')) {
       const visible = normalizedText(element.innerText || element.textContent, 512);
       if (visible) return visible;
@@ -111,6 +117,10 @@
     if (applicationBridge || mouseAccuracyBridge) return 'reflex_target';
     if (tag === 'A' && element.hasAttribute('href')) return 'link';
     if (tag === 'INPUT' && type === 'file') return 'file_input';
+    if (tag === 'INPUT' && type === 'radio' || ariaRole === 'radio') return 'radio';
+    if (ariaRole === 'switch') return 'switch';
+    if (ariaRole === 'tab') return 'tab';
+    if (ariaRole === 'menuitem') return 'menu_item';
     const buttonLike = tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type));
     if (buttonLike && /\b(upload|choose|select|browse|attach|replace|add)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
     if (buttonLike) return 'button';
@@ -190,6 +200,16 @@
       signals.checked = element.checked ?? ariaBoolean(element, 'checked');
       signals.required = Boolean(element.required);
       signals.invalid = element.getAttribute('aria-invalid') === 'true';
+    } else if (role === 'radio') {
+      signals.checked = element.checked ?? ariaBoolean(element, 'checked');
+      signals.required = Boolean(element.required);
+      signals.invalid = element.getAttribute('aria-invalid') === 'true';
+    } else if (role === 'switch') {
+      signals.checked = ariaBoolean(element, 'checked') ?? Boolean(element.checked);
+    } else if (role === 'tab') {
+      signals.selected = ariaBoolean(element, 'selected');
+    } else if (role === 'menu_item') {
+      signals.expanded = ariaBoolean(element, 'expanded');
     } else if (role === 'select') {
       signals.hasValue = element.selectedIndex >= 0;
       signals.required = Boolean(element.required);
@@ -253,6 +273,25 @@
     };
   }
 
+  function imageObject(element, frameId) {
+    const name = safeName(element, 'image');
+    if (!name) return null;
+    const box = boxFor(element);
+    const visibility = visibilityFor(element, box);
+    if (visibility === 'hidden') return null;
+    const id = objectId(element);
+    objectTargets.set(id, element);
+    const object = {
+      object_id: id, object_revision: revision + 1, frame_id: frameId,
+      kind: 'image', role: 'image', state: {}, affordances: [], protected: false,
+      document_bounds: { x: box.x + scrollX, y: box.y + scrollY, width: box.width, height: box.height },
+      viewport_bounds: box, visibility, transition: 'none', name,
+    };
+    const identity = normalizedText(element.getAttribute('data-saccade-image-identity'), 256);
+    if (identity) object.description = `Semantic identity: ${identity}`;
+    return object;
+  }
+
   function collect() {
     if (!config) return null;
     tokenTargets.clear();
@@ -290,6 +329,13 @@
         for (const option of element.options) objects.push(optionObject(option, config.frameId));
       }
       if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
+    }
+    if (!truncated) {
+      for (const element of document.querySelectorAll(IMAGE_SELECTOR)) {
+        const object = imageObject(element, config.frameId);
+        if (object) objects.push(object);
+        if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
+      }
     }
     revision += 1;
     viewportRevision += 1;
@@ -372,12 +418,12 @@
     const element = record.target.nodeType === Node.ELEMENT_NODE
       ? record.target : record.target.parentElement;
     if (!element) return false;
-    if (element.matches(CONTROL_SELECTOR) || element.closest(CONTROL_SELECTOR)) return true;
-    if (record.type === 'attributes') return Boolean(element.querySelector(CONTROL_SELECTOR));
+    if (element.matches(OBSERVED_SELECTOR) || element.closest(OBSERVED_SELECTOR)) return true;
+    if (record.type === 'attributes') return Boolean(element.querySelector(OBSERVED_SELECTOR));
     if (record.type !== 'childList') return false;
     return [...record.addedNodes, ...record.removedNodes].some((node) => {
       if (node.nodeType !== Node.ELEMENT_NODE) return false;
-      return node.matches(CONTROL_SELECTOR) || Boolean(node.querySelector(CONTROL_SELECTOR));
+      return node.matches(OBSERVED_SELECTOR) || Boolean(node.querySelector(OBSERVED_SELECTOR));
     });
   }
 
