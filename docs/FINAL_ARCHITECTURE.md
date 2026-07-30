@@ -4,10 +4,35 @@ Status: accepted direction, 2026-07-27.
 
 ## Product objective
 
-Saccade is an open closed-loop browser control runtime for authenticated tabs.
-Agents connect through MCP. Contributors extend browser-control coverage
-through a declarative Control Catalog, audited control-family modules,
-conformance fixtures, and evidence.
+> Saccade is a browser protocol that lets any Agent continuously understand a
+> web page, receive browser-pushed changes, and operate it through verified
+> closed loops.
+
+This is the permanent product north star. Implementations, transports,
+Profiles, and control coverage may evolve, but they MUST continue to serve all
+five properties below:
+
+1. **Fast:** the browser pushes changes and bounded local loops avoid needless
+   model round trips.
+2. **Token-efficient:** one semantic Truth Layer is followed by deltas rather
+   than repeated HTML, screenshots, or full-page analysis.
+3. **Maintainable and extensible:** the Catalog, Registry, finite primitives,
+   and focused fixtures make each new control family an independent reviewed
+   closed loop.
+4. **Trustworthy:** current identity and revision authorize preparation; fresh
+   browser evidence and control-specific postconditions—not optimistic input
+   dispatch—decide the receipt. Disclosure boundaries remain explicit, while
+   user behavior policy remains declarative Profile data.
+5. **Model-independent:** no protocol meaning depends on a particular LLM,
+   vendor, prompt, or Agent framework. MCP is the current adapter, not the
+   product definition.
+
+Saccade is therefore not another browser-testing framework, coordinate
+clicker, or model-specific browser plugin. Control modules are the protocol's
+execution vocabulary; iframe, Shadow DOM, framework lifecycle, and overlay
+work expand the Truth Layer's coverage. A proposal that does not improve Agent
+understanding, delta efficiency, verified execution, or extensibility is
+outside the core architecture.
 
 ## The single route
 

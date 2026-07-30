@@ -15,6 +15,23 @@ Agents receive semantic controls and opaque action tokens. They do not receive
 selectors, DOM paths, arbitrary coordinates, editable values, cookies, or
 browser storage.
 
+## Product north star
+
+> Saccade is a browser protocol that lets any Agent continuously understand a
+> web page, receive browser-pushed changes, and operate it through verified
+> closed loops.
+
+The protocol is permanently aimed at five product qualities: fast interaction,
+low model-token cost, easy maintenance and extension, trustworthy execution,
+and model independence. The browser publishes one semantic Truth Layer and
+then deltas; registered control modules provide reusable execution vocabulary;
+fresh observations and postconditions determine receipts. Behavioral policy is
+declarative Profile data rather than a dependency on one model or prompt.
+
+Implementations and control coverage will evolve. This positioning does not:
+Saccade is not another browser-testing framework, coordinate clicker, or
+model-specific browser plugin.
+
 ## Status
 
 Saccade is pre-release. The current vertical slice runs through the complete

@@ -433,3 +433,25 @@ Saccade was faster on the warm comparison but returned the full 237-object Truth
 Layer at a 17,335-token median versus Playwright's custom text extraction at 394
 tokens. Future compaction must preserve the Truth Layer and browser-pushed delta
 model rather than hiding controls to improve a benchmark.
+
+## 2026-07-30: Freeze the permanent product north star
+
+Accepted and normative:
+
+> Saccade is a browser protocol that lets any Agent continuously understand a
+> web page, receive browser-pushed changes, and operate it through verified
+> closed loops.
+
+The permanent product qualities are fast interaction, low model-token cost,
+easy maintenance and extension, trustworthy execution, and model independence.
+The browser-pushed Truth Layer and deltas define understanding; Catalog-backed
+control modules define extensible execution vocabulary; fresh postconditions
+define receipts; declarative Profiles define user behavior policy. MCP is the
+current adapter and no protocol meaning may depend on one model, vendor,
+prompt, or Agent framework.
+
+Implementation details and coverage may change, but the positioning does not.
+Saccade will not become a browser-testing framework, coordinate clicker, or
+model-specific browser plugin. Future proposals are evaluated by whether they
+improve Agent understanding, delta efficiency, verified execution, or the ease
+of adding and maintaining closed-loop controls.

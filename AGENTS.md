@@ -5,6 +5,16 @@ Read `docs/FINAL_ARCHITECTURE.md` and
 protocol, MCP, control-module, input, download, or packaging behavior. Read
 `docs/PROFILE_ARCHITECTURE.md` before changing Profile loading or filtering.
 
+## Permanent product north star
+
+Saccade is a browser protocol that lets any Agent continuously understand a
+web page, receive browser-pushed changes, and operate it through verified
+closed loops. Every core change must preserve fast interaction, low model-token
+cost, easy maintenance and extension, trustworthy execution, and model
+independence. Implementations may evolve; this positioning does not. Do not
+turn Saccade into a browser-testing framework, coordinate clicker, or
+model-specific plugin.
+
 ## One production route
 
 Chrome/Edge Extension → Native Messaging Host mode → owner-only local IPC →
@@ -13,6 +23,10 @@ fallback execution routes.
 
 ## Product invariants
 
+- Treat MCP as the current model-independent adapter, not the product identity;
+  protocol semantics cannot depend on one LLM, vendor, prompt, or Agent stack.
+- Prefer browser-pushed semantic deltas and bounded local loops over repeated
+  full-page transfer, model polling, or model replanning.
 - Keep wire schemas at `saccade.observation/1` and
   `saccade-extension-host/1` until an explicit version decision lands.
 - Ship one signed product: a DMG on macOS or Setup on Windows, plus one
