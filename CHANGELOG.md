@@ -44,6 +44,13 @@ the clean public repository.
 - session-only Extension popup controls for sharing and revoking existing tabs;
 - monotonic per-tab document handling so delayed retired-document observations
   cannot replace current state or contaminate action receipts;
+- Catalog-declared automatic software/native input selection for finite click
+  controls versus controls that require operating-system input;
+- a value-free user-local input-policy log that learns verified page/control
+  behavior, upgrades future actions to native after an unverified software
+  receipt, and never retries the same token;
+- MCP tools to inspect the learned log and remember a native-input exception
+  for a current control;
 
 ### Pending
 

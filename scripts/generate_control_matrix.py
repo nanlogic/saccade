@@ -39,6 +39,8 @@ def load_and_validate() -> tuple[dict, dict]:
             raise SystemExit(f"unapproved Catalog role: {control['role']}")
         if not set(control["safe_state"]) <= ALLOWED_STATES:
             raise SystemExit(f"unapproved state in {control['id']}")
+        if control["input_policy"] == "software_preferred" and control["native_primitive"] != "primary_click":
+            raise SystemExit(f"software_preferred requires primary_click in {control['id']}")
         evidence = control["evidence"]
         if control["publication_status"] == "publishable" and evidence != {"chrome": "passed", "edge": "passed"}:
             raise SystemExit(f"{control['id']} cannot be publishable without Chrome and Edge evidence")
@@ -105,16 +107,17 @@ def render(data: dict, development: dict) -> str:
         "",
         "## Module details",
         "",
-        "| Control | Family | Affordance | Native primitive | Verifier | Chrome | Edge | Status |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Control | Family | Affordance | Input policy | Primitive | Verifier | Chrome | Edge | Status |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ])
     for control in data["controls"]:
         lines.append(
-            "| {id} | {implementation_family} | {affordances} | {native_primitive} | "
+            "| {id} | {implementation_family} | {affordances} | {input_policy} | {native_primitive} | "
             "{verifier} | {chrome} | {edge} | {publication_status} |".format(
                 id=control["id"],
                 implementation_family=control["implementation_family"],
                 affordances=", ".join(control["affordances"]),
+                input_policy=control["input_policy"],
                 native_primitive=control["native_primitive"],
                 verifier=control["verifier"],
                 chrome=control["evidence"]["chrome"],

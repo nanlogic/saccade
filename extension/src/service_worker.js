@@ -165,7 +165,7 @@ async function handleHostCommand(command) {
     if (current.status === 'complete' && isSupportedUrl(current.url)) authorizeTab(tab.id).catch(reportAuthorizationFailure);
   } else if (command.kind === 'prepare_action') {
     const tabId = numericTabId(payload.tab_id);
-    if (!isAuthorized(tabId) || sessions.get(tabId)?.last?.document_id !== payload.document_id) throw new Error('tab observation is not current');
+    if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
     const tab = await chrome.tabs.get(tabId);
     const browserWindow = await chrome.windows.get(tab.windowId);
     let focusChanged = false;
@@ -177,7 +177,7 @@ async function handleHostCommand(command) {
     reply(command, result.prepared);
   } else if (command.kind === 'soft_click') {
     const tabId = numericTabId(payload.tab_id);
-    if (!isAuthorized(tabId) || sessions.get(tabId)?.last?.document_id !== payload.document_id) throw new Error('tab observation is not current');
+    if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_click', request: payload }, { frameId: 0 });
     if (!result?.ok) throw new Error(result?.error || 'soft click failed');
     reply(command, result.result);

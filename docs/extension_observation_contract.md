@@ -261,7 +261,7 @@ visibility, transition, and authorization fields.
 | Built-in PDF | `restricted_document` | document presence and bounds only | restricted status | explicit confirmed download/open flow only |
 
 An affordance is omitted unless the current implementation can validate and
-execute it through the single native-input route. Unsupported controls remain
+execute it through the single registered-input route. Unsupported controls remain
 observable when useful, but are not made actionable by guessing.
 
 An image with a safe name may opt into the audited
@@ -313,7 +313,7 @@ authorized observation
   -> Agent action request
   -> Extension prepared action
   -> Host identity/revision/token/affordance revalidation
-  -> registered input backend
+  -> Registry-selected input backend
   -> settled fresh observation
   -> action receipt
 ```
@@ -322,10 +322,12 @@ The Extension scrolls the target into view and prepares current screen geometry,
 visibility, topmost hit-test state, and focus state. The Host rejects arbitrary
 coordinates and unrestricted key sequences, rechecks the current browser
 instance, tab, document, revision, token, and affordance, rejects replay, then
-dispatches input. The default `native` backend uses OS input. The `soft` backend
-is available only to an audited `reflex_target`; it computes the current target
+dispatches input. The Catalog marks each control `software_preferred` or
+`native_required`. The `native` backend uses OS input. The `soft` backend is
+available only to finite Registry click roles; it computes the current target
 center inside the Extension and never accepts or discloses an Agent coordinate
-or locator.
+or locator. The page collector, not the service worker's observation cache, is
+the authority for the final document, revision, token, and target revalidation.
 
 A receipt binds before, prepared, and post-action revisions and includes the
 post-action observation. `AcceptedByOs` means the operating system accepted the
@@ -338,6 +340,16 @@ fresh observation.
 Profiles cannot change those meanings. The Host checks that an action token
 still occurs in its current Profile-filtered observation before asking the
 Extension to prepare the action.
+
+The Runtime also maintains a separate user-local `saccade.input-policy/1` log.
+Rules are keyed by normalized page path, semantic role, and safe control name.
+A verified software receipt records that software worked; an unverified or
+visibly unchanged software receipt records that a future fresh action should
+use native input. There is no same-action fallback or token reuse. A user or
+Agent can remember native input for a current software-preferred control. The
+log stores no query, fragment, credentials, editable value, protected value,
+locator, or coordinate. It cannot weaken `native_required`, and a diagnostic
+software override cannot bypass a learned native rule.
 
 Under the v1 contract, browser-session end, tab ACL revocation,
 browser-instance mismatch, cross-tab use, navigation, token replay, stale

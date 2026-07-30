@@ -273,3 +273,34 @@ predecessor. After the Host monotonicity fix, paired run `20260729T225249Z`
 completed 14 native verified receipts plus Profile and stale-token gates in
 each browser. Catalog status remains `implementation` because this is local
 development evidence.
+
+## 2026-07-30: Catalog defaults and local experience select the input backend
+
+Accepted: every Catalog control declares `software_preferred` or
+`native_required`. Finite click roles prefer the token-bound Extension pointer
+sequence. Editable, select, and file-input controls retain real operating-system
+input. Generic `web.act` asks the Registry to choose; explicit native/soft tools
+remain diagnostic gates and cannot make a native-required control soft.
+
+Accepted: the Runtime keeps a separate user-local `saccade.input-policy/1` log
+keyed by normalized page path, semantic role, and safe control name. A verified
+software receipt records software success. An accepted software dispatch with
+an unverified or visibly unchanged postcondition records native for the next
+fresh action. `TargetInvalidated` teaches nothing. The user or Agent can inspect
+the log and remember a native exception for a current token. Profile remains
+exactly `name / behavior / ban`. A diagnostic software request cannot bypass a
+learned native exception.
+
+Rejected: immediately retrying native input after a software dispatch. The page
+may have performed an effect that the observation cannot represent, so a second
+click could duplicate a consequential action. Learning never reuses the same
+token. The log omits queries, fragments, credentials, values, locators,
+coordinates, and protected data and cannot weaken a Catalog native requirement.
+
+Development proof: paired managed run `20260730T002519Z` produced seven
+ordinary software-verified and eight native-verified receipts in each browser.
+A trusted-event-only fixture then returned an
+unverified software receipt, wrote a page-local native rule, and verified the
+next fresh token through real OS input without same-token fallback. The learned
+rule also rejected an explicit diagnostic software request before preparation.
+Catalog status remains `implementation`; these are local development results.

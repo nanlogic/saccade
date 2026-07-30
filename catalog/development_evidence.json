@@ -3,7 +3,7 @@
   "controls": {
     "button": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "passed", "edge": "pending" } },
     "text_field": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "pending", "edge": "pending" } },
-    "link": { "fixture": { "chrome": "passed", "edge": "pending" }, "external": { "chrome": "passed", "edge": "pending" } },
+    "link": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "passed", "edge": "pending" } },
     "search_field": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "pending", "edge": "pending" } },
     "text_area": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "pending", "edge": "pending" } },
     "content_editable": { "fixture": { "chrome": "passed", "edge": "passed" }, "external": { "chrome": "pending", "edge": "pending" } },

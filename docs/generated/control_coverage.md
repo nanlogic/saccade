@@ -4,7 +4,7 @@
 
 ## Evidence summary
 
-Implemented: 15. Chrome + Edge fixture: 12. Chrome + Edge external: 4. Publishable: 0.
+Implemented: 15. Chrome + Edge fixture: 13. Chrome + Edge external: 4. Publishable: 0.
 
 Chrome / Edge values are shown in that order.
 
@@ -12,7 +12,7 @@ Chrome / Edge values are shown in that order.
 | --- | --- | --- | --- | --- |
 | button | yes | passed / passed | passed / pending | pending / pending |
 | text_field | yes | passed / passed | pending / pending | pending / pending |
-| link | yes | passed / pending | passed / pending | pending / pending |
+| link | yes | passed / passed | passed / pending | pending / pending |
 | search_field | yes | passed / passed | pending / pending | pending / pending |
 | text_area | yes | passed / passed | pending / pending | pending / pending |
 | content_editable | yes | passed / passed | pending / pending | pending / pending |
@@ -30,22 +30,22 @@ Chrome / Edge values are shown in that order.
 
 ## Module details
 
-| Control | Family | Affordance | Native primitive | Verifier | Chrome | Edge | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| button | button | click | primary_click | button_effect | pending | pending | implementation |
-| text_field | editable | type | unicode_text | has_value | pending | pending | implementation |
-| link | navigation | click | primary_click | document_transition | pending | pending | implementation |
-| search_field | editable | type | unicode_text | has_value | pending | pending | implementation |
-| text_area | editable | type | unicode_text | has_value | pending | pending | implementation |
-| content_editable | editable | type | unicode_text | has_value | pending | pending | implementation |
-| spin_button | editable | type | unicode_text | has_value | pending | pending | implementation |
-| checkbox | toggle | click | primary_click | checked_transition | pending | pending | implementation |
-| radio | toggle | click | primary_click | checked_transition | pending | pending | implementation |
-| switch | toggle | click | primary_click | checked_transition | pending | pending | implementation |
-| select | choice | select | select_option | option_selected | pending | pending | implementation |
-| reflex_target | reflex | click | primary_click | target_advanced | pending | pending | implementation |
-| tab | navigation | click | primary_click | selected_transition | pending | pending | implementation |
-| menu_item | navigation | click | primary_click | expanded_transition | pending | pending | implementation |
-| file_input | file | upload | file_chooser | has_file | pending | pending | implementation |
+| Control | Family | Affordance | Input policy | Primitive | Verifier | Chrome | Edge | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| button | button | click | software_preferred | primary_click | button_effect | pending | pending | implementation |
+| text_field | editable | type | native_required | unicode_text | has_value | pending | pending | implementation |
+| link | navigation | click | software_preferred | primary_click | document_transition | pending | pending | implementation |
+| search_field | editable | type | native_required | unicode_text | has_value | pending | pending | implementation |
+| text_area | editable | type | native_required | unicode_text | has_value | pending | pending | implementation |
+| content_editable | editable | type | native_required | unicode_text | has_value | pending | pending | implementation |
+| spin_button | editable | type | native_required | unicode_text | has_value | pending | pending | implementation |
+| checkbox | toggle | click | software_preferred | primary_click | checked_transition | pending | pending | implementation |
+| radio | toggle | click | software_preferred | primary_click | checked_transition | pending | pending | implementation |
+| switch | toggle | click | software_preferred | primary_click | checked_transition | pending | pending | implementation |
+| select | choice | select | native_required | select_option | option_selected | pending | pending | implementation |
+| reflex_target | reflex | click | software_preferred | primary_click | target_advanced | pending | pending | implementation |
+| tab | navigation | click | software_preferred | primary_click | selected_transition | pending | pending | implementation |
+| menu_item | navigation | click | software_preferred | primary_click | expanded_transition | pending | pending | implementation |
+| file_input | file | upload | native_required | file_chooser | has_file | pending | pending | implementation |
 
 No row is `publishable` until current Chrome and Edge artifacts pass for the same release candidate.

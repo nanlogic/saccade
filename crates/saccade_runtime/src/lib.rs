@@ -4,13 +4,16 @@
 
 use std::collections::BTreeSet;
 
-use saccade_control_sdk::{verify_with_documents, NativePrimitive, Registry, RegistryError};
+use saccade_control_sdk::{
+    verify_with_documents, InputPolicy, NativePrimitive, Registry, RegistryError,
+};
 use saccade_protocol::{
     ActionPayload, ActionReceipt, ActionRequest, ActionValidationError, DispatchStatus,
     ObservationError, ObservationSnapshot, PostconditionStatus, PreparedAction, Visibility,
 };
 use thiserror::Error;
 
+pub mod input_policy;
 pub mod mcp;
 pub mod native_messaging;
 pub mod owner_ipc;
@@ -71,6 +74,13 @@ impl ClosedLoopEngine {
 
     pub fn builtin() -> Result<Self, RegistryError> {
         Ok(Self::new(Registry::builtin()?))
+    }
+
+    pub fn input_policy(
+        &self,
+        role: saccade_protocol::SemanticRole,
+    ) -> Result<InputPolicy, RegistryError> {
+        self.registry.input_policy(role)
     }
 
     pub fn execute(

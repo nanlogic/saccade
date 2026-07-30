@@ -22,11 +22,12 @@ Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
 Testing and Microsoft Edge profiles. Fifteen actionable controls are currently
 in the Registry. Button, editable controls, checkbox, radio, switch, the
 select/listbox/combobox slice, tab, and menu item have paired Chrome/Edge
-development evidence; link, reflex target, and file input currently have
-focused Chrome evidence. Paired managed run `20260729T225249Z` produced 14
-`accepted_by_os + verified` receipts in each browser, including native select,
-ARIA listbox, ARIA combobox, structural reading, stale-token rejection, and
-Profile gates.
+development evidence; reflex target and file input currently have focused
+Chrome evidence. Paired managed run `20260730T002519Z` produced 15 verified
+receipts in both browsers: seven automatically
+selected software clicks and eight native actions, including link, native
+select, ARIA listbox, ARIA combobox, structural reading, stale-token rejection,
+Profile gates, and the local software-to-native learning gate.
 
 Radio, ARIA switch, tab, and menu item also pass public W3C WAI-ARIA examples
 in both browsers. Run `20260729T211221Z` matched all four Saccade native results
@@ -35,20 +36,20 @@ action fallback.
 
 | Control | Action | Verified postcondition |
 | --- | --- | --- |
-| Button | native click | pressed or expanded state changes |
-| Link | native click | top-level document identity changes |
+| Button | automatic software/native click | pressed or expanded state changes |
+| Link | automatic software/native click | top-level document identity changes |
 | Text field | native click and Unicode input | field changes from empty to non-empty |
 | Search field | native click and Unicode input | field changes from empty to non-empty |
 | Textarea | native click and multiline Unicode input | field changes from empty to non-empty |
 | Contenteditable | native click and Unicode input | editable region changes from empty to non-empty |
 | Spin button | native click and numeric text input | field changes from empty to non-empty |
-| Checkbox | native click | checked state changes |
-| Radio | native click | target checked state changes |
-| ARIA switch | native click | checked state changes |
+| Checkbox | automatic software/native click | checked state changes |
+| Radio | automatic software/native click | target checked state changes |
+| ARIA switch | automatic software/native click | checked state changes |
 | Select, listbox, combobox | native indexed selection by option identity | requested option becomes selected |
-| Tab | native click | target becomes selected |
-| Menu item | native click | expanded state changes |
-| Reflex target | native or audited soft click | same-loop score/occurrence advances |
+| Tab | automatic software/native click | target becomes selected |
+| Menu item | automatic software/native click | expanded state changes |
+| Reflex target | automatic software/native click | same-loop score/occurrence advances |
 | File input | native operating-system chooser | real file input accepts a non-empty selection |
 
 The paired development run covers stale-token rejection, Profile behavior,
@@ -117,7 +118,35 @@ the Runtime directory and is never overwritten.
 
 `test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
-editable contents.
+editable contents. Managed evidence commands (`test`, `compare`, `accuracy`,
+and `reflex`) temporarily isolate and restore the user's local input policy so
+conformance runs cannot teach day-to-day browsing rules.
+
+`web.act` chooses the backend automatically. The Catalog supplies the default:
+software for finite click controls and native input for editable, select, and
+file-input controls. A receipt-backed local log at
+`~/Library/Application Support/Saccade Dev/runtime/input-policy.json` remembers
+page/control exceptions. If software input is accepted but cannot verify the
+effect, Saccade records native for the next fresh action; it never retries the
+same action with the real mouse. `saccade.input_policy.list` exposes this
+value-free log, and `saccade.input_policy.remember_native` records an explicit
+stronger choice for a current token. Profile remains only `name / behavior /
+ban` and does not select an input backend.
+
+```json
+{
+  "schema": "saccade.input-policy/1",
+  "rules": [
+    {
+      "page": "https://example.com/settings",
+      "role": "button",
+      "control": "Save",
+      "backend": "native",
+      "evidence": "user_remembered_native"
+    }
+  ]
+}
+```
 
 To share an existing HTTP or HTTPS tab, open the Saccade Extension popup in
 that tab and choose **Share this tab**. The popup reports Agent On only for the
@@ -194,7 +223,7 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 node --test extension/tests/*.test.js
 node --check tests/reference/playwright/oracle.cjs
 python3 -m unittest tests/test_dev_profile.py
-python3 -m py_compile scripts/external_dogfood.py scripts/compare_external_evidence.py
+python3 -m py_compile scripts/dev_probe.py scripts/external_dogfood.py scripts/compare_external_evidence.py
 python3 scripts/generate_control_matrix.py
 python3 scripts/check_single_architecture.py
 git diff --exit-code -- docs/generated/control_coverage.md

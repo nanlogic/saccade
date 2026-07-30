@@ -38,6 +38,8 @@ REFLEX_TIMEOUT_MS="${SACCADE_REFLEX_TIMEOUT_MS:-30000}"
 CODEX_BACKUP="$STATE_DIR/codex-saccade-backup.json"
 PROFILE_BACKUP="$STATE_DIR/profile-before-test.json"
 PROFILE_MISSING="$STATE_DIR/profile-was-missing"
+INPUT_POLICY_BACKUP="$STATE_DIR/input-policy-before-test.json"
+INPUT_POLICY_MISSING="$STATE_DIR/input-policy-was-missing"
 
 mkdirs() {
   mkdir -p "$BIN_DIR" "$RUNTIME_MACOS" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" "$EVIDENCE_DIR" "$FIXTURE_ROOT" "$EXTENSION_ROOT"
@@ -474,6 +476,26 @@ restore_profile() {
   fi
 }
 
+restore_input_policy() {
+  if [ -f "$INPUT_POLICY_BACKUP" ]; then
+    cp "$INPUT_POLICY_BACKUP" "$RUNTIME_DIR/input-policy.json"
+    chmod 600 "$RUNTIME_DIR/input-policy.json"
+    rm -f "$INPUT_POLICY_BACKUP"
+  elif [ -f "$INPUT_POLICY_MISSING" ]; then
+    rm -f "$RUNTIME_DIR/input-policy.json" "$INPUT_POLICY_MISSING"
+  fi
+}
+
+isolate_input_policy() {
+  if [ -f "$RUNTIME_DIR/input-policy.json" ]; then
+    cp "$RUNTIME_DIR/input-policy.json" "$INPUT_POLICY_BACKUP"
+    chmod 600 "$INPUT_POLICY_BACKUP"
+  else
+    : > "$INPUT_POLICY_MISSING"
+  fi
+  rm -f "$RUNTIME_DIR/input-policy.json"
+}
+
 write_test_profile() {
   if [ -f "$RUNTIME_DIR/profile.json" ]; then
     cp "$RUNTIME_DIR/profile.json" "$PROFILE_BACKUP"
@@ -501,6 +523,9 @@ test_route() {
   require_browser "$test_browser"
   mkdirs
   restore_profile
+  restore_input_policy
+  isolate_input_policy
+  trap 'stop_browser "$test_browser"; restore_profile; restore_input_policy; start_browser "$test_browser"' EXIT
   up "$test_browser"
   test_run_dir="$EVIDENCE_DIR/$test_stamp/$test_browser"
   mkdir -p "$test_run_dir"
@@ -514,7 +539,6 @@ test_route() {
 
   stop_browser "$test_browser"
   write_test_profile
-  trap 'stop_browser "$test_browser"; restore_profile; start_browser "$test_browser"' EXIT
   start_browser "$test_browser"
   python3 "$ROOT/scripts/dev_probe.py" profile \
     --browser "$test_browser" \
@@ -524,6 +548,7 @@ test_route() {
     --output "$test_run_dir/profile.json"
   stop_browser "$test_browser"
   restore_profile
+  restore_input_policy
   start_browser "$test_browser"
   trap - EXIT HUP INT TERM
   printf '%s\n' "Cataloged-control $test_browser evidence: $test_run_dir"
@@ -542,6 +567,9 @@ compare_route() {
   require_browser "$compare_browser"
   mkdirs
   restore_profile
+  restore_input_policy
+  isolate_input_policy
+  trap 'stop_browser "$compare_browser"; restore_input_policy; start_browser "$compare_browser"' EXIT
   up "$compare_browser"
   compare_run_dir="$EVIDENCE_DIR/$compare_stamp/$compare_browser/external"
   compare_oracle_dir="$compare_run_dir/playwright"
@@ -565,6 +593,10 @@ compare_route() {
     --saccade "$compare_run_dir/saccade.json" \
     --playwright "$compare_oracle_dir/oracle.json" \
     --output "$compare_run_dir/comparison.json"
+  stop_browser "$compare_browser"
+  restore_input_policy
+  start_browser "$compare_browser"
+  trap - EXIT HUP INT TERM
   printf '%s\n' "External Saccade/Playwright $compare_browser comparison: $compare_run_dir"
 }
 
@@ -581,6 +613,9 @@ accuracy_route() {
   require_browser "$accuracy_browser"
   mkdirs
   restore_profile
+  restore_input_policy
+  isolate_input_policy
+  trap 'stop_browser "$accuracy_browser"; restore_input_policy; start_browser "$accuracy_browser"' EXIT
   up "$accuracy_browser"
   accuracy_run_dir="$EVIDENCE_DIR/$accuracy_stamp/$accuracy_browser"
   accuracy_browser_pid=$(sed -n '1p' "$(browser_pid_file "$accuracy_browser")")
@@ -596,6 +631,10 @@ accuracy_route() {
     --accuracy-difficulty "$MOUSE_ACCURACY_DIFFICULTY" \
     --url "$MOUSE_ACCURACY_URL" \
     --output "$accuracy_run_dir/mouse_accuracy.json"
+  stop_browser "$accuracy_browser"
+  restore_input_policy
+  start_browser "$accuracy_browser"
+  trap - EXIT HUP INT TERM
   printf '%s\n' "Mouse-accuracy $accuracy_browser evidence: layout=$MOUSE_ACCURACY_LAYOUT difficulty=$MOUSE_ACCURACY_DIFFICULTY backend=$MOUSE_ACCURACY_BACKEND evidence: $accuracy_run_dir/mouse_accuracy.json"
 }
 
@@ -616,6 +655,9 @@ reflex_route() {
   esac
   mkdirs
   restore_profile
+  restore_input_policy
+  isolate_input_policy
+  trap 'stop_browser "$reflex_browser"; restore_input_policy; start_browser "$reflex_browser"' EXIT
   up "$reflex_browser"
   reflex_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
   reflex_run_dir="$EVIDENCE_DIR/$reflex_stamp/$reflex_browser"
@@ -630,6 +672,10 @@ reflex_route() {
     --timeout-ms "$REFLEX_TIMEOUT_MS" \
     --url "$REFLEX_URL" \
     --output "$reflex_run_dir/reflex.json"
+  stop_browser "$reflex_browser"
+  restore_input_policy
+  start_browser "$reflex_browser"
+  trap - EXIT HUP INT TERM
   printf '%s\n' "Reflex $reflex_browser/$reflex_backend evidence: $reflex_run_dir/reflex.json"
 }
 
@@ -653,6 +699,7 @@ down() {
   stop_fixture
   rm -f "$STATE_DIR/active-browser"
   restore_profile
+  restore_input_policy
   if [ -f "$STATE_DIR/codex-path" ]; then
     codex=$(sed -n '1p' "$STATE_DIR/codex-path")
     python3 "$ROOT/scripts/dev_codex_config.py" restore \

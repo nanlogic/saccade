@@ -27,7 +27,13 @@ imply Windows support.
 - Produce a signed and notarized macOS app, Native Messaging manifests, and
   Chrome Web Store and Edge Add-ons builds.
 - Prove clean install, upgrade, repair, browser restart, Host restart, and
-  uninstall on a test account.
+  uninstall on a test account. Upgrade and repair must preserve the user's
+  Profile and local input-policy log; uninstall must state whether that log is
+  retained or removed.
+- Prove automatic Registry selection, user-remembered native exceptions, and
+  receipt-backed software-to-native learning in both browsers. Confirm that an
+  unverified software dispatch never triggers a same-token native retry and
+  that the log contains no values, locators, coordinates, or URL query data.
 - Publish a five-minute quickstart and one command that produces a redacted
   diagnostic bundle.
 

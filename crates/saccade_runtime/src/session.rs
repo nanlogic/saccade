@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
+use saccade_control_sdk::InputPolicy;
 use saccade_protocol::{
     ActionPayload, ActionReceipt, ActionRequest, ControlError, ControlRequest, ControlResponse,
     DispatchStatus, HostGrant, LocalAddress, NativeEnvelope, ObservationSnapshot,
@@ -20,6 +21,7 @@ use saccade_protocol::{
 };
 use serde_json::{json, Value};
 
+use crate::input_policy::{page_scope, LearnedBackend, LocalInputPolicy, PolicyEvidence};
 use crate::native_messaging;
 use crate::platform_input::PlatformInput;
 use crate::profile::Profile;
@@ -80,6 +82,7 @@ pub struct NativeHostSession {
     next_request_id: AtomicU64,
     outbound: Arc<dyn ExtensionOutbound>,
     profile: Profile,
+    input_policy: Mutex<LocalInputPolicy>,
     engine: Mutex<ClosedLoopEngine>,
     native: Mutex<Box<dyn NativeInput>>,
 }
@@ -121,6 +124,7 @@ impl NativeHostSession {
         fs::create_dir_all(&runtime_dir)?;
         #[cfg(unix)]
         fs::set_permissions(&runtime_dir, fs::Permissions::from_mode(0o700))?;
+        let input_policy = LocalInputPolicy::load(&runtime_dir)?;
         Ok(Self {
             capability: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes),
             runtime_dir,
@@ -133,6 +137,7 @@ impl NativeHostSession {
             next_request_id: AtomicU64::new(1),
             outbound,
             profile,
+            input_policy: Mutex::new(input_policy),
             engine: Mutex::new(ClosedLoopEngine::builtin()?),
             native: Mutex::new(native),
         })
@@ -185,13 +190,20 @@ impl NativeHostSession {
 
     fn dispatch_control(&self, method: &str, params: Value) -> Result<Value> {
         match method {
-            "system.capabilities" => Ok(json!({
+            "system.capabilities" => {
+                let learned_rules = self.input_policy.lock().map_err(lock_error)?.rules().len();
+                Ok(json!({
                 "schema":"saccade.capabilities/4",
                 "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
                 "host_protocol":HOST_PROTOCOL,
                 "perception":"dom_extension",
-                "input":"os_native",
+                "input":"registry_selected",
                 "input_backends":["native","soft"],
+                "input_policy":{
+                    "default_source":"control_catalog",
+                    "local_learning":"per_page_control",
+                    "learned_rules":learned_rules
+                },
                 "native_accessibility_trusted":crate::platform_input::accessibility_trusted(),
                 "browser_support":["chrome","edge"],
                 "extension_connected":self.extension_connected.load(Ordering::Acquire),
@@ -205,7 +217,8 @@ impl NativeHostSession {
                     "name":self.profile.name,
                     "behavior":self.profile.behavior
                 }
-            })),
+                }))
+            }
             "web.observe" => {
                 let tab_id = required_string(&params, "tab_id")?;
                 Ok(serde_json::to_value(self.current_observation(tab_id)?)?)
@@ -236,14 +249,22 @@ impl NativeHostSession {
                     EXTENSION_TIMEOUT,
                 )
             }
-            "web.act" => self.act(params, InputBackend::Native),
-            "web.act_soft" => self.act(params, InputBackend::Soft),
+            "web.act" => self.act(params, None, None),
+            "web.act_native" => self.act(params, Some(InputBackend::Native), None),
+            "web.act_soft" => self.act(params, Some(InputBackend::Soft), None),
+            "input_policy.list" => self.input_policy_list(params),
+            "input_policy.remember_native" => self.remember_native_policy(params),
             "web.reflex.run" => self.reflex_run(params),
             _ => bail!("unknown host method {method}"),
         }
     }
 
-    fn act(&self, params: Value, backend: InputBackend) -> Result<Value> {
+    fn act(
+        &self,
+        params: Value,
+        backend_override: Option<InputBackend>,
+        known_page_scope: Option<&str>,
+    ) -> Result<Value> {
         let request: ActionRequest = serde_json::from_value(params)?;
         request.validate()?;
         if let ActionPayload::File { path } = &request.payload {
@@ -264,6 +285,22 @@ impl NativeHostSession {
             .find(|object| object.action_token.as_deref() == Some(&request.action_token))
             .context("action token is not present in the current Profile-filtered observation")?;
         let target_role = target.role;
+        let control_name = target
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{target_role:?}"));
+        let default_policy = self
+            .engine
+            .lock()
+            .map_err(lock_error)?
+            .input_policy(target_role)?;
+        let page = match (default_policy, known_page_scope) {
+            (InputPolicy::SoftwarePreferred, Some(page)) => page.to_string(),
+            (InputPolicy::SoftwarePreferred, None) => self.page_scope_for_tab(&request.tab_id)?,
+            (InputPolicy::NativeRequired, _) => String::new(),
+        };
+        let (backend, registered_policy) =
+            self.input_backend(target_role, &page, &control_name, backend_override)?;
         let reflex_loop_class = (target_role == SemanticRole::ReflexTarget)
             .then(|| target.loop_class_token.clone())
             .flatten();
@@ -310,14 +347,163 @@ impl NativeHostSession {
                 engine.execute(&request, &before, &prepared, native.as_mut(), &mut source)?
             }
             InputBackend::Soft => {
-                if target_role != SemanticRole::ReflexTarget {
-                    bail!("soft input is restricted to audited reflex targets");
-                }
                 let mut software = SoftwareInput { session: self };
                 engine.execute(&request, &before, &prepared, &mut software, &mut source)?
             }
         };
+        self.learn_from_receipt(
+            &page,
+            target_role,
+            &control_name,
+            backend,
+            registered_policy,
+            &receipt,
+        )?;
         Ok(serde_json::to_value(receipt)?)
+    }
+
+    fn input_backend(
+        &self,
+        role: SemanticRole,
+        page: &str,
+        control: &str,
+        backend_override: Option<InputBackend>,
+    ) -> Result<(InputBackend, InputPolicy)> {
+        let policy = self.engine.lock().map_err(lock_error)?.input_policy(role)?;
+        let learned = self
+            .input_policy
+            .lock()
+            .map_err(lock_error)?
+            .backend_for(page, role, control);
+        let backend = match (policy, learned, backend_override) {
+            (InputPolicy::NativeRequired, _, Some(InputBackend::Soft)) => {
+                bail!("registered control requires native input")
+            }
+            (InputPolicy::NativeRequired, _, _) => InputBackend::Native,
+            (
+                InputPolicy::SoftwarePreferred,
+                Some(LearnedBackend::Native),
+                Some(InputBackend::Soft),
+            ) => bail!("user-local input policy requires native input"),
+            (InputPolicy::SoftwarePreferred, _, Some(InputBackend::Native)) => InputBackend::Native,
+            (InputPolicy::SoftwarePreferred, _, Some(InputBackend::Soft)) => InputBackend::Soft,
+            (InputPolicy::SoftwarePreferred, Some(LearnedBackend::Native), None) => {
+                InputBackend::Native
+            }
+            (InputPolicy::SoftwarePreferred, _, None) => InputBackend::Soft,
+        };
+        Ok((backend, policy))
+    }
+
+    fn page_scope_for_tab(&self, tab_id: &str) -> Result<String> {
+        let listed = self.request_extension("tabs.list", json!({}), EXTENSION_TIMEOUT)?;
+        let url = listed
+            .get("tabs")
+            .and_then(Value::as_array)
+            .and_then(|tabs| {
+                tabs.iter()
+                    .find(|tab| tab.get("tab_id").and_then(Value::as_str) == Some(tab_id))
+            })
+            .and_then(|tab| tab.get("url"))
+            .and_then(Value::as_str)
+            .context("current tab URL is unavailable for input policy")?;
+        page_scope(url)
+    }
+
+    fn learn_from_receipt(
+        &self,
+        page: &str,
+        role: SemanticRole,
+        control: &str,
+        backend: InputBackend,
+        registered_policy: InputPolicy,
+        receipt: &ActionReceipt,
+    ) -> Result<()> {
+        if registered_policy != InputPolicy::SoftwarePreferred
+            || backend != InputBackend::Soft
+            || receipt.dispatch_status != DispatchStatus::AcceptedBySoftware
+        {
+            return Ok(());
+        }
+        let learned = match receipt.postcondition {
+            PostconditionStatus::Verified => Some((
+                LearnedBackend::Software,
+                PolicyEvidence::VerifiedSoftwareReceipt,
+            )),
+            PostconditionStatus::VisibleStateUnchanged | PostconditionStatus::Unverified => Some((
+                LearnedBackend::Native,
+                PolicyEvidence::UnverifiedSoftwareReceipt,
+            )),
+            PostconditionStatus::TargetInvalidated => None,
+        };
+        if let Some((learned_backend, evidence)) = learned {
+            self.input_policy.lock().map_err(lock_error)?.remember(
+                page.to_string(),
+                role,
+                control.to_string(),
+                learned_backend,
+                evidence,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn input_policy_list(&self, params: Value) -> Result<Value> {
+        if !params.as_object().is_some_and(|object| object.is_empty()) {
+            bail!("input_policy.list takes no arguments");
+        }
+        let policy = self.input_policy.lock().map_err(lock_error)?;
+        Ok(json!({
+            "schema":"saccade.input-policy/1",
+            "rules":policy.rules()
+        }))
+    }
+
+    fn remember_native_policy(&self, params: Value) -> Result<Value> {
+        let object = params
+            .as_object()
+            .context("input_policy.remember_native params must be an object")?;
+        for key in object.keys() {
+            if !["tab_id", "action_token"].contains(&key.as_str()) {
+                bail!("unexpected input policy argument {key}");
+            }
+        }
+        let tab_id = required_string(&params, "tab_id")?;
+        let action_token = required_string(&params, "action_token")?;
+        let observation = self.current_observation(tab_id)?;
+        let target = observation
+            .objects
+            .iter()
+            .find(|object| object.action_token.as_deref() == Some(action_token))
+            .context("action token is not current")?;
+        if self
+            .engine
+            .lock()
+            .map_err(lock_error)?
+            .input_policy(target.role)?
+            != InputPolicy::SoftwarePreferred
+        {
+            bail!("control is already registered as native-required");
+        }
+        let page = self.page_scope_for_tab(tab_id)?;
+        let control = target
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{:?}", target.role));
+        self.input_policy.lock().map_err(lock_error)?.remember(
+            page.clone(),
+            target.role,
+            control.clone(),
+            LearnedBackend::Native,
+            PolicyEvidence::UserRememberedNative,
+        )?;
+        Ok(json!({
+            "remembered":true,
+            "page":page,
+            "role":target.role,
+            "control":control,
+            "backend":"native"
+        }))
     }
 
     fn reflex_run(&self, params: Value) -> Result<Value> {
@@ -331,15 +517,23 @@ impl NativeHostSession {
         }
         let tab_id = required_string(&params, "tab_id")?;
         let backend_value = params.get("input_backend");
-        let backend_name = backend_value
+        let backend_override = backend_value
             .map(|value| value.as_str().context("input_backend must be a string"))
             .transpose()?
-            .unwrap_or("native");
-        let backend = match backend_name {
-            "native" => InputBackend::Native,
-            "soft" => InputBackend::Soft,
-            _ => bail!("input_backend must be native or soft"),
-        };
+            .map(|name| match name {
+                "native" => Ok(InputBackend::Native),
+                "soft" => Ok(InputBackend::Soft),
+                _ => bail!("input_backend must be native or soft"),
+            })
+            .transpose()?;
+        let page = self.page_scope_for_tab(tab_id)?;
+        let (backend, _) = self.input_backend(
+            SemanticRole::ReflexTarget,
+            &page,
+            "ReflexTarget",
+            backend_override,
+        )?;
+        let backend_name = backend.name();
         let max_actions = params
             .get("max_actions")
             .map(|value| value.as_u64().context("max_actions must be an integer"))
@@ -388,7 +582,7 @@ impl NativeHostSession {
             let before_occurrence = target.state.get("reflex_occurrence").cloned();
             let before_loop_class = target.loop_class_token.clone();
             let action_started = Instant::now();
-            let result = self.act(serde_json::to_value(&request)?, backend);
+            let result = self.act(serde_json::to_value(&request)?, Some(backend), Some(&page));
             let receipt: ActionReceipt = match result {
                 Ok(value) => serde_json::from_value(value)?,
                 Err(error) if is_reflex_stale(&error.to_string()) => {
@@ -695,6 +889,15 @@ impl NativeHostSession {
 enum InputBackend {
     Native,
     Soft,
+}
+
+impl InputBackend {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Soft => "soft",
+        }
+    }
 }
 
 struct SoftwareInput<'a> {
@@ -1099,7 +1302,7 @@ mod tests {
     }
 
     #[test]
-    fn soft_click_is_revalidated_and_receipted_as_software() {
+    fn registry_automatically_selects_software_click_for_reflex_target() {
         let (out_tx, out_rx) = mpsc::channel();
         let (native_tx, native_rx) = mpsc::channel();
         let dir = tempfile::tempdir().unwrap();
@@ -1139,13 +1342,23 @@ mod tests {
         };
         let control = ControlRequest {
             id: 10,
-            method: "web.act_soft".into(),
+            method: "web.act".into(),
             params: serde_json::to_value(&request).unwrap(),
             capability: session.capability(),
         };
         let worker_session = Arc::clone(&session);
         let worker = std::thread::spawn(move || worker_session.handle_control(control));
 
+        let list = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(list.kind, "tabs.list");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: list.request_id,
+                payload: json!({"tabs":[{"tab_id":"tab-1","url":"https://fixture.test/game"}]}),
+            })
+            .unwrap();
         let prepare = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(prepare.kind, "prepare_action");
         session
@@ -1196,6 +1409,40 @@ mod tests {
         assert_eq!(receipt.dispatch_status, DispatchStatus::AcceptedBySoftware);
         assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
         assert!(native_rx.try_recv().is_err());
+        session
+            .input_policy
+            .lock()
+            .unwrap()
+            .remember(
+                "https://fixture.test/game".into(),
+                SemanticRole::ReflexTarget,
+                "ReflexTarget".into(),
+                LearnedBackend::Native,
+                PolicyEvidence::UnverifiedSoftwareReceipt,
+            )
+            .unwrap();
+        assert_eq!(
+            session
+                .input_backend(
+                    SemanticRole::ReflexTarget,
+                    "https://fixture.test/game",
+                    "ReflexTarget",
+                    None,
+                )
+                .unwrap()
+                .0,
+            InputBackend::Native
+        );
+        assert!(session
+            .input_backend(
+                SemanticRole::ReflexTarget,
+                "https://fixture.test/game",
+                "ReflexTarget",
+                Some(InputBackend::Soft),
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("user-local input policy requires native"));
     }
 
     #[test]

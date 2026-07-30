@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <title>Adaptive input fixture</title>
+  <body>
+    <button id="trusted-only" type="button" aria-pressed="false">Trusted only</button>
+    <script>
+      document.getElementById('trusted-only').addEventListener('click', (event) => {
+        if (!event.isTrusted) {
+          event.preventDefault();
+          return;
+        }
+        const button = event.currentTarget;
+        button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
+      });
+    </script>
+  </body>
+</html>

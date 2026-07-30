@@ -65,7 +65,7 @@ def main() -> None:
     require("extension/src/collector.js", "registry.observe(role")
     require("extension/src/collector.js", "option_object_id")
     require("extension/src/collector.js", "!element.classList.contains('hit')")
-    require("extension/src/collector.js", "soft click requires a current reflex target")
+    require("extension/src/collector.js", "SOFTWARE_CLICK_ROLES")
     require("scripts/dev.sh", "--load-extension")
     require("scripts/dev.sh", "dev_probe.py")
     require("scripts/dev.sh", "Microsoft Edge/NativeMessagingHosts")
@@ -104,6 +104,12 @@ def main() -> None:
     catalog_verifiers = {item["verifier"] for item in catalog["controls"]}
     if not catalog_verifiers <= set(item_properties["verifier"]["enum"]):
         raise SystemExit("Control Catalog schema omits an implemented verifier")
+    if any(
+        item["input_policy"] == "software_preferred"
+        and item["native_primitive"] != "primary_click"
+        for item in catalog["controls"]
+    ):
+        raise SystemExit("software-preferred control escaped the finite click primitive")
     if any(item["publication_status"] != "implementation" for item in catalog["controls"]):
         raise SystemExit("local development evidence cannot publish a Catalog row")
     print("single architecture gate: ok")

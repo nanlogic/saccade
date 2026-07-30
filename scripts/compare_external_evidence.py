@@ -31,13 +31,13 @@ def main() -> None:
 
     comparisons = []
     for control in sorted(saccade_cases):
-        native = saccade_cases[control]
+        saccade_case = saccade_cases[control]
         oracle = playwright_cases[control]
-        native_name = native["target_after"].get("name")
+        saccade_name = saccade_case["target_after"].get("name")
         matched = (
-            native["dispatch_status"] == "accepted_by_os"
-            and native["postcondition"] == "verified"
-            and native_name == oracle["name"]
+            saccade_case["dispatch_status"] == "accepted_by_software"
+            and saccade_case["postcondition"] == "verified"
+            and saccade_name == oracle["name"]
             and oracle["before"] == "false"
             and oracle["after"] == "true"
             and oracle["passed"] is True
@@ -45,9 +45,9 @@ def main() -> None:
         comparisons.append(
             {
                 "control": control,
-                "saccade": f"{native['dispatch_status']} + {native['postcondition']}",
+                "saccade": f"{saccade_case['dispatch_status']} + {saccade_case['postcondition']}",
                 "playwright": "passed" if oracle["passed"] else "failed",
-                "semantic_name": native_name,
+                "semantic_name": saccade_name,
                 "state_transition": "false -> true",
                 "matched": matched,
                 "playwright_screenshot": oracle["screenshot"],
@@ -56,7 +56,7 @@ def main() -> None:
     result = {
         "ok": all(item["matched"] for item in comparisons),
         "browser": saccade["browser"],
-        "saccade_route": "Extension -> Native Host -> Runtime -> MCP -> native input",
+        "saccade_route": "Extension -> Native Host -> Runtime -> MCP -> registry-selected input",
         "playwright_role": "out-of-band reference oracle only",
         "comparisons": comparisons,
     }

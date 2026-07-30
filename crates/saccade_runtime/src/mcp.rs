@@ -119,7 +119,10 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
         "tabs.open",
         "web.observe",
         "web.act",
+        "web.act_native",
         "web.act_soft",
+        "input_policy.list",
+        "input_policy.remember_native",
         "web.reflex.run",
     ]
     .contains(&method)
@@ -128,7 +131,7 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
     }
     validate_arguments(method, &arguments)?;
     let timeout = match method {
-        "web.act" | "web.act_soft" => Duration::from_secs(30),
+        "web.act" | "web.act_native" | "web.act_soft" => Duration::from_secs(30),
         "web.reflex.run" => Duration::from_millis(
             arguments
                 .get("timeout_ms")
@@ -149,7 +152,7 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
         "web.observe" => {
             serde_json::from_value::<ObservationSnapshot>(result.clone())?.validate()?
         }
-        "web.act" | "web.act_soft" => {
+        "web.act" | "web.act_native" | "web.act_soft" => {
             let receipt: ActionReceipt = serde_json::from_value(result.clone())?;
             receipt.post_action_observation.validate()?;
         }
@@ -159,7 +162,7 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
 }
 
 fn validate_arguments(method: &str, value: &Value) -> Result<()> {
-    if matches!(method, "web.act" | "web.act_soft") {
+    if matches!(method, "web.act" | "web.act_native" | "web.act_soft") {
         serde_json::from_value::<ActionRequest>(value.clone())?.validate()?;
         return Ok(());
     }
@@ -167,9 +170,12 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
         .as_object()
         .context("tool arguments must be an object")?;
     let (allowed, required): (&[&str], &[&str]) = match method {
-        "system.capabilities" | "tabs.list" => (&[], &[]),
+        "system.capabilities" | "tabs.list" | "input_policy.list" => (&[], &[]),
         "tabs.open" => (&["url", "active"], &["url"]),
         "web.observe" => (&["tab_id"], &["tab_id"]),
+        "input_policy.remember_native" => {
+            (&["tab_id", "action_token"], &["tab_id", "action_token"])
+        }
         "web.reflex.run" => (
             &["tab_id", "input_backend", "max_actions", "timeout_ms"],
             &["tab_id"],
@@ -201,6 +207,12 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
         }
         "web.observe" => {
             string(value, "tab_id")?;
+        }
+        "input_policy.remember_native" => {
+            string(value, "tab_id")?;
+            if string(value, "action_token")?.len() < 32 {
+                bail!("action_token must be an opaque current token");
+            }
         }
         "web.reflex.run" => {
             string(value, "tab_id")?;
@@ -238,9 +250,12 @@ fn tools() -> Vec<Value> {
         json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
         json!({"name":"saccade.web.observe","description":"Read the latest authorized observation.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1}},"required":["tab_id"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act","description":"Run one revision-bound native closed loop.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act_soft","description":"Run one token-bound software click closed loop for an audited reflex target.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"input_backend":{"enum":["native","soft"],"default":"native"},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.act","description":"Run one revision-bound closed loop using the Registry-selected software or native input backend.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
+        json!({"name":"saccade.input_policy.list","description":"List this user's local per-page learned input-backend records.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
+        json!({"name":"saccade.input_policy.remember_native","description":"Remember that the current page control should use native input on future actions.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts; omit input_backend for Registry selection.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"input_backend":{"enum":["native","soft"]},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
     ]
 }
 
@@ -280,7 +295,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request.method, "initialize");
-        assert_eq!(tools().len(), 7);
+        assert_eq!(tools().len(), 10);
         assert!(serde_json::from_value::<RpcRequest>(
             json!({"jsonrpc":"2.0","id":1,"method":"ping","unexpected":true})
         )

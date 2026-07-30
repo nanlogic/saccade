@@ -40,6 +40,9 @@ ACCURACY_WINDOW_PHASES = (
 ACCURACY_LAYOUTS = ("buttons", "canvas")
 ACCURACY_DIFFICULTIES = ("ordinary", "hard")
 MOUSE_BACKENDS = ("native", "soft")
+SOFTWARE_PREFERRED_ROLES = {
+    "button", "link", "checkbox", "radio", "switch", "tab", "menu_item", "reflex_target",
+}
 MOUSEACCURACY_DIFFICULTY_VALUES = ("Easy", "Normal", "Hard", "Insane")
 MOUSEACCURACY_SIZE_VALUES = ("Large", "Medium", "Small", "Tiny")
 ACCURACY_SIZES = {
@@ -188,10 +191,11 @@ def act(
     name: str,
     operation: str,
     payload_for: Any,
-    backend: str = "web.act",
+    backend: str = "auto",
+    expected_backend: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     last_error: Exception | None = None
-    for _attempt in range(4):
+    for _attempt in range(8):
         observation = stable_observation(mcp, observation["tab_id"])
         target = named(observation, role, name)
         request = {
@@ -204,8 +208,15 @@ def act(
             "payload": payload_for(observation),
         }
         try:
-            tool = "web.act_soft" if backend == "web.act_soft" else "web.act"
+            tool = {
+                "auto": "web.act",
+                "native": "web.act_native",
+                "soft": "web.act_soft",
+            }[backend]
             receipt = mcp.tool(tool, request, timeout=40.0)
+            if receipt.get("dispatch_status") == "stale_before_dispatch":
+                observation = receipt["post_action_observation"]
+                continue
             break
         except Exception as error:
             last_error = error
@@ -213,8 +224,14 @@ def act(
                 raise
             observation = stable_observation(mcp, observation["tab_id"])
     else:
-        raise RuntimeError(f"{operation} stayed stale after fresh observations: {last_error}")
-    expected_dispatch = "accepted_by_software" if backend == "web.act_soft" else "accepted_by_os"
+        raise RuntimeError(
+            f"{role} {name!r} {operation} stayed stale after fresh observations: {last_error}"
+        )
+    effective_backend = expected_backend or backend
+    software = effective_backend == "soft" or (
+        effective_backend == "auto" and role in SOFTWARE_PREFERRED_ROLES
+    )
+    expected_dispatch = "accepted_by_software" if software else "accepted_by_os"
     if receipt.get("dispatch_status") != expected_dispatch:
         raise RuntimeError(
             f"{role} {name!r} {operation} dispatch failed: {receipt.get('dispatch_status')}"
@@ -229,6 +246,82 @@ def act(
 def open_fixture(mcp: Mcp, url: str) -> dict[str, Any]:
     opened = mcp.tool("tabs.open", {"url": url, "active": True})
     return wait_observation(mcp, opened["tab_id"])
+
+
+def adaptive_input_policy(mcp: Mcp, base_url: str) -> dict[str, Any]:
+    url = urllib.parse.urljoin(base_url, "adaptive_input.html")
+    observation = open_fixture(mcp, url)
+    first_receipt: dict[str, Any] | None = None
+    for _attempt in range(8):
+        observation = stable_observation(mcp, observation["tab_id"])
+        target = named(observation, "button", "Trusted only")
+        request = {
+            "browser_instance_id": observation["browser_instance_id"],
+            "tab_id": observation["tab_id"],
+            "document_id": observation["document_id"],
+            "basis_revision": observation["revision"],
+            "action_token": target["action_token"],
+            "operation": "click",
+            "payload": {"kind": "none"},
+        }
+        first_receipt = mcp.tool("web.act", request, timeout=40.0)
+        observation = first_receipt["post_action_observation"]
+        if first_receipt.get("dispatch_status") == "stale_before_dispatch":
+            continue
+        break
+    if first_receipt is None or first_receipt.get("dispatch_status") != "accepted_by_software":
+        raise RuntimeError("adaptive input did not try the registered software default first")
+    if first_receipt.get("postcondition") not in {"visible_state_unchanged", "unverified"}:
+        raise RuntimeError("adaptive fixture unexpectedly accepted an untrusted software click")
+
+    policy = mcp.tool("input_policy.list", {})
+    learned = [
+        rule for rule in policy.get("rules", [])
+        if rule.get("page") == url
+        and rule.get("role") == "button"
+        and rule.get("control") == "Trusted only"
+    ]
+    if len(learned) != 1 or learned[0].get("backend") != "native":
+        raise RuntimeError("unverified software receipt did not create a page-local native rule")
+
+    observation = stable_observation(mcp, observation["tab_id"])
+    target = named(observation, "button", "Trusted only")
+    diagnostic_request = {
+        "browser_instance_id": observation["browser_instance_id"],
+        "tab_id": observation["tab_id"],
+        "document_id": observation["document_id"],
+        "basis_revision": observation["revision"],
+        "action_token": target["action_token"],
+        "operation": "click",
+        "payload": {"kind": "none"},
+    }
+    try:
+        mcp.tool("web.act_soft", diagnostic_request, timeout=10.0)
+    except Exception as error:  # noqa: BLE001
+        if "user-local input policy requires native" not in str(error):
+            raise
+        soft_override_rejected = True
+    else:
+        raise RuntimeError("diagnostic software input bypassed a learned native rule")
+
+    second_receipt, _observation = act(
+        mcp,
+        observation,
+        "button",
+        "Trusted only",
+        "click",
+        lambda _: {"kind": "none"},
+        "auto",
+        "native",
+    )
+    return {
+        "page": url,
+        "first_receipt": first_receipt,
+        "learned_rule": learned[0],
+        "soft_override_rejected": soft_override_rejected,
+        "next_receipt": second_receipt,
+        "no_same_token_retry": first_receipt["action_token"] != second_receipt["action_token"],
+    }
 
 
 def validate_editable_projection(observation: dict[str, Any]) -> None:
@@ -384,6 +477,16 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         },
     )
     receipts.append(receipt)
+    link_observation = open_fixture(mcp, urllib.parse.urljoin(url, "link.html"))
+    receipt, _link_observation = act(
+        mcp,
+        link_observation,
+        "link",
+        "Open button fixture",
+        "click",
+        lambda _: {"kind": "none"},
+    )
+    receipts.append(receipt)
     choice_url = urllib.parse.urljoin(url, "listbox_combobox.html")
     choice_observation = open_fixture(mcp, choice_url)
     choice_observation = stable_observation(mcp, choice_observation["tab_id"])
@@ -423,6 +526,7 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     receipts.append(receipt)
     if named(choice_observation, "select", "City").get("state", {}).get("expanded") != "false":
         raise RuntimeError("combobox popup did not settle closed after selection")
+    adaptive_policy = adaptive_input_policy(mcp, url)
     evidence = {
         "mode": "controls",
         "browser": browser,
@@ -430,10 +534,16 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         "initial_observation": initial,
         "choice_observation": choice_observation,
         "receipts": receipts,
+        "adaptive_input_policy": adaptive_policy,
         "stale_token_rejected": stale_token_rejected,
     }
-    if any(sentinel in json.dumps(evidence) for sentinel in REDACTED_VALUES):
-        raise RuntimeError("editable contents leaked into evidence")
+    serialized_evidence = json.dumps(evidence)
+    leaked_classes = [
+        index for index, sentinel in enumerate(REDACTED_VALUES)
+        if sentinel in serialized_evidence
+    ]
+    if leaked_classes:
+        raise RuntimeError(f"editable contents leaked into evidence classes {leaked_classes}")
     return evidence
 
 
@@ -650,7 +760,7 @@ def mouse_accuracy(
                 name,
                 "click",
                 lambda _: {"kind": "none"},
-                "web.act_soft" if mouse_backend == "soft" else "web.act",
+                mouse_backend,
             )
             trial = {
                 "target": name,

@@ -8,6 +8,9 @@
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
   const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,th,td,[role="heading"],[role="paragraph"],[role="listitem"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"]';
   const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR}`;
+  const SOFTWARE_CLICK_ROLES = new Set([
+    'button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menu_item', 'reflex_target',
+  ]);
   const identities = new WeakMap();
   const tokenTargets = new Map();
   const objectTargets = new Map();
@@ -525,7 +528,9 @@
   function softClick(request) {
     prepare(request);
     const target = tokenTargets.get(request.action_token);
-    if (!target || target.role !== 'reflex_target') throw new Error('soft click requires a current reflex target');
+    if (!target || !SOFTWARE_CLICK_ROLES.has(target.role)) {
+      throw new Error('software click is not registered for the current control');
+    }
     const box = boxFor(target.element);
     const clientX = box.x + box.width / 2;
     const clientY = box.y + box.height / 2;

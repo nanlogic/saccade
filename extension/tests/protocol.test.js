@@ -126,10 +126,12 @@ test('prepare checks the revision basis after tab activation and focus', () => {
   assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
   assert.match(collector, /request\.basis_revision !== revision/);
+  assert.match(collector, /request\.document_id !== documentId/);
   assert.match(collector, /detail === 'stale action basis'\) collect\(\)/);
+  assert.doesNotMatch(worker, /sessions\.get\(tabId\)\?\.last\?\.document_id !== payload\.document_id/);
 });
 
-test('reflex bridge is token-bound and soft clicks stay limited to audited targets', () => {
+test('software click bridge is token-bound and limited to Registry roles', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /data-saccade-reflex-target/);
@@ -139,7 +141,8 @@ test('reflex bridge is token-bound and soft clicks stay limited to audited targe
   assert.match(collector, /location\.pathname\.startsWith\('\/game'\)/);
   assert.match(collector, /'Decrease' : 'Increase'/);
   assert.match(collector, /loop_class_token = reflexLoopClassToken/);
-  assert.match(collector, /soft click requires a current reflex target/);
+  assert.match(collector, /SOFTWARE_CLICK_ROLES/);
+  assert.match(collector, /software click is not registered for the current control/);
   assert.ok(collector.indexOf('prepare(request);') < collector.indexOf('target.element.dispatchEvent'));
   assert.match(collector, /SCORE\\s\*\(\\d\+\)/);
   assert.match(collector, /target\.element\.dispatchEvent/);

@@ -29,6 +29,7 @@ pub struct ControlDefinition {
     pub safe_state: BTreeSet<String>,
     pub affordances: BTreeSet<Affordance>,
     pub native_primitive: NativePrimitive,
+    pub input_policy: InputPolicy,
     pub verifier: Verifier,
     pub limitations: Vec<String>,
     pub fixtures: Vec<String>,
@@ -55,6 +56,13 @@ pub enum NativePrimitive {
     UnicodeText,
     SelectOption,
     FileChooser,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputPolicy {
+    SoftwarePreferred,
+    NativeRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -179,6 +187,13 @@ impl Registry {
         }
         Ok(definition)
     }
+
+    pub fn input_policy(&self, role: SemanticRole) -> Result<InputPolicy, RegistryError> {
+        self.modules
+            .get(&role)
+            .map(|definition| definition.input_policy)
+            .ok_or(RegistryError::UnsupportedRole)
+    }
 }
 
 fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryError> {
@@ -259,6 +274,13 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
     {
         return Err(RegistryError::InvalidCatalog(
             "module boundary does not match audited role".into(),
+        ));
+    }
+    if definition.input_policy == InputPolicy::SoftwarePreferred
+        && definition.native_primitive != NativePrimitive::PrimaryClick
+    {
+        return Err(RegistryError::InvalidCatalog(
+            "software_preferred requires the finite primary_click primitive".into(),
         ));
     }
     Ok(())
@@ -418,5 +440,13 @@ mod tests {
             .modules
             .values()
             .all(|definition| definition.publication_status == PublicationStatus::Implementation));
+        assert_eq!(
+            registry.input_policy(SemanticRole::Button).unwrap(),
+            InputPolicy::SoftwarePreferred
+        );
+        assert_eq!(
+            registry.input_policy(SemanticRole::TextField).unwrap(),
+            InputPolicy::NativeRequired
+        );
     }
 }

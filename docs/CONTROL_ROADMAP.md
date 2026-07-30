@@ -14,7 +14,7 @@ A control enters the Catalog only when the branch contains:
 - one control-specific postcondition verifier;
 - fixtures for success, unavailable state, stale state, coverage, and focus;
 - Extension and Rust tests, including editable-value leak checks when needed;
-- a real Extension → Native Host → Runtime → MCP → native-input receipt;
+- a real Extension → Native Host → Runtime → MCP → Registry-selected input receipt;
 - Chrome and Edge evidence fields, even while they remain `pending`.
 
 `implementation` means the source and focused development gate exist.
@@ -29,7 +29,7 @@ Status: SDK v1 development freeze complete on 2026-07-28.
 
 The macOS Chrome for Testing development route has verified all four loops.
 The managed Edge route uses the same Extension source, Host protocol, Runtime,
-MCP tools, native input, fixtures, and probe. `./scripts/dev.sh test all` runs
+MCP tools, registered input, fixtures, and probe. `./scripts/dev.sh test all` runs
 both browser profiles in sequence and separates their evidence. Paired run
 `20260728T224742Z` passed both browsers on one source candidate and froze the
 module contract. The clean signed-product, Windows, and release gates remain

@@ -50,10 +50,11 @@ does not intercept `window.confirm`, synthesize an Enter key, or add a browser
 chrome fallback.
 
 The Runtime validates identity, revision, focus, topmost state, and geometry,
-dispatches a registered input backend, waits for fresh observations, and records receipts.
+selects a registered input backend, waits for fresh observations, and records receipts.
 It also loads the three-field Profile described in `PROFILE_ARCHITECTURE.md`.
 The Profile supplies behavior text to the Agent and bans named controls from
-the Agent surface.
+the Agent surface. A separate user-local input-policy log records verified
+per-page control experience; it is not Profile data and is never committed.
 
 ### Truth Layer
 
@@ -93,9 +94,11 @@ discover
   → receipt | failed | limited
 ```
 
-The default backend executes real OS input. The audited reflex module may also
-request token-bound software pointer input inside the Extension. An accepted
-input event is not automatically a successful control action.
+Each Catalog entry declares either `software_preferred` or `native_required`.
+Software-preferred click controls use a token-bound Extension pointer sequence;
+editable, select, and file-input controls require real OS input. A user-local
+receipt-backed rule may strengthen one page/control from software to native.
+An accepted input event is not automatically a successful control action.
 For example, checkbox success requires a checked-state transition; link success
 may require a document transition or an agent-owned new tab. If the semantic
 postcondition cannot be proved, the receipt says delivered/unverified rather
@@ -104,15 +107,15 @@ than successful.
 ## Control-module boundary
 
 Each cataloged control declares its safe state, affordances, implementation
-family, native primitive, verifier, limitations, fixtures, and browser evidence.
+family, input policy, primitive, verifier, limitations, fixtures, and browser evidence.
 Similar controls share code. Agents continue to use generic observe/act tools;
 the Registry dispatches the correct module from the opaque token.
 
 Modules cannot send arbitrary code to the Host. The Host exposes a finite set of
 primitives such as pointer movement, allowed buttons, wheel, allowlisted key
 chords, Unicode text, selection, and bounded drag. The `native` backend uses OS
-input. The `soft` backend is restricted to the audited reflex-target click and
-dispatches from the Extension only after the same token and revision
+input. The `soft` backend is restricted to the Registry's finite click roles
+and dispatches from the Extension only after the same token and revision
 revalidation. It accepts no Agent coordinate or locator. The current v1 route
 uses opaque action tokens.
 
@@ -120,6 +123,23 @@ Modules own semantic interpretation and the control-specific closed loop. They
 execute through registered primitives and report what occurred. Profile
 filtering happens outside the modules and cannot change their native action or
 verification logic.
+
+### User-local input policy
+
+The Catalog is the portable default; the user's runtime history is the local
+exception layer. For a normalized HTTP(S) page path plus semantic role and safe
+control name, the Runtime may record `software` after a verified software
+receipt or `native` after an unverified/unchanged software receipt. Query,
+fragment, credentials, editable values, locators, coordinates, and protected
+values are never stored. The user or Agent may explicitly remember the stronger
+native choice for a current token and may inspect the log through MCP.
+An explicit software diagnostic cannot bypass a learned native rule.
+
+Learning changes only the next fresh action. Saccade never turns an unverified
+software dispatch into an immediate native retry because that could activate a
+control twice. `TargetInvalidated` does not teach a backend preference. A
+Catalog `native_required` entry cannot be weakened by local history. Managed
+tests isolate and restore the user's log.
 
 The Profile contains `name`, Agent-facing `behavior`, and a `ban` list. The
 Runtime filters banned controls before MCP exposure and rejects action tokens
@@ -196,13 +216,23 @@ Paired managed run `20260729T225249Z` produced 14 native verified receipts in
 both Chrome and Edge and covered bounded structural reading, Profile behavior,
 Profile bans, and stale-token rejection. This remains development evidence.
 
+The automatic input-policy extension adds a Catalog default for all 15 controls
+and a user-local exception log without changing either v1 wire schema. Paired
+managed run `20260730T002519Z` produced seven software-verified click receipts
+and eight native-verified receipts in each browser, including
+link navigation. Each also proved that an unverified software dispatch teaches
+native only for the next fresh token, rejects a diagnostic software bypass,
+and then verifies the fresh token through OS input.
+These are local development artifacts; Catalog status remains `implementation`.
+
 Observation order is monotonic per tab. Revisions advance within a document;
 when a new document identity is accepted, the Host retires the prior identity
 and rejects any delayed snapshot from it. This prevents a late pre-navigation
 message from replacing the current observation or contaminating a receipt.
 
 Public-page compatibility is a separate development gate. Saccade must first
-produce its own native verified receipts. A Playwright harness may then run in
+produce its own verified receipts through the Registry-selected backend. A
+Playwright harness may then run in
 fresh contexts as an out-of-band reference oracle for accessible name, state,
 and screenshot comparison. It is absent from the production route and cannot
 create or upgrade a Saccade receipt. Run `20260729T211221Z` matched radio,
