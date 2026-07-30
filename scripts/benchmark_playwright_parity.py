@@ -45,10 +45,12 @@ class AgentViews:
         if view.get("schema") != "saccade.agent-view/1":
             return view
         tab_id = str(view["tab_id"])
+        defaults = view.get("object_defaults") or {}
         if view["mode"] == "full":
             snapshot = {
                 "schema": "saccade.agent-browser-state/1",
                 **{key: value for key, value in view.items() if key not in {"schema", "mode"}},
+                "objects": [dict(defaults, **item) for item in view.get("objects", [])],
                 "changes": [],
             }
             self.tabs[tab_id] = snapshot
@@ -62,7 +64,7 @@ class AgentViews:
             if change["kind"] == "disappeared":
                 objects.pop(change["object_id"], None)
             else:
-                item = dict(change["object"])
+                item = dict(defaults, **change["object"])
                 objects[item["object_id"]] = item
         for authority in view.get("authorities", []):
             item = objects.get(authority["object_id"])
@@ -211,10 +213,20 @@ def run_saccade(
             payloads = [opened_response.get("result") or opened_response.get("error")]
             observe_calls = 0
             observation: dict[str, Any] | None = None
+            after_revision: int | None = None
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
                 observe_calls += 1
-                observed_response, _ = client.tool("saccade.web.observe", {"tab_id": tab_id})
+                arguments: dict[str, Any] = {"tab_id": tab_id}
+                if after_revision is not None:
+                    arguments.update({
+                        "after_revision": after_revision,
+                        "timeout_ms": max(
+                            1,
+                            min(30_000, int((deadline - time.monotonic()) * 1000)),
+                        ),
+                    })
+                observed_response, _ = client.tool("saccade.web.observe", arguments)
                 payloads.append(observed_response.get("result") or observed_response.get("error"))
                 if not observed_response.get("error"):
                     candidate = views.apply(result_value(observed_response))
@@ -225,7 +237,7 @@ def run_saccade(
                     if expected_text.casefold() in visible_text.casefold():
                         observation = candidate
                         break
-                time.sleep(0.05)
+                    after_revision = int(candidate["revision"])
             if observation is None:
                 raise RuntimeError(f"Saccade did not return expected text {expected_text!r}")
             task_ms = round((time.perf_counter() - started) * 1000, 3)
@@ -257,6 +269,26 @@ PLAYWRIGHT_TEXT_FUNCTION = """() => {
 }"""
 
 
+def failure_markers(text: str) -> list[str]:
+    folded = text.casefold()
+    markers = [
+        marker
+        for marker in (
+            "access denied",
+            "blocked",
+            "captcha",
+            "cloudflare",
+            "enable javascript",
+            "just a moment",
+            "verify you are human",
+        )
+        if marker in folded
+    ]
+    if not text.strip():
+        markers.append("empty_result")
+    return markers
+
+
 def run_playwright(
     command: list[str],
     url: str,
@@ -283,8 +315,13 @@ def run_playwright(
             article_response, read_ms = client.tool(
                 "browser_evaluate", {"function": PLAYWRIGHT_TEXT_FUNCTION}
             )
-            if expected_text.casefold() not in result_text(article_response).casefold():
-                raise RuntimeError(f"Playwright did not return expected text {expected_text!r}")
+            returned_text = result_text(article_response)
+            if expected_text.casefold() not in returned_text.casefold():
+                raise RuntimeError(
+                    "Playwright did not return expected text "
+                    f"{expected_text!r}; result_chars={len(returned_text)}; "
+                    f"markers={failure_markers(returned_text)}"
+                )
             payloads = [opened_response.get("result") or opened_response.get("error"), article_response.get("result") or article_response.get("error")]
             runs.append(
                 {
@@ -323,47 +360,73 @@ def main() -> int:
     token_counter = Tokens()
     started = time.monotonic()
     try:
-        saccade = run_saccade(
-            args.runtime.resolve(),
-            args.runtime_dir.resolve(),
-            args.url,
-            args.expect,
-            args.iterations,
-            token_counter,
-        )
-        playwright = run_playwright(
-            args.playwright_command,
-            args.url,
-            args.expect,
-            args.iterations,
-            token_counter,
-        )
-        saccade_summary = saccade["summary"]
-        playwright_summary = playwright["summary"]
-        saccade_cold = saccade["tool_schema_tokens"] + saccade_summary["cold"]["model_facing_tokens"]
-        playwright_cold = playwright["tool_schema_tokens"] + playwright_summary["cold"]["model_facing_tokens"]
+        try:
+            saccade = run_saccade(
+                args.runtime.resolve(),
+                args.runtime_dir.resolve(),
+                args.url,
+                args.expect,
+                args.iterations,
+                token_counter,
+            )
+            saccade_error = None
+        except Exception as error:  # noqa: BLE001
+            saccade = None
+            saccade_error = str(error)
+        try:
+            playwright = run_playwright(
+                args.playwright_command,
+                args.url,
+                args.expect,
+                args.iterations,
+                token_counter,
+            )
+            playwright_error = None
+        except Exception as error:  # noqa: BLE001
+            playwright = None
+            playwright_error = str(error)
+
+        if saccade is not None and playwright is not None:
+            saccade_summary = saccade["summary"]
+            playwright_summary = playwright["summary"]
+            saccade_cold = saccade["tool_schema_tokens"] + saccade_summary["cold"]["model_facing_tokens"]
+            playwright_cold = playwright["tool_schema_tokens"] + playwright_summary["cold"]["model_facing_tokens"]
+            verdict = "PASS" if saccade_summary["warm_p50_task_ms"] < playwright_summary["warm_p50_task_ms"] and saccade_summary["median_model_facing_tokens"] < playwright_summary["median_model_facing_tokens"] and saccade_cold < playwright_cold else "MIXED"
+            comparison = {
+                "warm_speed_ratio": round(saccade_summary["warm_p50_task_ms"] / playwright_summary["warm_p50_task_ms"], 3),
+                "marginal_token_ratio": round(saccade_summary["median_model_facing_tokens"] / playwright_summary["median_model_facing_tokens"], 3),
+                "cold_context_token_ratio": round(saccade_cold / playwright_cold, 3),
+                "saccade_cold_context_tokens": saccade_cold,
+                "playwright_cold_context_tokens": playwright_cold,
+            }
+        elif saccade is not None:
+            verdict = "SACCADE_ONLY"
+            comparison = None
+        elif playwright is not None:
+            verdict = "PLAYWRIGHT_ONLY"
+            comparison = None
+        else:
+            verdict = "ERROR"
+            comparison = None
+
         report = {
-            "schema": "saccade-playwright-parity/2",
-            "verdict": "PASS" if saccade_summary["warm_p50_task_ms"] < playwright_summary["warm_p50_task_ms"] and saccade_summary["median_model_facing_tokens"] < playwright_summary["median_model_facing_tokens"] and saccade_cold < playwright_cold else "MIXED",
+            "schema": "saccade-playwright-parity/4",
+            "verdict": verdict,
             "url": args.url,
             "expected_text": args.expect,
             "iterations": args.iterations,
             "tokenizer": "o200k_base",
             "scope": "Complete MCP tool results and all advertised tool schemas; Playwright uses snapshot-mode none and browser_evaluate.",
             "saccade": saccade,
+            "saccade_error": saccade_error,
             "playwright": playwright,
-            "comparison": {
-                "warm_speed_ratio": round(saccade_summary["warm_p50_task_ms"] / playwright_summary["warm_p50_task_ms"], 3),
-                "marginal_token_ratio": round(saccade_summary["median_model_facing_tokens"] / playwright_summary["median_model_facing_tokens"], 3),
-                "cold_context_token_ratio": round(saccade_cold / playwright_cold, 3),
-                "saccade_cold_context_tokens": saccade_cold,
-                "playwright_cold_context_tokens": playwright_cold,
-            },
+            "playwright_error": playwright_error,
+            "comparison": comparison,
             "duration_sec": round(time.monotonic() - started, 3),
         }
     except Exception as error:  # noqa: BLE001
         report = {
-            "schema": "saccade-playwright-parity/2",
+            "schema": "saccade-playwright-parity/4",
             "verdict": "ERROR",
             "error": str(error),
             "duration_sec": round(time.monotonic() - started, 3),

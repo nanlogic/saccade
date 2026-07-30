@@ -8,6 +8,7 @@ const TAB_ACL_KEY = 'saccade.tab_acl';
 const agentOwnedTabs = new Set();
 const userSharedTabs = new Set();
 const sessions = new Map();
+const authorizationPromises = new Map();
 let browserInstanceId;
 let nativePort;
 let connectPromise;
@@ -103,9 +104,29 @@ function navigableUrl(value) {
 }
 
 async function authorizeTab(tabId) {
-  if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
   const tab = await chrome.tabs.get(tabId);
   if (!isSupportedUrl(tab.url)) throw new Error('tab URL is not supported');
+  const existing = authorizationPromises.get(tabId);
+  if (existing?.url === tab.url) return existing.promise;
+  if (existing) {
+    return existing.promise.catch(() => {}).then(() => authorizeTab(tabId));
+  }
+  const entry = { url: tab.url, promise: null };
+  entry.promise = authorizeTabInner(tabId, tab.url).finally(() => {
+    if (authorizationPromises.get(tabId) === entry) authorizationPromises.delete(tabId);
+  });
+  authorizationPromises.set(tabId, entry);
+  return entry.promise;
+}
+
+async function authorizeTabInner(tabId, expectedUrl) {
+  if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.url !== expectedUrl) throw new Error('tab URL changed during collector authorization');
+  if (!isSupportedUrl(tab.url)) throw new Error('tab URL is not supported');
+  const prior = sessions.get(tabId);
+  if (prior?.url === tab.url && (prior.configuring || prior.configured)) return;
+  sessions.set(tabId, { last: null, url: tab.url, configuring: true });
   let ready = false;
   try { ready = (await chrome.tabs.sendMessage(tabId, { kind: 'collector.ping' }, { frameId: 0 }))?.ok === true; } catch (_error) { /* inject below */ }
   if (!ready) {
@@ -118,15 +139,16 @@ async function authorizeTab(tabId) {
       'src/controls/registry.js', 'src/collector.js',
     ] });
   }
-  sessions.set(tabId, { last: null });
   try {
     const configured = await chrome.tabs.sendMessage(tabId, { kind: 'collector.configure', config: {
       browserInstanceId, tabId: String(tabId), frameId: `frame.${tabId}.0`,
     } }, { frameId: 0 });
     if (!configured?.ok) throw new Error(configured?.error || 'collector configuration failed');
+    const session = sessions.get(tabId);
+    if (session?.url === tab.url) { session.configuring = false; session.configured = true; }
   } catch (error) {
     const detail = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 512);
-    sessions.set(tabId, { last: null, error: detail });
+    sessions.set(tabId, { last: null, url: tab.url, error: detail });
     throw error;
   }
 }
@@ -162,7 +184,7 @@ async function handleHostCommand(command) {
     await persistAcl();
     reply(command, { tab_id: String(tab.id), opened: true });
     const current = await chrome.tabs.get(tab.id);
-    if (current.status === 'complete' && isSupportedUrl(current.url)) authorizeTab(tab.id).catch(reportAuthorizationFailure);
+    if (isSupportedUrl(current.url)) authorizeTab(tab.id).catch(reportAuthorizationFailure);
   } else if (command.kind === 'prepare_action') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
@@ -234,7 +256,9 @@ chrome.tabs.onRemoved.addListener((tabId) => { sessions.delete(tabId); agentOwne
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (!isAuthorized(tabId)) return;
   if (change.status === 'loading') sessions.delete(tabId);
-  if (change.status === 'complete' && isSupportedUrl(tab.url)) authorizeTab(tabId).catch(reportAuthorizationFailure);
+  if ((change.url || change.status === 'loading' || change.status === 'complete') && isSupportedUrl(tab.url)) {
+    authorizeTab(tabId).catch(reportAuthorizationFailure);
+  }
 });
 chrome.runtime.onStartup.addListener(() => { connectHost().catch(scheduleReconnect); });
 chrome.runtime.onInstalled.addListener(() => { connectHost().catch(scheduleReconnect); });

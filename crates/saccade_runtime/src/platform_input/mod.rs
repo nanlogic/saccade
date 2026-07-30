@@ -12,12 +12,12 @@ use crate::NativeInput;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeStep {
     PrimaryClick,
+    TextFocusHandoff,
     UnicodeText,
     ChoicePopupDelay,
     ChoiceHome,
     ChoiceNext,
     Return,
-    PostActionDelay,
     FileDialogDelay,
     FileDialogGoTo,
     FileDialogFieldDelay,
@@ -79,9 +79,11 @@ fn event_plan(
 ) -> anyhow::Result<Vec<NativeStep>> {
     match (prepared.operation, payload) {
         (ActionOperation::Click, ActionPayload::None) => Ok(vec![NativeStep::PrimaryClick]),
-        (ActionOperation::Type, ActionPayload::Text { .. }) => {
-            Ok(vec![NativeStep::PrimaryClick, NativeStep::UnicodeText])
-        }
+        (ActionOperation::Type, ActionPayload::Text { .. }) => Ok(vec![
+            NativeStep::PrimaryClick,
+            NativeStep::TextFocusHandoff,
+            NativeStep::UnicodeText,
+        ]),
         (ActionOperation::Select, ActionPayload::Select { .. }) => {
             prepared
                 .selection_index
@@ -98,7 +100,9 @@ fn event_plan(
                 std::iter::repeat(NativeStep::ChoiceNext)
                     .take(prepared.selection_index.unwrap() as usize),
             );
-            steps.extend([NativeStep::Return, NativeStep::PostActionDelay]);
+            // The closed loop waits for the selected-option verifier after Return.
+            // A fixed post-action sleep only duplicates that evidence-driven wait.
+            steps.push(NativeStep::Return);
             Ok(steps)
         }
         (ActionOperation::Upload, ActionPayload::File { path }) if !path.is_empty() => Ok(vec![
@@ -190,7 +194,11 @@ mod tests {
                 None,
             )
             .unwrap(),
-            vec![NativeStep::PrimaryClick, NativeStep::UnicodeText]
+            vec![
+                NativeStep::PrimaryClick,
+                NativeStep::TextFocusHandoff,
+                NativeStep::UnicodeText
+            ]
         );
     }
 
@@ -214,8 +222,7 @@ mod tests {
                 NativeStep::ChoiceHome,
                 NativeStep::ChoiceNext,
                 NativeStep::ChoiceNext,
-                NativeStep::Return,
-                NativeStep::PostActionDelay
+                NativeStep::Return
             ]
         );
     }

@@ -5,6 +5,21 @@ the clean public repository.
 
 ## Unreleased
 
+### Changed
+
+- compact repeated Agent Browser defaults without changing the v1 Host wire
+  schemas or semantic truth;
+- replace native select's redundant post-action sleep with fresh
+  selected-option verification and shorten the measured macOS popup handoff;
+- bind macOS keyboard delivery to the exact browser process that launched the
+  Native Host, after the real click and bounded focus handoff;
+- start authorized collection when an HTTP(S) document is loading instead of
+  waiting indefinitely for every third-party resource to complete;
+- project long internal object identities as short document-scoped Agent
+  aliases and retain 128-bit opaque action-token authority.
+- let `web.observe` wait locally for a revision newer than `after_revision`, so
+  an Agent does not spend tool calls or context polling unchanged truth.
+
 ### Added
 
 - one Catalog-backed Registry for button, link, text field, search field,

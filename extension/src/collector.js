@@ -278,7 +278,7 @@
     if (description) object.description = description;
     if (role === 'reflex_target') object.loop_class_token = reflexLoopClassToken;
     if (descriptor.affordances.length && getComputedStyle(interactionElement).pointerEvents !== 'none') {
-      const token = randomToken('action');
+      const token = randomToken('action', 16);
       object.action_token = token;
       tokenTargets.set(token, { element: interactionElement, role, objectId: id, affordances: descriptor.affordances });
     }
@@ -414,6 +414,7 @@
 
   function collect() {
     if (!config) return null;
+    if (document.readyState === 'loading') return null;
     tokenTargets.clear();
     objectTargets.clear();
     const objects = [];
@@ -588,6 +589,10 @@
     }, true);
     addEventListener('scroll', schedule, { passive: true });
     addEventListener('resize', schedule, { passive: true });
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', collect, { once: true });
+      return null;
+    }
     return collect();
   }
 

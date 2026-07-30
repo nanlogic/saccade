@@ -349,3 +349,87 @@ no editable-value disclosure. Median task time was 2.391 seconds and median
 model-facing output was 4,863 tokens. The out-of-band Playwright MCP best case,
 given selectors with snapshots disabled, measured 1.327 seconds and 421 tokens;
 the comparison is retained as a boundary, not rewritten as a Saccade win.
+
+## 2026-07-30: Compact Agent defaults and evidence-driven select settlement
+
+Accepted: `saccade.agent-view/1` declares common object defaults once and omits
+matching per-object `frame_id`, visible state, no-transition state, and
+non-protected state. Non-default values remain explicit, and the complete v1
+Host observation is unchanged. The redundant evidence `kind` is omitted from
+the Agent projection because semantic `role` already determines the object
+type. Form step summaries no longer echo name and operation already present in
+the request.
+
+Accepted: macOS native select keeps a bounded 300 ms popup handoff but removes
+the old 300 ms post-action sleep. The selected-option verifier and a fresh
+observation are the only success authority. Windows retains its existing popup
+handoff pending platform evidence, while also relying on the verifier rather
+than a second fixed post-action wait.
+
+Accepted: native editable input waits 100 ms after the real center click. On
+macOS the Host then posts Unicode to the exact browser PID that launched that
+Native Messaging Host. Native popup and file-dialog keys remain system HID
+events for the OS surface opened by the preceding real click. A fresh-profile
+Chrome regression showed that a global keyboard post could leave a caret in
+the intended field while delivering no value; PID-bound delivery restored two
+consecutive full control gates and the public Selenium form gate. There is no
+retry, arbitrary process choice, or weakening of `has_value` verification.
+
+## 2026-07-30: Collector readiness does not wait for all page resources
+
+Accepted: an authorized HTTP(S) tab starts collector injection after document
+commit while Chrome reports `loading`, with per-tab authorization deduplication.
+The previous `complete` dependency failed on GameSpot because advertising and
+other third-party resources kept the tab incomplete past the 15-second
+Truth-Layer gate. Initial truth may grow through ordinary deltas as the page
+continues rendering; navigation still retires the previous document.
+Correction from the first reduction: injection begins during loading, but the
+collector withholds actionable truth until `DOMContentLoaded`. This keeps
+pre-interactive document state out of the actionable Agent view while allowing
+later dynamic content to arrive as ordinary browser-pushed revisions.
+
+## 2026-07-30: Agent object aliases remove repeated internal identity cost
+
+Accepted: MCP replaces long internal object IDs with monotonically assigned
+document-scoped aliases (`o1`, `o2`, ...). Full views, deltas, and authority
+refreshes use the alias consistently. Select option aliases are translated back
+inside MCP before Host validation; an unknown or prior-document alias is
+rejected. Extension-to-Host identity and both v1 wire schemas are unchanged.
+
+Accepted: per-revision action tokens use 128 bits of browser randomness instead
+of 192 bits. They remain opaque, single-use, document/revision-bound, and
+required in addition to the non-authorizing Agent alias. Browser, document, and
+loop identities retain 192 bits.
+
+## 2026-07-30: Browser-pushed revision wait replaces Agent polling
+
+Accepted: `web.observe` optionally takes `after_revision` and a bounded
+`timeout_ms`. The Host waits on its observation condition variable and returns
+only after the authorized tab has a newer browser-pushed revision. The default
+without `after_revision` remains an immediate read of current truth. This is a
+local transport wait, not an LLM loop, page re-analysis, or invented delay.
+
+The public ScrapingCourse Anti-Bot Challenge exposed the cost of client polling:
+one cold run made 59 observe calls before dynamic truth appeared. With the
+revision wait available to clients, changing pages can block locally and return
+the next semantic delta without spending repeated tool results or model turns.
+
+## 2026-07-30: Current public parity results stay task-specific
+
+Recorded: the final Selenium official web-form candidate passed 3/3 in both
+lanes. Saccade's median was 2.475 seconds and 2,779 model-facing tokens;
+Playwright MCP's selector-best-case median was 1.325 seconds and 421 tokens.
+This is a Saccade compaction improvement, not a speed or token win.
+
+Recorded: on the public ScrapingCourse Anti-Bot Challenge, Saccade returned the
+required truth in 2/2 runs (505 ms cold, 233 ms warm, about 414 tokens). The
+official Playwright MCP lane returned 484 result characters but not the required
+challenge text, so the independent-lane report is `SACCADE_ONLY`. This supports
+only that exact reproducible page/task and does not authorize a general anti-bot
+or CAPTCHA-bypass claim.
+
+Recorded: GameSpot illustrates the remaining output problem. Both lanes passed;
+Saccade was faster on the warm comparison but returned the full 237-object Truth
+Layer at a 17,335-token median versus Playwright's custom text extraction at 394
+tokens. Future compaction must preserve the Truth Layer and browser-pushed delta
+model rather than hiding controls to improve a benchmark.

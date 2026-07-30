@@ -21,6 +21,9 @@ pub(super) fn dispatch(
     for step in event_plan(prepared, payload, selection_name)? {
         match step {
             NativeStep::PrimaryClick => click(prepared)?,
+            NativeStep::TextFocusHandoff => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
             NativeStep::UnicodeText => {
                 let ActionPayload::Text { text } = payload else {
                     bail!("type requires a text payload");
@@ -36,9 +39,6 @@ pub(super) fn dispatch(
             NativeStep::ChoiceHome => send_virtual_key(0x24)?,
             NativeStep::ChoiceNext => send_virtual_key(0x28)?,
             NativeStep::Return => send_virtual_key(0x0d)?,
-            NativeStep::PostActionDelay => {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-            }
             NativeStep::FileDialogDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(750));
             }

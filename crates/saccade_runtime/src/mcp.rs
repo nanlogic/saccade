@@ -121,7 +121,7 @@ fn call_tool(
     host: &HostClient,
     agent_views: &mut AgentViewState,
     name: &str,
-    arguments: Value,
+    mut arguments: Value,
 ) -> Result<Value> {
     let method = name
         .strip_prefix("saccade.")
@@ -143,6 +143,7 @@ fn call_tool(
     {
         bail!("tool is not registered: {name}");
     }
+    agent_views.expand_object_aliases(method, &mut arguments)?;
     validate_arguments(method, &arguments)?;
     let timeout = match method {
         "web.act" | "web.act_native" | "web.act_soft" => Duration::from_secs(30),
@@ -161,6 +162,13 @@ fn call_tool(
                 + 10_000,
         ),
         "tabs.open" => Duration::from_secs(15),
+        "web.observe" if arguments.get("after_revision").is_some() => Duration::from_millis(
+            arguments
+                .get("timeout_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or(10_000)
+                + 2_000,
+        ),
         _ => Duration::from_secs(10),
     };
     let result = host.call(
@@ -222,7 +230,7 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
     let (allowed, required): (&[&str], &[&str]) = match method {
         "system.capabilities" | "tabs.list" | "input_policy.list" => (&[], &[]),
         "tabs.open" => (&["url", "active"], &["url"]),
-        "web.observe" => (&["tab_id"], &["tab_id"]),
+        "web.observe" => (&["tab_id", "after_revision", "timeout_ms"], &["tab_id"]),
         "input_policy.remember_native" => {
             (&["tab_id", "action_token"], &["tab_id", "action_token"])
         }
@@ -273,6 +281,22 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
         }
         "web.observe" => {
             string(value, "tab_id")?;
+            if let Some(revision) = value.get("after_revision") {
+                revision
+                    .as_u64()
+                    .context("after_revision must be an integer")?;
+            }
+            if let Some(timeout_ms) = value.get("timeout_ms") {
+                if value.get("after_revision").is_none() {
+                    bail!("timeout_ms requires after_revision");
+                }
+                let timeout_ms = timeout_ms
+                    .as_u64()
+                    .context("timeout_ms must be an integer")?;
+                if !(1..=30_000).contains(&timeout_ms) {
+                    bail!("timeout_ms must be between 1 and 30000");
+                }
+            }
         }
         "input_policy.remember_native" => {
             string(value, "tab_id")?;
@@ -316,7 +340,7 @@ fn tools() -> Vec<Value> {
         json!({"name":"saccade.system.capabilities","description":"Read the active Profile behavior and Runtime capabilities.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.observe","description":"Read the Agent Browser: one full Truth Layer per document, then semantic deltas and opaque authority refreshes.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1}},"required":["tab_id"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.observe","description":"Read the Agent Browser: one full Truth Layer per document, then semantic deltas and opaque authority refreshes. Pass after_revision to wait locally for a newer browser revision instead of polling through the model.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id"],"additionalProperties":false}}),
         json!({"name":"saccade.web.act","description":"Run one revision-bound closed loop using the Registry-selected backend and return a compact receipt plus Agent-view update.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
         json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
         json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
@@ -330,20 +354,84 @@ fn tools() -> Vec<Value> {
 #[derive(Default)]
 struct AgentViewState {
     tabs: BTreeMap<String, ObservationSnapshot>,
+    aliases: BTreeMap<String, AgentObjectAliases>,
+}
+
+#[derive(Default)]
+struct AgentObjectAliases {
+    document_id: String,
+    by_internal: BTreeMap<String, String>,
+    by_alias: BTreeMap<String, String>,
+    next: u64,
 }
 
 impl AgentViewState {
+    fn aliases_for(&mut self, observation: &ObservationSnapshot) -> BTreeMap<String, String> {
+        let aliases = self.aliases.entry(observation.tab_id.clone()).or_default();
+        if aliases.document_id != observation.document_id {
+            *aliases = AgentObjectAliases {
+                document_id: observation.document_id.clone(),
+                next: 1,
+                ..AgentObjectAliases::default()
+            };
+        }
+        for object in &observation.objects {
+            if aliases.by_internal.contains_key(&object.object_id) {
+                continue;
+            }
+            let alias = format!("o{}", aliases.next);
+            aliases.next += 1;
+            aliases
+                .by_internal
+                .insert(object.object_id.clone(), alias.clone());
+            aliases.by_alias.insert(alias, object.object_id.clone());
+        }
+        aliases.by_internal.clone()
+    }
+
+    fn expand_object_aliases(&self, method: &str, arguments: &mut Value) -> Result<()> {
+        if !matches!(
+            method,
+            "web.act" | "web.act_native" | "web.act_soft" | "web.form.fill"
+        ) {
+            return Ok(());
+        }
+        let tab_id = arguments.get("tab_id").and_then(Value::as_str);
+        let document_id = arguments.get("document_id").and_then(Value::as_str);
+        let Some((tab_id, document_id)) = tab_id.zip(document_id) else {
+            return Ok(());
+        };
+        let aliases = self
+            .aliases
+            .get(tab_id)
+            .filter(|aliases| aliases.document_id == document_id)
+            .context("Agent object aliases are stale or unavailable")?;
+        if method == "web.form.fill" {
+            if let Some(actions) = arguments.get_mut("actions").and_then(Value::as_array_mut) {
+                for action in actions {
+                    expand_payload_alias(action.get_mut("payload"), aliases)?;
+                }
+            }
+        } else {
+            expand_payload_alias(arguments.get_mut("payload"), aliases)?;
+        }
+        Ok(())
+    }
+
     fn project(&mut self, observation: ObservationSnapshot) -> Result<Value> {
+        let aliases = self.aliases_for(&observation);
         let previous = self
             .tabs
             .insert(observation.tab_id.clone(), observation.clone());
         let Some(previous) = previous else {
-            return full_agent_view(observation);
+            return full_agent_view(observation, &aliases);
         };
         if previous.document_id != observation.document_id || observation.gap {
-            return full_agent_view(observation);
+            return full_agent_view(observation, &aliases);
         }
 
+        let previous_default_frame = default_frame_id(&previous);
+        let current_default_frame = default_frame_id(&observation);
         let previous_objects = previous
             .objects
             .iter()
@@ -360,13 +448,21 @@ impl AgentViewState {
             match previous_objects.get(object.object_id.as_str()) {
                 None => {
                     changed_ids.insert(object.object_id.clone());
-                    changes.push(json!({"kind":"appeared","object":agent_object_value(object)?}));
+                    changes.push(json!({"kind":"appeared","object":agent_object_value(object, current_default_frame.as_deref(), &aliases)?}));
                 }
                 Some(before)
-                    if agent_object_fingerprint(before)? != agent_object_fingerprint(object)? =>
+                    if agent_object_fingerprint(
+                        before,
+                        previous_default_frame.as_deref(),
+                        &aliases,
+                    )? != agent_object_fingerprint(
+                        object,
+                        current_default_frame.as_deref(),
+                        &aliases,
+                    )? =>
                 {
                     changed_ids.insert(object.object_id.clone());
-                    changes.push(json!({"kind":"updated","object":agent_object_value(object)?}));
+                    changes.push(json!({"kind":"updated","object":agent_object_value(object, current_default_frame.as_deref(), &aliases)?}));
                 }
                 _ => {}
             }
@@ -376,14 +472,14 @@ impl AgentViewState {
                 changed_ids.insert(object.object_id.clone());
                 changes.push(json!({
                     "kind":"disappeared",
-                    "object_id":object.object_id
+                    "object_id":aliases.get(&object.object_id).context("missing Agent object alias")?
                 }));
             }
         }
 
         let population = previous.objects.len().max(observation.objects.len());
         if changes.len() > 100 || (population > 20 && changes.len() * 2 > population) {
-            return full_agent_view(observation);
+            return full_agent_view(observation, &aliases);
         }
 
         let authorities = observation
@@ -393,8 +489,9 @@ impl AgentViewState {
             .filter_map(|object| {
                 let action_token = object.action_token.as_ref()?;
                 let prior = previous_objects.get(object.object_id.as_str())?;
+                let alias = aliases.get(&object.object_id)?;
                 (prior.action_token.as_ref() != Some(action_token))
-                    .then(|| json!({"object_id":object.object_id,"action_token":action_token}))
+                    .then(|| json!({"object_id":alias,"action_token":action_token}))
             })
             .collect::<Vec<_>>();
         let frames_changed = previous.frames != observation.frames;
@@ -406,6 +503,7 @@ impl AgentViewState {
             "document_id":observation.document_id,
             "revision":observation.revision,
             "viewport_revision":observation.viewport_revision,
+            "object_defaults":agent_object_defaults(current_default_frame.as_deref()),
             "changes":changes,
             "authorities":authorities,
             "frames":frames_changed.then_some(observation.frames),
@@ -416,11 +514,41 @@ impl AgentViewState {
     }
 }
 
-fn full_agent_view(observation: ObservationSnapshot) -> Result<Value> {
+fn expand_payload_alias(payload: Option<&mut Value>, aliases: &AgentObjectAliases) -> Result<()> {
+    let Some(payload) = payload.and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    if payload.get("kind").and_then(Value::as_str) != Some("select") {
+        return Ok(());
+    }
+    let candidate = payload
+        .get("option_object_id")
+        .and_then(Value::as_str)
+        .context("select payload omitted option_object_id")?;
+    let internal = aliases
+        .by_alias
+        .get(candidate)
+        .cloned()
+        .or_else(|| {
+            aliases
+                .by_internal
+                .contains_key(candidate)
+                .then(|| candidate.to_string())
+        })
+        .context("select option alias is stale or unknown")?;
+    payload.insert("option_object_id".into(), Value::String(internal));
+    Ok(())
+}
+
+fn full_agent_view(
+    observation: ObservationSnapshot,
+    aliases: &BTreeMap<String, String>,
+) -> Result<Value> {
+    let default_frame = default_frame_id(&observation);
     let objects = observation
         .objects
         .iter()
-        .map(agent_object_value)
+        .map(|object| agent_object_value(object, default_frame.as_deref(), aliases))
         .collect::<Result<Vec<_>>>()?;
     Ok(json!({
         "schema":"saccade.agent-view/1",
@@ -430,6 +558,7 @@ fn full_agent_view(observation: ObservationSnapshot) -> Result<Value> {
         "document_id":observation.document_id,
         "revision":observation.revision,
         "viewport_revision":observation.viewport_revision,
+        "object_defaults":agent_object_defaults(default_frame.as_deref()),
         "frames":observation.frames,
         "objects":objects,
         "coverage":observation.coverage,
@@ -438,8 +567,28 @@ fn full_agent_view(observation: ObservationSnapshot) -> Result<Value> {
     }))
 }
 
-fn agent_object_fingerprint(object: &saccade_protocol::ObservedObject) -> Result<Value> {
-    let mut value = agent_object_value(object)?;
+fn default_frame_id(observation: &ObservationSnapshot) -> Option<String> {
+    (observation.frames.len() == 1).then(|| observation.frames[0].frame_id.clone())
+}
+
+fn agent_object_defaults(default_frame: Option<&str>) -> Value {
+    let mut defaults = serde_json::Map::from_iter([
+        ("visibility".into(), Value::String("visible".into())),
+        ("transition".into(), Value::String("none".into())),
+        ("protected".into(), Value::Bool(false)),
+    ]);
+    if let Some(frame_id) = default_frame {
+        defaults.insert("frame_id".into(), Value::String(frame_id.into()));
+    }
+    Value::Object(defaults)
+}
+
+fn agent_object_fingerprint(
+    object: &saccade_protocol::ObservedObject,
+    default_frame: Option<&str>,
+    aliases: &BTreeMap<String, String>,
+) -> Result<Value> {
+    let mut value = agent_object_value(object, default_frame, aliases)?;
     let fields = value
         .as_object_mut()
         .context("observed object did not serialize as an object")?;
@@ -449,7 +598,11 @@ fn agent_object_fingerprint(object: &saccade_protocol::ObservedObject) -> Result
     Ok(value)
 }
 
-fn agent_object_value(object: &saccade_protocol::ObservedObject) -> Result<Value> {
+fn agent_object_value(
+    object: &saccade_protocol::ObservedObject,
+    default_frame: Option<&str>,
+    aliases: &BTreeMap<String, String>,
+) -> Result<Value> {
     let mut value = serde_json::to_value(object)?;
     let fields = value
         .as_object_mut()
@@ -458,6 +611,30 @@ fn agent_object_value(object: &saccade_protocol::ObservedObject) -> Result<Value
     fields.remove("document_bounds");
     fields.remove("viewport_bounds");
     fields.remove("loop_class_token");
+    fields.insert(
+        "object_id".into(),
+        Value::String(
+            aliases
+                .get(&object.object_id)
+                .context("missing Agent object alias")?
+                .clone(),
+        ),
+    );
+    // `role` is the complete Agent semantic type; the evidence-only `kind`
+    // duplicates it. Common safe values live once in object_defaults.
+    fields.remove("kind");
+    if fields.get("frame_id").and_then(Value::as_str) == default_frame {
+        fields.remove("frame_id");
+    }
+    if fields.get("visibility").and_then(Value::as_str) == Some("visible") {
+        fields.remove("visibility");
+    }
+    if fields.get("transition").and_then(Value::as_str) == Some("none") {
+        fields.remove("transition");
+    }
+    if fields.get("protected").and_then(Value::as_bool) == Some(false) {
+        fields.remove("protected");
+    }
     Ok(value)
 }
 
@@ -564,6 +741,14 @@ mod tests {
             validate_arguments("web.observe", &json!({"tab_id":"x","selector":"button"})).is_err()
         );
         assert!(validate_arguments(
+            "web.observe",
+            &json!({"tab_id":"x","after_revision":4,"timeout_ms":1000})
+        )
+        .is_ok());
+        assert!(
+            validate_arguments("web.observe", &json!({"tab_id":"x","timeout_ms":1000})).is_err()
+        );
+        assert!(validate_arguments(
             "tabs.open",
             &json!({"url":"https://fixture.test","active":true})
         )
@@ -612,6 +797,19 @@ mod tests {
         assert_eq!(full["schema"], "saccade.agent-view/1");
         assert_eq!(full["mode"], "full");
         assert_eq!(full["objects"].as_array().unwrap().len(), 2);
+        assert_eq!(full["objects"][0]["object_id"], "o1");
+        assert_eq!(full["objects"][1]["object_id"], "o2");
+        assert_eq!(full["object_defaults"]["visibility"], "visible");
+        assert_eq!(full["object_defaults"]["transition"], "none");
+        assert_eq!(full["object_defaults"]["protected"], false);
+        assert_eq!(full["object_defaults"]["frame_id"], "frame.fixture");
+        for object in full["objects"].as_array().unwrap() {
+            assert!(object.get("kind").is_none());
+            assert!(object.get("frame_id").is_none());
+            assert!(object.get("visibility").is_none());
+            assert!(object.get("transition").is_none());
+            assert!(object.get("protected").is_none());
+        }
 
         first.revision += 1;
         first.viewport_revision += 1;
@@ -628,7 +826,7 @@ mod tests {
         assert_eq!(delta["changes"].as_array().unwrap().len(), 1);
         assert_eq!(delta["changes"][0]["kind"], "updated");
         assert_eq!(delta["authorities"].as_array().unwrap().len(), 1);
-        assert_eq!(delta["authorities"][0]["object_id"], "object-2");
+        assert_eq!(delta["authorities"][0]["object_id"], "o2");
         assert!(delta.get("objects").is_none());
 
         first.revision += 1;
@@ -639,5 +837,20 @@ mod tests {
         assert!(unavailable["changes"][0]["object"]
             .get("action_token")
             .is_none());
+    }
+
+    #[test]
+    fn select_option_alias_is_expanded_before_host_validation() {
+        let aliases = AgentObjectAliases {
+            document_id: "document-1".into(),
+            by_internal: BTreeMap::from([("internal-option".into(), "o7".into())]),
+            by_alias: BTreeMap::from([("o7".into(), "internal-option".into())]),
+            next: 8,
+        };
+        let mut payload = json!({"kind":"select","option_object_id":"o7"});
+        expand_payload_alias(Some(&mut payload), &aliases).unwrap();
+        assert_eq!(payload["option_object_id"], "internal-option");
+        let mut stale = json!({"kind":"select","option_object_id":"o999"});
+        assert!(expand_payload_alias(Some(&mut stale), &aliases).is_err());
     }
 }

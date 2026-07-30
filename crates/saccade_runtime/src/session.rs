@@ -221,8 +221,40 @@ impl NativeHostSession {
                 }))
             }
             "web.observe" => {
+                let object = params
+                    .as_object()
+                    .context("web.observe params must be an object")?;
+                for key in object.keys() {
+                    if !["tab_id", "after_revision", "timeout_ms"].contains(&key.as_str()) {
+                        bail!("unexpected web.observe argument {key}");
+                    }
+                }
                 let tab_id = required_string(&params, "tab_id")?;
-                Ok(serde_json::to_value(self.current_observation(tab_id)?)?)
+                if params.get("timeout_ms").is_some() && params.get("after_revision").is_none() {
+                    bail!("timeout_ms requires after_revision");
+                }
+                let snapshot = match params.get("after_revision") {
+                    Some(value) => {
+                        let revision = value
+                            .as_u64()
+                            .context("after_revision must be an integer")?;
+                        let timeout_ms = params
+                            .get("timeout_ms")
+                            .map(|value| value.as_u64().context("timeout_ms must be an integer"))
+                            .transpose()?
+                            .unwrap_or(10_000);
+                        if !(1..=30_000).contains(&timeout_ms) {
+                            bail!("timeout_ms must be between 1 and 30000");
+                        }
+                        self.wait_for_observation_after(
+                            tab_id,
+                            revision,
+                            Duration::from_millis(timeout_ms),
+                        )?
+                    }
+                    None => self.current_observation(tab_id)?,
+                };
+                Ok(serde_json::to_value(snapshot)?)
             }
             "tabs.list" => self.request_extension("tabs.list", json!({}), EXTENSION_TIMEOUT),
             "tabs.open" => {
@@ -698,8 +730,6 @@ impl NativeHostSession {
             summaries.push(json!({
                 "sequence":index + 1,
                 "role":step.role,
-                "name":step.name,
-                "operation":step.operation,
                 "dispatch_status":receipt.dispatch_status,
                 "postcondition":receipt.postcondition,
                 "settled":receipt.settled
@@ -1024,6 +1054,35 @@ impl NativeHostSession {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 bail!("collector did not produce the first observation for tab {tab_id}");
+            }
+            observations = self
+                .observation_changed
+                .wait_timeout(observations, remaining)
+                .map_err(lock_error)?
+                .0;
+        }
+    }
+
+    fn wait_for_observation_after(
+        &self,
+        tab_id: &str,
+        revision: u64,
+        timeout: Duration,
+    ) -> Result<ObservationSnapshot> {
+        let deadline = Instant::now() + timeout;
+        let mut observations = self.observations.lock().map_err(lock_error)?;
+        loop {
+            if let Some(snapshot) = observations.current.get(tab_id) {
+                if snapshot.revision > revision {
+                    return Ok(snapshot.clone());
+                }
+            }
+            if !self.extension_connected.load(Ordering::Acquire) {
+                bail!("extension disconnected while waiting for tab observation");
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                bail!("no observation after revision {revision} for tab {tab_id}");
             }
             observations = self
                 .observation_changed
@@ -1544,6 +1603,74 @@ mod tests {
         let (settled, verified) = worker.join().unwrap().unwrap();
         assert_eq!(settled.revision, 3);
         assert!(verified);
+    }
+
+    #[test]
+    fn observe_after_revision_waits_for_the_next_browser_push() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(1, field(false))).unwrap(),
+            })
+            .unwrap();
+
+        let waiting = Arc::clone(&session);
+        let worker = std::thread::spawn(move || {
+            waiting.handle_control(ControlRequest {
+                id: 9,
+                method: "web.observe".into(),
+                params: json!({
+                    "tab_id":"tab-1",
+                    "after_revision":1,
+                    "timeout_ms":1000
+                }),
+                capability: waiting.capability(),
+            })
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(2, field(true))).unwrap(),
+            })
+            .unwrap();
+
+        let response = worker.join().unwrap();
+        assert!(response.ok, "{:?}", response.error);
+        let observation: ObservationSnapshot =
+            serde_json::from_value(response.result.unwrap()).unwrap();
+        assert_eq!(observation.revision, 2);
+
+        let invalid = session.handle_control(ControlRequest {
+            id: 10,
+            method: "web.observe".into(),
+            params: json!({"tab_id":"tab-1","timeout_ms":100}),
+            capability: session.capability(),
+        });
+        assert!(!invalid.ok);
     }
 
     #[test]

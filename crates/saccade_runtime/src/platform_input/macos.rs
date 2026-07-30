@@ -38,6 +38,8 @@ extern "C" {
     fn CGEventSetFlags(event: CGEventRef, flags: u64);
     fn CGEventKeyboardSetUnicodeString(event: CGEventRef, length: usize, string: *const u16);
     fn CGEventPost(tap: u32, event: CGEventRef);
+    fn CGEventPostToPid(pid: i32, event: CGEventRef);
+    fn getppid() -> i32;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -57,6 +59,9 @@ const KEY_G: u16 = 0x05;
 const FLAG_SHIFT: u64 = 1 << 17;
 const FLAG_COMMAND: u64 = 1 << 20;
 const HID_SYSTEM_STATE: i32 = 1;
+const KEY_PRESS_DURATION: std::time::Duration = std::time::Duration::from_millis(10);
+const TEXT_FOCUS_HANDOFF_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+const CHOICE_POPUP_READY_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
 
 struct EventSource(CGEventSourceRef);
 
@@ -89,6 +94,14 @@ pub(super) fn dispatch(
         x: prepared.screen_bounds.x + prepared.screen_bounds.width / 2.0,
         y: prepared.screen_bounds.y + prepared.screen_bounds.height / 2.0,
     };
+    // Native Messaging launches the Host as a direct child of the browser.
+    // Keep keyboard delivery bound to that exact browser process so another
+    // application becoming frontmost between prepare and dispatch cannot
+    // receive the text or selection keystrokes.
+    let browser_pid = unsafe { getppid() };
+    if browser_pid <= 1 {
+        bail!("native Host has no valid browser parent process");
+    }
     for step in event_plan(prepared, payload, selection_name)? {
         match step {
             NativeStep::PrimaryClick => {
@@ -99,21 +112,26 @@ pub(super) fn dispatch(
                 std::thread::sleep(std::time::Duration::from_millis(50));
                 post_mouse(source.0, LEFT_MOUSE_UP, point)?;
             }
+            NativeStep::TextFocusHandoff => {
+                // Let Chromium finish focus/autofill routing before Unicode is
+                // posted. There is no retry if the subsequent verifier fails.
+                std::thread::sleep(TEXT_FOCUS_HANDOFF_DELAY);
+            }
             NativeStep::UnicodeText => {
                 let ActionPayload::Text { text } = payload else {
                     bail!("type requires a text payload");
                 };
-                post_unicode(text)?;
+                post_unicode(browser_pid, text)?;
             }
             NativeStep::ChoicePopupDelay => {
-                std::thread::sleep(std::time::Duration::from_millis(750));
+                // Chromium's native menu needs a short handoff before it accepts
+                // keyboard input. Success is still decided by the fresh selected
+                // option observation, never by this timer.
+                std::thread::sleep(CHOICE_POPUP_READY_DELAY);
             }
             NativeStep::ChoiceHome => post_virtual_key(115)?,
             NativeStep::ChoiceNext => post_virtual_key(125)?,
             NativeStep::Return => post_virtual_key(KEY_RETURN)?,
-            NativeStep::PostActionDelay => {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-            }
             NativeStep::FileDialogDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(1500));
             }
@@ -125,7 +143,7 @@ pub(super) fn dispatch(
                 let ActionPayload::File { path } = payload else {
                     bail!("file chooser requires a path payload");
                 };
-                post_unicode(path)?;
+                post_unicode(browser_pid, path)?;
             }
             NativeStep::FileDialogSelectionDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(750));
@@ -214,18 +232,24 @@ fn post_mouse(source: CGEventSourceRef, mouse_type: u32, point: CGPoint) -> Resu
     Ok(())
 }
 
-fn post_unicode(text: &str) -> Result<()> {
+fn post_unicode(browser_pid: i32, text: &str) -> Result<()> {
     let utf16: Vec<u16> = text.encode_utf16().collect();
+    let source = event_source()?;
     for key_down in [true, false] {
-        // SAFETY: null source is allowed; utf16 lives through the synchronous call.
-        let event = unsafe { CGEventCreateKeyboardEvent(ptr::null_mut(), 0, key_down) };
+        // SAFETY: the source is live and utf16 lives through the synchronous call.
+        let event = unsafe { CGEventCreateKeyboardEvent(source.0, 0, key_down) };
         if event.is_null() {
             bail!("CoreGraphics could not create a keyboard event");
         }
         unsafe {
-            CGEventKeyboardSetUnicodeString(event, utf16.len(), utf16.as_ptr());
-            CGEventPost(HID_EVENT_TAP, event);
+            if key_down {
+                CGEventKeyboardSetUnicodeString(event, utf16.len(), utf16.as_ptr());
+            }
+            CGEventPostToPid(browser_pid, event);
             CFRelease(event.cast_const());
+        }
+        if key_down {
+            std::thread::sleep(KEY_PRESS_DURATION);
         }
     }
     Ok(())

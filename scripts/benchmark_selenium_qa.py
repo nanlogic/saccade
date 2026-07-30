@@ -51,14 +51,21 @@ def saccade_observe(
     timeout: float = 30.0,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
+    after_revision: int | None = None
     while time.monotonic() < deadline:
-        response, _ = client.tool("saccade.web.observe", {"tab_id": tab_id})
+        arguments: dict[str, Any] = {"tab_id": tab_id}
+        if after_revision is not None:
+            arguments.update({
+                "after_revision": after_revision,
+                "timeout_ms": max(1, min(30_000, int((deadline - time.monotonic()) * 1000))),
+            })
+        response, _ = client.tool("saccade.web.observe", arguments)
         payloads.append(call_payload(response))
         if not response.get("error"):
             observation = views.apply(result_value(response))
             if observation.get("objects"):
                 return observation
-        time.sleep(0.05)
+            after_revision = int(observation["revision"])
     raise RuntimeError("Saccade observation did not arrive")
 
 
@@ -79,9 +86,11 @@ def run_saccade(
         for _ in range(iterations):
             started = time.perf_counter()
             payloads: list[Any] = []
-            opened, _ = client.tool("saccade.tabs.open", {"url": URL, "active": True})
+            opened, open_ms = client.tool("saccade.tabs.open", {"url": URL, "active": True})
             payloads.append(call_payload(opened))
+            observe_started = time.perf_counter()
             observation = saccade_observe(client, views, result_value(opened)["tab_id"], payloads)
+            observe_ms = round((time.perf_counter() - observe_started) * 1000, 3)
             actions = []
             planned = []
             for role, name, operation, payload, option in (
@@ -102,7 +111,7 @@ def run_saccade(
                     "payload": action_payload,
                 })
                 planned.append(role)
-            form_response, _ = client.tool(
+            form_response, form_ms = client.tool(
                 "saccade.web.form.fill",
                 {
                     "browser_instance_id": observation["browser_instance_id"],
@@ -127,7 +136,7 @@ def run_saccade(
             ]
 
             submit = current_target(observation, "button", "Submit")
-            submit_response, _ = client.tool(
+            submit_response, submit_ms = client.tool(
                 "saccade.web.act",
                 {
                     "browser_instance_id": observation["browser_instance_id"],
@@ -156,6 +165,12 @@ def run_saccade(
                 {
                     "passed": True,
                     "task_ms": round((time.perf_counter() - started) * 1000, 3),
+                    "timing_ms": {
+                        "tabs_open": open_ms,
+                        "initial_observe": observe_ms,
+                        "form_fill": form_ms,
+                        "submit": submit_ms,
+                    },
                     "model_facing_tokens": tokens.count(payloads),
                     "model_facing_token_breakdown": {
                         "tabs_open": tokens.count(payloads[0]),

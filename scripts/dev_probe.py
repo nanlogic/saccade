@@ -129,10 +129,12 @@ class Mcp:
 
     def materialize_view(self, view: dict[str, Any]) -> dict[str, Any]:
         tab_id = str(view["tab_id"])
+        defaults = view.get("object_defaults") or {}
         if view["mode"] == "full":
             snapshot = {
                 "schema": "saccade.agent-browser-state/1",
                 **{key: value for key, value in view.items() if key not in {"schema", "mode"}},
+                "objects": [dict(defaults, **item) for item in view.get("objects", [])],
                 "changes": [],
             }
             self.agent_views[tab_id] = snapshot
@@ -147,7 +149,7 @@ class Mcp:
             if change["kind"] == "disappeared":
                 objects.pop(change["object_id"], None)
             else:
-                item = dict(change["object"])
+                item = dict(defaults, **change["object"])
                 objects[item["object_id"]] = item
         for authority in view.get("authorities", []):
             if authority["object_id"] in objects:

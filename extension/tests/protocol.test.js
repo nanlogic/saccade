@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { HOST_PROTOCOL, OBSERVATION_SCHEMA, envelope, parseHostMessage } = require('../src/protocol.js');
+const { HOST_PROTOCOL, OBSERVATION_SCHEMA, envelope, parseHostMessage, randomToken } = require('../src/protocol.js');
 const { normalizeOrigin, isProtectedFieldType } = require('../src/consent.js');
 
 test('Native Messaging envelope preserves the v1 wire names', () => {
@@ -17,6 +17,8 @@ test('Native Messaging envelope preserves the v1 wire names', () => {
   assert.equal(parseHostMessage({ protocol: 'wrong', kind: 'tabs.list' }), null);
   assert.equal(parseHostMessage({ protocol: HOST_PROTOCOL, kind: 'tabs.list', request_id: -1 }), null);
   assert.equal(parseHostMessage({ protocol: HOST_PROTOCOL, kind: 'tabs.list', selector: 'button' }), null);
+  assert.match(randomToken('action', 16), /^action\.[0-9a-f]{32}$/);
+  assert.throws(() => randomToken('action', 15));
 });
 
 test('consent helpers normalize origins and recognize protected field types', () => {
@@ -102,6 +104,8 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /kind: 'text', role, text, state, affordances: \[\], protected: false/);
   assert.match(collector, /element\.closest\(CONTROL_SELECTOR\)/);
   assert.match(collector, /TextEncoder/);
+  assert.match(collector, /document\.readyState === 'loading'/);
+  assert.match(collector, /DOMContentLoaded.*collect/s);
 });
 
 test('unrelated page mutations do not churn current control tokens', () => {
@@ -111,12 +115,16 @@ test('unrelated page mutations do not churn current control tokens', () => {
   assert.match(collector, /element\.matches\(OBSERVED_SELECTOR\)/);
 });
 
-test('open ownership precedes response and fast-complete tabs still start collection', () => {
+test('open ownership precedes response and loading tabs start collection without waiting for complete', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const open = worker.slice(worker.indexOf("command.kind === 'tabs.open'"), worker.indexOf("command.kind === 'prepare_action'"));
   assert.ok(open.indexOf('agentOwnedTabs.add(tab.id)') < open.indexOf('reply(command'));
-  assert.match(open, /current\.status === 'complete'.*authorizeTab\(tab\.id\)/s);
-  assert.match(worker, /change\.status === 'complete'.*authorizeTab\(tabId\)/s);
+  assert.match(open, /isSupportedUrl\(current\.url\).*authorizeTab\(tab\.id\)/s);
+  assert.match(worker, /change\.status === 'loading'.*sessions\.delete\(tabId\)/s);
+  assert.match(worker, /change\.url \|\| change\.status === 'loading' \|\| change\.status === 'complete'/);
+  assert.match(worker, /authorizationPromises\.get\(tabId\)/);
+  assert.match(worker, /existing\?\.url === tab\.url/);
+  assert.match(worker, /tab URL changed during collector authorization/);
 });
 
 test('prepare checks the revision basis after tab activation and focus', () => {

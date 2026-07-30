@@ -74,6 +74,21 @@ snapshots remain available to verification and local evidence; they are not
 repeated in Agent tool results. Exact document/viewport bounds, per-object
 evidence revisions, and loop-class tokens stay inside that evidence boundary;
 the Agent view retains semantic visibility and opaque object/action identity.
+The Agent view declares common object defaults once per response and omits
+those repeated fields from matching objects. An omitted default is not missing
+evidence: non-default visibility, transition, protection, and frame identity
+remain explicit.
+Long internal object identities are replaced at MCP with document-scoped Agent
+aliases such as `o1`. The alias remains stable for that Agent Browser document;
+MCP translates a selected option alias back to Host identity before validation.
+Aliases never become selectors or bypass revision-bound action tokens.
+
+Collector authorization begins after the HTTP(S) document commits and enters
+loading; it does not wait for every image, advertisement, or long-lived resource
+to reach browser `complete`. Authorization attempts are deduplicated per tab and
+document URL. The first actionable observation waits for `DOMContentLoaded`
+(`interactive`), preventing input into a half-initialized document. Mutations
+continue incrementally as remaining resources finish.
 
 ### Control SDK
 
@@ -123,6 +138,20 @@ against a fresh revision. Later items are refreshed by the same document-local
 object identity; the Agent does not re-read or re-plan the page between fields.
 The result contains value-free step summaries and one final Agent-view delta.
 Submit buttons and navigation remain separate actions.
+
+Native choice input uses one short platform handoff after opening the browser's
+real popup, then relies on the selected-option verifier and fresh observation
+instead of a second fixed post-action sleep. If the browser has not accepted
+the keyboard selection, the closed loop remains unverified; elapsed time never
+upgrades the result.
+
+Native editable input gives Chromium a bounded 100 ms focus handoff after the
+real center click. On macOS, keyboard events are then delivered to the exact
+browser PID that launched the Native Messaging Host. A different application
+becoming frontmost between prepare and dispatch therefore cannot receive
+editable text. Native popup and file-dialog keys remain system HID events for
+the real OS surface opened by the preceding click. Saccade does not retry an uncertain text dispatch;
+`has_value` still decides the receipt without revealing contents.
 
 ## Control-module boundary
 
@@ -269,6 +298,19 @@ disabled and measured 1.327 seconds and 421 tokens. This proves the corrected
 Saccade architecture and a large regression improvement; it does not claim
 universal performance superiority. Evidence is local development evidence and
 does not change Catalog publication status.
+
+The 2026-07-30 optimization candidate kept the same matched task at 3/3 for
+both products. Saccade measured 2.475 seconds and 2,779 model-facing tokens at
+the median; Playwright measured 1.325 seconds and 421 tokens. The shorter Agent
+object identities and value-free form summaries materially reduce Saccade
+context, but Playwright remains faster and smaller on this selector-best-case
+form task. On the public ScrapingCourse Anti-Bot Challenge, Saccade returned the
+required truth in both runs (505 ms cold, 233 ms warm, about 414 tokens), while
+the matched Playwright MCP lane did not return the required challenge text.
+This is one reproducible site result, not a claim to bypass CAPTCHA or defeat
+anti-bot systems generally. The same candidate passed three consecutive fresh
+Chrome control/Profile gates and one Edge control/Profile gate; all evidence
+remains local development evidence and the Catalog stays `implementation`.
 
 The managed ordinary native-mouse gate uses the same semantic button token,
 preparation, CoreGraphics input, reobservation, and button-effect verifier. It

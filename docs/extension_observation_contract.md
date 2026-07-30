@@ -112,6 +112,17 @@ the evidence revision, a delta may also carry an `authorities` list for
 semantically unchanged actionable objects. Those opaque refreshes are not
 semantic page changes.
 
+`saccade.agent-view/1` may place common values in `object_defaults`. Matching
+objects omit `frame_id`, `visibility=visible`, `transition=none`, and
+`protected=false`; consumers apply the declared defaults while reconstructing
+their Agent Browser. Non-default values remain on the object. The evidence-only
+`kind` is omitted because the Agent `role` is the complete semantic type. This
+is lossless response compaction over the unchanged Extension-to-Host snapshot.
+Internal object identities are likewise projected as short, document-scoped
+Agent aliases. Delta changes and authority refreshes use the same aliases. For
+select, MCP resolves the chosen option alias to the internal identity before
+the unchanged Host request is validated; stale or unknown aliases fail closed.
+
 Navigation creates a new document identity and invalidates all earlier facts
 and tokens. Object identity is runtime-only and held with `WeakMap`; it is not
 a selector, stable locator, DOM path, or identifier the Agent can construct.
@@ -162,6 +173,10 @@ The fields have distinct meanings:
 - `affordances`: the only operations the Agent may request.
 - `action_token`: opaque, single-use, document-and-revision-bound authority to
   request one advertised operation. It does not bypass Host revalidation.
+
+Action tokens carry at least 128 bits of browser randomness. Browser, document,
+and loop identities retain their independent longer entropy. Short Agent object
+aliases are not authorities and cannot replace an action token.
 
 The Agent never receives tag names, CSS selectors, XPath, DOM paths, event
 handlers, arbitrary attributes, raw accessibility trees, or page-supplied
@@ -388,9 +403,20 @@ reconstruct the current Agent Browser by applying `changes` and then opaque
 `authorities` to its previous view.
 
 `tabs.open` does not return success until the collector has produced the first
-authorized observation. Agents therefore do not poll an empty tab waiting for
-the Truth Layer. A later bounded wait API may wait for a revision newer than a
-supplied revision; clients must not invent delay loops outside it.
+authorized observation. Dynamic content may legitimately arrive after that
+first snapshot. `web.observe` therefore accepts `after_revision` plus a bounded
+`timeout_ms`: the Runtime waits on the browser-pushed observation stream and
+returns only after a newer revision exists. Agents and clients must use this
+local wait instead of polling unchanged truth through repeated model tool
+calls.
+
+The Extension injects and configures the collector once an authorized HTTP(S)
+document has committed and is loading. It MUST NOT require browser
+`status=complete`, because third-party resources may remain pending indefinitely.
+Concurrent load/update notifications are deduplicated; navigation still clears
+the old session before the new document is authorized. `collect()` withholds
+the first actionable observation while `readyState=loading` and publishes it at
+`DOMContentLoaded`; later resources arrive through ordinary deltas.
 
 DOM insertion, removal, safe attribute changes, visible text changes, scroll,
 resize, focus, and form state changes schedule observation refresh. Content not
@@ -414,6 +440,8 @@ disappeared, renamed, retyped, protected, unverified, navigated, or otherwise
 invalid target stops the plan. There is no rollback and no same-action backend
 fallback. The MCP result contains value-free step summaries and one final
 Agent-view update; immediate editable payloads do not enter receipts or views.
+Step order, role, dispatch status, postcondition, and settlement remain visible;
+the result does not echo the request's control name or operation.
 
 ## Local reflex loop
 
