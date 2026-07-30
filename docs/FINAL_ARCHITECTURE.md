@@ -64,6 +64,17 @@ limitations, disclosure, and receipts. The current v1 schema uses opaque action
 tokens and withholds locators, coordinates, editable values, and protected
 values. The active Profile may remove named controls from this projection.
 
+The Extension-to-Host evidence stream remains a complete
+`saccade.observation/1` snapshot. MCP maintains a per-Agent Browser view over
+that evidence: the first view for a document is complete, while later views
+contain only appeared, updated, and disappeared semantic objects plus refreshed
+opaque authorities. Navigation, a stream gap, or a sufficiently large layout or
+topology change resets the view with one new complete projection. Full internal
+snapshots remain available to verification and local evidence; they are not
+repeated in Agent tool results. Exact document/viewport bounds, per-object
+evidence revisions, and loop-class tokens stay inside that evidence boundary;
+the Agent view retains semantic visibility and opaque object/action identity.
+
 ### Control SDK
 
 The SDK contains:
@@ -103,6 +114,15 @@ For example, checkbox success requires a checked-state transition; link success
 may require a document transition or an agent-owned new tab. If the semantic
 postcondition cannot be proved, the receipt says delivered/unverified rather
 than successful.
+
+An Agent may submit a bounded form plan once. The Runtime resolves every
+initial token to runtime object identity before the first side effect, then
+executes the plan locally. Every item still performs its own prepare,
+revalidate, registered input, reobserve, verifier, and receipt transaction
+against a fresh revision. Later items are refreshed by the same document-local
+object identity; the Agent does not re-read or re-plan the page between fields.
+The result contains value-free step summaries and one final Agent-view delta.
+Submit buttons and navigation remain separate actions.
 
 ## Control-module boundary
 
@@ -237,6 +257,18 @@ fresh contexts as an out-of-band reference oracle for accessible name, state,
 and screenshot comparison. It is absent from the production route and cannot
 create or upgrade a Saccade receipt. Run `20260729T211221Z` matched radio,
 switch, tab, and menu item on public W3C examples in Chrome and Edge.
+
+The 2026-07-30 Selenium official `web-form.html` gate exercised the incremental
+Agent Browser and local form plan on a public QA fixture. Three clean Chrome
+runs completed one five-control plan plus a separate Submit with 18/18 verified
+receipts and no editable-value disclosure. Median Saccade task time was 2.391
+seconds and median model-facing output was 4,863 tokens, down from the preceding
+six-call debug-shaped gate's 4.869 seconds and 63,093 tokens. The official
+Playwright MCP reference received predeclared CSS selectors with snapshots
+disabled and measured 1.327 seconds and 421 tokens. This proves the corrected
+Saccade architecture and a large regression improvement; it does not claim
+universal performance superiority. Evidence is local development evidence and
+does not change Catalog publication status.
 
 The managed ordinary native-mouse gate uses the same semantic button token,
 preparation, CoreGraphics input, reobservation, and button-effect verifier. It

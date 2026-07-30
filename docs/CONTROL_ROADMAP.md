@@ -2,8 +2,9 @@
 
 Saccade grows by implementation family. A batch changes the Catalog, Registry,
 Extension collector, native plan, verifier, fixtures, tests, and evidence as
-one unit. Agents continue to use `web.observe` and `web.act`; new controls do
-not add MCP tools.
+one unit. Agents continue to use generic observation/action tools; new controls
+do not add MCP tools. `web.form.fill` is shared orchestration over existing
+Registry loops, not a control-specific execution route.
 
 ## Definition of done
 

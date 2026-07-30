@@ -116,7 +116,12 @@ load without reading or copying browser cookies; advancing the profile
 generation leaves the prior profile untouched. User Profile JSON remains in
 the Runtime directory and is never overwritten.
 
-`test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. It stores
+`test` calls `tabs.open → web.observe → web.act` through MCP JSON-RPC. `tabs.open`
+waits for the first authorized Truth Layer. The first Agent Browser view is
+full; later results contain semantic deltas and opaque authority refreshes
+instead of repeating the page. `saccade.web.form.fill` accepts one bounded form
+plan and locally runs every field through its independent closed loop; submit
+and navigation remain separate actions. Managed testing stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
 editable contents. Managed evidence commands (`test`, `compare`, `accuracy`,
 and `reflex`) temporarily isolate and restore the user's local input policy so
@@ -223,7 +228,7 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 node --test extension/tests/*.test.js
 node --check tests/reference/playwright/oracle.cjs
 python3 -m unittest tests/test_dev_profile.py
-python3 -m py_compile scripts/dev_probe.py scripts/external_dogfood.py scripts/compare_external_evidence.py
+python3 -m py_compile scripts/dev_probe.py scripts/external_dogfood.py scripts/compare_external_evidence.py scripts/benchmark_playwright_parity.py scripts/benchmark_selenium_qa.py
 python3 scripts/generate_control_matrix.py
 python3 scripts/check_single_architecture.py
 git diff --exit-code -- docs/generated/control_coverage.md

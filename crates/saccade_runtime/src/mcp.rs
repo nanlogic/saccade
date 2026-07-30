@@ -1,5 +1,6 @@
-//! Semantics-free MCP adapter over the single HostClient interface.
+//! MCP adapter and per-Agent Browser projection over the single HostClient interface.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -31,6 +32,7 @@ pub fn serve(grant_path: PathBuf) -> Result<()> {
 }
 
 fn serve_io(host: &HostClient, input: impl BufRead, mut output: impl Write) -> Result<()> {
+    let mut agent_views = AgentViewState::default();
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -46,13 +48,18 @@ fn serve_io(host: &HostClient, input: impl BufRead, mut output: impl Write) -> R
         let Some(id) = request.id.clone() else {
             continue;
         };
-        let result = dispatch(host, request).map_err(|error| (-32000, error.to_string()));
+        let result =
+            dispatch(host, &mut agent_views, request).map_err(|error| (-32000, error.to_string()));
         write_rpc(&mut output, id, result)?;
     }
     Ok(())
 }
 
-fn dispatch(host: &HostClient, request: RpcRequest) -> Result<Value> {
+fn dispatch(
+    host: &HostClient,
+    agent_views: &mut AgentViewState,
+    request: RpcRequest,
+) -> Result<Value> {
     if request.jsonrpc != "2.0" {
         bail!("unsupported JSON-RPC version {}", request.jsonrpc);
     }
@@ -67,9 +74,10 @@ fn dispatch(host: &HostClient, request: RpcRequest) -> Result<Value> {
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let value = call_tool(host, name, arguments)?;
+            let value = call_tool(host, agent_views, name, arguments)?;
+            let summary = tool_result_summary(&value);
             Ok(
-                json!({"content":[{"type":"text","text":serde_json::to_string_pretty(&value)?}],"structuredContent":value,"isError":false}),
+                json!({"content":[{"type":"text","text":summary}],"structuredContent":value,"isError":false}),
             )
         }
         method => bail!("unknown JSON-RPC method {method}"),
@@ -109,7 +117,12 @@ fn profile_instructions(capabilities: &Value) -> String {
     }
 }
 
-fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
+fn call_tool(
+    host: &HostClient,
+    agent_views: &mut AgentViewState,
+    name: &str,
+    arguments: Value,
+) -> Result<Value> {
     let method = name
         .strip_prefix("saccade.")
         .context("tool is outside the Saccade namespace")?;
@@ -123,6 +136,7 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
         "web.act_soft",
         "input_policy.list",
         "input_policy.remember_native",
+        "web.form.fill",
         "web.reflex.run",
     ]
     .contains(&method)
@@ -132,6 +146,13 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
     validate_arguments(method, &arguments)?;
     let timeout = match method {
         "web.act" | "web.act_native" | "web.act_soft" => Duration::from_secs(30),
+        "web.form.fill" => Duration::from_secs(
+            arguments
+                .get("actions")
+                .and_then(Value::as_array)
+                .map(|actions| 10 + actions.len() as u64 * 4)
+                .unwrap_or(30),
+        ),
         "web.reflex.run" => Duration::from_millis(
             arguments
                 .get("timeout_ms")
@@ -150,11 +171,40 @@ fn call_tool(host: &HostClient, name: &str, arguments: Value) -> Result<Value> {
     )?;
     match method {
         "web.observe" => {
-            serde_json::from_value::<ObservationSnapshot>(result.clone())?.validate()?
+            let observation = serde_json::from_value::<ObservationSnapshot>(result)?;
+            observation.validate()?;
+            return agent_views.project(observation);
         }
         "web.act" | "web.act_native" | "web.act_soft" => {
-            let receipt: ActionReceipt = serde_json::from_value(result.clone())?;
+            let receipt: ActionReceipt = serde_json::from_value(result)?;
             receipt.post_action_observation.validate()?;
+            let view = agent_views.project(receipt.post_action_observation.clone())?;
+            return Ok(json!({
+                "schema":"saccade.agent-receipt/1",
+                "browser_instance_id":receipt.browser_instance_id,
+                "tab_id":receipt.tab_id,
+                "document_id":receipt.document_id,
+                "basis_revision":receipt.basis_revision,
+                "prepared_revision":receipt.prepared_revision,
+                "post_revision":receipt.post_revision,
+                "operation":receipt.operation,
+                "dispatch_status":receipt.dispatch_status,
+                "postcondition":receipt.postcondition,
+                "settled":receipt.settled,
+                "view":view
+            }));
+        }
+        "web.form.fill" => {
+            let mut form = result;
+            let observation_value = form
+                .as_object_mut()
+                .and_then(|object| object.remove("post_action_observation"))
+                .context("form result omitted its final observation")?;
+            let observation: ObservationSnapshot = serde_json::from_value(observation_value)?;
+            observation.validate()?;
+            let view = agent_views.project(observation)?;
+            form["view"] = view;
+            return Ok(form);
         }
         _ => {}
     }
@@ -176,6 +226,22 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
         "input_policy.remember_native" => {
             (&["tab_id", "action_token"], &["tab_id", "action_token"])
         }
+        "web.form.fill" => (
+            &[
+                "browser_instance_id",
+                "tab_id",
+                "document_id",
+                "basis_revision",
+                "actions",
+            ],
+            &[
+                "browser_instance_id",
+                "tab_id",
+                "document_id",
+                "basis_revision",
+                "actions",
+            ],
+        ),
         "web.reflex.run" => (
             &["tab_id", "input_backend", "max_actions", "timeout_ms"],
             &["tab_id"],
@@ -214,6 +280,7 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
                 bail!("action_token must be an opaque current token");
             }
         }
+        "web.form.fill" => validate_form_fill(value)?,
         "web.reflex.run" => {
             string(value, "tab_id")?;
             if value
@@ -249,14 +316,207 @@ fn tools() -> Vec<Value> {
         json!({"name":"saccade.system.capabilities","description":"Read the active Profile behavior and Runtime capabilities.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.observe","description":"Read the latest authorized observation.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1}},"required":["tab_id"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act","description":"Run one revision-bound closed loop using the Registry-selected software or native input backend.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.observe","description":"Read the Agent Browser: one full Truth Layer per document, then semantic deltas and opaque authority refreshes.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1}},"required":["tab_id"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.act","description":"Run one revision-bound closed loop using the Registry-selected backend and return a compact receipt plus Agent-view update.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
         json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
         json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
         json!({"name":"saccade.input_policy.list","description":"List this user's local per-page learned input-backend records.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.input_policy.remember_native","description":"Remember that the current page control should use native input on future actions.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.form.fill","description":"Fill a bounded form plan in one request while every control retains its own prepare, revalidate, input, reobserve, verify, and receipt loop.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"actions":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"action_token":{"type":"string","minLength":32},"operation":{"enum":["type","select","click"]},"payload":{"type":"object"}},"required":["action_token","operation","payload"],"additionalProperties":false}}},"required":["browser_instance_id","tab_id","document_id","basis_revision","actions"],"additionalProperties":false}}),
         json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts; omit input_backend for Registry selection.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"input_backend":{"enum":["native","soft"]},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
     ]
+}
+
+#[derive(Default)]
+struct AgentViewState {
+    tabs: BTreeMap<String, ObservationSnapshot>,
+}
+
+impl AgentViewState {
+    fn project(&mut self, observation: ObservationSnapshot) -> Result<Value> {
+        let previous = self
+            .tabs
+            .insert(observation.tab_id.clone(), observation.clone());
+        let Some(previous) = previous else {
+            return full_agent_view(observation);
+        };
+        if previous.document_id != observation.document_id || observation.gap {
+            return full_agent_view(observation);
+        }
+
+        let previous_objects = previous
+            .objects
+            .iter()
+            .map(|object| (object.object_id.as_str(), object))
+            .collect::<BTreeMap<_, _>>();
+        let current_objects = observation
+            .objects
+            .iter()
+            .map(|object| (object.object_id.as_str(), object))
+            .collect::<BTreeMap<_, _>>();
+        let mut changes = Vec::new();
+        let mut changed_ids = std::collections::BTreeSet::new();
+        for object in &observation.objects {
+            match previous_objects.get(object.object_id.as_str()) {
+                None => {
+                    changed_ids.insert(object.object_id.clone());
+                    changes.push(json!({"kind":"appeared","object":agent_object_value(object)?}));
+                }
+                Some(before)
+                    if agent_object_fingerprint(before)? != agent_object_fingerprint(object)? =>
+                {
+                    changed_ids.insert(object.object_id.clone());
+                    changes.push(json!({"kind":"updated","object":agent_object_value(object)?}));
+                }
+                _ => {}
+            }
+        }
+        for object in &previous.objects {
+            if !current_objects.contains_key(object.object_id.as_str()) {
+                changed_ids.insert(object.object_id.clone());
+                changes.push(json!({
+                    "kind":"disappeared",
+                    "object_id":object.object_id
+                }));
+            }
+        }
+
+        let population = previous.objects.len().max(observation.objects.len());
+        if changes.len() > 100 || (population > 20 && changes.len() * 2 > population) {
+            return full_agent_view(observation);
+        }
+
+        let authorities = observation
+            .objects
+            .iter()
+            .filter(|object| !changed_ids.contains(&object.object_id))
+            .filter_map(|object| {
+                let action_token = object.action_token.as_ref()?;
+                let prior = previous_objects.get(object.object_id.as_str())?;
+                (prior.action_token.as_ref() != Some(action_token))
+                    .then(|| json!({"object_id":object.object_id,"action_token":action_token}))
+            })
+            .collect::<Vec<_>>();
+        let frames_changed = previous.frames != observation.frames;
+        Ok(json!({
+            "schema":"saccade.agent-view/1",
+            "mode":"delta",
+            "browser_instance_id":observation.browser_instance_id,
+            "tab_id":observation.tab_id,
+            "document_id":observation.document_id,
+            "revision":observation.revision,
+            "viewport_revision":observation.viewport_revision,
+            "changes":changes,
+            "authorities":authorities,
+            "frames":frames_changed.then_some(observation.frames),
+            "coverage":observation.coverage,
+            "limitations":observation.limitations,
+            "gap":false
+        }))
+    }
+}
+
+fn full_agent_view(observation: ObservationSnapshot) -> Result<Value> {
+    let objects = observation
+        .objects
+        .iter()
+        .map(agent_object_value)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(json!({
+        "schema":"saccade.agent-view/1",
+        "mode":"full",
+        "browser_instance_id":observation.browser_instance_id,
+        "tab_id":observation.tab_id,
+        "document_id":observation.document_id,
+        "revision":observation.revision,
+        "viewport_revision":observation.viewport_revision,
+        "frames":observation.frames,
+        "objects":objects,
+        "coverage":observation.coverage,
+        "limitations":observation.limitations,
+        "gap":observation.gap
+    }))
+}
+
+fn agent_object_fingerprint(object: &saccade_protocol::ObservedObject) -> Result<Value> {
+    let mut value = agent_object_value(object)?;
+    let fields = value
+        .as_object_mut()
+        .context("observed object did not serialize as an object")?;
+    let actionable = fields.get("action_token").is_some();
+    fields.remove("action_token");
+    fields.insert("actionable".into(), Value::Bool(actionable));
+    Ok(value)
+}
+
+fn agent_object_value(object: &saccade_protocol::ObservedObject) -> Result<Value> {
+    let mut value = serde_json::to_value(object)?;
+    let fields = value
+        .as_object_mut()
+        .context("observed object did not serialize as an object")?;
+    fields.remove("object_revision");
+    fields.remove("document_bounds");
+    fields.remove("viewport_bounds");
+    fields.remove("loop_class_token");
+    Ok(value)
+}
+
+fn validate_form_fill(value: &Value) -> Result<()> {
+    for key in ["browser_instance_id", "tab_id", "document_id"] {
+        string(value, key)?;
+    }
+    if value.get("basis_revision").and_then(Value::as_u64) == Some(0)
+        || value
+            .get("basis_revision")
+            .and_then(Value::as_u64)
+            .is_none()
+    {
+        bail!("basis_revision must be a positive integer");
+    }
+    let actions = value
+        .get("actions")
+        .and_then(Value::as_array)
+        .context("actions must be an array")?;
+    if actions.is_empty() || actions.len() > 32 {
+        bail!("actions must contain between 1 and 32 form operations");
+    }
+    for item in actions {
+        let object = item.as_object().context("form action must be an object")?;
+        for key in object.keys() {
+            if !["action_token", "operation", "payload"].contains(&key.as_str()) {
+                bail!("unexpected form action argument {key}");
+            }
+        }
+        if object.len() != 3 {
+            bail!("form action requires action_token, operation, and payload");
+        }
+        if string(item, "action_token")?.len() < 32 {
+            bail!("action_token must be opaque and current");
+        }
+        if !matches!(
+            item.get("operation").and_then(Value::as_str),
+            Some("type" | "select" | "click")
+        ) {
+            bail!("form action operation must be type, select, or click");
+        }
+        if !item.get("payload").is_some_and(Value::is_object) {
+            bail!("form action payload must be an object");
+        }
+    }
+    Ok(())
+}
+
+fn tool_result_summary(value: &Value) -> String {
+    let schema = value
+        .get("schema")
+        .and_then(Value::as_str)
+        .unwrap_or("saccade.result");
+    let mode = value.get("mode").and_then(Value::as_str);
+    let revision = value.get("revision").and_then(Value::as_u64);
+    match (mode, revision) {
+        (Some(mode), Some(revision)) => format!("{schema} {mode} revision {revision}"),
+        _ => schema.to_string(),
+    }
 }
 
 fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
@@ -295,7 +555,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request.method, "initialize");
-        assert_eq!(tools().len(), 10);
+        assert_eq!(tools().len(), 11);
         assert!(serde_json::from_value::<RpcRequest>(
             json!({"jsonrpc":"2.0","id":1,"method":"ping","unexpected":true})
         )
@@ -315,11 +575,69 @@ mod tests {
             &json!({"url":"https://fixture.test","active":"yes"})
         )
         .is_err());
+        assert!(validate_arguments(
+            "web.form.fill",
+            &json!({
+                "browser_instance_id":"browser-1",
+                "tab_id":"tab-1",
+                "document_id":"document-1",
+                "basis_revision":1,
+                "actions":[{
+                    "action_token":"token.0123456789abcdef0123456789abcdef",
+                    "operation":"type",
+                    "payload":{"kind":"text","text":"private immediate payload"}
+                }]
+            })
+        )
+        .is_ok());
         assert_eq!(
             profile_instructions(
                 &json!({"profile":{"name":"focused","behavior":"Work in page order."}})
             ),
             "Active Saccade Profile: focused. User behavior: Work in page order.\nObserve a tab before acting and use only returned action tokens."
         );
+    }
+
+    #[test]
+    fn agent_view_is_full_once_then_reports_only_semantic_changes() {
+        let fixture = include_str!("../../../tests/protocol/canonical_observation.json");
+        let mut first: ObservationSnapshot = serde_json::from_str(fixture).unwrap();
+        let mut unchanged = first.objects[0].clone();
+        unchanged.object_id = "object-2".into();
+        unchanged.name = Some("Unchanged control".into());
+        unchanged.action_token = Some("token.1111111111111111111111111111111111111111".into());
+        first.objects.push(unchanged);
+        let mut views = AgentViewState::default();
+        let full = views.project(first.clone()).unwrap();
+        assert_eq!(full["schema"], "saccade.agent-view/1");
+        assert_eq!(full["mode"], "full");
+        assert_eq!(full["objects"].as_array().unwrap().len(), 2);
+
+        first.revision += 1;
+        first.viewport_revision += 1;
+        first.objects[0].object_revision += 1;
+        first.objects[0]
+            .state
+            .insert("pressed".into(), "true".into());
+        first.objects[0].action_token = Some("token.abcdef0123456789abcdef0123456789abcdef".into());
+        first.objects[1].object_revision += 1;
+        first.objects[1].action_token =
+            Some("token.2222222222222222222222222222222222222222".into());
+        let delta = views.project(first.clone()).unwrap();
+        assert_eq!(delta["mode"], "delta");
+        assert_eq!(delta["changes"].as_array().unwrap().len(), 1);
+        assert_eq!(delta["changes"][0]["kind"], "updated");
+        assert_eq!(delta["authorities"].as_array().unwrap().len(), 1);
+        assert_eq!(delta["authorities"][0]["object_id"], "object-2");
+        assert!(delta.get("objects").is_none());
+
+        first.revision += 1;
+        first.objects[1].action_token = None;
+        let unavailable = views.project(first).unwrap();
+        assert_eq!(unavailable["changes"].as_array().unwrap().len(), 1);
+        assert_eq!(unavailable["changes"][0]["kind"], "updated");
+        assert!(unavailable["changes"][0]["object"]
+            .get("action_token")
+            .is_none());
     }
 }

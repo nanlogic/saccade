@@ -77,6 +77,7 @@ class Mcp:
             env=environment,
         )
         self.next_id = 1
+        self.agent_views: dict[str, dict[str, Any]] = {}
         try:
             self.initialize = self.rpc("initialize", {})
         except Exception:
@@ -113,7 +114,60 @@ class Mcp:
             {"name": f"saccade.{name}", "arguments": arguments},
             timeout=timeout,
         )
-        return result["structuredContent"]
+        value = result["structuredContent"]
+        if value.get("schema") == "saccade.agent-view/1":
+            return self.materialize_view(value)
+        if value.get("schema") == "saccade.agent-receipt/1":
+            receipt = dict(value)
+            receipt["post_action_observation"] = self.materialize_view(receipt.pop("view"))
+            return receipt
+        if value.get("schema") == "saccade.form-result/1" and "view" in value:
+            form = dict(value)
+            form["post_action_observation"] = self.materialize_view(form.pop("view"))
+            return form
+        return value
+
+    def materialize_view(self, view: dict[str, Any]) -> dict[str, Any]:
+        tab_id = str(view["tab_id"])
+        if view["mode"] == "full":
+            snapshot = {
+                "schema": "saccade.agent-browser-state/1",
+                **{key: value for key, value in view.items() if key not in {"schema", "mode"}},
+                "changes": [],
+            }
+            self.agent_views[tab_id] = snapshot
+            return snapshot
+        previous = self.agent_views.get(tab_id)
+        if previous is None or previous.get("document_id") != view.get("document_id"):
+            raise RuntimeError("received an Agent delta without its full base view")
+        snapshot = dict(previous)
+        objects = {item["object_id"]: dict(item) for item in previous.get("objects", [])}
+        changes = view.get("changes", [])
+        for change in changes:
+            if change["kind"] == "disappeared":
+                objects.pop(change["object_id"], None)
+            else:
+                item = dict(change["object"])
+                objects[item["object_id"]] = item
+        for authority in view.get("authorities", []):
+            if authority["object_id"] in objects:
+                objects[authority["object_id"]]["action_token"] = authority["action_token"]
+        snapshot.update({
+            "browser_instance_id": view["browser_instance_id"],
+            "tab_id": tab_id,
+            "document_id": view["document_id"],
+            "revision": view["revision"],
+            "viewport_revision": view["viewport_revision"],
+            "objects": list(objects.values()),
+            "changes": changes,
+            "coverage": view["coverage"],
+            "limitations": view["limitations"],
+            "gap": view["gap"],
+        })
+        if view.get("frames") is not None:
+            snapshot["frames"] = view["frames"]
+        self.agent_views[tab_id] = snapshot
+        return snapshot
 
     def close(self) -> None:
         if self.process.stdin:
@@ -252,9 +306,11 @@ def adaptive_input_policy(mcp: Mcp, base_url: str) -> dict[str, Any]:
     url = urllib.parse.urljoin(base_url, "adaptive_input.html")
     observation = open_fixture(mcp, url)
     first_receipt: dict[str, Any] | None = None
+    first_action_token: str | None = None
     for _attempt in range(8):
         observation = stable_observation(mcp, observation["tab_id"])
         target = named(observation, "button", "Trusted only")
+        first_action_token = target["action_token"]
         request = {
             "browser_instance_id": observation["browser_instance_id"],
             "tab_id": observation["tab_id"],
@@ -286,6 +342,7 @@ def adaptive_input_policy(mcp: Mcp, base_url: str) -> dict[str, Any]:
 
     observation = stable_observation(mcp, observation["tab_id"])
     target = named(observation, "button", "Trusted only")
+    next_action_token = target["action_token"]
     diagnostic_request = {
         "browser_instance_id": observation["browser_instance_id"],
         "tab_id": observation["tab_id"],
@@ -320,7 +377,8 @@ def adaptive_input_policy(mcp: Mcp, base_url: str) -> dict[str, Any]:
         "learned_rule": learned[0],
         "soft_override_rejected": soft_override_rejected,
         "next_receipt": second_receipt,
-        "no_same_token_retry": first_receipt["action_token"] != second_receipt["action_token"],
+        "no_same_token_retry": first_action_token is not None
+        and first_action_token != next_action_token,
     }
 
 

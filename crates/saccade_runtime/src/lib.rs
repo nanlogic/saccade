@@ -36,6 +36,7 @@ pub trait ObservationSource {
     fn settled_observation(
         &mut self,
         after_revision: u64,
+        sufficient: &mut dyn FnMut(&ObservationSnapshot) -> bool,
     ) -> Result<(ObservationSnapshot, bool), ClosedLoopError>;
 }
 
@@ -49,6 +50,8 @@ pub enum ClosedLoopError {
     Registry(#[from] RegistryError),
     #[error("request identity or revision is stale")]
     Stale,
+    #[error("post-dispatch observation identity changed")]
+    PostDispatchIdentityMismatch,
     #[error("action token is missing, mismatched, or already used")]
     InvalidToken,
     #[error(
@@ -165,11 +168,16 @@ impl ClosedLoopEngine {
             &request.payload,
             selection_name,
         );
-        let (after, observed_settled) = observations.settled_observation(request.basis_revision)?;
+        let mut sufficient = |candidate: &ObservationSnapshot| {
+            verify_with_documents(module, before, target, &request.payload, candidate)
+                == PostconditionStatus::Verified
+        };
+        let (after, observed_settled) =
+            observations.settled_observation(request.basis_revision, &mut sufficient)?;
         after.validate()?;
         if after.browser_instance_id != before.browser_instance_id || after.tab_id != before.tab_id
         {
-            return Err(ClosedLoopError::Stale);
+            return Err(ClosedLoopError::PostDispatchIdentityMismatch);
         }
         let fresh = after.document_id != before.document_id || after.revision > before.revision;
         let accepted = matches!(

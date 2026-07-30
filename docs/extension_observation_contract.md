@@ -103,6 +103,15 @@ binds:
 - a compact list of disclosed objects;
 - coverage, limitations, stream-gap state, and optional changes.
 
+This complete snapshot is the Extension-to-Host evidence record. It is not
+re-serialized wholesale for every Agent turn. The MCP process derives a
+per-Agent `saccade.agent-view/1`: the first result for a document has
+`mode=full`; later results have `mode=delta` and contain only appeared,
+updated, and disappeared objects. Because v1 action tokens are refreshed with
+the evidence revision, a delta may also carry an `authorities` list for
+semantically unchanged actionable objects. Those opaque refreshes are not
+semantic page changes.
+
 Navigation creates a new document identity and invalidates all earlier facts
 and tokens. Object identity is runtime-only and held with `WeakMap`; it is not
 a selector, stable locator, DOM path, or identifier the Agent can construct.
@@ -122,7 +131,7 @@ delivered/unverified until a later page observation proves the intended effect.
 
 ## Agent-facing object model
 
-Every disclosed object has:
+Every Host evidence object has:
 
 - runtime `object_id`, `object_revision`, and `frame_id`;
 - broad `kind` and a more specific `role`;
@@ -133,6 +142,13 @@ Every disclosed object has:
 - current affordances and transition hint;
 - optional opaque action token;
 - `protected`, indicating that a human-only value path is required.
+
+The derived Agent Browser object keeps `object_id`, `frame_id`, kind, role,
+visibility, safe name/description/text, safe state, affordances, transition,
+protection, and the current opaque action token. It omits `object_revision`,
+document/viewport bounds, and loop-class tokens. Those fields remain local
+revalidation evidence. The Agent acts through the opaque token and global view
+revision; it cannot turn geometry into a coordinate action route.
 
 The fields have distinct meanings:
 
@@ -329,8 +345,10 @@ center inside the Extension and never accepts or discloses an Agent coordinate
 or locator. The page collector, not the service worker's observation cache, is
 the authority for the final document, revision, token, and target revalidation.
 
-A receipt binds before, prepared, and post-action revisions and includes the
-post-action observation. `AcceptedByOs` means the operating system accepted the
+A Host receipt binds before, prepared, and post-action revisions and includes
+the complete post-action observation for verification and local evidence. The
+MCP `saccade.agent-receipt/1` exposes the receipt status and the derived
+Agent-view delta instead of repeating that snapshot. `AcceptedByOs` means the operating system accepted the
 input request. `AcceptedBySoftware` means the audited Extension software-pointer
 dispatch was accepted. Neither status by itself proves the user's intended
 business result.
@@ -359,16 +377,43 @@ fails closed. Profiles do not alter these closed-loop checks.
 
 ## Changes and waiting
 
-Full snapshots are always valid. A change list is an optimization and must not
-be required to reconstruct truth after a gap. After any gap, navigation, Host
-restart, or missed revision, the next response is a full snapshot with no
-deltas. The Agent may wait for a revision newer than a supplied revision; it
-must not poll by inventing delay loops outside the bounded MCP wait.
+Full Extension-to-Host snapshots are always valid. MCP retains the last full
+snapshot for each tab in that Agent process and computes semantic changes after
+Profile filtering. It ignores action-token, loop-token, object-revision, and
+geometry-only rotation when deciding whether a human-visible object changed.
+Visibility and semantic responsive-layout changes remain observable. After any gap,
+navigation, MCP restart, missed base, or a sufficiently large change set, the
+next Agent response is `mode=full`. Otherwise it is `mode=delta`. A client can
+reconstruct the current Agent Browser by applying `changes` and then opaque
+`authorities` to its previous view.
+
+`tabs.open` does not return success until the collector has produced the first
+authorized observation. Agents therefore do not poll an empty tab waiting for
+the Truth Layer. A later bounded wait API may wait for a revision newer than a
+supplied revision; clients must not invent delay loops outside it.
 
 DOM insertion, removal, safe attribute changes, visible text changes, scroll,
 resize, focus, and form state changes schedule observation refresh. Content not
 yet created is never invented. A trigger may declare
 `deferred_content_possible`.
+
+## Local form plan
+
+`saccade.web.form.fill` accepts one current document identity, basis revision,
+and between one and 32 current control-token operations. The allowed plan
+surface is text-like editable typing, select-by-option-object identity, and
+checkbox/radio/switch clicks. Protected controls, file inputs, submit buttons,
+navigation, repeated targets, and arbitrary operations are rejected before the
+first side effect.
+
+The Host resolves all initial tokens to runtime object identities, then runs
+each control through the ordinary Registry-selected closed loop. After each
+verified step it obtains the next fresh observation and refreshes the remaining
+target by the same document-local object identity, role, and safe name. A
+disappeared, renamed, retyped, protected, unverified, navigated, or otherwise
+invalid target stops the plan. There is no rollback and no same-action backend
+fallback. The MCP result contains value-free step summaries and one final
+Agent-view update; immediate editable payloads do not enter receipts or views.
 
 ## Local reflex loop
 

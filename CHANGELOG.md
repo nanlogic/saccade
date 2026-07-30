@@ -51,6 +51,14 @@ the clean public repository.
   receipt, and never retries the same token;
 - MCP tools to inspect the learned log and remember a native-input exception
   for a current control;
+- per-Agent Browser views that return one full Truth Layer followed by semantic
+  deltas, while complete Host snapshots remain local verification evidence;
+- one bounded form-fill MCP plan that locally orchestrates fresh independent
+  control loops and returns value-free step summaries;
+- collector-ready `tabs.open` results and compact structured MCP receipts
+  without duplicating full JSON as text;
+- verifier-aware action settlement and bounded pre-dispatch stale refreshes for
+  locally orchestrated form steps;
 
 ### Pending
 

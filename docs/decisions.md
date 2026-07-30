@@ -304,3 +304,48 @@ unverified software receipt, wrote a page-local native rule, and verified the
 next fresh token through real OS input without same-token fallback. The learned
 rule also rejected an explicit diagnostic software request before preparation.
 Catalog status remains `implementation`; these are local development results.
+
+## 2026-07-30: Agent Browser views are incremental; form loops are locally orchestrated
+
+Accepted: complete `saccade.observation/1` snapshots remain the
+Extension-to-Host evidence and verification boundary. They are no longer the
+shape repeated to an Agent after every control action. Each MCP process keeps a
+per-tab Agent Browser base. Its first `saccade.agent-view/1` is full; later
+views contain semantic appeared, updated, and disappeared objects plus opaque
+authority refreshes. Navigation, gaps, missing bases, and large changes produce
+a new full view. This changes neither `saccade.observation/1` nor
+`saccade-extension-host/1`.
+
+Accepted: exact bounds, per-object evidence revisions, and loop-class tokens
+remain in the complete Host snapshot but are omitted from the Agent Browser.
+They authorize and verify local input; they are not Agent reasoning content or
+a coordinate action surface. Visibility and semantic responsive-layout changes
+remain in the Agent view.
+
+Accepted: `saccade.web.form.fill` is one bounded orchestration tool, not one
+tool per control and not a second execution route. It preflights the entire
+initial plan, excludes protected/file/submit/navigation operations, then runs
+each supported form control through its existing Registry module and closed
+loop. Later controls are refreshed locally by runtime object identity instead
+of making the Agent observe and reason again. The Agent receives value-free
+step receipts and one final view update.
+
+Accepted: Host receipts retain the full settled post-action observation for
+local audit and verification. MCP returns a compact Agent receipt and does not
+duplicate a full JSON value as both text content and structured content.
+`tabs.open` waits for the first authorized collector observation before it
+reports `observation_ready=true`.
+
+Accepted: settlement may return before the legacy 300/750 ms quiet window only
+after the registered verifier already succeeds on a fresh observation and that
+verified revision remains quiet for a bounded 25 ms (1 ms for the reflex
+policy). A fresh focus-only revision is insufficient. A form plan may locally
+retry a refreshed target only for an explicitly recognized pre-dispatch stale
+failure; uncertain or post-dispatch failures are never retried.
+
+Development proof: the Selenium official `web-form.html` run
+`web-form-agent-compact-3x` passed three of three tasks and 18/18 receipts with
+no editable-value disclosure. Median task time was 2.391 seconds and median
+model-facing output was 4,863 tokens. The out-of-band Playwright MCP best case,
+given selectors with snapshots disabled, measured 1.327 seconds and 421 tokens;
+the comparison is retained as a boundary, not rewritten as a Saccade win.

@@ -32,6 +32,7 @@ const POST_ACTION_TIMEOUT: Duration = Duration::from_secs(2);
 const POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(300);
 const SELECT_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(750);
 const REFLEX_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(1);
+const VERIFIED_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(25);
 
 struct SettlementPolicy<'a> {
     quiet_window: Duration,
@@ -243,17 +244,22 @@ impl NativeHostSession {
                         bail!("unexpected tabs.open argument {key}");
                     }
                 }
-                self.request_extension(
+                let mut opened = self.request_extension(
                     "tabs.open",
                     json!({"url":url,"active":active}),
                     EXTENSION_TIMEOUT,
-                )
+                )?;
+                let tab_id = required_string(&opened, "tab_id")?.to_string();
+                self.wait_for_first_observation(&tab_id, EXTENSION_TIMEOUT)?;
+                opened["observation_ready"] = Value::Bool(true);
+                Ok(opened)
             }
             "web.act" => self.act(params, None, None),
             "web.act_native" => self.act(params, Some(InputBackend::Native), None),
             "web.act_soft" => self.act(params, Some(InputBackend::Soft), None),
             "input_policy.list" => self.input_policy_list(params),
             "input_policy.remember_native" => self.remember_native_policy(params),
+            "web.form.fill" => self.form_fill(params),
             "web.reflex.run" => self.reflex_run(params),
             _ => bail!("unknown host method {method}"),
         }
@@ -506,6 +512,218 @@ impl NativeHostSession {
         }))
     }
 
+    fn form_fill(&self, params: Value) -> Result<Value> {
+        let object = params
+            .as_object()
+            .context("web.form.fill params must be an object")?;
+        for key in object.keys() {
+            if ![
+                "browser_instance_id",
+                "tab_id",
+                "document_id",
+                "basis_revision",
+                "actions",
+            ]
+            .contains(&key.as_str())
+            {
+                bail!("unexpected web.form.fill argument {key}");
+            }
+        }
+        let browser_instance_id = required_string(&params, "browser_instance_id")?;
+        let tab_id = required_string(&params, "tab_id")?;
+        let document_id = required_string(&params, "document_id")?;
+        let basis_revision = params
+            .get("basis_revision")
+            .and_then(Value::as_u64)
+            .context("basis_revision must be a positive integer")?;
+        if basis_revision == 0 {
+            bail!("basis_revision must be a positive integer");
+        }
+        let actions = params
+            .get("actions")
+            .and_then(Value::as_array)
+            .context("actions must be an array")?;
+        if actions.is_empty() || actions.len() > 32 {
+            bail!("actions must contain between 1 and 32 form operations");
+        }
+
+        let initial = self.current_observation(tab_id)?;
+        if initial.browser_instance_id != browser_instance_id
+            || initial.document_id != document_id
+            || initial.revision != basis_revision
+        {
+            bail!("form plan identity or revision is stale");
+        }
+
+        struct PlannedAction {
+            object_id: String,
+            role: SemanticRole,
+            name: Option<String>,
+            operation: saccade_protocol::ActionOperation,
+            payload: ActionPayload,
+        }
+
+        let mut planned = Vec::with_capacity(actions.len());
+        let mut target_ids = BTreeSet::new();
+        for item in actions {
+            let item_object = item
+                .as_object()
+                .context("each form action must be an object")?;
+            for key in item_object.keys() {
+                if !["action_token", "operation", "payload"].contains(&key.as_str()) {
+                    bail!("unexpected form action argument {key}");
+                }
+            }
+            let token = required_string(item, "action_token")?;
+            let target = initial
+                .objects
+                .iter()
+                .find(|candidate| candidate.action_token.as_deref() == Some(token))
+                .context("form action token is not current")?;
+            if !target_ids.insert(target.object_id.clone()) {
+                bail!("a form plan may target each control only once");
+            }
+            if target.protected {
+                bail!("protected controls cannot appear in an Agent form plan");
+            }
+            let operation = serde_json::from_value(
+                item.get("operation")
+                    .cloned()
+                    .context("form action operation is required")?,
+            )?;
+            let payload: ActionPayload = serde_json::from_value(
+                item.get("payload")
+                    .cloned()
+                    .context("form action payload is required")?,
+            )?;
+            let allowed = matches!(
+                (target.role, operation),
+                (
+                    SemanticRole::TextField
+                        | SemanticRole::SearchField
+                        | SemanticRole::TextArea
+                        | SemanticRole::ContentEditable
+                        | SemanticRole::SpinButton,
+                    saccade_protocol::ActionOperation::Type
+                ) | (
+                    SemanticRole::Select,
+                    saccade_protocol::ActionOperation::Select
+                ) | (
+                    SemanticRole::Checkbox | SemanticRole::Radio | SemanticRole::Switch,
+                    saccade_protocol::ActionOperation::Click
+                )
+            );
+            if !allowed {
+                bail!("form plans accept editable, select, checkbox, radio, and switch operations only");
+            }
+            ActionRequest {
+                browser_instance_id: browser_instance_id.to_string(),
+                tab_id: tab_id.to_string(),
+                document_id: document_id.to_string(),
+                basis_revision,
+                action_token: token.to_string(),
+                operation,
+                payload: payload.clone(),
+            }
+            .validate()?;
+            if let ActionPayload::Select { option_object_id } = &payload {
+                let option = initial
+                    .objects
+                    .iter()
+                    .find(|candidate| candidate.object_id == *option_object_id)
+                    .context("selected option is not present in the initial form view")?;
+                if option.role != SemanticRole::Option {
+                    bail!("selected form object is not an option");
+                }
+            }
+            planned.push(PlannedAction {
+                object_id: target.object_id.clone(),
+                role: target.role,
+                name: target.name.clone(),
+                operation,
+                payload,
+            });
+        }
+
+        let mut summaries = Vec::with_capacity(planned.len());
+        let page = self.page_scope_for_tab(tab_id)?;
+        for (index, step) in planned.into_iter().enumerate() {
+            let mut completed_receipt = None;
+            for _attempt in 0..8 {
+                let current = self.current_observation(tab_id)?;
+                if current.browser_instance_id != browser_instance_id
+                    || current.document_id != document_id
+                {
+                    bail!("form document changed before step {}", index + 1);
+                }
+                let target = current
+                    .objects
+                    .iter()
+                    .find(|candidate| candidate.object_id == step.object_id)
+                    .context("form control disappeared before its closed loop")?;
+                if target.role != step.role || target.name != step.name {
+                    bail!("form control identity changed before its closed loop");
+                }
+                let action_token = target
+                    .action_token
+                    .clone()
+                    .context("form control is no longer actionable")?;
+                let request = ActionRequest {
+                    browser_instance_id: current.browser_instance_id.clone(),
+                    tab_id: current.tab_id.clone(),
+                    document_id: current.document_id.clone(),
+                    basis_revision: current.revision,
+                    action_token,
+                    operation: step.operation,
+                    payload: step.payload.clone(),
+                };
+                match self.act(serde_json::to_value(request)?, None, Some(&page)) {
+                    Ok(value) => {
+                        let receipt: ActionReceipt = serde_json::from_value(value)?;
+                        if receipt.dispatch_status == DispatchStatus::StaleBeforeDispatch {
+                            thread::sleep(Duration::from_millis(2));
+                            continue;
+                        }
+                        completed_receipt = Some(receipt);
+                        break;
+                    }
+                    Err(error) if is_pre_dispatch_stale(&error.to_string()) => {
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            let receipt = completed_receipt
+                .with_context(|| format!("form step {} stayed stale", index + 1))?;
+            summaries.push(json!({
+                "sequence":index + 1,
+                "role":step.role,
+                "name":step.name,
+                "operation":step.operation,
+                "dispatch_status":receipt.dispatch_status,
+                "postcondition":receipt.postcondition,
+                "settled":receipt.settled
+            }));
+            if receipt.postcondition != PostconditionStatus::Verified {
+                return Ok(json!({
+                    "schema":"saccade.form-result/1",
+                    "completed":index,
+                    "all_verified":false,
+                    "steps":summaries,
+                    "post_action_observation":receipt.post_action_observation
+                }));
+            }
+        }
+        let final_observation = self.current_observation(tab_id)?;
+        Ok(json!({
+            "schema":"saccade.form-result/1",
+            "completed":summaries.len(),
+            "all_verified":true,
+            "steps":summaries,
+            "post_action_observation":final_observation
+        }))
+    }
+
     fn reflex_run(&self, params: Value) -> Result<Value> {
         let object = params
             .as_object()
@@ -585,7 +803,7 @@ impl NativeHostSession {
             let result = self.act(serde_json::to_value(&request)?, Some(backend), Some(&page));
             let receipt: ActionReceipt = match result {
                 Ok(value) => serde_json::from_value(value)?,
-                Err(error) if is_reflex_stale(&error.to_string()) => {
+                Err(error) if is_pre_dispatch_stale(&error.to_string()) => {
                     stale_retries += 1;
                     observation = self.current_observation(tab_id)?;
                     continue;
@@ -789,23 +1007,68 @@ impl NativeHostSession {
             .context("no current observation for tab")
     }
 
+    fn wait_for_first_observation(
+        &self,
+        tab_id: &str,
+        timeout: Duration,
+    ) -> Result<ObservationSnapshot> {
+        let deadline = Instant::now() + timeout;
+        let mut observations = self.observations.lock().map_err(lock_error)?;
+        loop {
+            if let Some(snapshot) = observations.current.get(tab_id) {
+                return Ok(snapshot.clone());
+            }
+            if !self.extension_connected.load(Ordering::Acquire) {
+                bail!("extension disconnected while opening tab");
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                bail!("collector did not produce the first observation for tab {tab_id}");
+            }
+            observations = self
+                .observation_changed
+                .wait_timeout(observations, remaining)
+                .map_err(lock_error)?
+                .0;
+        }
+    }
+
     fn wait_for_settled_revision(
         &self,
         tab_id: &str,
         document_id: &str,
         revision: u64,
         policy: SettlementPolicy<'_>,
+        sufficient: &mut dyn FnMut(&ObservationSnapshot) -> bool,
     ) -> Result<(ObservationSnapshot, bool)> {
         let deadline = Instant::now() + POST_ACTION_TIMEOUT;
         let mut observations = self.observations.lock().map_err(lock_error)?;
         let mut latest_revision = revision;
         let mut latest_document_id = document_id.to_string();
         let mut quiet_deadline = None;
+        let mut verified_deadline = None;
+        let mut verified_revision = None;
         loop {
             let current = observations
                 .current
                 .get(tab_id)
                 .context("tab observation disappeared")?;
+            let fresh = current.document_id != document_id || current.revision > revision;
+            if fresh && sufficient(current) {
+                let identity = (current.document_id.clone(), current.revision);
+                if verified_revision.as_ref() != Some(&identity) {
+                    verified_revision = Some(identity);
+                    verified_deadline = Some(
+                        Instant::now() + policy.quiet_window.min(VERIFIED_POST_ACTION_QUIET_WINDOW),
+                    );
+                }
+                if verified_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    return Ok((current.clone(), true));
+                }
+            } else {
+                verified_revision = None;
+                verified_deadline = None;
+            }
             if current.revision > revision
                 && policy
                     .reflex_loop_class
@@ -841,6 +1104,9 @@ impl NativeHostSession {
             let wait_for = quiet_deadline
                 .map(|quiet| quiet.saturating_duration_since(now).min(remaining))
                 .unwrap_or(remaining);
+            let wait_for = verified_deadline
+                .map(|verified| verified.saturating_duration_since(now).min(wait_for))
+                .unwrap_or(wait_for);
             observations = self
                 .observation_changed
                 .wait_timeout(observations, wait_for)
@@ -966,6 +1232,7 @@ impl ObservationSource for SessionObservationSource<'_> {
     fn settled_observation(
         &mut self,
         after_revision: u64,
+        sufficient: &mut dyn FnMut(&ObservationSnapshot) -> bool,
     ) -> Result<(ObservationSnapshot, bool), ClosedLoopError> {
         self.session
             .wait_for_settled_revision(
@@ -978,12 +1245,13 @@ impl ObservationSource for SessionObservationSource<'_> {
                     reflex_loop_class: self.reflex_loop_class.as_deref(),
                     reflex_occurrence: self.reflex_occurrence.as_deref(),
                 },
+                sufficient,
             )
             .map_err(|error| ClosedLoopError::ObservationSource(error.to_string()))
     }
 }
 
-fn is_reflex_stale(detail: &str) -> bool {
+fn is_pre_dispatch_stale(detail: &str) -> bool {
     [
         "stale action basis",
         "request identity or revision is stale",
@@ -1087,6 +1355,14 @@ mod tests {
         }
     }
 
+    fn named_field(id: &str, name: &str, token_suffix: &str, has_value: bool) -> ObservedObject {
+        let mut object = field(has_value);
+        object.object_id = id.into();
+        object.name = Some(name.into());
+        object.action_token = Some(format!("token.{token_suffix:0<48}"));
+        object
+    }
+
     fn reflex_target(x: f64) -> ObservedObject {
         let mut target = field(false);
         target.object_id = "reflex-1".into();
@@ -1128,6 +1404,12 @@ mod tests {
             limitations: vec![],
             gap: false,
         }
+    }
+
+    fn snapshot_many(revision: u64, objects: Vec<ObservedObject>) -> ObservationSnapshot {
+        let mut result = snapshot(revision, objects[0].clone());
+        result.objects = objects;
+        result
     }
 
     #[test]
@@ -1188,6 +1470,80 @@ mod tests {
             session.current_observation("tab-1").unwrap().document_id,
             "document-2"
         );
+    }
+
+    #[test]
+    fn settlement_ignores_a_fresh_revision_until_the_verifier_can_succeed() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(1, field(false))).unwrap(),
+            })
+            .unwrap();
+
+        let waiting = Arc::clone(&session);
+        let worker = std::thread::spawn(move || {
+            let mut sufficient = |observation: &ObservationSnapshot| {
+                observation.objects[0]
+                    .state
+                    .get("has_value")
+                    .map(String::as_str)
+                    == Some("true")
+            };
+            waiting.wait_for_settled_revision(
+                "tab-1",
+                "document-1",
+                1,
+                SettlementPolicy {
+                    quiet_window: Duration::from_millis(300),
+                    allow_document_transition: true,
+                    reflex_loop_class: None,
+                    reflex_occurrence: None,
+                },
+                &mut sufficient,
+            )
+        });
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(2, field(false))).unwrap(),
+            })
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(3, field(true))).unwrap(),
+            })
+            .unwrap();
+        let (settled, verified) = worker.join().unwrap().unwrap();
+        assert_eq!(settled.revision, 3);
+        assert!(verified);
     }
 
     #[test]
@@ -1578,12 +1934,186 @@ mod tests {
                 payload: json!({"tab_id":"tab-7","opened":true}),
             })
             .unwrap();
+        let mut ready = snapshot(1, field(false));
+        ready.tab_id = "tab-7".into();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(ready).unwrap(),
+            })
+            .unwrap();
 
         let response = worker.join().unwrap();
         assert!(response.ok);
         assert_eq!(
             response.result.unwrap(),
-            json!({"tab_id":"tab-7","opened":true})
+            json!({"tab_id":"tab-7","opened":true,"observation_ready":true})
         );
+    }
+
+    #[test]
+    fn form_fill_keeps_multiple_control_loops_local_and_redacts_values() {
+        let (out_tx, out_rx) = mpsc::channel();
+        let (native_tx, native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        let first = named_field("field-1", "First", "first-a", false);
+        let second = named_field("field-2", "Second", "second-a", false);
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot_many(
+                    1,
+                    vec![first.clone(), second.clone()],
+                ))
+                .unwrap(),
+            })
+            .unwrap();
+
+        let secret_one = "FIRST-SENTINEL";
+        let secret_two = "SECOND-SENTINEL";
+        let control = ControlRequest {
+            id: 20,
+            method: "web.form.fill".into(),
+            params: json!({
+                "browser_instance_id":"browser-1",
+                "tab_id":"tab-1",
+                "document_id":"document-1",
+                "basis_revision":1,
+                "actions":[
+                    {"action_token":first.action_token,"operation":"type","payload":{"kind":"text","text":secret_one}},
+                    {"action_token":second.action_token,"operation":"type","payload":{"kind":"text","text":secret_two}}
+                ]
+            }),
+            capability: session.capability(),
+        };
+        let worker_session = Arc::clone(&session);
+        let worker = std::thread::spawn(move || worker_session.handle_control(control));
+
+        let list = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(list.kind, "tabs.list");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: list.request_id,
+                payload: json!({"tabs":[{"tab_id":"tab-1","url":"https://fixture.test/form"}]}),
+            })
+            .unwrap();
+
+        let stale_prepare = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(stale_prepare.kind, "prepare_action");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: stale_prepare.request_id,
+                payload: json!({"error":"stale action basis"}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot_many(
+                    2,
+                    vec![
+                        named_field("field-1", "First", "first-b", false),
+                        named_field("field-2", "Second", "second-b", false),
+                    ],
+                ))
+                .unwrap(),
+            })
+            .unwrap();
+
+        for (sequence, target_id) in ["field-1", "field-2"].into_iter().enumerate() {
+            let prepare = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(prepare.kind, "prepare_action");
+            assert_eq!(prepare.payload["operation"], "type");
+            assert!(!serde_json::to_string(&prepare.payload)
+                .unwrap()
+                .contains("SENTINEL"));
+            session
+                .handle_native(NativeEnvelope {
+                    protocol: HOST_PROTOCOL.into(),
+                    kind: "response".into(),
+                    request_id: prepare.request_id,
+                    payload: serde_json::to_value(PreparedAction {
+                        browser_instance_id: "browser-1".into(),
+                        tab_id: "tab-1".into(),
+                        document_id: "document-1".into(),
+                        basis_revision: (sequence + 2) as u64,
+                        viewport_revision: 1,
+                        object_id: target_id.into(),
+                        action_token: prepare.payload["action_token"].as_str().unwrap().into(),
+                        operation: ActionOperation::Type,
+                        screen_bounds: Rect {
+                            x: 10.0,
+                            y: 20.0,
+                            width: 120.0,
+                            height: 30.0,
+                        },
+                        visible: true,
+                        topmost: true,
+                        focus_verified: true,
+                        selection_index: None,
+                    })
+                    .unwrap(),
+                })
+                .unwrap();
+            assert_eq!(
+                native_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+                NativePrimitive::UnicodeText
+            );
+            let revision = (sequence + 3) as u64;
+            let next_first = named_field("field-1", "First", &format!("first-{revision}"), true);
+            let next_second = named_field(
+                "field-2",
+                "Second",
+                &format!("second-{revision}"),
+                sequence == 1,
+            );
+            session
+                .handle_native(NativeEnvelope {
+                    protocol: HOST_PROTOCOL.into(),
+                    kind: "observation".into(),
+                    request_id: None,
+                    payload: serde_json::to_value(snapshot_many(
+                        revision,
+                        vec![next_first, next_second],
+                    ))
+                    .unwrap(),
+                })
+                .unwrap();
+        }
+
+        let response = worker.join().unwrap();
+        assert!(response.ok, "{:?}", response.error);
+        let result = response.result.unwrap();
+        assert_eq!(result["all_verified"], true);
+        assert_eq!(result["completed"], 2);
+        let serialized = serde_json::to_string(&result).unwrap();
+        assert!(!serialized.contains(secret_one));
+        assert!(!serialized.contains(secret_two));
     }
 }

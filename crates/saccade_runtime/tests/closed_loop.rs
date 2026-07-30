@@ -35,6 +35,7 @@ impl ObservationSource for Source {
     fn settled_observation(
         &mut self,
         _: u64,
+        _: &mut dyn FnMut(&ObservationSnapshot) -> bool,
     ) -> Result<(ObservationSnapshot, bool), ClosedLoopError> {
         self.post
             .take()

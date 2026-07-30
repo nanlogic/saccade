@@ -59,6 +59,8 @@ def main() -> None:
     require("crates/saccade_runtime/src/session.rs", '"tabs.open"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.tabs.list"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.tabs.open"')
+    require("crates/saccade_runtime/src/mcp.rs", '"saccade.agent-view/1"')
+    require("crates/saccade_runtime/src/mcp.rs", '"saccade.web.form.fill"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.web.reflex.run"')
     require("extension/src/service_worker.js", "com.nanlogic.saccade.dev")
     require("extension/src/service_worker.js", "prepare_action")
