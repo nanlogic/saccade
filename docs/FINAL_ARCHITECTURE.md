@@ -115,6 +115,15 @@ document URL. The first actionable observation waits for `DOMContentLoaded`
 (`interactive`), preventing input into a half-initialized document. Mutations
 continue incrementally as remaining resources finish.
 
+The authorized top-document collector composes safely accessible same-origin
+iframe documents and open shadow roots into that same snapshot. It does not
+create another Extension-to-Host route or wait for a browser frame-topology
+service before producing root truth. Descendant objects retain frame identity;
+native preparation composes the same-origin frame-element chain and revalidates
+the target and every ancestor frame at the click point. Inaccessible frames are
+reported as restricted. Closed shadow roots remain opaque and are never claimed
+as reliably detected.
+
 ### Control SDK
 
 The SDK contains:

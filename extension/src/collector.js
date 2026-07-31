@@ -15,6 +15,8 @@
   const tokenTargets = new Map();
   const objectTargets = new Map();
   const fileTriggerHasValue = new WeakSet();
+  const frameIdentities = new WeakMap();
+  const frameDocumentIds = new WeakMap();
   const observers = [];
   const documentId = randomToken('document');
   const reflexLoopClassToken = randomToken('loop');
@@ -25,10 +27,105 @@
   let scheduled = false;
   let activeFileTrigger = null;
   let repeatedActionKeys = new Set();
+  let frameSerial = 0;
+  let observedRoots = new WeakSet();
+  let observedDocuments = new WeakSet();
 
   function normalizedText(value, limit) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text ? text.slice(0, limit) : undefined;
+  }
+
+  function composedQuery(root, selector) {
+    const matches = [];
+    const roots = [root];
+    const visited = new Set();
+    while (roots.length) {
+      const current = roots.pop();
+      if (!current || visited.has(current)) continue;
+      visited.add(current);
+      for (const element of current.querySelectorAll(selector)) matches.push(element);
+      for (const element of current.querySelectorAll('*')) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+      }
+    }
+    return matches;
+  }
+
+  function frameIdentity(element) {
+    if (!frameIdentities.has(element)) frameIdentities.set(element, `${config.frameId}.${++frameSerial}`);
+    return frameIdentities.get(element);
+  }
+
+  function frameDocumentId(doc) {
+    if (!frameDocumentIds.has(doc)) frameDocumentIds.set(doc, randomToken('document'));
+    return frameDocumentIds.get(doc);
+  }
+
+  function collectFrameContexts() {
+    const contexts = [{ doc: document, frameId: config.frameId, documentId, parentFrameId: undefined, origin: location.origin }];
+    const frames = [];
+    const limitations = [];
+    for (let index = 0; index < contexts.length; index += 1) {
+      const parent = contexts[index];
+      frames.push({
+        frame_id: parent.frameId, ...(parent.parentFrameId ? { parent_frame_id: parent.parentFrameId } : {}),
+        document_id: parent.documentId, origin: parent.origin, status: 'observed',
+      });
+      for (const element of composedQuery(parent.doc, 'iframe,frame')) {
+        const frameId = frameIdentity(element);
+        let child;
+        let sameOrigin = false;
+        try {
+          child = element.contentDocument;
+          const childUrl = child?.location.href || '';
+          const inheritedOrigin = childUrl === 'about:blank' || childUrl === 'about:srcdoc';
+          sameOrigin = Boolean(child?.documentElement)
+            && (inheritedOrigin || new URL(childUrl).origin === parent.origin);
+        } catch (_error) { child = null; }
+        if (!sameOrigin) {
+          frames.push({
+            frame_id: frameId, parent_frame_id: parent.frameId,
+            document_id: `restricted.${frameId}`, origin: '', status: 'restricted_permission',
+          });
+          limitations.push({ kind: 'restricted_frame', frame_id: frameId });
+          continue;
+        }
+        contexts.push({ doc: child, frameId, documentId: frameDocumentId(child), parentFrameId: parent.frameId, origin: parent.origin });
+      }
+    }
+    return { contexts, frames, limitations };
+  }
+
+  function observeMutationRoot(root) {
+    if (!root || observedRoots.has(root)) return;
+    observedRoots.add(root);
+    const observer = new MutationObserver((records) => {
+      if (records.some(mutationCanChangeObservation)) schedule();
+    });
+    observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
+    observers.push(observer);
+  }
+
+  function observeDocument(doc) {
+    if (observedDocuments.has(doc)) return;
+    observedDocuments.add(doc);
+    observeMutationRoot(doc.documentElement);
+    for (const element of doc.querySelectorAll('*')) {
+      if (element.shadowRoot) observeMutationRoot(element.shadowRoot);
+    }
+    for (const event of ['input', 'focusin', 'focusout']) doc.addEventListener(event, schedule, true);
+    doc.addEventListener('change', (event) => {
+      const changed = event.target;
+      if (activeFileTrigger && changed?.tagName === 'INPUT'
+        && String(changed.type).toLowerCase() === 'file' && changed.files?.length) {
+        fileTriggerHasValue.add(activeFileTrigger);
+        activeFileTrigger = null;
+      }
+      schedule();
+    }, true);
+    doc.defaultView.addEventListener('scroll', schedule, { passive: true });
+    doc.defaultView.addEventListener('resize', schedule, { passive: true });
   }
 
   function accessibleFallbackText(element, limit) {
@@ -41,10 +138,11 @@
       if (node.nodeType !== Node.ELEMENT_NODE) return;
       if (node !== element) {
         if (node.getAttribute('aria-hidden') === 'true') return;
-        const style = getComputedStyle(node);
+        const style = node.ownerDocument.defaultView.getComputedStyle(node);
         if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
       }
       for (const child of node.childNodes) visit(child);
+      if (node.shadowRoot) for (const child of node.shadowRoot.childNodes) visit(child);
     };
     visit(element);
     return normalizedText(chunks.join(' '), limit);
@@ -53,9 +151,10 @@
   function referencedText(element, attribute, limit) {
     const ids = String(element.getAttribute(attribute) || '').split(/\s+/).filter(Boolean);
     return normalizedText(ids.map((id) => {
-      const node = element.ownerDocument.getElementById(id);
+      const root = element.getRootNode();
+      const node = root.getElementById?.(id) || root.querySelector?.(`#${CSS.escape(id)}`) || element.ownerDocument.getElementById(id);
       if (!node || node.getClientRects().length === 0) return '';
-      const style = getComputedStyle(node);
+      const style = node.ownerDocument.defaultView.getComputedStyle(node);
       return style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 ? '' : node.innerText || '';
     }).join(' '), limit);
   }
@@ -106,7 +205,7 @@
     if (!repeatedActionKeys.has(`${role}\0${name}`)) return undefined;
 
     let group = element.parentElement;
-    for (let depth = 0; group && group !== document.body && depth < 6; depth += 1, group = group.parentElement) {
+    for (let depth = 0; group && group !== element.ownerDocument.body && depth < 6; depth += 1, group = group.parentElement) {
       const copy = group.cloneNode(true);
       for (const nested of copy.querySelectorAll('button,input,select,textarea,[contenteditable]')) nested.remove();
       for (const link of copy.querySelectorAll('a[href]')) {
@@ -134,8 +233,9 @@
     const type = String(element.type || '').toLowerCase();
     const ariaRole = String(element.getAttribute('role') || '').toLowerCase();
     const applicationBridge = element.hasAttribute('data-saccade-reflex-target');
-    const mouseAccuracyBridge = location.hostname === 'mouseaccuracy.com'
-      && location.pathname.startsWith('/game')
+    const pageLocation = element.ownerDocument.location;
+    const mouseAccuracyBridge = pageLocation.hostname === 'mouseaccuracy.com'
+      && pageLocation.pathname.startsWith('/game')
       && element.classList.contains('target')
       && !element.classList.contains('hit');
     if (applicationBridge || mouseAccuracyBridge) return 'reflex_target';
@@ -173,9 +273,10 @@
   }
 
   function visibilityFor(element, box) {
-    const style = getComputedStyle(element);
+    const view = element.ownerDocument.defaultView;
+    const style = view.getComputedStyle(element);
     if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 || box.width <= 0 || box.height <= 0) return 'hidden';
-    if (box.x + box.width <= 0 || box.y + box.height <= 0 || box.x >= innerWidth || box.y >= innerHeight) return 'offscreen';
+    if (box.x + box.width <= 0 || box.y + box.height <= 0 || box.x >= view.innerWidth || box.y >= view.innerHeight) return 'offscreen';
     return 'visible';
   }
 
@@ -184,14 +285,14 @@
     const labelled = Array.from(input.labels || []).find(visible);
     if (labelled) return labelled;
     if (input.id) {
-      const controlled = Array.from(document.querySelectorAll('[aria-controls]')).find((element) => (
+      const controlled = Array.from(input.ownerDocument.querySelectorAll('[aria-controls]')).find((element) => (
         String(element.getAttribute('aria-controls') || '').split(/\s+/).includes(input.id)
           && element.matches('button,[role="button"],label') && visible(element)
       ));
       if (controlled) return controlled;
     }
     let ancestor = input.parentElement;
-    for (let depth = 0; ancestor && ancestor !== document.body && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
+    for (let depth = 0; ancestor && ancestor !== input.ownerDocument.body && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
       if (ancestor.querySelectorAll('input[type="file"]').length !== 1) continue;
       const candidates = Array.from(ancestor.querySelectorAll('button,[role="button"],label')).filter(visible);
       if (candidates.length === 1) return candidates[0];
@@ -207,10 +308,11 @@
   function signalsFor(element, role) {
     const signals = { enabled: !element.disabled && element.getAttribute('aria-disabled') !== 'true' };
     if (role === 'reflex_target') {
-      if (element === document.body && location.hostname === 'mouseaccuracy.com') signals.enabled = false;
+      const page = element.ownerDocument;
+      if (element === page.body && page.location.hostname === 'mouseaccuracy.com') signals.enabled = false;
       const authored = element.getAttribute('data-saccade-reflex-occurrence');
-      const score = location.hostname === 'mouseaccuracy.com'
-        ? (document.body?.innerText || '').match(/SCORE\s*(\d+)/i)?.[1]
+      const score = page.location.hostname === 'mouseaccuracy.com'
+        ? (page.body?.innerText || '').match(/SCORE\s*(\d+)/i)?.[1]
         : undefined;
       signals.occurrence = authored ?? score ?? '0';
     } else if (role === 'link') {
@@ -271,13 +373,13 @@
     const object = {
       object_id: id, object_revision: revision + 1, frame_id: frameId,
       ...descriptor,
-      document_bounds: { x: box.x + scrollX, y: box.y + scrollY, width: box.width, height: box.height },
+      document_bounds: { x: box.x + element.ownerDocument.defaultView.scrollX, y: box.y + element.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
       viewport_bounds: box, visibility, transition: role === 'link' ? 'navigation_possible' : 'none',
     };
     if (name) object.name = name;
     if (description) object.description = description;
     if (role === 'reflex_target') object.loop_class_token = reflexLoopClassToken;
-    if (descriptor.affordances.length && getComputedStyle(interactionElement).pointerEvents !== 'none') {
+    if (descriptor.affordances.length && interactionElement.ownerDocument.defaultView.getComputedStyle(interactionElement).pointerEvents !== 'none') {
       const token = randomToken('action', 16);
       object.action_token = token;
       tokenTargets.set(token, { element: interactionElement, role, objectId: id, affordances: descriptor.affordances });
@@ -287,7 +389,7 @@
 
   function comboboxForListbox(listbox) {
     if (!listbox.id) return null;
-    for (const candidate of document.querySelectorAll('[role="combobox"][aria-controls],[role="combobox"][aria-owns]')) {
+    for (const candidate of composedQuery(listbox.ownerDocument, '[role="combobox"][aria-controls],[role="combobox"][aria-owns]')) {
       const ids = `${candidate.getAttribute('aria-controls') || ''} ${candidate.getAttribute('aria-owns') || ''}`.split(/\s+/);
       if (ids.includes(listbox.id)) return candidate;
     }
@@ -305,7 +407,7 @@
   function optionsForChoice(owner) {
     if (owner.tagName === 'SELECT') return Array.from(owner.options);
     const ids = `${owner.getAttribute('aria-controls') || ''} ${owner.getAttribute('aria-owns') || ''}`.split(/\s+/).filter(Boolean);
-    const roots = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    const roots = ids.map((id) => owner.ownerDocument.getElementById(id)).filter(Boolean);
     if (!roots.length && owner.getAttribute('role') === 'listbox') roots.push(owner);
     return roots.flatMap((root) => Array.from(root.querySelectorAll('[role="option"]')));
   }
@@ -327,7 +429,7 @@
     objectTargets.set(id, option);
     return {
       object_id: id, object_revision: revision + 1, frame_id: frameId, ...descriptor,
-      document_bounds: { x: box.x + scrollX, y: box.y + scrollY, width: box.width, height: box.height },
+      document_bounds: { x: box.x + owner.ownerDocument.defaultView.scrollX, y: box.y + owner.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
       viewport_bounds: box, visibility: visibilityFor(owner, box), transition: 'none',
     };
   }
@@ -343,7 +445,7 @@
     const object = {
       object_id: id, object_revision: revision + 1, frame_id: frameId,
       kind: 'image', role: 'image', state: {}, affordances: [], protected: false,
-      document_bounds: { x: box.x + scrollX, y: box.y + scrollY, width: box.width, height: box.height },
+      document_bounds: { x: box.x + element.ownerDocument.defaultView.scrollX, y: box.y + element.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
       viewport_bounds: box, visibility, transition: 'none', name,
     };
     const identity = normalizedText(element.getAttribute('data-saccade-image-identity'), 256);
@@ -376,10 +478,11 @@
       if (node !== element) {
         if (node.matches(`${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},script,style,template,noscript`)) return;
         if (node.getAttribute('aria-hidden') === 'true' || node.hidden) return;
-        const style = getComputedStyle(node);
+        const style = node.ownerDocument.defaultView.getComputedStyle(node);
         if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
       }
       for (const child of node.childNodes) visit(child);
+      if (node.shadowRoot) for (const child of node.shadowRoot.childNodes) visit(child);
     };
     visit(element);
     return normalizedText(chunks.join(' '), 4096);
@@ -407,7 +510,7 @@
     return {
       object_id: id, object_revision: revision + 1, frame_id: frameId,
       kind: 'text', role, text, state, affordances: [], protected: false,
-      document_bounds: { x: box.x + scrollX, y: box.y + scrollY, width: box.width, height: box.height },
+      document_bounds: { x: box.x + element.ownerDocument.defaultView.scrollX, y: box.y + element.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
       viewport_bounds: box, visibility, transition: 'none',
     };
   }
@@ -417,6 +520,8 @@
     if (document.readyState === 'loading') return null;
     tokenTargets.clear();
     objectTargets.clear();
+    const frameState = collectFrameContexts();
+    for (const context of frameState.contexts) observeDocument(context.doc);
     const objects = [];
     const seenFileTriggers = new Set();
     let truncated = false;
@@ -424,9 +529,11 @@
       const loopStatus = observationObject(document.body, 'reflex_target', config.frameId);
       if (loopStatus) objects.push(loopStatus);
     }
-    const candidates = Array.from(document.querySelectorAll(CONTROL_SELECTOR));
+    const candidates = frameState.contexts.flatMap((context) => (
+      composedQuery(context.doc, CONTROL_SELECTOR).map((element) => ({ element, frameId: context.frameId }))
+    ));
     const actionNameCounts = new Map();
-    for (const element of candidates) {
+    for (const { element } of candidates) {
       const role = roleFor(element);
       if (!['button', 'link'].includes(role)) continue;
       const name = safeName(element, role);
@@ -436,7 +543,7 @@
     }
     repeatedActionKeys = new Set([...actionNameCounts].filter(([, count]) => count > 1).map(([key]) => key));
 
-    for (const element of candidates) {
+    for (const { element, frameId } of candidates) {
       const role = roleFor(element);
       if (!role) continue;
       if (role === 'file_input') {
@@ -444,34 +551,40 @@
         if (seenFileTriggers.has(trigger)) continue;
         seenFileTriggers.add(trigger);
       }
-      const object = observationObject(element, role, config.frameId);
+      const object = observationObject(element, role, frameId);
       if (object) objects.push(object);
       if (role === 'select' && object) {
         for (const option of optionsForChoice(element)) {
-          const choice = optionObject(option, config.frameId);
+          const choice = optionObject(option, frameId);
           if (choice) objects.push(choice);
         }
       }
       if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
     }
     if (!truncated) {
-      for (const element of document.querySelectorAll(IMAGE_SELECTOR)) {
-        const object = imageObject(element, config.frameId);
-        if (object) objects.push(object);
-        if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
+      for (const context of frameState.contexts) {
+        for (const element of composedQuery(context.doc, IMAGE_SELECTOR)) {
+          const object = imageObject(element, context.frameId);
+          if (object) objects.push(object);
+          if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
+        }
+        if (truncated) break;
       }
     }
     let structuralTextBytes = 0;
     if (!truncated) {
       const encoder = new TextEncoder();
-      for (const element of document.querySelectorAll(STRUCTURAL_SELECTOR)) {
-        const object = structuralObject(element, config.frameId);
-        if (!object) continue;
-        const bytes = encoder.encode(object.text).byteLength;
-        if (structuralTextBytes + bytes > MAX_STRUCTURAL_TEXT_BYTES) { truncated = true; break; }
-        structuralTextBytes += bytes;
-        objects.push(object);
-        if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
+      for (const context of frameState.contexts) {
+        for (const element of composedQuery(context.doc, STRUCTURAL_SELECTOR)) {
+          const object = structuralObject(element, context.frameId);
+          if (!object) continue;
+          const bytes = encoder.encode(object.text).byteLength;
+          if (structuralTextBytes + bytes > MAX_STRUCTURAL_TEXT_BYTES) { truncated = true; break; }
+          structuralTextBytes += bytes;
+          objects.push(object);
+          if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
+        }
+        if (truncated) break;
       }
     }
     revision += 1;
@@ -479,17 +592,52 @@
     const snapshot = {
       schema: OBSERVATION_SCHEMA, browser_instance_id: config.browserInstanceId,
       tab_id: config.tabId, document_id: documentId, revision, viewport_revision: viewportRevision,
-      frames: [{ frame_id: config.frameId, document_id: documentId, origin: location.origin, status: 'observed' }],
-      objects, changes: [], coverage: { source: 'dom_extension', observed_frame_count: 1, restricted_frame_count: 0, truncated },
-      limitations: truncated ? [{ kind: 'truncated', frame_id: config.frameId }] : [], gap: false,
+      frames: frameState.frames,
+      objects, changes: [], coverage: {
+        source: 'dom_extension',
+        observed_frame_count: frameState.frames.filter((frame) => frame.status === 'observed').length,
+        restricted_frame_count: frameState.frames.filter((frame) => frame.status !== 'observed').length,
+        truncated,
+      },
+      limitations: [...frameState.limitations, ...(truncated ? [{ kind: 'truncated', frame_id: config.frameId }] : [])], gap: false,
     };
     chrome.runtime.sendMessage({ kind: 'collector.observation', payload: snapshot });
     return snapshot;
   }
 
   function isTopmost(element, box) {
-    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-    return hit === element || element.contains(hit);
+    let view = element.ownerDocument.defaultView;
+    let x = box.x + box.width / 2;
+    let y = box.y + box.height / 2;
+    const root = element.getRootNode();
+    let hit = root.elementFromPoint?.(x, y) || element.ownerDocument.elementFromPoint(x, y);
+    if (hit !== element && !element.contains(hit)) return false;
+    while (view !== view.top) {
+      const frame = view.frameElement;
+      if (!frame) return false;
+      const frameBox = frame.getBoundingClientRect();
+      x += frameBox.x + frame.clientLeft;
+      y += frameBox.y + frame.clientTop;
+      view = view.parent;
+      hit = view.document.elementFromPoint(x, y);
+      if (hit !== frame && !frame.contains(hit)) return false;
+    }
+    return true;
+  }
+
+  function topViewportBox(element, box) {
+    let view = element.ownerDocument.defaultView;
+    let x = box.x;
+    let y = box.y;
+    while (view !== view.top) {
+      const frame = view.frameElement;
+      if (!frame) throw new Error('ambiguous frame transform');
+      const frameBox = frame.getBoundingClientRect();
+      x += frameBox.x + frame.clientLeft;
+      y += frameBox.y + frame.clientTop;
+      view = view.parent;
+    }
+    return { x, y, width: box.width, height: box.height };
   }
 
   function prepare(request) {
@@ -499,13 +647,14 @@
     if (!target || !target.element.isConnected || !target.affordances.includes(request.operation)) throw new Error('action token is not current for operation');
     target.element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const box = boxFor(target.element);
+    const topBox = topViewportBox(target.element, box);
     const prepared = {
       browser_instance_id: config.browserInstanceId, tab_id: config.tabId, document_id: documentId,
       basis_revision: revision, viewport_revision: viewportRevision, object_id: target.objectId,
       action_token: request.action_token, operation: request.operation,
-      screen_bounds: { x: screenX + box.x, y: screenY + Math.max(0, outerHeight - innerHeight) + box.y, width: box.width, height: box.height },
+      screen_bounds: { x: screenX + topBox.x, y: screenY + Math.max(0, outerHeight - innerHeight) + topBox.y, width: topBox.width, height: topBox.height },
       visible: visibilityFor(target.element, box) === 'visible', topmost: isTopmost(target.element, box),
-      focus_verified: document.hasFocus() && window.top === window.self,
+      focus_verified: top.document.hasFocus(),
     };
     if (request.operation === 'select') {
       const optionId = request.payload?.kind === 'select' ? request.payload.option_object_id : '';
@@ -558,7 +707,7 @@
   function mutationCanChangeObservation(record) {
     if (location.hostname === 'mouseaccuracy.com' && location.pathname.startsWith('/game')) return true;
     const element = record.target.nodeType === Node.ELEMENT_NODE
-      ? record.target : record.target.parentElement;
+      ? record.target : record.target.host || record.target.parentElement;
     if (!element) return false;
     if (element.matches(OBSERVED_SELECTOR) || element.closest(OBSERVED_SELECTOR)) return true;
     if (record.type === 'attributes') return Boolean(element.querySelector(OBSERVED_SELECTOR));
@@ -572,23 +721,9 @@
   function configure(next) {
     config = next;
     for (const observer of observers.splice(0)) observer.disconnect();
-    const observer = new MutationObserver((records) => {
-      if (records.some(mutationCanChangeObservation)) schedule();
-    });
-    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
-    observers.push(observer);
-    for (const event of ['input', 'focusin', 'focusout']) document.addEventListener(event, schedule, true);
-    document.addEventListener('change', (event) => {
-      const changed = event.target;
-      if (activeFileTrigger && changed instanceof HTMLInputElement
-        && String(changed.type).toLowerCase() === 'file' && changed.files?.length) {
-        fileTriggerHasValue.add(activeFileTrigger);
-        activeFileTrigger = null;
-      }
-      schedule();
-    }, true);
-    addEventListener('scroll', schedule, { passive: true });
-    addEventListener('resize', schedule, { passive: true });
+    observedRoots = new WeakSet();
+    observedDocuments = new WeakSet();
+    observeDocument(document);
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', collect, { once: true });
       return null;
@@ -601,6 +736,8 @@
     tokenTargets.clear();
     objectTargets.clear();
     for (const observer of observers.splice(0)) observer.disconnect();
+    observedRoots = new WeakSet();
+    observedDocuments = new WeakSet();
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {

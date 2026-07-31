@@ -69,7 +69,7 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /comboboxForListbox/);
   assert.match(collector, /optionsForChoice/);
   assert.match(collector, /optionEnabled/);
-  assert.match(collector, /document\.querySelectorAll\(/);
+  assert.match(collector, /function composedQuery/);
   assert.match(collector, /\[contenteditable\]/);
   assert.match(collector, /type === 'search'/);
   assert.match(collector, /type === 'number'/);
@@ -115,6 +115,20 @@ test('unrelated page mutations do not churn current control tokens', () => {
   assert.match(collector, /element\.matches\(OBSERVED_SELECTOR\)/);
 });
 
+test('same-origin frames and open shadow roots compose without changing the root message route', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(collector, /function collectFrameContexts/);
+  assert.match(collector, /element\.contentDocument/);
+  assert.match(collector, /status: 'restricted_permission'/);
+  assert.match(collector, /kind: 'restricted_frame'/);
+  assert.match(collector, /element\.shadowRoot/);
+  assert.match(collector, /function topViewportBox/);
+  assert.match(collector, /frame\.clientLeft/);
+  assert.match(worker, /message\.kind !== 'collector\.observation'/);
+  assert.doesNotMatch(worker, /webNavigation|getAllFrames|frame_observation/);
+});
+
 test('open ownership precedes response and loading tabs start collection without waiting for complete', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const open = worker.slice(worker.indexOf("command.kind === 'tabs.open'"), worker.indexOf("command.kind === 'prepare_action'"));
@@ -144,7 +158,7 @@ test('software click bridge is token-bound and limited to Registry roles', () =>
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /data-saccade-reflex-target/);
   assert.match(collector, /!element\.classList\.contains\('hit'\)/);
-  assert.match(collector, /element === document\.body/);
+  assert.match(collector, /element === page\.body/);
   assert.match(collector, /location\.hostname === 'mouseaccuracy\.com'/);
   assert.match(collector, /location\.pathname\.startsWith\('\/game'\)/);
   assert.match(collector, /'Decrease' : 'Increase'/);

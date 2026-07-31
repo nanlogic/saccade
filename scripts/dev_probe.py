@@ -19,7 +19,7 @@ EDITABLE_INPUTS = (
     ("search_field", "Search", "SACCADE-DEV-SEARCH-Ω"),
     ("text_area", "Notes", "SACCADE DEV LINE ONE\nLINE TWO Ω"),
     ("content_editable", "Draft", "SACCADE-DEV-DRAFT-Ω"),
-    ("spin_button", "Quantity", "7319"),
+    ("spin_button", "Quantity", "731946285017"),
 )
 TEXT_SENTINELS = tuple(value for _role, _name, value in EDITABLE_INPUTS)
 FIXTURE_SENTINELS = (
@@ -622,6 +622,32 @@ def profile(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     }
 
 
+def frames_and_shadow(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
+    observation = open_fixture(mcp, url)
+    observed = [frame for frame in observation.get("frames", []) if frame.get("status") == "observed"]
+    restricted = [frame for frame in observation.get("frames", []) if frame.get("status") != "observed"]
+    if len(observed) != 2 or len(restricted) != 1:
+        raise RuntimeError(f"unexpected frame coverage: {observation.get('frames', [])!r}")
+    if not any(item.get("role") == "button" and item.get("name") == "Frame toggle" for item in observation["objects"]):
+        raise RuntimeError("same-origin frame button was omitted")
+    if not any(item.get("role") == "button" and item.get("name") == "Open shadow toggle" for item in observation["objects"]):
+        raise RuntimeError("open shadow button was omitted")
+    if any(item.get("name") in {"Closed shadow must stay opaque", "Opaque button"} for item in observation["objects"]):
+        raise RuntimeError("opaque descendant content escaped its boundary")
+    receipts: list[dict[str, Any]] = []
+    receipt, observation = act(mcp, observation, "button", "Frame toggle", "click", lambda _: {"kind": "none"}, "native")
+    receipts.append(receipt)
+    receipt, observation = act(mcp, observation, "button", "Open shadow toggle", "click", lambda _: {"kind": "none"}, "native")
+    receipts.append(receipt)
+    return {
+        "browser": browser,
+        "observed_frame_count": len(observed),
+        "restricted_frame_count": len(restricted),
+        "closed_shadow_opaque": True,
+        "receipts": receipts,
+    }
+
+
 def reflex(
     mcp: Mcp,
     url: str,
@@ -870,7 +896,7 @@ def mouse_accuracy(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["controls", "profile", "mouse_accuracy", "reflex"])
+    parser.add_argument("mode", choices=["controls", "frames", "profile", "mouse_accuracy", "reflex"])
     parser.add_argument("--browser", choices=["chrome", "edge"], required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path, required=True)
@@ -889,6 +915,8 @@ def main() -> None:
         try:
             if args.mode == "controls":
                 evidence = controls(mcp, args.url, args.browser)
+            elif args.mode == "frames":
+                evidence = frames_and_shadow(mcp, args.url, args.browser)
             elif args.mode == "profile":
                 evidence = profile(mcp, args.url, args.browser)
             elif args.mode == "mouse_accuracy":

@@ -120,8 +120,18 @@ structural-text budget. Node and Rust gates pass, and paired managed run
 The image slice remains deliberately narrow. A named image may expose an
 application-declared `data-saccade-image-identity` as a non-actionable
 description. It does not inspect pixels, disclose URLs, or imply equality when
-the bridge is absent. Lists and table containers, frames, opaque surfaces, and
-restricted-document reporting remain planned.
+the bridge is absent.
+
+Same-origin iframe and open-shadow composition completed on 2026-07-31 without
+changing the root collector message route. The top collector assigns frame
+identity, observes descendant mutations, composes native geometry through the
+same-origin frame-element chain, and revalidates ancestor coverage. Inaccessible
+frames emit `restricted_frame`; closed-shadow contents remain opaque and are not
+claimed as generically detectable. Paired managed run `20260731T051006Z` in
+Chrome and Edge proved two observed frames, one restricted
+frame, and native `accepted_by_os + verified` receipts for a frame button and
+an open-shadow button. Lists/table containers, Canvas/WebGL/video, built-in PDF,
+and broader restricted-document reporting remain planned.
 
 ## Batch 5: specialized native controls
 

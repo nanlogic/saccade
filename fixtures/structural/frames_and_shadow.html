@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Saccade structural frame and shadow fixture</title>
+<h1>Structural host</h1>
+<iframe id="same-origin-frame" title="same origin frame" srcdoc="<!doctype html><button aria-pressed='false' onclick=&quot;this.setAttribute('aria-pressed', this.getAttribute('aria-pressed') !== 'true')&quot;>Frame toggle</button>"></iframe>
+<iframe id="opaque-frame" title="opaque frame" src="data:text/html,%3Cbutton%3EOpaque%20button%3C%2Fbutton%3E"></iframe>
+<saccade-open-shadow></saccade-open-shadow>
+<saccade-closed-shadow></saccade-closed-shadow>
+<script>
+  customElements.define('saccade-open-shadow', class extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      root.innerHTML = '<button aria-pressed="false" onclick="this.setAttribute(\'aria-pressed\', this.getAttribute(\'aria-pressed\') !== \'true\')">Open shadow toggle</button>';
+    }
+  });
+  customElements.define('saccade-closed-shadow', class extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'closed' });
+      root.innerHTML = '<button>Closed shadow must stay opaque</button>';
+    }
+  });
+</script>

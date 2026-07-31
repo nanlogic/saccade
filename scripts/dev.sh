@@ -28,6 +28,7 @@ SYSTEM_HOST_DIR="/Library/Google/ChromeForTesting/NativeMessagingHosts"
 SYSTEM_HOST_MANIFEST="$SYSTEM_HOST_DIR/com.nanlogic.saccade.dev.json"
 RUNTIME="$RUNTIME_MACOS/saccade-runtime"
 FIXTURE_URL="http://127.0.0.1:8765/fixtures/controls/all.html"
+STRUCTURAL_FIXTURE_URL="http://127.0.0.1:8765/fixtures/structural/frames_and_shadow.html"
 MOUSE_ACCURACY_URL="http://127.0.0.1:8765/fixtures/conformance/mouse_accuracy.html"
 MOUSE_ACCURACY_LAYOUT="${SACCADE_MOUSE_ACCURACY_LAYOUT:-buttons}"
 MOUSE_ACCURACY_DIFFICULTY="${SACCADE_MOUSE_ACCURACY_DIFFICULTY:-ordinary}"
@@ -561,6 +562,30 @@ test_all() {
   printf '%s\n' "Chrome and Edge evidence: $EVIDENCE_DIR/$all_stamp"
 }
 
+frames_route() {
+  frames_browser=$1
+  frames_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$frames_browser"
+  mkdirs
+  up "$frames_browser"
+  frames_run_dir="$EVIDENCE_DIR/$frames_stamp/$frames_browser"
+  mkdir -p "$frames_run_dir"
+  chmod 700 "$frames_run_dir"
+  python3 "$ROOT/scripts/dev_probe.py" frames \
+    --browser "$frames_browser" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --url "$STRUCTURAL_FIXTURE_URL" \
+    --output "$frames_run_dir/frames_and_shadow.json"
+  printf '%s\n' "Frame and shadow $frames_browser evidence: $frames_run_dir"
+}
+
+frames_all() {
+  frames_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  frames_route chrome "$frames_stamp"
+  frames_route edge "$frames_stamp"
+}
+
 compare_route() {
   compare_browser=$1
   compare_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
@@ -739,6 +764,13 @@ case "${1:-}" in
       *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
     esac
     ;;
+  frames)
+    case "${2:-chrome}" in
+      all) frames_all ;;
+      chrome|edge) frames_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
   compare)
     case "${2:-chrome}" in
       all) compare_all ;;
@@ -757,5 +789,5 @@ case "${1:-}" in
   profile) profile_command "$@" ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|compare [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|frames [chrome|edge|all]|compare [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
 esac

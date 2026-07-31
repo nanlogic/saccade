@@ -455,3 +455,32 @@ Saccade will not become a browser-testing framework, coordinate clicker, or
 model-specific browser plugin. Future proposals are evaluated by whether they
 improve Agent understanding, delta efficiency, verified execution, or the ease
 of adding and maintaining closed-loop controls.
+
+## 2026-07-31: Frames compose inside the proven root collector
+
+Accepted: the authorized top-document collector directly traverses accessible
+same-origin iframe documents and open shadow roots. Root observation keeps the
+existing `collector.observation` message and never depends on a separate frame
+topology service. This preserves the proven first-observation path and makes
+frame coverage additive.
+
+Descendant objects carry frame identity. Native preparation converts a target's
+local box through its same-origin `frameElement` chain and rejects a covered or
+ambiguous ancestor. Inaccessible frames report `restricted_frame`. Closed shadow
+roots are not traversed and current coverage does not claim reliable detection.
+No code or classifier was copied from the legacy repository.
+
+Paired managed Chrome and Edge run `20260731T051006Z` produced two native
+`accepted_by_os + verified` receipts per browser. The paired common
+control/Profile regression passed in Chrome run `20260731T050149Z`; Edge had one
+native-select miss in that paired run and passed the complete rerun
+`20260731T050252Z`. The miss remains release evidence for native-select
+reliability work rather than being discarded.
+
+Recorded public parity: W3C WAI-ARIA comparison run `20260731T050337Z` matched
+Saccade and the out-of-band Playwright oracle for radio, switch, tab, and menu
+item in both Chrome and Edge. The Selenium official web-form Chrome benchmark
+passed 3/3 in both lanes: Saccade median 2.486 seconds and 2,776 model-facing
+tokens; Playwright selector-best-case median 1.369 seconds and 421 tokens.
+Saccade was 1.816x the task time and 6.594x the token count in this single-shot
+form benchmark; no speed or token-win claim is authorized from it.

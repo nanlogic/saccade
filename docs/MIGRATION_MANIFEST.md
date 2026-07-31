@@ -72,10 +72,13 @@ approved component at a time and record its provenance below.
     is reused. See `docs/migrations/0011_aria_choice_controls.md`.
 14. Add the session-only Extension popup for sharing and revoking one current
     tab. See `docs/migrations/0012_shared_tab_ui.md`.
-15. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
+15. Add same-origin iframe and open-shadow composition inside the existing top
+    collector. No legacy classifier or frame tree is reused. See
+    `docs/migrations/0013_frame_shadow_composition.md`.
+16. Run clean signed-product macOS/Chrome and Windows/Chrome/Edge
     installation/action gates before publication.
-16. Add truthful basic coverage for uncommon controls.
-17. Consider Canvas/WebGL semantic bridges before any detector capability.
+17. Add truthful basic coverage for uncommon controls.
+18. Consider Canvas/WebGL semantic bridges before any detector capability.
 
 ## Per-component acceptance record
 
