@@ -359,6 +359,10 @@ available only to finite Registry click roles; it computes the current target
 center inside the Extension and never accepts or discloses an Agent coordinate
 or locator. The page collector, not the service worker's observation cache, is
 the authority for the final document, revision, token, and target revalidation.
+Normal MCP clients receive only `web.act`, and the Registry selects the backend;
+backend choice is not an Agent planning decision. Explicit soft/native action
+tools and the reflex-loop backend selector are available only under the local
+development diagnostic flag and otherwise fail before Host dispatch.
 
 A Host receipt binds before, prepared, and post-action revisions and includes
 the complete post-action observation for verification and local evidence. The

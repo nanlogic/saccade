@@ -60,13 +60,14 @@ fn dispatch(
     agent_views: &mut AgentViewState,
     request: RpcRequest,
 ) -> Result<Value> {
+    let diagnostics = diagnostic_input_overrides_enabled();
     if request.jsonrpc != "2.0" {
         bail!("unsupported JSON-RPC version {}", request.jsonrpc);
     }
     match request.method.as_str() {
         "initialize" => initialize(host),
         "notifications/initialized" | "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools":tools()})),
+        "tools/list" => Ok(json!({"tools":tools(diagnostics)})),
         "tools/call" => {
             let name = string(&request.params, "name")?;
             let arguments = request
@@ -74,7 +75,7 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let value = call_tool(host, agent_views, name, arguments)?;
+            let value = call_tool(host, agent_views, name, arguments, diagnostics)?;
             let summary = tool_result_summary(&value);
             Ok(
                 json!({"content":[{"type":"text","text":summary}],"structuredContent":value,"isError":false}),
@@ -109,7 +110,7 @@ fn profile_instructions(capabilities: &Value) -> String {
         .and_then(|value| value.get("behavior"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let base = "Observe a tab before acting and use only returned action tokens.";
+    let base = "Observe a tab before acting, use only returned action tokens, and let web.act select the input backend.";
     if behavior.is_empty() {
         format!("Active Saccade Profile: {name}. {base}")
     } else {
@@ -122,6 +123,7 @@ fn call_tool(
     agent_views: &mut AgentViewState,
     name: &str,
     mut arguments: Value,
+    diagnostics: bool,
 ) -> Result<Value> {
     let method = name
         .strip_prefix("saccade.")
@@ -143,8 +145,9 @@ fn call_tool(
     {
         bail!("tool is not registered: {name}");
     }
+    require_tool_enabled(method, diagnostics)?;
     agent_views.expand_object_aliases(method, &mut arguments)?;
-    validate_arguments(method, &arguments)?;
+    validate_arguments(method, &arguments, diagnostics)?;
     let timeout = match method {
         "web.act" | "web.act_native" | "web.act_soft" => Duration::from_secs(30),
         "web.form.fill" => Duration::from_secs(
@@ -219,7 +222,7 @@ fn call_tool(
     Ok(result)
 }
 
-fn validate_arguments(method: &str, value: &Value) -> Result<()> {
+fn validate_arguments(method: &str, value: &Value, diagnostics: bool) -> Result<()> {
     if matches!(method, "web.act" | "web.act_native" | "web.act_soft") {
         serde_json::from_value::<ActionRequest>(value.clone())?.validate()?;
         return Ok(());
@@ -251,7 +254,11 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
             ],
         ),
         "web.reflex.run" => (
-            &["tab_id", "input_backend", "max_actions", "timeout_ms"],
+            if diagnostics {
+                &["tab_id", "input_backend", "max_actions", "timeout_ms"]
+            } else {
+                &["tab_id", "max_actions", "timeout_ms"]
+            },
             &["tab_id"],
         ),
         _ => bail!("tool has no parameter contract"),
@@ -335,20 +342,41 @@ fn validate_arguments(method: &str, value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn tools() -> Vec<Value> {
-    vec![
+fn tools(diagnostics: bool) -> Vec<Value> {
+    let mut tools = vec![
         json!({"name":"saccade.system.capabilities","description":"Read the active Profile behavior and Runtime capabilities.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
         json!({"name":"saccade.web.observe","description":"Read the Agent Browser: one full Truth Layer per document, then semantic deltas and opaque authority refreshes. Pass after_revision to wait locally for a newer browser revision instead of polling through the model.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id"],"additionalProperties":false}}),
         json!({"name":"saccade.web.act","description":"Run one revision-bound closed loop using the Registry-selected backend and return a compact receipt plus Agent-view update.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
         json!({"name":"saccade.input_policy.list","description":"List this user's local per-page learned input-backend records.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.input_policy.remember_native","description":"Remember that the current page control should use native input on future actions.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
         json!({"name":"saccade.web.form.fill","description":"Fill a bounded form plan in one request while every control retains its own prepare, revalidate, input, reobserve, verify, and receipt loop.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"actions":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"action_token":{"type":"string","minLength":32},"operation":{"enum":["type","select","click"]},"payload":{"type":"object"}},"required":["action_token","operation","payload"],"additionalProperties":false}}},"required":["browser_instance_id","tab_id","document_id","basis_revision","actions"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts; omit input_backend for Registry selection.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"input_backend":{"enum":["native","soft"]},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
-    ]
+        json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts using the Registry-selected backend.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
+    ];
+    if diagnostics {
+        tools.push(json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}));
+        tools.push(json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}));
+        tools
+            .iter_mut()
+            .find(|tool| tool["name"] == "saccade.web.reflex.run")
+            .and_then(|tool| tool.pointer_mut("/inputSchema/properties"))
+            .and_then(Value::as_object_mut)
+            .expect("reflex tool properties must exist")
+            .insert("input_backend".into(), json!({"enum":["native","soft"]}));
+    }
+    tools
+}
+
+fn diagnostic_input_overrides_enabled() -> bool {
+    std::env::var("SACCADE_DIAGNOSTIC_INPUT_OVERRIDES").as_deref() == Ok("1")
+}
+
+fn require_tool_enabled(method: &str, diagnostics: bool) -> Result<()> {
+    if matches!(method, "web.act_native" | "web.act_soft") && !diagnostics {
+        bail!("diagnostic input overrides are disabled");
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -732,32 +760,57 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request.method, "initialize");
-        assert_eq!(tools().len(), 11);
+        assert_eq!(tools(false).len(), 9);
+        assert_eq!(tools(true).len(), 11);
+        assert!(tools(false).iter().all(|tool| !matches!(
+            tool["name"].as_str(),
+            Some("saccade.web.act_native" | "saccade.web.act_soft")
+        )));
+        assert!(tools(false)
+            .iter()
+            .find(|tool| tool["name"] == "saccade.web.reflex.run")
+            .unwrap()
+            .pointer("/inputSchema/properties/input_backend")
+            .is_none());
+        assert!(require_tool_enabled("web.act_native", false).is_err());
+        assert!(require_tool_enabled("web.act_soft", false).is_err());
+        assert!(require_tool_enabled("web.act_native", true).is_ok());
         assert!(serde_json::from_value::<RpcRequest>(
             json!({"jsonrpc":"2.0","id":1,"method":"ping","unexpected":true})
         )
         .is_err());
-        assert!(
-            validate_arguments("web.observe", &json!({"tab_id":"x","selector":"button"})).is_err()
-        );
         assert!(validate_arguments(
             "web.observe",
-            &json!({"tab_id":"x","after_revision":4,"timeout_ms":1000})
+            &json!({"tab_id":"x","selector":"button"}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "web.observe",
+            &json!({"tab_id":"x","after_revision":4,"timeout_ms":1000}),
+            false
         )
         .is_ok());
+        assert!(validate_arguments(
+            "web.observe",
+            &json!({"tab_id":"x","timeout_ms":1000}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","active":true}),
+            false
+        )
+        .is_ok());
+        assert!(validate_arguments("tabs.open", &json!({"active":true}), false).is_err());
         assert!(
-            validate_arguments("web.observe", &json!({"tab_id":"x","timeout_ms":1000})).is_err()
+            validate_arguments("tabs.open", &json!({"url":"file:///tmp/form"}), false).is_err()
         );
         assert!(validate_arguments(
             "tabs.open",
-            &json!({"url":"https://fixture.test","active":true})
-        )
-        .is_ok());
-        assert!(validate_arguments("tabs.open", &json!({"active":true})).is_err());
-        assert!(validate_arguments("tabs.open", &json!({"url":"file:///tmp/form"})).is_err());
-        assert!(validate_arguments(
-            "tabs.open",
-            &json!({"url":"https://fixture.test","active":"yes"})
+            &json!({"url":"https://fixture.test","active":"yes"}),
+            false
         )
         .is_err());
         assert!(validate_arguments(
@@ -772,14 +825,27 @@ mod tests {
                     "operation":"type",
                     "payload":{"kind":"text","text":"private immediate payload"}
                 }]
-            })
+            }),
+            false
+        )
+        .is_ok());
+        assert!(validate_arguments(
+            "web.reflex.run",
+            &json!({"tab_id":"x","input_backend":"native"}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "web.reflex.run",
+            &json!({"tab_id":"x","input_backend":"native"}),
+            true
         )
         .is_ok());
         assert_eq!(
             profile_instructions(
                 &json!({"profile":{"name":"focused","behavior":"Work in page order."}})
             ),
-            "Active Saccade Profile: focused. User behavior: Work in page order.\nObserve a tab before acting and use only returned action tokens."
+            "Active Saccade Profile: focused. User behavior: Work in page order.\nObserve a tab before acting, use only returned action tokens, and let web.act select the input backend."
         );
     }
 

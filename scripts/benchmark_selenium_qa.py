@@ -36,6 +36,15 @@ def summarize(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def dispatch_totals(runs: list[dict[str, Any]]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for run in runs:
+        for receipt in run.get("receipts", []):
+            status = str(receipt["dispatch_status"])
+            totals[status] = totals.get(status, 0) + 1
+    return totals
+
+
 def current_target(observation: dict[str, Any], role: str, name: str) -> dict[str, Any]:
     for item in observation.get("objects", []):
         if item.get("role") == role and item.get("name") == name:
@@ -186,7 +195,10 @@ def run_saccade(
             "tool_count": len(tools),
             "tool_schema_tokens": tokens.count(tools),
             "runs": runs,
-            "summary": summarize(runs),
+            "summary": {
+                **summarize(runs),
+                "dispatch_totals": dispatch_totals(runs),
+            },
         }
     finally:
         client.close()

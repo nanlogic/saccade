@@ -484,3 +484,25 @@ passed 3/3 in both lanes: Saccade median 2.486 seconds and 2,776 model-facing
 tokens; Playwright selector-best-case median 1.369 seconds and 421 tokens.
 Saccade was 1.816x the task time and 6.594x the token count in this single-shot
 form benchmark; no speed or token-win claim is authorized from it.
+
+## 2026-07-31: Input backend selection is automatic on the Agent surface
+
+Accepted: ordinary MCP discovery exposes one action transaction, `web.act`.
+The Registry defaults finite click roles to software and keeps editable,
+selection, and file operations native-required. A receipt-backed local rule may
+strengthen one page/control to native on its next fresh token. The model does
+not select the backend.
+
+Explicit `web.act_native`, `web.act_soft`, and the reflex-loop backend selector
+are now local development diagnostics. They are absent from normal tool
+discovery, rejected when the diagnostic flag is off, and cannot bypass a
+learned native rule or weaken a Catalog native requirement. Managed probes set
+the flag explicitly so both backend implementations remain independently
+testable without expanding the production Agent surface.
+
+Paired managed Chrome/Edge run `20260731T052312Z` produced seven verified
+software receipts and eight verified native receipts per browser through
+ordinary Registry selection. Selenium official web-form run
+`20260731T052600Z` passed 3/3 with nine software and nine native receipts. The
+preceding `20260731T052500Z` run stopped on native select and is retained as a
+separate reliability failure.

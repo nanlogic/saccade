@@ -158,6 +158,10 @@ Each Catalog entry declares either `software_preferred` or `native_required`.
 Software-preferred click controls use a token-bound Extension pointer sequence;
 editable, select, and file-input controls require real OS input. A user-local
 receipt-backed rule may strengthen one page/control from software to native.
+The normal Agent tool surface exposes only Registry-selected `web.act`; it does
+not ask the model to choose a backend. Explicit soft/native overrides and the
+reflex-loop backend selector exist only when the local development diagnostic
+flag is enabled and are absent from normal MCP discovery and calls.
 An accepted input event is not automatically a successful control action.
 For example, checkbox success requires a checked-state transition; link success
 may require a document transition or an agent-owned new tab. If the semantic

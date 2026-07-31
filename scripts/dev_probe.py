@@ -67,6 +67,7 @@ class Mcp:
     def __init__(self, runtime: Path, runtime_dir: Path) -> None:
         environment = os.environ.copy()
         environment["SACCADE_RUNTIME_DIR"] = str(runtime_dir)
+        environment["SACCADE_DIAGNOSTIC_INPUT_OVERRIDES"] = "1"
         self.process = subprocess.Popen(
             [str(runtime), "mcp"],
             stdin=subprocess.PIPE,
