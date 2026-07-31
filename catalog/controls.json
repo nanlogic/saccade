@@ -148,7 +148,7 @@
       "safe_state": ["has_value", "enabled", "required", "invalid", "expanded"],
       "affordances": ["select"],
       "native_primitive": "select_option",
-      "input_policy": "native_required",
+      "input_policy": "software_preferred",
       "verifier": "option_selected",
       "limitations": ["Option submitted values are never disclosed; native select, ARIA listbox, and ARIA combobox selection use an enabled option object identity."],
       "fixtures": ["fixtures/controls/select.html", "fixtures/controls/listbox_combobox.html"],

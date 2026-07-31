@@ -41,7 +41,7 @@ ACCURACY_LAYOUTS = ("buttons", "canvas")
 ACCURACY_DIFFICULTIES = ("ordinary", "hard")
 MOUSE_BACKENDS = ("native", "soft")
 SOFTWARE_PREFERRED_ROLES = {
-    "button", "link", "checkbox", "radio", "switch", "tab", "menu_item", "reflex_target",
+    "button", "link", "checkbox", "radio", "switch", "select", "tab", "menu_item", "reflex_target",
 }
 MOUSEACCURACY_DIFFICULTY_VALUES = ("Easy", "Normal", "Hard", "Insane")
 MOUSEACCURACY_SIZE_VALUES = ("Large", "Medium", "Small", "Tiny")

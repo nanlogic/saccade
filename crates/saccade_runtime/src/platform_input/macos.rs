@@ -129,9 +129,9 @@ pub(super) fn dispatch(
                 // option observation, never by this timer.
                 std::thread::sleep(CHOICE_POPUP_READY_DELAY);
             }
-            NativeStep::ChoiceHome => post_virtual_key(115)?,
-            NativeStep::ChoiceNext => post_virtual_key(125)?,
-            NativeStep::Return => post_virtual_key(KEY_RETURN)?,
+            NativeStep::ChoiceHome => post_virtual_key(115, Some(browser_pid))?,
+            NativeStep::ChoiceNext => post_virtual_key(125, Some(browser_pid))?,
+            NativeStep::ChoiceReturn => post_virtual_key(KEY_RETURN, Some(browser_pid))?,
             NativeStep::FileDialogDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(1500));
             }
@@ -145,6 +145,7 @@ pub(super) fn dispatch(
                 };
                 post_unicode(browser_pid, path)?;
             }
+            NativeStep::FileDialogReturn => post_virtual_key(KEY_RETURN, None)?,
             NativeStep::FileDialogSelectionDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(750));
             }
@@ -156,15 +157,20 @@ pub(super) fn dispatch(
     Ok(DispatchStatus::AcceptedByOs)
 }
 
-fn post_virtual_key(key: u16) -> Result<()> {
+fn post_virtual_key(key: u16, target_pid: Option<i32>) -> Result<()> {
+    let source = event_source()?;
     for key_down in [true, false] {
-        // SAFETY: null source is allowed; checked event is posted and released once.
-        let event = unsafe { CGEventCreateKeyboardEvent(ptr::null_mut(), key, key_down) };
+        // SAFETY: source is live; the checked event is posted and released once.
+        let event = unsafe { CGEventCreateKeyboardEvent(source.0, key, key_down) };
         if event.is_null() {
             bail!("CoreGraphics could not create a keyboard event");
         }
         unsafe {
-            CGEventPost(HID_EVENT_TAP, event);
+            if let Some(pid) = target_pid {
+                CGEventPostToPid(pid, event);
+            } else {
+                CGEventPost(HID_EVENT_TAP, event);
+            }
             CFRelease(event.cast_const());
         }
     }

@@ -39,8 +39,8 @@ def load_and_validate() -> tuple[dict, dict]:
             raise SystemExit(f"unapproved Catalog role: {control['role']}")
         if not set(control["safe_state"]) <= ALLOWED_STATES:
             raise SystemExit(f"unapproved state in {control['id']}")
-        if control["input_policy"] == "software_preferred" and control["native_primitive"] != "primary_click":
-            raise SystemExit(f"software_preferred requires primary_click in {control['id']}")
+        if control["input_policy"] == "software_preferred" and control["native_primitive"] not in {"primary_click", "select_option"}:
+            raise SystemExit(f"software_preferred requires a registered software primitive in {control['id']}")
         evidence = control["evidence"]
         if control["publication_status"] == "publishable" and evidence != {"chrome": "passed", "edge": "passed"}:
             raise SystemExit(f"{control['id']} cannot be publishable without Chrome and Edge evidence")

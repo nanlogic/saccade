@@ -646,6 +646,9 @@
     const target = tokenTargets.get(request.action_token);
     if (!target || !target.element.isConnected || !target.affordances.includes(request.operation)) throw new Error('action token is not current for operation');
     target.element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    if (request.operation === 'type' || request.operation === 'select') {
+      target.element.focus({ preventScroll: true });
+    }
     const box = boxFor(target.element);
     const topBox = topViewportBox(target.element, box);
     const prepared = {
@@ -654,7 +657,9 @@
       action_token: request.action_token, operation: request.operation,
       screen_bounds: { x: screenX + topBox.x, y: screenY + Math.max(0, outerHeight - innerHeight) + topBox.y, width: topBox.width, height: topBox.height },
       visible: visibilityFor(target.element, box) === 'visible', topmost: isTopmost(target.element, box),
-      focus_verified: top.document.hasFocus(),
+      focus_verified: (request.operation === 'type' || request.operation === 'select')
+        ? target.element.ownerDocument.activeElement === target.element
+        : top.document.hasFocus(),
     };
     if (request.operation === 'select') {
       const optionId = request.payload?.kind === 'select' ? request.payload.option_object_id : '';
@@ -665,7 +670,7 @@
         throw new Error('select option is not bound and enabled for this control');
       }
       prepared.selection_index = choices.indexOf(option);
-      if (prepared.selection_index < 0) throw new Error('select option has no native keyboard position');
+      if (prepared.selection_index < 0) throw new Error('select option has no enabled option position');
     }
     if (request.operation === 'upload' && target.role === 'file_input') {
       activeFileTrigger = target.element;
@@ -695,6 +700,29 @@
       }));
     }
     requestAnimationFrame(collect);
+    return { accepted: true };
+  }
+
+  function softAction(request) {
+    if (request.operation === 'click') return softClick(request);
+    const prepared = prepare(request);
+    if (request.operation !== 'select' || request.payload?.kind !== 'select') {
+      throw new Error('software action is not registered for the current operation');
+    }
+    const target = tokenTargets.get(request.action_token)?.element;
+    const option = objectTargets.get(request.payload.option_object_id);
+    if (!target || !option || choiceOwner(option) !== target || !optionEnabled(option, target)) {
+      throw new Error('software select option is not bound and enabled for this control');
+    }
+    if (target.matches('select') && option.matches('option')) {
+      option.selected = true;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      for (const key of ['Home', ...Array(prepared.selection_index).fill('ArrowDown'), 'Enter']) {
+        target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      }
+    }
     return { accepted: true };
   }
 
@@ -748,6 +776,7 @@
       else if (message.kind === 'collector.deauthorize') { deauthorize(); respond({ ok: true }); }
       else if (message.kind === 'collector.prepare_action') respond({ ok: true, prepared: prepare(message.request) });
       else if (message.kind === 'collector.soft_click') respond({ ok: true, result: softClick(message.request) });
+      else if (message.kind === 'collector.soft_action') respond({ ok: true, result: softAction(message.request) });
       else return false;
     } catch (error) {
       const detail = String(error.message || error);

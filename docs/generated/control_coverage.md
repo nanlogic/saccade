@@ -42,7 +42,7 @@ Chrome / Edge values are shown in that order.
 | checkbox | toggle | click | software_preferred | primary_click | checked_transition | pending | pending | implementation |
 | radio | toggle | click | software_preferred | primary_click | checked_transition | pending | pending | implementation |
 | switch | toggle | click | software_preferred | primary_click | checked_transition | pending | pending | implementation |
-| select | choice | select | native_required | select_option | option_selected | pending | pending | implementation |
+| select | choice | select | software_preferred | select_option | option_selected | pending | pending | implementation |
 | reflex_target | reflex | click | software_preferred | primary_click | target_advanced | pending | pending | implementation |
 | tab | navigation | click | software_preferred | primary_click | selected_transition | pending | pending | implementation |
 | menu_item | navigation | click | software_preferred | primary_click | expanded_transition | pending | pending | implementation |

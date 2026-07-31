@@ -1,0 +1,14 @@
+{
+  "schema": "saccade-agent-benchmark-task/1",
+  "name": "selenium-official-web-form",
+  "url": "https://www.selenium.dev/selenium/web/web-form.html",
+  "task": "Complete the web form. Enter SACCADE-FAIR-TEXT-Ω in Text input, enter SACCADE FAIR LINE ONE then LINE TWO Ω on a new line in Textarea, choose Two in Dropdown (select), ensure Default checkbox and Default radio are selected, then submit the form.",
+  "success": {
+    "tool_output_contains": ["Received!"]
+  },
+  "redact": [
+    "SACCADE-FAIR-TEXT-Ω",
+    "SACCADE FAIR LINE ONE\nLINE TWO Ω"
+  ],
+  "timeout_seconds": 180
+}

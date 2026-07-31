@@ -277,10 +277,13 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
         ));
     }
     if definition.input_policy == InputPolicy::SoftwarePreferred
-        && definition.native_primitive != NativePrimitive::PrimaryClick
+        && !matches!(
+            definition.native_primitive,
+            NativePrimitive::PrimaryClick | NativePrimitive::SelectOption
+        )
     {
         return Err(RegistryError::InvalidCatalog(
-            "software_preferred requires the finite primary_click primitive".into(),
+            "software_preferred requires a registered finite software primitive".into(),
         ));
     }
     Ok(())

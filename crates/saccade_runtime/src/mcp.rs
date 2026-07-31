@@ -342,21 +342,84 @@ fn validate_arguments(method: &str, value: &Value, diagnostics: bool) -> Result<
     Ok(())
 }
 
+fn action_request_schema(operations: &[&str]) -> Value {
+    let variants = operations
+        .iter()
+        .map(|operation| match *operation {
+            "click" => json!({
+                "properties":{
+                    "operation":{"const":"click"},
+                    "payload":{"type":"object","properties":{"kind":{"const":"none"}},"required":["kind"],"additionalProperties":false}
+                }
+            }),
+            "type" => json!({
+                "properties":{
+                    "operation":{"const":"type"},
+                    "payload":{"type":"object","properties":{"kind":{"const":"text"},"text":{"type":"string"}},"required":["kind","text"],"additionalProperties":false}
+                }
+            }),
+            "select" => json!({
+                "properties":{
+                    "operation":{"const":"select"},
+                    "payload":{"type":"object","properties":{"kind":{"const":"select"},"option_object_id":{"type":"string","minLength":1}},"required":["kind","option_object_id"],"additionalProperties":false}
+                }
+            }),
+            "upload" => json!({
+                "properties":{
+                    "operation":{"const":"upload"},
+                    "payload":{"type":"object","properties":{"kind":{"const":"file"},"path":{"type":"string","minLength":1}},"required":["kind","path"],"additionalProperties":false}
+                }
+            }),
+            _ => unreachable!("tool schema operation is allowlisted"),
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "type":"object",
+        "properties":{
+            "browser_instance_id":{"type":"string"},
+            "tab_id":{"type":"string"},
+            "document_id":{"type":"string"},
+            "basis_revision":{"type":"integer","minimum":1},
+            "action_token":{"type":"string","minLength":32},
+            "operation":{"enum":operations},
+            "payload":{"type":"object"}
+        },
+        "required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],
+        "oneOf":variants,
+        "additionalProperties":false
+    })
+}
+
+fn form_action_schema() -> Value {
+    let full = action_request_schema(&["type", "select", "click"]);
+    json!({
+        "type":"object",
+        "properties":{
+            "action_token":full["properties"]["action_token"].clone(),
+            "operation":full["properties"]["operation"].clone(),
+            "payload":full["properties"]["payload"].clone()
+        },
+        "required":["action_token","operation","payload"],
+        "oneOf":full["oneOf"].clone(),
+        "additionalProperties":false
+    })
+}
+
 fn tools(diagnostics: bool) -> Vec<Value> {
     let mut tools = vec![
         json!({"name":"saccade.system.capabilities","description":"Read the active Profile behavior and Runtime capabilities.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
         json!({"name":"saccade.web.observe","description":"Read the Agent Browser: one full Truth Layer per document, then semantic deltas and opaque authority refreshes. Pass after_revision to wait locally for a newer browser revision instead of polling through the model.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act","description":"Run one revision-bound closed loop using the Registry-selected backend and return a compact receipt plus Agent-view update.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.act","description":"Run one revision-bound closed loop using the Registry-selected backend and return a compact receipt plus Agent-view update.","inputSchema":action_request_schema(&["click","type","select","upload"])}),
         json!({"name":"saccade.input_policy.list","description":"List this user's local per-page learned input-backend records.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.input_policy.remember_native","description":"Remember that the current page control should use native input on future actions.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.form.fill","description":"Fill a bounded form plan in one request while every control retains its own prepare, revalidate, input, reobserve, verify, and receipt loop.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"actions":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"action_token":{"type":"string","minLength":32},"operation":{"enum":["type","select","click"]},"payload":{"type":"object"}},"required":["action_token","operation","payload"],"additionalProperties":false}}},"required":["browser_instance_id","tab_id","document_id","basis_revision","actions"],"additionalProperties":false}}),
+        json!({"name":"saccade.web.form.fill","description":"Fill a bounded form plan in one request while every control retains its own closed loop. Type editables, select with the observed option object_id, and click only checkbox/radio/switch controls. Submit and navigation remain separate web.act calls.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"actions":{"type":"array","minItems":1,"maxItems":32,"items":form_action_schema()}},"required":["browser_instance_id","tab_id","document_id","basis_revision","actions"],"additionalProperties":false}}),
         json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts using the Registry-selected backend.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
     ];
     if diagnostics {
-        tools.push(json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"enum":["click","type","select","upload"]},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}));
-        tools.push(json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":{"type":"object","properties":{"browser_instance_id":{"type":"string"},"tab_id":{"type":"string"},"document_id":{"type":"string"},"basis_revision":{"type":"integer","minimum":1},"action_token":{"type":"string","minLength":32},"operation":{"const":"click"},"payload":{"type":"object"}},"required":["browser_instance_id","tab_id","document_id","basis_revision","action_token","operation","payload"],"additionalProperties":false}}));
+        tools.push(json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":action_request_schema(&["click","type","select","upload"])}));
+        tools.push(json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":action_request_schema(&["click"])}));
         tools
             .iter_mut()
             .find(|tool| tool["name"] == "saccade.web.reflex.run")
@@ -775,6 +838,13 @@ mod tests {
         assert!(require_tool_enabled("web.act_native", false).is_err());
         assert!(require_tool_enabled("web.act_soft", false).is_err());
         assert!(require_tool_enabled("web.act_native", true).is_ok());
+        let action_schema = action_request_schema(&["click", "type", "select", "upload"]);
+        assert_eq!(action_schema["oneOf"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            action_schema["oneOf"][2]["properties"]["payload"]["required"],
+            json!(["kind", "option_object_id"])
+        );
+        assert_eq!(form_action_schema()["oneOf"].as_array().unwrap().len(), 3);
         assert!(serde_json::from_value::<RpcRequest>(
             json!({"jsonrpc":"2.0","id":1,"method":"ping","unexpected":true})
         )

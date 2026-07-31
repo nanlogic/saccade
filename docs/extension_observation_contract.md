@@ -355,9 +355,10 @@ coordinates and unrestricted key sequences, rechecks the current browser
 instance, tab, document, revision, token, and affordance, rejects replay, then
 dispatches input. The Catalog marks each control `software_preferred` or
 `native_required`. The `native` backend uses OS input. The `soft` backend is
-available only to finite Registry click roles; it computes the current target
+available only to finite Registry click and option-selection roles; click computes the current target
 center inside the Extension and never accepts or discloses an Agent coordinate
-or locator. The page collector, not the service worker's observation cache, is
+or locator. Selection revalidates the owning control and opaque option identity,
+then uses a bounded native-select or ARIA key sequence. The page collector, not the service worker's observation cache, is
 the authority for the final document, revision, token, and target revalidation.
 Normal MCP clients receive only `web.act`, and the Registry selects the backend;
 backend choice is not an Agent planning decision. Explicit soft/native action
@@ -368,7 +369,7 @@ A Host receipt binds before, prepared, and post-action revisions and includes
 the complete post-action observation for verification and local evidence. The
 MCP `saccade.agent-receipt/1` exposes the receipt status and the derived
 Agent-view delta instead of repeating that snapshot. `AcceptedByOs` means the operating system accepted the
-input request. `AcceptedBySoftware` means the audited Extension software-pointer
+input request. `AcceptedBySoftware` means the audited Extension software
 dispatch was accepted. Neither status by itself proves the user's intended
 business result.
 A postcondition is verified only to the level explicitly represented by the

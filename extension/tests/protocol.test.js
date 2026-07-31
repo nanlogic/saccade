@@ -153,7 +153,7 @@ test('prepare checks the revision basis after tab activation and focus', () => {
   assert.doesNotMatch(worker, /sessions\.get\(tabId\)\?\.last\?\.document_id !== payload\.document_id/);
 });
 
-test('software click bridge is token-bound and limited to Registry roles', () => {
+test('software action bridge is token-bound and limited to Registry roles', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /data-saccade-reflex-target/);
@@ -168,6 +168,10 @@ test('software click bridge is token-bound and limited to Registry roles', () =>
   assert.ok(collector.indexOf('prepare(request);') < collector.indexOf('target.element.dispatchEvent'));
   assert.match(collector, /SCORE\\s\*\(\\d\+\)/);
   assert.match(collector, /target\.element\.dispatchEvent/);
+  assert.match(worker, /command\.kind === 'soft_action'/);
+  assert.match(collector, /choiceOwner\(option\) !== target/);
+  assert.match(collector, /option\.selected = true/);
+  assert.match(collector, /Array\(prepared\.selection_index\)\.fill\('ArrowDown'\)/);
   assert.match(collector, /requestAnimationFrame\(collect\)/);
   assert.match(worker, /command\.kind === 'soft_click'/);
   assert.match(worker, /collector\.soft_click/);

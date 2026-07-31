@@ -17,11 +17,12 @@ enum NativeStep {
     ChoicePopupDelay,
     ChoiceHome,
     ChoiceNext,
-    Return,
+    ChoiceReturn,
     FileDialogDelay,
     FileDialogGoTo,
     FileDialogFieldDelay,
     FilePathText,
+    FileDialogReturn,
     FileDialogSelectionDelay,
     FileDialogUploadDelay,
 }
@@ -79,11 +80,9 @@ fn event_plan(
 ) -> anyhow::Result<Vec<NativeStep>> {
     match (prepared.operation, payload) {
         (ActionOperation::Click, ActionPayload::None) => Ok(vec![NativeStep::PrimaryClick]),
-        (ActionOperation::Type, ActionPayload::Text { .. }) => Ok(vec![
-            NativeStep::PrimaryClick,
-            NativeStep::TextFocusHandoff,
-            NativeStep::UnicodeText,
-        ]),
+        (ActionOperation::Type, ActionPayload::Text { .. }) => {
+            Ok(vec![NativeStep::TextFocusHandoff, NativeStep::UnicodeText])
+        }
         (ActionOperation::Select, ActionPayload::Select { .. }) => {
             prepared
                 .selection_index
@@ -91,18 +90,14 @@ fn event_plan(
             if !matches!(selection_name, Some(name) if !name.is_empty()) {
                 anyhow::bail!("select preparation has no visible option name");
             }
-            let mut steps = vec![
-                NativeStep::PrimaryClick,
-                NativeStep::ChoicePopupDelay,
-                NativeStep::ChoiceHome,
-            ];
+            let mut steps = vec![NativeStep::ChoicePopupDelay, NativeStep::ChoiceHome];
             steps.extend(
                 std::iter::repeat(NativeStep::ChoiceNext)
                     .take(prepared.selection_index.unwrap() as usize),
             );
             // The closed loop waits for the selected-option verifier after Return.
             // A fixed post-action sleep only duplicates that evidence-driven wait.
-            steps.push(NativeStep::Return);
+            steps.push(NativeStep::ChoiceReturn);
             Ok(steps)
         }
         (ActionOperation::Upload, ActionPayload::File { path }) if !path.is_empty() => Ok(vec![
@@ -111,9 +106,9 @@ fn event_plan(
             NativeStep::FileDialogGoTo,
             NativeStep::FileDialogFieldDelay,
             NativeStep::FilePathText,
-            NativeStep::Return,
+            NativeStep::FileDialogReturn,
             NativeStep::FileDialogSelectionDelay,
-            NativeStep::Return,
+            NativeStep::FileDialogReturn,
             NativeStep::FileDialogUploadDelay,
         ]),
         _ => anyhow::bail!("operation and native payload do not match"),
@@ -183,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn textfield_plan_clicks_the_prepared_center_before_unicode() {
+    fn textfield_plan_uses_focus_handoff_before_unicode() {
         let prepared = prepared_text_field();
         assert_eq!(
             event_plan(
@@ -194,16 +189,12 @@ mod tests {
                 None,
             )
             .unwrap(),
-            vec![
-                NativeStep::PrimaryClick,
-                NativeStep::TextFocusHandoff,
-                NativeStep::UnicodeText
-            ]
+            vec![NativeStep::TextFocusHandoff, NativeStep::UnicodeText]
         );
     }
 
     #[test]
-    fn select_plan_waits_for_the_native_popup_before_keyboard_selection() {
+    fn native_select_plan_waits_before_keyboard_selection() {
         let mut prepared = prepared_text_field();
         prepared.operation = ActionOperation::Select;
         prepared.selection_index = Some(2);
@@ -217,12 +208,11 @@ mod tests {
             )
             .unwrap(),
             vec![
-                NativeStep::PrimaryClick,
                 NativeStep::ChoicePopupDelay,
                 NativeStep::ChoiceHome,
                 NativeStep::ChoiceNext,
                 NativeStep::ChoiceNext,
-                NativeStep::Return
+                NativeStep::ChoiceReturn
             ]
         );
     }
@@ -247,9 +237,9 @@ mod tests {
                 NativeStep::FileDialogGoTo,
                 NativeStep::FileDialogFieldDelay,
                 NativeStep::FilePathText,
-                NativeStep::Return,
+                NativeStep::FileDialogReturn,
                 NativeStep::FileDialogSelectionDelay,
-                NativeStep::Return,
+                NativeStep::FileDialogReturn,
                 NativeStep::FileDialogUploadDelay,
             ]
         );

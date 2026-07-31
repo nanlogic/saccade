@@ -155,8 +155,9 @@ discover
 ```
 
 Each Catalog entry declares either `software_preferred` or `native_required`.
-Software-preferred click controls use a token-bound Extension pointer sequence;
-editable, select, and file-input controls require real OS input. A user-local
+Software-preferred click controls use a token-bound Extension pointer sequence.
+Select uses a finite option-identity software primitive for native `<select>`
+and registered ARIA choices; editable and file-input controls require real OS input. A user-local
 receipt-backed rule may strengthen one page/control from software to native.
 The normal Agent tool surface exposes only Registry-selected `web.act`; it does
 not ask the model to choose a backend. Explicit soft/native overrides and the
@@ -177,14 +178,16 @@ object identity; the Agent does not re-read or re-plan the page between fields.
 The result contains value-free step summaries and one final Agent-view delta.
 Submit buttons and navigation remain separate actions.
 
-Native choice input uses one short platform handoff after opening the browser's
-real popup, then relies on the selected-option verifier and fresh observation
-instead of a second fixed post-action sleep. If the browser has not accepted
-the keyboard selection, the closed loop remains unverified; elapsed time never
-upgrades the result.
+Software choice input resolves the requested opaque option identity again at
+dispatch. Native `<select>` receives `input` and `change`; registered ARIA
+listbox/combobox controls receive a finite Home/ArrowDown/Enter sequence derived
+from the prepared enabled-option index. Fresh selected-option observation, not
+event delivery, decides the receipt. A learned local rule may strengthen the
+same control to the existing native choice primitive.
 
-Native editable input gives Chromium a bounded 100 ms focus handoff after the
-real center click. On macOS, keyboard events are then delivered to the exact
+Native editable input uses an Extension-side, token-bound focus handoff after
+prepare/revalidation; it does not expose or accept a coordinate. On macOS,
+keyboard events are then delivered to the exact
 browser PID that launched the Native Messaging Host. A different application
 becoming frontmost between prepare and dispatch therefore cannot receive
 editable text. Native popup and file-dialog keys remain system HID events for
@@ -201,7 +204,7 @@ the Registry dispatches the correct module from the opaque token.
 Modules cannot send arbitrary code to the Host. The Host exposes a finite set of
 primitives such as pointer movement, allowed buttons, wheel, allowlisted key
 chords, Unicode text, selection, and bounded drag. The `native` backend uses OS
-input. The `soft` backend is restricted to the Registry's finite click roles
+input. The `soft` backend is restricted to the Registry's finite click and option-selection roles
 and dispatches from the Extension only after the same token and revision
 revalidation. It accepts no Agent coordinate or locator. The current v1 route
 uses opaque action tokens.

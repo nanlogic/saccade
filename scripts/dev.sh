@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 EXTENSION_VERSION=$(sed -n 's/^[[:space:]]*"version": "\([0-9][0-9.]*\)",*$/\1/p' "$ROOT/extension/manifest.json" | sed -n '1p')
 : "${EXTENSION_VERSION:?development Extension manifest has no version}"
-BROWSER_PROFILE_GENERATION=7
+BROWSER_PROFILE_GENERATION=10
 DEV_ROOT="$HOME/Library/Application Support/Saccade Dev"
 BIN_DIR="$DEV_ROOT/bin"
 RUNTIME_APP="$HOME/Applications/Saccade Dev Runtime.app"
@@ -393,40 +393,33 @@ start_browser() {
   mark_browser_profile_clean "$start_browser_name"
   start_browser_executable=$(sed -n '1p' "$(browser_path_file "$start_browser_name")")
   start_browser_profile=$(browser_profile "$start_browser_name")
-  start_browser_label=$(browser_job_label "$start_browser_name")
-  launchctl submit \
-    -l "$start_browser_label" \
-    -o "$LOG_DIR/$start_browser_name.stdout.log" \
-    -e "$LOG_DIR/$start_browser_name.log" \
-    -- /usr/bin/env \
-    "HOME=$HOME" \
-    "USER=${USER:-$(id -un)}" \
-    "LOGNAME=${LOGNAME:-$(id -un)}" \
-    "TMPDIR=${TMPDIR:-/tmp}" \
-    'PATH=/usr/bin:/bin:/usr/sbin:/sbin' \
-    "$start_browser_executable" \
+  case "$start_browser_executable" in
+    */Contents/MacOS/*) start_browser_app=${start_browser_executable%/Contents/MacOS/*} ;;
+    *) printf '%s\n' "browser executable is not inside a macOS app: $start_browser_executable" >&2; exit 1 ;;
+  esac
+  /usr/bin/open -na "$start_browser_app" about:blank --args \
     --user-data-dir="$start_browser_profile" \
     --load-extension="$EXTENSION_ROOT" \
     --disable-extensions-except="$EXTENSION_ROOT" \
-    --enable-logging=stderr \
+    --enable-logging \
+    --log-file="$LOG_DIR/$start_browser_name.log" \
     '--vmodule=extensions*=1,native_message*=2' \
     --no-first-run \
     --no-default-browser-check \
     --disable-session-crashed-bubble \
     --window-position=24,52 \
     --window-size=800,747 \
-    about:blank
+    --new-window
   start_browser_count=0
   start_browser_pid=
-  while [ "$start_browser_count" -lt 50 ]; do
-    start_browser_pid=$(launchctl print "$(browser_job_target "$start_browser_name")" 2>/dev/null \
-      | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | sed -n '1p')
+  while [ "$start_browser_count" -lt 100 ]; do
+    start_browser_pid=$(browser_profile_owner "$start_browser_name" || true)
     [ -n "$start_browser_pid" ] && break
     sleep 0.1
     start_browser_count=$((start_browser_count + 1))
   done
   if [ -z "$start_browser_pid" ]; then
-    printf '%s\n' "launchd did not report a PID for $start_browser_name" >&2
+    printf '%s\n' "browser profile did not report a PID for $start_browser_name" >&2
     exit 1
   fi
   printf '%s\n' "$start_browser_pid" > "$start_browser_pid_file"

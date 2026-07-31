@@ -38,7 +38,7 @@ pub(super) fn dispatch(
             }
             NativeStep::ChoiceHome => send_virtual_key(0x24)?,
             NativeStep::ChoiceNext => send_virtual_key(0x28)?,
-            NativeStep::Return => send_virtual_key(0x0d)?,
+            NativeStep::ChoiceReturn | NativeStep::FileDialogReturn => send_virtual_key(0x0d)?,
             NativeStep::FileDialogDelay => {
                 std::thread::sleep(std::time::Duration::from_millis(750));
             }

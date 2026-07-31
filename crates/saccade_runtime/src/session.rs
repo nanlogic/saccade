@@ -1237,10 +1237,19 @@ impl NativeInput for SoftwareInput<'_> {
         payload: &ActionPayload,
         _: Option<&str>,
     ) -> DispatchStatus {
-        if primitive != saccade_control_sdk::NativePrimitive::PrimaryClick
-            || prepared.operation != saccade_protocol::ActionOperation::Click
-            || payload != &ActionPayload::None
-        {
+        let supported = matches!(
+            (primitive, prepared.operation, payload),
+            (
+                saccade_control_sdk::NativePrimitive::PrimaryClick,
+                saccade_protocol::ActionOperation::Click,
+                ActionPayload::None
+            ) | (
+                saccade_control_sdk::NativePrimitive::SelectOption,
+                saccade_protocol::ActionOperation::Select,
+                ActionPayload::Select { .. }
+            )
+        );
+        if !supported {
             return DispatchStatus::Unsupported;
         }
         let request = json!({
@@ -1250,11 +1259,16 @@ impl NativeInput for SoftwareInput<'_> {
             "basis_revision":prepared.basis_revision,
             "action_token":prepared.action_token,
             "operation":prepared.operation,
-            "payload":{"kind":"none"}
+            "payload":payload
         });
+        let command = if prepared.operation == saccade_protocol::ActionOperation::Click {
+            "soft_click"
+        } else {
+            "soft_action"
+        };
         match self
             .session
-            .request_extension("soft_click", request, EXTENSION_TIMEOUT)
+            .request_extension(command, request, EXTENSION_TIMEOUT)
         {
             Ok(response) if response.get("accepted").and_then(Value::as_bool) == Some(true) => {
                 DispatchStatus::AcceptedBySoftware
@@ -1262,6 +1276,7 @@ impl NativeInput for SoftwareInput<'_> {
             Err(error)
                 if error.to_string().contains("stale action basis")
                     || error.to_string().contains("not current")
+                    || error.to_string().contains("revision is stale")
                     || error.to_string().contains("current reflex target") =>
             {
                 DispatchStatus::StaleBeforeDispatch

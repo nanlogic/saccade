@@ -506,3 +506,28 @@ ordinary Registry selection. Selenium official web-form run
 `20260731T052600Z` passed 3/3 with nine software and nine native receipts. The
 preceding `20260731T052500Z` run stopped on native select and is retained as a
 separate reliability failure.
+
+## 2026-07-31: Fair Agent comparisons start from the unknown page
+
+Accepted: the primary Saccade/Playwright comparison gives the same model only
+the same natural-language task and an isolated browser MCP lane. Navigation,
+initial semantic discovery, planning, actions, verification, failed calls,
+elapsed time, and model usage all count. Neither lane receives selectors,
+coordinates, DOM queries, screenshots, site-specific execution code, or state
+from the other lane. The older selector oracle remains a narrow implementation
+baseline and cannot support Agent-efficiency claims.
+
+Select is now `software_preferred`. The finite Extension primitive revalidates
+the control token and option identity, supports native select and registered
+ARIA listbox/combobox behavior, and still requires the normal fresh
+selected-option verifier. Editable Unicode remains OS input after a token-bound
+Extension focus handoff. Local history may still strengthen a select to native;
+Profile cannot change either loop.
+
+Managed Chrome run `20260731T121439Z` and Edge run `20260731T122553Z`
+each passed the complete cataloged-control and Profile gate on this candidate,
+including native select and ARIA listbox/combobox option-identity receipts.
+
+Two order-reversed runs on Selenium's official web form passed in both lanes.
+The complete result and limitations are recorded in
+`docs/reports/2026-07-31-fair-agent-playwright-comparison.md`.

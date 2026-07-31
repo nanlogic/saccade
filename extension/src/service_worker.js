@@ -203,6 +203,12 @@ async function handleHostCommand(command) {
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_click', request: payload }, { frameId: 0 });
     if (!result?.ok) throw new Error(result?.error || 'soft click failed');
     reply(command, result.result);
+  } else if (command.kind === 'soft_action') {
+    const tabId = numericTabId(payload.tab_id);
+    if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 });
+    if (!result?.ok) throw new Error(result?.error || 'software action failed');
+    reply(command, result.result);
   } else {
     throw new Error(`unsupported host command: ${command.kind}`);
   }

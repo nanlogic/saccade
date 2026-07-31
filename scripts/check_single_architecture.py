@@ -108,7 +108,7 @@ def main() -> None:
         raise SystemExit("Control Catalog schema omits an implemented verifier")
     if any(
         item["input_policy"] == "software_preferred"
-        and item["native_primitive"] != "primary_click"
+        and item["native_primitive"] not in {"primary_click", "select_option"}
         for item in catalog["controls"]
     ):
         raise SystemExit("software-preferred control escaped the finite click primitive")

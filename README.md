@@ -245,7 +245,9 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 node --test extension/tests/*.test.js
 node --check tests/reference/playwright/oracle.cjs
 python3 -m unittest tests/test_dev_profile.py
+python3 -m unittest tests/test_benchmark_agent_fair.py
 python3 -m py_compile scripts/dev_probe.py scripts/external_dogfood.py scripts/compare_external_evidence.py scripts/benchmark_playwright_parity.py scripts/benchmark_selenium_qa.py
+python3 -m py_compile scripts/benchmark_agent_fair.py
 python3 scripts/generate_control_matrix.py
 python3 scripts/check_single_architecture.py
 git diff --exit-code -- docs/generated/control_coverage.md
