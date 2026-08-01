@@ -101,6 +101,11 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /STRUCTURAL_SELECTOR/);
   assert.match(collector, /function structuralText/);
   assert.match(collector, /function structuralObject/);
+  assert.match(collector, /DIALOG_SELECTOR/);
+  assert.match(collector, /function dialogTitleCandidates/);
+  assert.match(collector, /deferred_content_possible/);
+  assert.match(collector, /transitionend/);
+  assert.match(collector, /animationend/);
   assert.match(collector, /kind: 'text', role, text, state, affordances: \[\], protected: false/);
   assert.match(collector, /element\.closest\(CONTROL_SELECTOR\)/);
   assert.match(collector, /TextEncoder/);

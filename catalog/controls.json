@@ -10,8 +10,8 @@
       "native_primitive": "primary_click",
       "input_policy": "software_preferred",
       "verifier": "button_effect",
-      "limitations": ["A delivered click is unverified unless navigation or pressed/expanded state changes."],
-      "fixtures": ["fixtures/controls/button.html"],
+      "limitations": ["A delivered click is unverified unless navigation, pressed/expanded state, or declared deferred semantic content changes."],
+      "fixtures": ["fixtures/controls/button.html", "fixtures/controls/dialog_effect.html"],
       "evidence": { "chrome": "pending", "edge": "pending" },
       "publication_status": "implementation"
     },

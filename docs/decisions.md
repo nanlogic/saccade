@@ -531,3 +531,52 @@ including native select and ARIA listbox/combobox option-identity receipts.
 Two order-reversed runs on Selenium's official web form passed in both lanes.
 The complete result and limitations are recorded in
 `docs/reports/2026-07-31-fair-agent-playwright-comparison.md`.
+
+## 2026-08-01: Agent actions carry intent, not repeated envelopes
+
+Accepted: the public MCP action surface requires a current opaque action token
+and operation-specific intent fields. The adapter may resolve that token only
+inside the current views it already emitted to this Agent, then restores the
+complete browser, tab, document, and basis-revision envelope. Form-plan tokens
+must all occur in one current document revision. It then forwards the unchanged
+full Host action request. Missing, ambiguous, stale, or cross-document context
+fails closed; Host and Extension identity, token, replay, preparation,
+native-input, and postcondition checks are unchanged.
+
+Form plans expose `type`, `select`, and `check`. `check` is deliberately limited
+to checkbox, radio, and switch roles by the Runtime; Submit and navigation stay
+separate `web.act` clicks. This removes model-visible wire bookkeeping and the
+generic form-plan click ambiguity without changing either v1 wire schema or a
+control closed loop.
+
+For the read-only observation tool, `timeout_ms` without `after_revision` is
+normalized to an immediate current-view read. It cannot refresh or authorize an
+action and avoids a model round trip for a harmless redundant wait hint.
+
+## 2026-08-01: Visible dialog titles close deferred button effects
+
+Accepted: a visible dialog's page-authored accessible name is projected as a
+heading, including when its labelled title uses a non-heading wrapper. No dialog
+subtree, editable value, selector, guessed title, or new v1 role is exposed.
+
+Buttons that semantically announce deferred content—form submit,
+`aria-haspopup=dialog`, or `aria-controls`—declare
+`deferred_content_possible`. Their button-effect verifier may accept a newly
+appeared visible heading, alert, or status. New table cells or unrelated object
+churn are insufficient. The focused fixture is
+`fixtures/controls/dialog_effect.html`; the motivating external gate is DemoQA's
+React student-registration modal.
+
+The motivating modal is inserted while its framework fade class computes
+`opacity=0`. The collector therefore listens for CSS `transitionend` and
+`animationend` and publishes a fresh observation after the visual lifecycle;
+it does not weaken the opacity-zero visibility rejection. Deferred button
+settlement is bounded to 750 ms so the ordinary verifier can consume that fresh
+evidence.
+
+Final same-candidate local gate `20260801T081531Z` passed controls, focused
+dialog effect, Profile, and stale authority checks in Chrome and Edge. Two
+order-reversed public DemoQA React comparisons passed in
+both Saccade and Playwright lanes; metrics and all retained failures are in
+`docs/reports/2026-08-01-modern-react-agent-comparison.md`. Catalog status stays
+`implementation`.

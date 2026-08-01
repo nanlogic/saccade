@@ -7,7 +7,8 @@
   const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],.target';
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
   const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,th,td,[role="heading"],[role="paragraph"],[role="listitem"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"]';
-  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR}`;
+  const DIALOG_SELECTOR = '[role="dialog"],[aria-modal="true"]';
+  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR}`;
   const SOFTWARE_CLICK_ROLES = new Set([
     'button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menu_item', 'reflex_target',
   ]);
@@ -115,6 +116,7 @@
       if (element.shadowRoot) observeMutationRoot(element.shadowRoot);
     }
     for (const event of ['input', 'focusin', 'focusout']) doc.addEventListener(event, schedule, true);
+    for (const event of ['transitionend', 'animationend']) doc.addEventListener(event, schedule, true);
     doc.addEventListener('change', (event) => {
       const changed = event.target;
       if (activeFileTrigger && changed?.tagName === 'INPUT'
@@ -370,11 +372,17 @@
       || (role === 'file_input' && interactionElement !== element ? safeName(interactionElement, role) : undefined);
     const description = safeDescription(element, name, descriptor.protected)
       || repeatedActionContext(element, role, name);
+    const deferred = role === 'button' && (
+      element.type === 'submit'
+      || element.getAttribute('aria-haspopup') === 'dialog'
+      || element.hasAttribute('aria-controls')
+    );
     const object = {
       object_id: id, object_revision: revision + 1, frame_id: frameId,
       ...descriptor,
       document_bounds: { x: box.x + element.ownerDocument.defaultView.scrollX, y: box.y + element.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
-      viewport_bounds: box, visibility, transition: role === 'link' ? 'navigation_possible' : 'none',
+      viewport_bounds: box, visibility, transition: role === 'link'
+        ? 'navigation_possible' : deferred ? 'deferred_content_possible' : 'none',
     };
     if (name) object.name = name;
     if (description) object.description = description;
@@ -488,9 +496,9 @@
     return normalizedText(chunks.join(' '), 4096);
   }
 
-  function structuralObject(element, frameId) {
-    const role = structuralRole(element);
-    const text = role ? structuralText(element) : undefined;
+  function structuralObject(element, frameId, forcedRole, forcedText) {
+    const role = forcedRole || structuralRole(element);
+    const text = forcedText || (role ? structuralText(element) : undefined);
     if (!role || !text) return null;
     const box = boxFor(element);
     const visibility = visibilityFor(element, box);
@@ -513,6 +521,17 @@
       document_bounds: { x: box.x + element.ownerDocument.defaultView.scrollX, y: box.y + element.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
       viewport_bounds: box, visibility, transition: 'none',
     };
+  }
+
+  function dialogTitleCandidates(doc) {
+    const titles = [];
+    for (const dialog of composedQuery(doc, DIALOG_SELECTOR)) {
+      const box = boxFor(dialog);
+      if (visibilityFor(dialog, box) === 'hidden') continue;
+      const text = safeName(dialog, 'dialog');
+      if (text) titles.push({ element: dialog, text });
+    }
+    return titles;
   }
 
   function collect() {
@@ -575,13 +594,22 @@
     if (!truncated) {
       const encoder = new TextEncoder();
       for (const context of frameState.contexts) {
-        for (const element of composedQuery(context.doc, STRUCTURAL_SELECTOR)) {
-          const object = structuralObject(element, context.frameId);
-          if (!object) continue;
-          const bytes = encoder.encode(object.text).byteLength;
+        const ordinary = composedQuery(context.doc, STRUCTURAL_SELECTOR)
+          .map((element) => ({ element, dialogTitle: false }));
+        const dialogTitles = dialogTitleCandidates(context.doc)
+          .map(({ element, text }) => ({ element, dialogTitle: true, text }));
+        const seenStructural = new Set();
+        for (const { element, dialogTitle, text } of [...ordinary, ...dialogTitles]) {
+          if (seenStructural.has(element)) continue;
+          seenStructural.add(element);
+          const projected = structuralObject(
+            element, context.frameId, dialogTitle ? 'heading' : undefined, text,
+          );
+          if (!projected) continue;
+          const bytes = encoder.encode(projected.text).byteLength;
           if (structuralTextBytes + bytes > MAX_STRUCTURAL_TEXT_BYTES) { truncated = true; break; }
           structuralTextBytes += bytes;
-          objects.push(object);
+          objects.push(projected);
           if (objects.length >= MAX_OBJECTS) { objects.length = MAX_OBJECTS; truncated = true; break; }
         }
         if (truncated) break;

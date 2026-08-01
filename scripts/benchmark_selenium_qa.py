@@ -102,31 +102,28 @@ def run_saccade(
             observe_ms = round((time.perf_counter() - observe_started) * 1000, 3)
             actions = []
             planned = []
-            for role, name, operation, payload, option in (
-                ("text_field", "Text input", "type", {"kind": "text", "text": TEXT_VALUE}, None),
-                ("text_area", "Textarea", "type", {"kind": "text", "text": TEXTAREA_VALUE}, None),
-                ("select", "Dropdown (select)", "select", {"kind": "none"}, "Two"),
-                ("checkbox", "Default checkbox", "click", {"kind": "none"}, None),
-                ("radio", "Default radio", "click", {"kind": "none"}, None),
+            for role, name, operation, text, option in (
+                ("text_field", "Text input", "type", TEXT_VALUE, None),
+                ("text_area", "Textarea", "type", TEXTAREA_VALUE, None),
+                ("select", "Dropdown (select)", "select", None, "Two"),
+                ("checkbox", "Default checkbox", "check", None, None),
+                ("radio", "Default radio", "check", None, None),
             ):
                 target = current_target(observation, role, name)
-                action_payload = payload
-                if option is not None:
-                    choice = current_target(observation, "option", option)
-                    action_payload = {"kind": "select", "option_object_id": choice["object_id"]}
-                actions.append({
+                action = {
                     "action_token": target["action_token"],
                     "operation": operation,
-                    "payload": action_payload,
-                })
+                }
+                if text is not None:
+                    action["text"] = text
+                if option is not None:
+                    choice = current_target(observation, "option", option)
+                    action["option_object_id"] = choice["object_id"]
+                actions.append(action)
                 planned.append(role)
             form_response, form_ms = client.tool(
                 "saccade.web.form.fill",
                 {
-                    "browser_instance_id": observation["browser_instance_id"],
-                    "tab_id": observation["tab_id"],
-                    "document_id": observation["document_id"],
-                    "basis_revision": observation["revision"],
                     "actions": actions,
                 },
             )
@@ -148,13 +145,8 @@ def run_saccade(
             submit_response, submit_ms = client.tool(
                 "saccade.web.act",
                 {
-                    "browser_instance_id": observation["browser_instance_id"],
-                    "tab_id": observation["tab_id"],
-                    "document_id": observation["document_id"],
-                    "basis_revision": observation["revision"],
                     "action_token": submit["action_token"],
                     "operation": "click",
-                    "payload": {"kind": "none"},
                 },
             )
             payloads.append(call_payload(submit_response))

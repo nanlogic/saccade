@@ -255,15 +255,12 @@ def act(
     for _attempt in range(8):
         observation = stable_observation(mcp, observation["tab_id"])
         target = named(observation, role, name)
-        request = {
-            "browser_instance_id": observation["browser_instance_id"],
-            "tab_id": observation["tab_id"],
-            "document_id": observation["document_id"],
-            "basis_revision": observation["revision"],
-            "action_token": target["action_token"],
-            "operation": operation,
-            "payload": payload_for(observation),
-        }
+        request = action_arguments(
+            observation,
+            target,
+            operation,
+            payload_for(observation),
+        )
         try:
             tool = {
                 "auto": "web.act",
@@ -300,6 +297,28 @@ def act(
     return receipt, receipt["post_action_observation"]
 
 
+def action_arguments(
+    observation: dict[str, Any],
+    target: dict[str, Any],
+    operation: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    request = {
+        "action_token": target["action_token"],
+        "operation": operation,
+    }
+    kind = payload.get("kind")
+    if kind == "text":
+        request["text"] = payload["text"]
+    elif kind == "select":
+        request["option_object_id"] = payload["option_object_id"]
+    elif kind == "file":
+        request["path"] = payload["path"]
+    elif kind != "none":
+        raise RuntimeError(f"unsupported MCP action payload kind: {kind}")
+    return request
+
+
 def open_fixture(mcp: Mcp, url: str) -> dict[str, Any]:
     opened = mcp.tool("tabs.open", {"url": url, "active": True})
     return wait_observation(mcp, opened["tab_id"])
@@ -314,15 +333,7 @@ def adaptive_input_policy(mcp: Mcp, base_url: str) -> dict[str, Any]:
         observation = stable_observation(mcp, observation["tab_id"])
         target = named(observation, "button", "Trusted only")
         first_action_token = target["action_token"]
-        request = {
-            "browser_instance_id": observation["browser_instance_id"],
-            "tab_id": observation["tab_id"],
-            "document_id": observation["document_id"],
-            "basis_revision": observation["revision"],
-            "action_token": target["action_token"],
-            "operation": "click",
-            "payload": {"kind": "none"},
-        }
+        request = action_arguments(observation, target, "click", {"kind": "none"})
         first_receipt = mcp.tool("web.act", request, timeout=40.0)
         observation = first_receipt["post_action_observation"]
         if first_receipt.get("dispatch_status") == "stale_before_dispatch":
@@ -346,15 +357,7 @@ def adaptive_input_policy(mcp: Mcp, base_url: str) -> dict[str, Any]:
     observation = stable_observation(mcp, observation["tab_id"])
     target = named(observation, "button", "Trusted only")
     next_action_token = target["action_token"]
-    diagnostic_request = {
-        "browser_instance_id": observation["browser_instance_id"],
-        "tab_id": observation["tab_id"],
-        "document_id": observation["document_id"],
-        "basis_revision": observation["revision"],
-        "action_token": target["action_token"],
-        "operation": "click",
-        "payload": {"kind": "none"},
-    }
+    diagnostic_request = action_arguments(observation, target, "click", {"kind": "none"})
     try:
         mcp.tool("web.act_soft", diagnostic_request, timeout=10.0)
     except Exception as error:  # noqa: BLE001
@@ -454,15 +457,9 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     button_target = named(observation, "button", "Save")
     receipt, observation = act(mcp, observation, "button", "Save", "click", lambda _: {"kind": "none"})
     receipts.append(receipt)
-    stale_request = {
-        "browser_instance_id": button_basis["browser_instance_id"],
-        "tab_id": button_basis["tab_id"],
-        "document_id": button_basis["document_id"],
-        "basis_revision": button_basis["revision"],
-        "action_token": button_target["action_token"],
-        "operation": "click",
-        "payload": {"kind": "none"},
-    }
+    stale_request = action_arguments(
+        button_basis, button_target, "click", {"kind": "none"}
+    )
     try:
         mcp.tool("web.act", stale_request, timeout=10.0)
     except Exception:
@@ -587,6 +584,24 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     receipts.append(receipt)
     if named(choice_observation, "select", "City").get("state", {}).get("expanded") != "false":
         raise RuntimeError("combobox popup did not settle closed after selection")
+    dialog_observation = open_fixture(
+        mcp, urllib.parse.urljoin(url, "dialog_effect.html")
+    )
+    receipt, dialog_observation = act(
+        mcp,
+        dialog_observation,
+        "button",
+        "Submit registration",
+        "click",
+        lambda _: {"kind": "none"},
+    )
+    receipts.append(receipt)
+    if not any(
+        item.get("role") == "heading"
+        and item.get("text") == "Thanks for submitting the fixture"
+        for item in dialog_observation.get("objects", [])
+    ):
+        raise RuntimeError("visible dialog accessible title was not projected as a heading")
     adaptive_policy = adaptive_input_policy(mcp, url)
     evidence = {
         "mode": "controls",
@@ -708,15 +723,7 @@ def drive_mouseaccuracy_setting(
             observation = stable_observation(mcp, observation["tab_id"])
             current = mouseaccuracy_setting_value(observation, values)
             target = named(observation, "button", f"{direction} {current}")
-            request = {
-                "browser_instance_id": observation["browser_instance_id"],
-                "tab_id": observation["tab_id"],
-                "document_id": observation["document_id"],
-                "basis_revision": observation["revision"],
-                "action_token": target["action_token"],
-                "operation": "click",
-                "payload": {"kind": "none"},
-            }
+            request = action_arguments(observation, target, "click", {"kind": "none"})
             try:
                 receipt = mcp.tool("web.act", request, timeout=15.0)
                 observation = receipt["post_action_observation"]

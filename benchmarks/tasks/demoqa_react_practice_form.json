@@ -1,0 +1,17 @@
+{
+  "schema": "saccade-agent-benchmark-task/1",
+  "name": "demoqa-react-practice-form",
+  "url": "https://demoqa.com/automation-practice-form",
+  "task": "Complete the student registration form. Enter Saccade in First Name, Protocol in Last Name, saccade.qa@example.com in Email, choose Male for Gender, enter 3125550198 in Mobile, choose Sports under Hobbies, enter Truth Layer external React benchmark in Current Address, then submit the form.",
+  "success": {
+    "tool_output_contains": ["Thanks for submitting the form"]
+  },
+  "redact": [
+    "Saccade",
+    "Protocol",
+    "saccade.qa@example.com",
+    "3125550198",
+    "Truth Layer external React benchmark"
+  ],
+  "timeout_seconds": 240
+}

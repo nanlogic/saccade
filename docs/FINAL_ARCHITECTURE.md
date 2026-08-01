@@ -107,6 +107,13 @@ Long internal object identities are replaced at MCP with document-scoped Agent
 aliases such as `o1`. The alias remains stable for that Agent Browser document;
 MCP translates a selected option alias back to Host identity before validation.
 Aliases never become selectors or bypass revision-bound action tokens.
+The MCP adapter also removes redundant envelope copying from the Agent action
+surface. An action carries a current opaque token and operation fields. MCP may
+resolve that token only inside the current views already emitted to that Agent,
+then hydrates the complete browser, tab, document, and basis-revision envelope.
+An absent, ambiguous, stale, or cross-document token set fails before
+forwarding, and the Host still performs the complete independent identity,
+revision, token, replay, role, and affordance validation.
 
 Collector authorization begins after the HTTP(S) document commits and enters
 loading; it does not wait for every image, advertisement, or long-lived resource
@@ -168,8 +175,20 @@ For example, checkbox success requires a checked-state transition; link success
 may require a document transition or an agent-owned new tab. If the semantic
 postcondition cannot be proved, the receipt says delivered/unverified rather
 than successful.
+Buttons that are semantically declared to reveal deferred content (including a
+form submit or `aria-haspopup=dialog`) may verify when a fresh observation adds
+a visible heading, alert, or status object. A visible dialog's page-authored
+accessible name is projected as a heading even when its labelled title uses a
+non-heading wrapper. Unrelated object churn and table rows alone do not prove
+the button effect.
+CSS `transitionend` and `animationend` schedule a fresh observation so content
+that begins at opacity zero is disclosed only after it becomes visible. Deferred
+content buttons use a bounded 750 ms settlement window for that lifecycle.
 
-An Agent may submit a bounded form plan once. The Runtime resolves every
+An Agent may submit a bounded form plan once using `type`, `select`, and the
+role-specific `check` intent. The adapter maps `check` only to the existing
+checkbox/radio/switch click transaction; the Runtime rejects any other role
+before the first side effect. The Runtime resolves every
 initial token to runtime object identity before the first side effect, then
 executes the plan locally. Every item still performs its own prepare,
 revalidate, registered input, reobserve, verifier, and receipt transaction
@@ -352,6 +371,17 @@ This is one reproducible site result, not a claim to bypass CAPTCHA or defeat
 anti-bot systems generally. The same candidate passed three consecutive fresh
 Chrome control/Profile gates and one Edge control/Profile gate; all evidence
 remains local development evidence and the Catalog stays `implementation`.
+
+The 2026-08-01 zero-knowledge modern-page gate used the same Agent and natural-
+language task on DemoQA's public React form. Two order-reversed post-fix runs
+passed in both Saccade and Playwright lanes. Saccade averaged 28.631 seconds,
+6.0 calls, and 120,399 input tokens; Playwright averaged 30.708 seconds, 6.0
+calls, and 106,883 tokens. The external run exposed and fixed CSS-faded dialog
+observation: opacity-zero content remains hidden, transition/animation completion
+pushes fresh truth, and a deferred Submit verifies from the newly visible dialog
+title. The bounded result and retained failures are recorded in
+`docs/reports/2026-08-01-modern-react-agent-comparison.md`; it is not a universal
+superiority or publication claim.
 
 The managed ordinary native-mouse gate uses the same semantic button token,
 preparation, CoreGraphics input, reobservation, and button-effect verifier. It

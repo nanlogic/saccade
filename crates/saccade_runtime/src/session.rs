@@ -30,6 +30,7 @@ use crate::{ClosedLoopEngine, ClosedLoopError, NativeInput, ObservationSource};
 const EXTENSION_TIMEOUT: Duration = Duration::from_secs(10);
 const POST_ACTION_TIMEOUT: Duration = Duration::from_secs(2);
 const POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(300);
+const DEFERRED_CONTENT_QUIET_WINDOW: Duration = Duration::from_millis(750);
 const SELECT_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(750);
 const REFLEX_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(1);
 const VERIFIED_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(25);
@@ -372,6 +373,8 @@ impl NativeHostSession {
                 REFLEX_POST_ACTION_QUIET_WINDOW
             } else if request.operation == saccade_protocol::ActionOperation::Select {
                 SELECT_POST_ACTION_QUIET_WINDOW
+            } else if target.transition == saccade_protocol::Transition::DeferredContentPossible {
+                DEFERRED_CONTENT_QUIET_WINDOW
             } else {
                 POST_ACTION_QUIET_WINDOW
             },

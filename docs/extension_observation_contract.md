@@ -59,7 +59,8 @@ Authority is split deliberately:
 - Host: session authority, request validation, token replay protection,
   last-moment revision checks, native input, settled receipts, bounded loops,
   audit metadata, and download verification.
-- MCP: public tool schemas and strict forwarding only.
+- MCP: compact public tool schemas, Agent-view alias/envelope hydration, strict
+  validation, and forwarding only. It does not resolve a page target or execute input.
 - Agent: chooses only from disclosed objects, affordances, and opaque tokens.
 
 Control-family modules own semantic interpretation, native execution,
@@ -247,6 +248,11 @@ Derivation MUST NOT read `value`, `defaultValue`, selected text from an editable
 control, password-manager state, or editable `textContent`. Accessible metadata
 is descriptive evidence, not proof of visibility or actionability.
 
+For a visible `role=dialog` or `aria-modal=true` container, its visible
+page-authored accessible name is projected as a heading. This does not export
+the dialog subtree, input values, or a new wire role. An unlabeled dialog does
+not receive a guessed title.
+
 For an explicit ARIA widget role, that role takes precedence over a native
 anchor fallback. Visible-text name fallback excludes descendants marked
 `aria-hidden=true`; state words hidden from accessibility remain state, not part
@@ -336,7 +342,12 @@ allowlisted boolean state such as `has_value`; dynamic descriptions are omitted.
 
 ## Action transaction
 
-MCP supplies only a current action token and a fixed operation payload. The
+MCP supplies a current action token and fixed operation fields. The adapter may
+resolve that token only inside the current views already emitted to that Agent,
+then locally restores the complete browser, tab, document, and basis-revision
+envelope. It cannot invent or refresh authority. An absent, ambiguous, stale,
+or cross-document token set fails before Host forwarding. The Host independently
+validates the complete hydrated request. The
 transaction is:
 
 ```text
@@ -374,6 +385,11 @@ dispatch was accepted. Neither status by itself proves the user's intended
 business result.
 A postcondition is verified only to the level explicitly represented by the
 fresh observation.
+For a button whose observation declares `deferred_content_possible`, a newly
+appeared visible heading, alert, or status is a verified semantic effect. Form
+submit buttons, `aria-haspopup=dialog`, and `aria-controls` may declare this
+transition. Unrelated object churn, new table cells alone, or input acceptance
+does not verify the button.
 
 Profiles cannot change those meanings. The Host checks that an action token
 still occurs in its current Profile-filtered observation before asking the
@@ -414,6 +430,9 @@ first snapshot. `web.observe` therefore accepts `after_revision` plus a bounded
 returns only after a newer revision exists. Agents and clients must use this
 local wait instead of polling unchanged truth through repeated model tool
 calls.
+When `after_revision` is absent, observe returns the current Agent view
+immediately; a supplied `timeout_ms` is ignored by the MCP adapter rather than
+turning a harmless read into a failed tool call.
 
 The Extension injects and configures the collector once an authorized HTTP(S)
 document has committed and is loading. It MUST NOT require browser
@@ -427,13 +446,20 @@ DOM insertion, removal, safe attribute changes, visible text changes, scroll,
 resize, focus, and form state changes schedule observation refresh. Content not
 yet created is never invented. A trigger may declare
 `deferred_content_possible`.
+CSS `transitionend` and `animationend` also schedule refresh. An inserted dialog
+at opacity zero remains hidden evidence; only the post-transition observation
+may disclose its now-visible title. Deferred-content action settlement is
+bounded to 750 ms and still requires the ordinary semantic verifier.
 
 ## Local form plan
 
-`saccade.web.form.fill` accepts one current document identity, basis revision,
-and between one and 32 current control-token operations. The allowed plan
-surface is text-like editable typing, select-by-option-object identity, and
-checkbox/radio/switch clicks. Protected controls, file inputs, submit buttons,
+`saccade.web.form.fill` accepts between one and 32 current control-token
+operations. MCP proves that every token occurs in one current Agent-view
+document revision and hydrates that envelope as described above. The allowed plan surface is
+text-like editable `type`, select-by-option-object identity, and the explicit
+`check` intent. `check` maps to the existing click transaction only after the
+Runtime proves the target is a checkbox, radio, or switch. Protected controls,
+file inputs, submit buttons,
 navigation, repeated targets, and arbitrary operations are rejected before the
 first side effect.
 

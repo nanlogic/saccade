@@ -428,6 +428,27 @@ pub fn verify_with_documents(
     {
         return PostconditionStatus::Verified;
     }
+    if definition.verifier == Verifier::ButtonEffect
+        && before.transition == saccade_protocol::Transition::DeferredContentPossible
+    {
+        let before_ids = before_snapshot
+            .objects
+            .iter()
+            .map(|object| object.object_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let revealed_semantic_content = after.objects.iter().any(|object| {
+            !before_ids.contains(object.object_id.as_str())
+                && object.visibility != saccade_protocol::Visibility::Hidden
+                && matches!(
+                    object.role,
+                    SemanticRole::Heading | SemanticRole::Alert | SemanticRole::Status
+                )
+                && object.text.as_ref().is_some_and(|text| !text.is_empty())
+        });
+        if revealed_semantic_content {
+            return PostconditionStatus::Verified;
+        }
+    }
     verify(definition, before, payload, after)
 }
 

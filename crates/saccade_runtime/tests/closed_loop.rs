@@ -192,6 +192,37 @@ fn button_click_requires_a_semantic_effect() {
 }
 
 #[test]
+fn deferred_button_verifies_new_visible_dialog_title() {
+    let mut before_target = object(
+        "submit",
+        SemanticRole::Button,
+        Affordance::Click,
+        &[("enabled", "true")],
+    );
+    before_target.transition = Transition::DeferredContentPossible;
+    let mut dialog_title = object(
+        "dialog-title",
+        SemanticRole::Heading,
+        Affordance::Click,
+        &[("level", "2")],
+    );
+    dialog_title.kind = ObjectKind::Text;
+    dialog_title.affordances.clear();
+    dialog_title.action_token = None;
+    dialog_title.text = Some("Thanks for submitting the form".into());
+    let before = snapshot(1, vec![before_target.clone()]);
+    let after = snapshot(2, vec![before_target.clone(), dialog_title]);
+    let (receipt, calls) = run(
+        before,
+        after,
+        request(&before_target, ActionOperation::Click, ActionPayload::None),
+        prepared(&before_target, ActionOperation::Click),
+    );
+    assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
+    assert_eq!(calls, vec![NativePrimitive::PrimaryClick]);
+}
+
+#[test]
 fn link_requires_a_document_transition() {
     let mut link = object(
         "project-link",
