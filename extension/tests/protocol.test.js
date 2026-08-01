@@ -120,6 +120,13 @@ test('unrelated page mutations do not churn current control tokens', () => {
   assert.match(collector, /element\.matches\(OBSERVED_SELECTOR\)/);
 });
 
+test('duplicate actionable controls receive value-free semantic context across control families', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /registry\.observe\(role, signalsFor\(element, role\)\)\.affordances\.length/);
+  assert.doesNotMatch(collector, /!\['button', 'link'\]\.includes\(role\)/);
+  assert.match(collector, /querySelectorAll\('button,input,select,textarea,\[contenteditable\]'\)/);
+});
+
 test('same-origin frames and open shadow roots compose without changing the root message route', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');

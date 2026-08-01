@@ -24,6 +24,8 @@ test('registry exposes only safe state for cataloged controls', () => {
   assert.equal(registry.observe('tab', { selected: true }).state.selected, 'true');
   assert.equal(registry.observe('menu_item', { expanded: true }).state.expanded, 'true');
   assert.equal(registry.observe('select', { hasValue: true }).state.has_value, 'true');
+  assert.deepEqual(registry.observe('select', { expanded: false, expandable: true }).affordances, ['click', 'select']);
+  assert.deepEqual(registry.observe('select', { expanded: false, expandable: false }).affordances, ['select']);
   assert.equal(registry.observe('link', { current: 'page' }).kind, 'link');
   assert.deepEqual(registry.observe('file_input', { hasValue: false }).affordances, ['upload']);
   assert.deepEqual(registry.observe('reflex_target', { enabled: true }), {

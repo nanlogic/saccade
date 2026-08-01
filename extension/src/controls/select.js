@@ -3,7 +3,10 @@
   const { bool, commonState, descriptor } = common;
 
   function observe(signals) {
-    return descriptor('select', signals.enabled === false ? [] : ['select'], {
+    const affordances = signals.enabled === false ? [] : [
+      ...(signals.expandable ? ['click'] : []), 'select',
+    ];
+    return descriptor('select', affordances, {
       ...commonState(signals), has_value: bool(signals.hasValue),
       required: bool(signals.required), invalid: bool(signals.invalid), expanded: bool(signals.expanded),
     });

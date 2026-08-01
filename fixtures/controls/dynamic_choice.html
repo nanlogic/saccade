@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dynamic ARIA choice fixture</title>
+<h1>Dynamic ARIA choice</h1>
+<div id="food" role="combobox" aria-label="Favorite food" aria-expanded="false" aria-controls="foods" tabindex="0"></div>
+<script>
+  const choice = document.querySelector('#food');
+  choice.addEventListener('click', () => {
+    if (choice.getAttribute('aria-expanded') === 'true') return;
+    choice.setAttribute('aria-expanded', 'true');
+    const list = document.createElement('div');
+    list.id = 'foods';
+    list.role = 'listbox';
+    for (const name of ['Steak', 'Pizza', 'Tacos']) {
+      const option = document.createElement('div');
+      option.role = 'option';
+      option.textContent = name;
+      option.setAttribute('aria-selected', 'false');
+      list.append(option);
+    }
+    document.body.append(list);
+  });
+</script>

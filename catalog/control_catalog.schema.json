@@ -23,6 +23,18 @@
           "native_primitive": { "enum": ["primary_click", "unicode_text", "select_option", "file_chooser"] },
           "input_policy": { "enum": ["software_preferred", "native_required"] },
           "verifier": { "enum": ["button_effect", "document_transition", "target_advanced", "has_value", "has_file", "checked_transition", "selected_transition", "expanded_transition", "option_selected"] },
+          "secondary_actions": {
+            "type": "array", "uniqueItems": true,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["operation", "native_primitive", "verifier"],
+              "properties": {
+                "operation": { "enum": ["click", "type", "select", "upload"] },
+                "native_primitive": { "enum": ["primary_click", "unicode_text", "select_option", "file_chooser"] },
+                "verifier": { "enum": ["button_effect", "document_transition", "target_advanced", "has_value", "has_file", "checked_transition", "selected_transition", "expanded_transition", "option_selected"] }
+              }
+            }
+          },
           "limitations": { "type": "array", "items": { "type": "string" } },
           "fixtures": { "type": "array", "minItems": 1, "items": { "type": "string" } },
           "evidence": {

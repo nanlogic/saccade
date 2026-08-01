@@ -69,6 +69,13 @@ data. The Native Host applies Profile bans to the Agent projection and exposes
 the Profile behavior through capabilities. The current v1 authorization,
 token, revision, and protected-value behavior remains unchanged.
 
+A control module may declare more than one finite operation strategy. The
+current example is an ARIA select: a collapsed combobox may first advertise a
+verified click-to-expand strategy, then expose option objects through the next
+browser delta and accept the existing option-identity select strategy. Native
+`<select>` does not advertise click-to-expand. Each operation still performs
+its own complete closed loop with Catalog-declared primitives and verifiers.
+
 ## Browser authorization
 
 The official Extension requests HTTP and HTTPS host access once in the
@@ -174,6 +181,11 @@ The fields have distinct meanings:
 - `affordances`: the only operations the Agent may request.
 - `action_token`: opaque, single-use, document-and-revision-bound authority to
   request one advertised operation. It does not bypass Host revalidation.
+
+Duplicate actionable controls with the same role and name may receive the
+nearest bounded page-authored, non-control context as `description`. Context
+extraction removes nested controls first and is disabled for protected or
+non-actionable controls, so disambiguation cannot disclose their values.
 
 Action tokens carry at least 128 bits of browser randomness. Browser, document,
 and loop identities retain their independent longer entropy. Short Agent object

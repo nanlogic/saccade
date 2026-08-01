@@ -204,6 +204,20 @@ from the prepared enabled-option index. Fresh selected-option observation, not
 event delivery, decides the receipt. A learned local rule may strengthen the
 same control to the existing native choice primitive.
 
+A collapsed ARIA combobox may create its option objects only after expansion.
+When it explicitly exposes `aria-expanded=false`, the select module advertises
+a separate click affordance backed by `primary_click` and
+`expanded_transition`. A verified expand receipt pushes the newly appeared
+option objects; the Agent then uses their opaque identities in the unchanged
+select loop. Native `<select>` never advertises this expand action. The Catalog
+supports audited secondary operation strategies inside one control module
+instead of splitting a closed-loop control or adding framework-specific code.
+
+When multiple actionable controls share the same role and semantic name, the
+Truth Layer may add nearby value-free page-authored context as description.
+This applies across control families, removes nested controls before reading
+context, and never reads editable or protected values.
+
 Native editable input uses an Extension-side, token-bound focus handoff after
 prepare/revalidation; it does not expose or accept a coordinate. On macOS,
 keyboard events are then delivered to the exact

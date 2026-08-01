@@ -10,7 +10,7 @@
   const DIALOG_SELECTOR = '[role="dialog"],[aria-modal="true"]';
   const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR}`;
   const SOFTWARE_CLICK_ROLES = new Set([
-    'button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menu_item', 'reflex_target',
+    'button', 'link', 'checkbox', 'radio', 'switch', 'select', 'tab', 'menu_item', 'reflex_target',
   ]);
   const identities = new WeakMap();
   const tokenTargets = new Map();
@@ -203,7 +203,7 @@
   }
 
   function repeatedActionContext(element, role, name) {
-    if (!name || !['button', 'link'].includes(role)) return undefined;
+    if (!name) return undefined;
     if (!repeatedActionKeys.has(`${role}\0${name}`)) return undefined;
 
     let group = element.parentElement;
@@ -347,6 +347,9 @@
       signals.required = Boolean(element.required) || element.getAttribute('aria-required') === 'true';
       signals.invalid = element.getAttribute('aria-invalid') === 'true';
       signals.expanded = ariaBoolean(element, 'expanded') ?? element.getAttribute('role') === 'listbox';
+      signals.expandable = element.tagName !== 'SELECT'
+        && element.getAttribute('role') === 'combobox'
+        && signals.expanded === false;
     } else if (role === 'content_editable') {
       signals.hasValue = Boolean(normalizedText(element.textContent, 1));
       signals.readonly = element.getAttribute('aria-readonly') === 'true';
@@ -554,7 +557,7 @@
     const actionNameCounts = new Map();
     for (const { element } of candidates) {
       const role = roleFor(element);
-      if (!['button', 'link'].includes(role)) continue;
+      if (!role || !registry.observe(role, signalsFor(element, role)).affordances.length) continue;
       const name = safeName(element, role);
       if (!name) continue;
       const key = `${role}\0${name}`;

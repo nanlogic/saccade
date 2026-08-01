@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 
 use saccade_control_sdk::{
-    verify_with_documents, InputPolicy, NativePrimitive, Registry, RegistryError,
+    verify_strategy_with_documents, InputPolicy, NativePrimitive, Registry, RegistryError,
 };
 use saccade_protocol::{
     ActionPayload, ActionReceipt, ActionRequest, ActionValidationError, DispatchStatus,
@@ -169,8 +169,13 @@ impl ClosedLoopEngine {
             selection_name,
         );
         let mut sufficient = |candidate: &ObservationSnapshot| {
-            verify_with_documents(module, before, target, &request.payload, candidate)
-                == PostconditionStatus::Verified
+            verify_strategy_with_documents(
+                module.verifier,
+                before,
+                target,
+                &request.payload,
+                candidate,
+            ) == PostconditionStatus::Verified
         };
         let (after, observed_settled) =
             observations.settled_observation(request.basis_revision, &mut sufficient)?;
@@ -185,7 +190,13 @@ impl ClosedLoopEngine {
             DispatchStatus::AcceptedByOs | DispatchStatus::AcceptedBySoftware
         );
         let postcondition = if accepted && fresh {
-            verify_with_documents(module, before, target, &request.payload, &after)
+            verify_strategy_with_documents(
+                module.verifier,
+                before,
+                target,
+                &request.payload,
+                &after,
+            )
         } else if accepted {
             PostconditionStatus::VisibleStateUnchanged
         } else {

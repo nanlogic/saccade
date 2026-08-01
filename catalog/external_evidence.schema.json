@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema", "browser", "candidate_commit", "started_at", "finished_at", "summary", "cases"],
+  "properties": {
+    "schema": { "const": "saccade.external-evidence/1" },
+    "browser": { "enum": ["chrome", "edge"] },
+    "candidate_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "summary": {
+      "type": "object",
+      "required": ["total", "verified", "failed", "by_outcome"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "verified": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "by_outcome": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      },
+      "additionalProperties": false
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "control", "source", "implementation", "url", "outcome", "observed", "elapsed_ms", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "control": { "type": "string" },
+          "source": { "type": "string" },
+          "implementation": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "outcome": { "enum": ["verified", "unsupported", "not_observed", "prepare_rejected", "dispatch_failed", "unverified"] },
+          "observed": { "type": "boolean" },
+          "dispatch_status": { "type": "string" },
+          "postcondition": { "type": "string" },
+          "elapsed_ms": { "type": "number", "minimum": 0 },
+          "limitation": { "type": "string" },
+          "evidence": {
+            "type": "object",
+            "required": ["initial_view", "changes", "receipt"],
+            "properties": {
+              "initial_view": { "type": "object" },
+              "changes": { "type": "array" },
+              "receipt": { "type": ["object", "null"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

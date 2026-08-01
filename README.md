@@ -107,7 +107,11 @@ identity, Native Messaging manifest, Runtime app, and fixture server.
 ./scripts/dev.sh test chrome
 ./scripts/dev.sh test edge
 ./scripts/dev.sh test all
+./scripts/dev.sh external all
 ./scripts/dev.sh compare all
+./scripts/dev.sh fair selenium both
+./scripts/dev.sh fair demoqa both
+./scripts/dev.sh fair angular both
 ./scripts/dev.sh accuracy chrome
 ./scripts/dev.sh accuracy all
 ./scripts/dev.sh reflex chrome soft
@@ -140,9 +144,15 @@ instead of repeating the page. `saccade.web.form.fill` accepts one bounded form
 plan and locally runs every field through its independent closed loop; submit
 and navigation remain separate actions. Managed testing stores
 evidence under `~/Library/Application Support/Saccade Dev/evidence` and omits
-editable contents. Managed evidence commands (`test`, `compare`, `accuracy`,
-and `reflex`) temporarily isolate and restore the user's local input policy so
+editable contents. Managed evidence commands (`test`, `external`, `compare`,
+`fair`, `accuracy`, and `reflex`) temporarily isolate and restore the user's local input policy so
 conformance runs cannot teach day-to-day browsing rules.
+
+`external` runs the declarative public-page manifest without selectors,
+source inspection, screenshots, or site execution code. `fair` gives Codex
+only an unknown URL and natural-language task, isolates Saccade and Playwright
+into separate MCP lanes, waits for the managed Host before timing, uses Chrome
+in both lanes, and reruns with reversed order.
 
 `web.act` chooses the backend automatically. The Catalog supplies the default:
 software for finite click controls and native input for editable, select, and
@@ -246,8 +256,9 @@ node --test extension/tests/*.test.js
 node --check tests/reference/playwright/oracle.cjs
 python3 -m unittest tests/test_dev_profile.py
 python3 -m unittest tests/test_benchmark_agent_fair.py
+python3 -m unittest tests/test_external_dogfood.py
 python3 -m py_compile scripts/dev_probe.py scripts/external_dogfood.py scripts/compare_external_evidence.py scripts/benchmark_playwright_parity.py scripts/benchmark_selenium_qa.py
-python3 -m py_compile scripts/benchmark_agent_fair.py
+python3 -m py_compile scripts/benchmark_agent_fair.py scripts/wait_for_mcp.py scripts/redact_benchmark_artifacts.py
 python3 scripts/generate_control_matrix.py
 python3 scripts/check_single_architecture.py
 git diff --exit-code -- docs/generated/control_coverage.md

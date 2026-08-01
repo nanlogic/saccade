@@ -31,10 +31,27 @@ pub struct ControlDefinition {
     pub native_primitive: NativePrimitive,
     pub input_policy: InputPolicy,
     pub verifier: Verifier,
+    #[serde(default)]
+    pub secondary_actions: Vec<ControlActionDefinition>,
     pub limitations: Vec<String>,
     pub fixtures: Vec<String>,
     pub evidence: BrowserEvidence,
     pub publication_status: PublicationStatus,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlActionDefinition {
+    pub operation: ActionOperation,
+    pub native_primitive: NativePrimitive,
+    pub verifier: Verifier,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ResolvedControl<'a> {
+    pub definition: &'a ControlDefinition,
+    pub native_primitive: NativePrimitive,
+    pub verifier: Verifier,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -167,7 +184,7 @@ impl Registry {
         &self,
         object: &ObservedObject,
         operation: ActionOperation,
-    ) -> Result<&ControlDefinition, RegistryError> {
+    ) -> Result<ResolvedControl<'_>, RegistryError> {
         let definition = self
             .modules
             .get(&object.role)
@@ -185,7 +202,19 @@ impl Registry {
         if state_is(object, "enabled", false) || state_is(object, "readonly", true) {
             return Err(RegistryError::Unavailable);
         }
-        Ok(definition)
+        let strategy = definition
+            .secondary_actions
+            .iter()
+            .find(|strategy| strategy.operation == operation);
+        Ok(ResolvedControl {
+            definition,
+            native_primitive: strategy
+                .map(|strategy| strategy.native_primitive)
+                .unwrap_or(definition.native_primitive),
+            verifier: strategy
+                .map(|strategy| strategy.verifier)
+                .unwrap_or(definition.verifier),
+        })
     }
 
     pub fn input_policy(&self, role: SemanticRole) -> Result<InputPolicy, RegistryError> {
@@ -286,6 +315,38 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
             "software_preferred requires a registered finite software primitive".into(),
         ));
     }
+    let mut secondary_operations = Vec::new();
+    for strategy in &definition.secondary_actions {
+        let affordance = operation_affordance(strategy.operation).ok_or_else(|| {
+            RegistryError::InvalidCatalog("secondary action has unsupported operation".into())
+        })?;
+        if !definition.affordances.contains(&affordance)
+            || secondary_operations.contains(&strategy.operation)
+        {
+            return Err(RegistryError::InvalidCatalog(
+                "secondary actions must be unique advertised operations".into(),
+            ));
+        }
+        secondary_operations.push(strategy.operation);
+    }
+    if definition.role == SemanticRole::Select {
+        let expand = definition
+            .secondary_actions
+            .iter()
+            .find(|strategy| strategy.operation == ActionOperation::Click);
+        if !expand.is_some_and(|strategy| {
+            strategy.native_primitive == NativePrimitive::PrimaryClick
+                && strategy.verifier == Verifier::ExpandedTransition
+        }) {
+            return Err(RegistryError::InvalidCatalog(
+                "select must declare its click-to-expand strategy".into(),
+            ));
+        }
+    } else if !definition.secondary_actions.is_empty() {
+        return Err(RegistryError::InvalidCatalog(
+            "only the audited select module currently has a secondary action".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -309,11 +370,20 @@ pub fn verify(
     payload: &ActionPayload,
     after: &ObservationSnapshot,
 ) -> PostconditionStatus {
+    verify_strategy(definition.verifier, before, payload, after)
+}
+
+pub fn verify_strategy(
+    verifier: Verifier,
+    before: &ObservedObject,
+    payload: &ActionPayload,
+    after: &ObservationSnapshot,
+) -> PostconditionStatus {
     let after_target = after
         .objects
         .iter()
         .find(|object| object.object_id == before.object_id);
-    match definition.verifier {
+    match verifier {
         Verifier::ButtonEffect => {
             let Some(after_target) = after_target else {
                 return PostconditionStatus::TargetInvalidated;
@@ -421,14 +491,24 @@ pub fn verify_with_documents(
     payload: &ActionPayload,
     after: &ObservationSnapshot,
 ) -> PostconditionStatus {
+    verify_strategy_with_documents(definition.verifier, before_snapshot, before, payload, after)
+}
+
+pub fn verify_strategy_with_documents(
+    verifier: Verifier,
+    before_snapshot: &ObservationSnapshot,
+    before: &ObservedObject,
+    payload: &ActionPayload,
+    after: &ObservationSnapshot,
+) -> PostconditionStatus {
     if matches!(
-        definition.verifier,
+        verifier,
         Verifier::ButtonEffect | Verifier::DocumentTransition
     ) && before_snapshot.document_id != after.document_id
     {
         return PostconditionStatus::Verified;
     }
-    if definition.verifier == Verifier::ButtonEffect
+    if verifier == Verifier::ButtonEffect
         && before.transition == saccade_protocol::Transition::DeferredContentPossible
     {
         let before_ids = before_snapshot
@@ -449,7 +529,7 @@ pub fn verify_with_documents(
             return PostconditionStatus::Verified;
         }
     }
-    verify(definition, before, payload, after)
+    verify_strategy(verifier, before, payload, after)
 }
 
 #[cfg(test)]
@@ -472,5 +552,11 @@ mod tests {
             registry.input_policy(SemanticRole::TextField).unwrap(),
             InputPolicy::NativeRequired
         );
+        let select = registry.modules.get(&SemanticRole::Select).unwrap();
+        assert!(select.secondary_actions.iter().any(|strategy| {
+            strategy.operation == ActionOperation::Click
+                && strategy.native_primitive == NativePrimitive::PrimaryClick
+                && strategy.verifier == Verifier::ExpandedTransition
+        }));
     }
 }

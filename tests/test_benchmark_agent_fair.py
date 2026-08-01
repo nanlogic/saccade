@@ -61,6 +61,33 @@ class FairBenchmarkTests(unittest.TestCase):
             ),
             "?message=[REDACTED_EDITABLE]",
         )
+        value = "SACCADE FAIR LINE ONE\nLINE TWO Ω"
+        self.assertEqual(
+            MODULE.redact_text("nested SACCADE FAIR LINE ONE\\\\nLINE TWO Ω", [value]),
+            "nested [REDACTED_EDITABLE]",
+        )
+        self.assertEqual(
+            MODULE.redact_text("rendered SACCADE FAIR LINE ONE LINE TWO Ω", [value]),
+            "rendered [REDACTED_EDITABLE]",
+        )
+
+    def test_browser_metrics_report_trace_deltas_and_stale_recovery(self) -> None:
+        metrics = MODULE.browser_metrics([
+            {"type": "mcp_tool_call", "name": "saccade.web.observe", "result": {"mode": "full"}},
+            {"type": "mcp_tool_call", "name": "saccade.web.act", "result": {"mode": "delta", "dispatch_status": "stale_before_dispatch"}},
+        ])
+        self.assertEqual(metrics["full_views"], 1)
+        self.assertEqual(metrics["delta_views"], 1)
+        self.assertEqual(metrics["stale_events"], 1)
+        self.assertEqual(metrics["observe_or_snapshot_calls"], 1)
+        self.assertEqual([row["sequence"] for row in metrics["trace"]], [1, 2])
+
+    def test_timeout_can_be_reported_as_a_failed_lane(self) -> None:
+        task = MODULE.load_task(ROOT / "benchmarks/tasks/selenium_web_form.json")
+        summary = MODULE.lane_summary("saccade", 180000, 124, [], "timed out", task, True)
+        self.assertFalse(summary["passed"])
+        self.assertTrue(summary["timed_out"])
+        self.assertEqual(summary["returncode"], 124)
 
 
 if __name__ == "__main__":

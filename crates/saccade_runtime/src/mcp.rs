@@ -171,7 +171,7 @@ fn call_tool(
                 .unwrap_or(30_000)
                 + 10_000,
         ),
-        "tabs.open" => Duration::from_secs(15),
+        "tabs.open" => Duration::from_secs(25),
         "web.observe" if arguments.get("after_revision").is_some() => Duration::from_millis(
             arguments
                 .get("timeout_ms")
@@ -197,7 +197,22 @@ fn call_tool(
             let receipt: ActionReceipt = serde_json::from_value(result)?;
             receipt.post_action_observation.validate()?;
             let view = agent_views.project(receipt.post_action_observation.clone())?;
-            return Ok(json!({
+            let retry = if receipt.dispatch_status
+                == saccade_protocol::DispatchStatus::AcceptedBySoftware
+                && matches!(
+                    receipt.postcondition,
+                    saccade_protocol::PostconditionStatus::VisibleStateUnchanged
+                        | saccade_protocol::PostconditionStatus::Unverified
+                ) {
+                Some(json!({
+                    "requires_fresh_authority":true,
+                    "next_backend":"native",
+                    "reason":"software input was accepted but not semantically verified; the local policy already learned native"
+                }))
+            } else {
+                None
+            };
+            let mut agent_receipt = json!({
                 "schema":"saccade.agent-receipt/1",
                 "browser_instance_id":receipt.browser_instance_id,
                 "tab_id":receipt.tab_id,
@@ -210,7 +225,11 @@ fn call_tool(
                 "postcondition":receipt.postcondition,
                 "settled":receipt.settled,
                 "view":view
-            }));
+            });
+            if let Some(retry) = retry {
+                agent_receipt["retry"] = retry;
+            }
+            return Ok(agent_receipt);
         }
         "web.form.fill" => {
             let mut form = result;
@@ -402,9 +421,9 @@ fn tools(diagnostics: bool) -> Vec<Value> {
         json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
         json!({"name":"saccade.web.observe","description":"Read the Agent Browser: one full Truth Layer per document, then semantic deltas and opaque authority refreshes. Pass after_revision to wait locally for a newer browser revision instead of polling through the model. Without after_revision, this returns the current view immediately and ignores timeout_ms.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act","description":"Run one closed loop from a current action token. Use click for buttons/navigation, type with text, select with the observed option object_id, or upload with path. Saccade resolves the token only inside this Agent's current Truth Layer, selects the input backend, and returns a compact verified receipt.","inputSchema":action_request_schema(&["click","type","select","upload"])}),
+        json!({"name":"saccade.web.act","description":"Run one closed loop from a current action token. Use click for buttons/navigation or to expand an advertised ARIA choice, type with text, select with an observed option object_id, or upload with path. The receipt view contains the fresh delta. If an accepted software action is unverified, retry explains that the local policy already learned native; use a fresh authority and call web.act again.","inputSchema":action_request_schema(&["click","type","select","upload"])}),
         json!({"name":"saccade.input_policy.list","description":"List this user's local per-page learned input-backend records.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
-        json!({"name":"saccade.input_policy.remember_native","description":"Remember that the current page control should use native input on future actions.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
+        json!({"name":"saccade.input_policy.remember_native","description":"Record an explicit user- or Agent-known requirement that this page control must use native input. Do not call this to recover an unverified software receipt: web.act already records that evidence and returns retry guidance.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
         json!({"name":"saccade.web.form.fill","description":"Fill a bounded same-document form plan in one request while every control retains its own closed loop. Use type for editables, select with the observed option object_id, and check only for checkbox/radio/switch controls. Saccade resolves all tokens from this Agent's current Truth Layer. Submit buttons and navigation must be a separate web.act click.","inputSchema":{"type":"object","properties":{"actions":{"type":"array","minItems":1,"maxItems":32,"items":form_action_schema()}},"required":["actions"],"additionalProperties":false}}),
         json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts using the Registry-selected backend.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
     ];

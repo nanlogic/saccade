@@ -1,0 +1,117 @@
+{
+  "schema": "saccade.external-cases/1",
+  "coverage_policy": {
+    "independent_sources_per_control": 2,
+    "implementation_types_per_family": 3,
+    "repeat_count": 1
+  },
+  "cases": [
+    {
+      "id": "selenium-text-field",
+      "control": "text_field",
+      "source": "Selenium",
+      "implementation": "native_html",
+      "url": "https://www.selenium.dev/selenium/web/web-form.html",
+      "goal": "Enter ordinary Unicode text in Text input.",
+      "target": { "role": "text_field", "name": "Text input" },
+      "action": { "operation": "type", "input_profile": "unicode_single_line" },
+      "postcondition": { "state": "has_value", "equals": "true" }
+    },
+    {
+      "id": "selenium-text-area",
+      "control": "text_area",
+      "source": "Selenium",
+      "implementation": "native_html",
+      "url": "https://www.selenium.dev/selenium/web/web-form.html",
+      "goal": "Enter multiline Unicode text in Textarea.",
+      "target": { "role": "text_area", "name": "Textarea" },
+      "action": { "operation": "type", "input_profile": "unicode_multiline" },
+      "postcondition": { "state": "has_value", "equals": "true" }
+    },
+    {
+      "id": "selenium-select",
+      "control": "select",
+      "source": "Selenium",
+      "implementation": "native_html",
+      "url": "https://www.selenium.dev/selenium/web/web-form.html",
+      "goal": "Choose Two in Dropdown (select).",
+      "target": { "role": "select", "name": "Dropdown (select)" },
+      "action": { "operation": "select", "option": "Two" },
+      "postcondition": { "role": "option", "name": "Two", "state": "selected", "equals": "true" }
+    },
+    {
+      "id": "selenium-checkbox",
+      "control": "checkbox",
+      "source": "Selenium",
+      "implementation": "native_html",
+      "url": "https://www.selenium.dev/selenium/web/web-form.html",
+      "goal": "Select Default checkbox.",
+      "target": { "role": "checkbox", "name": "Default checkbox" },
+      "action": { "operation": "click" },
+      "postcondition": { "state": "checked", "equals": "true" }
+    },
+    {
+      "id": "selenium-radio",
+      "control": "radio",
+      "source": "Selenium",
+      "implementation": "native_html",
+      "url": "https://www.selenium.dev/selenium/web/web-form.html",
+      "goal": "Select Default radio.",
+      "target": { "role": "radio", "name": "Default radio" },
+      "action": { "operation": "click" },
+      "postcondition": { "state": "checked", "equals": "true" }
+    },
+    {
+      "id": "w3c-radio",
+      "control": "radio",
+      "source": "W3C WAI-ARIA APG",
+      "implementation": "aria",
+      "url": "https://www.w3.org/WAI/ARIA/apg/patterns/radio/examples/radio/",
+      "goal": "Select Deep dish.",
+      "target": { "role": "radio", "name": "Deep dish" },
+      "action": { "operation": "click" },
+      "postcondition": { "state": "checked", "equals": "true" }
+    },
+    {
+      "id": "w3c-switch",
+      "control": "switch",
+      "source": "W3C WAI-ARIA APG",
+      "implementation": "aria",
+      "url": "https://www.w3.org/WAI/ARIA/apg/patterns/switch/examples/switch/",
+      "goal": "Enable Notifications.",
+      "target": { "role": "switch", "name": "Notifications" },
+      "action": { "operation": "click" },
+      "postcondition": { "state": "checked", "equals": "true" }
+    },
+    {
+      "id": "w3c-tab",
+      "control": "tab",
+      "source": "W3C WAI-ARIA APG",
+      "implementation": "aria",
+      "url": "https://www.w3.org/WAI/ARIA/apg/patterns/tabs/examples/tabs-manual/",
+      "goal": "Select the Carl Andersen tab.",
+      "target": { "role": "tab", "name": "Carl Andersen" },
+      "action": { "operation": "click" },
+      "postcondition": { "state": "selected", "equals": "true" }
+    },
+    {
+      "id": "w3c-menu-item",
+      "control": "menu_item",
+      "source": "W3C WAI-ARIA APG",
+      "implementation": "aria",
+      "url": "https://www.w3.org/WAI/ARIA/apg/patterns/menubar/examples/menubar-navigation/",
+      "goal": "Expand About.",
+      "target": { "role": "menu_item", "name": "About" },
+      "action": { "operation": "click" },
+      "postcondition": { "state": "expanded", "equals": "true" }
+    }
+  ],
+  "required_source_families": [
+    { "source": "Selenium", "implementation": "native_html", "status": "active" },
+    { "source": "W3C WAI-ARIA APG", "implementation": "aria", "status": "active" },
+    { "source": "DemoQA", "implementation": "react", "status": "agent_benchmark" },
+    { "source": "Angular Material", "implementation": "angular", "status": "agent_benchmark_active" },
+    { "source": "PrimeVue", "implementation": "vue", "status": "candidate_validation_required" },
+    { "source": "Shoelace", "implementation": "web_component", "status": "candidate_validation_required" }
+  ]
+}

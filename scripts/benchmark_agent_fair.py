@@ -119,7 +119,39 @@ def item_is_tool(item: dict[str, Any]) -> bool:
     return kind in TOOL_ITEM_TYPES or "tool" in kind or kind.startswith("mcp_")
 
 
-def lane_summary(lane: str, elapsed_ms: float, returncode: int, events: list[dict[str, Any]], stderr: str, task: dict[str, Any]) -> dict[str, Any]:
+def tool_name(item: dict[str, Any]) -> str:
+    for key in ("tool", "name", "server_tool_name"):
+        if item.get(key):
+            return str(item[key])
+    return str(item.get("type") or "unknown_tool")
+
+
+def browser_metrics(tool_items: list[dict[str, Any]]) -> dict[str, Any]:
+    trace = []
+    serialized_items = []
+    for index, item in enumerate(tool_items, start=1):
+        serialized = compact(item)
+        serialized_items.append(serialized)
+        trace.append({
+            "sequence": index,
+            "tool": tool_name(item),
+            "transcript_bytes": len(serialized.encode()),
+        })
+    combined = "\n".join(serialized_items).casefold()
+    return {
+        "trace": trace,
+        "transcript_bytes": sum(row["transcript_bytes"] for row in trace),
+        "full_views": combined.count('"mode":"full"'),
+        "delta_views": combined.count('"mode":"delta"'),
+        "stale_events": combined.count("stale_before_dispatch") + combined.count("stale action basis"),
+        "observe_or_snapshot_calls": sum(
+            any(word in row["tool"].casefold() for word in ("observe", "snapshot"))
+            for row in trace
+        ),
+    }
+
+
+def lane_summary(lane: str, elapsed_ms: float, returncode: int, events: list[dict[str, Any]], stderr: str, task: dict[str, Any], timed_out: bool = False) -> dict[str, Any]:
     completed_items = [
         event.get("item") for event in events
         if event.get("type") == "item.completed" and isinstance(event.get("item"), dict)
@@ -140,14 +172,16 @@ def lane_summary(lane: str, elapsed_ms: float, returncode: int, events: list[dic
     evidence = {needle: needle.casefold() in tool_text.casefold() for needle in required_evidence}
     usage_events = [event.get("usage") for event in events if event.get("type") == "turn.completed"]
     usage = usage_events[-1] if usage_events and isinstance(usage_events[-1], dict) else {}
-    passed = returncode == 0 and final_value.get("completed") is True and all(evidence.values())
+    passed = not timed_out and returncode == 0 and final_value.get("completed") is True and all(evidence.values())
     return {
         "lane": lane,
         "passed": passed,
         "elapsed_ms": round(elapsed_ms, 3),
         "returncode": returncode,
+        "timed_out": timed_out,
         "usage": usage,
         "tool_calls": len(tool_items),
+        "browser_metrics": browser_metrics(tool_items),
         "model_messages": len(agent_messages),
         "success_evidence": evidence,
         "final": final_value,
@@ -159,8 +193,12 @@ def redact_text(text: str, values: list[str]) -> str:
     for value in sorted(values, key=len, reverse=True):
         variants = {
             value,
+            value.replace("\n", " "),
             value.replace("\n", "\\n"),
+            value.replace("\n", "\\\\n"),
             value.replace("\n", "\r\n"),
+            value.replace("\n", "\\r\\n"),
+            value.replace("\n", "\\\\r\\\\n"),
             urllib.parse.quote(value, safe=""),
             urllib.parse.quote_plus(value, safe=""),
             urllib.parse.quote(value.replace("\n", "\r\n"), safe=""),
@@ -184,25 +222,39 @@ def run_lane(
         workdir = Path(temporary)
         command = lane_command(lane, model, workdir, runtime, runtime_dir, playwright_package)
         started = time.perf_counter()
-        completed = subprocess.run(
-            [*command, prompt_for(task, lane)],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=int(task["timeout_seconds"]),
-            check=False,
-            env=os.environ.copy(),
-        )
+        try:
+            completed = subprocess.run(
+                [*command, prompt_for(task, lane)],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=int(task["timeout_seconds"]),
+                check=False,
+                env=os.environ.copy(),
+            )
+            stdout = completed.stdout
+            stderr = completed.stderr
+            returncode = completed.returncode
+            timed_out = False
+        except subprocess.TimeoutExpired as error:
+            def decoded(value: str | bytes | None) -> str:
+                if isinstance(value, bytes):
+                    return value.decode(errors="replace")
+                return value or ""
+            stdout = decoded(error.stdout)
+            stderr = decoded(error.stderr) + f"\nbenchmark lane timed out after {task['timeout_seconds']} seconds\n"
+            returncode = 124
+            timed_out = True
         elapsed_ms = (time.perf_counter() - started) * 1000
-    events = parse_events(completed.stdout)
+    events = parse_events(stdout)
     redactions = task["redact"]
     (output_dir / f"{lane}.jsonl").write_text(
-        redact_text(completed.stdout, redactions), encoding="utf-8"
+        redact_text(stdout, redactions), encoding="utf-8"
     )
     (output_dir / f"{lane}.stderr.log").write_text(
-        redact_text(completed.stderr, redactions), encoding="utf-8"
+        redact_text(stderr, redactions), encoding="utf-8"
     )
-    return lane_summary(lane, elapsed_ms, completed.returncode, events, completed.stderr, task)
+    return lane_summary(lane, elapsed_ms, returncode, events, stderr, task, timed_out)
 
 
 def main() -> int:
@@ -232,6 +284,8 @@ def main() -> int:
         "agent": {"driver": "codex exec", "model": args.model or "codex-default-recommended"},
         "order": order,
         "selector_or_site_execution_logic": False,
+        "timing_boundary": "initial URL through browser-proven completion",
+        "forbidden_routes": ["source inspection", "selector", "XPath", "DOM query", "JavaScript evaluation", "coordinate", "screenshot", "human help"],
         "lanes": lanes,
         "verdict": "PASS" if all(lane["passed"] for lane in lanes.values()) else "FAIL",
         "duration_seconds": round(time.monotonic() - started, 3),

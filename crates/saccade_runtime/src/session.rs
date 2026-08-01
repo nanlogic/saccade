@@ -28,6 +28,7 @@ use crate::profile::Profile;
 use crate::{ClosedLoopEngine, ClosedLoopError, NativeInput, ObservationSource};
 
 const EXTENSION_TIMEOUT: Duration = Duration::from_secs(10);
+const FIRST_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(20);
 const POST_ACTION_TIMEOUT: Duration = Duration::from_secs(2);
 const POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(300);
 const DEFERRED_CONTENT_QUIET_WINDOW: Duration = Duration::from_millis(750);
@@ -283,7 +284,7 @@ impl NativeHostSession {
                     EXTENSION_TIMEOUT,
                 )?;
                 let tab_id = required_string(&opened, "tab_id")?.to_string();
-                self.wait_for_first_observation(&tab_id, EXTENSION_TIMEOUT)?;
+                self.wait_for_first_observation(&tab_id, FIRST_OBSERVATION_TIMEOUT)?;
                 opened["observation_ready"] = Value::Bool(true);
                 Ok(opened)
             }

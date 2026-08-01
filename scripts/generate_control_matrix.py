@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "catalog" / "controls.json"
 DEVELOPMENT_EVIDENCE = ROOT / "catalog" / "development_evidence.json"
+EXTERNAL_CASES = ROOT / "catalog" / "external_cases.json"
 OUTPUT = ROOT / "docs" / "generated" / "control_coverage.md"
 
 ALLOWED_ROLES = {
@@ -23,9 +24,10 @@ ALLOWED_STATES = {
 }
 
 
-def load_and_validate() -> tuple[dict, dict]:
+def load_and_validate() -> tuple[dict, dict, dict]:
     data = json.loads(CATALOG.read_text(encoding="utf-8"))
     development = json.loads(DEVELOPMENT_EVIDENCE.read_text(encoding="utf-8"))
+    external_cases = json.loads(EXTERNAL_CASES.read_text(encoding="utf-8"))
     if set(data) != {"catalog_version", "controls"} or data["catalog_version"] != 1:
         raise SystemExit("invalid Catalog envelope")
     ids: set[str] = set()
@@ -46,7 +48,7 @@ def load_and_validate() -> tuple[dict, dict]:
             raise SystemExit(f"{control['id']} cannot be publishable without Chrome and Edge evidence")
     if roles != ALLOWED_ROLES:
         raise SystemExit("Catalog roles do not match the implemented control batches")
-    if set(development) != {"evidence_version", "controls"} or development["evidence_version"] != 1:
+    if set(development) != {"evidence_version", "external_requirements", "controls", "records"} or development["evidence_version"] != 2:
         raise SystemExit("invalid development evidence envelope")
     if set(development["controls"]) != roles:
         raise SystemExit("development evidence roles do not match the Catalog")
@@ -64,14 +66,42 @@ def load_and_validate() -> tuple[dict, dict]:
             for browser in expected_browsers
         ):
             raise SystemExit(f"external evidence requires fixture evidence for {role}")
-    return data, development
+    requirements = development["external_requirements"]
+    if requirements != {"independent_sources_per_control": 2, "implementation_types_per_family": 3}:
+        raise SystemExit("external evidence requirements changed without an architecture decision")
+    record_keys: set[tuple[str, str, str, str]] = set()
+    for record in development["records"]:
+        required = {"control", "browser", "source", "implementation", "url", "outcome", "dispatch_status", "postcondition", "candidate_commit", "tested_at", "evidence_path"}
+        if set(record) != required or record["control"] not in roles:
+            raise SystemExit("invalid external evidence record")
+        if record["browser"] not in expected_browsers or record["outcome"] != "verified" or record["postcondition"] != "verified":
+            raise SystemExit("only verified Chrome/Edge records belong in the development index")
+        key = (record["control"], record["browser"], record["source"], record["url"])
+        if key in record_keys:
+            raise SystemExit("duplicate external evidence record")
+        record_keys.add(key)
+    for role, evidence in development["controls"].items():
+        for browser in expected_browsers:
+            sources = {
+                record["source"] for record in development["records"]
+                if record["control"] == role and record["browser"] == browser
+            }
+            expected = "passed" if len(sources) >= requirements["independent_sources_per_control"] else "pending"
+            if evidence["external"][browser] != expected:
+                raise SystemExit(f"external summary for {role}/{browser} does not match traceable records")
+    if external_cases.get("schema") != "saccade.external-cases/1":
+        raise SystemExit("invalid external case manifest")
+    case_ids = [case["id"] for case in external_cases.get("cases", [])]
+    if len(case_ids) != len(set(case_ids)):
+        raise SystemExit("duplicate external case id")
+    return data, development, external_cases
 
 
 def paired(evidence: dict) -> str:
     return f"{evidence['chrome']} / {evidence['edge']}"
 
 
-def render(data: dict, development: dict) -> str:
+def render(data: dict, development: dict, external_cases: dict) -> str:
     fixture_both = sum(
         all(status == "passed" for status in evidence["fixture"].values())
         for evidence in development["controls"].values()
@@ -91,6 +121,7 @@ def render(data: dict, development: dict) -> str:
         f"Implemented: {len(data['controls'])}. Chrome + Edge fixture: {fixture_both}. Chrome + Edge external: {external_both}. Publishable: {publishable}.",
         "",
         "Chrome / Edge values are shown in that order.",
+        "External status requires two independent traceable public sources per control and browser.",
         "",
         "| Control | Implemented | Fixture C / E | External C / E | Release C / E |",
         "| --- | --- | --- | --- | --- |",
@@ -104,6 +135,21 @@ def render(data: dict, development: dict) -> str:
     lines.extend([
         "",
         "`Fixture` and `External` are local development evidence. `Release` stays pending until a signed release candidate passes.",
+        "",
+        "## Public case inventory",
+        "",
+        "| Control | Declared cases | Sources | Implementations |",
+        "| --- | ---: | --- | --- |",
+    ])
+    for control in data["controls"]:
+        cases = [case for case in external_cases["cases"] if case["control"] == control["role"]]
+        sources = sorted({case["source"] for case in cases})
+        implementations = sorted({case["implementation"] for case in cases})
+        lines.append(
+            f"| {control['id']} | {len(cases)} | {', '.join(sources) or 'gap'} | "
+            f"{', '.join(implementations) or 'gap'} |"
+        )
+    lines.extend([
         "",
         "## Module details",
         "",
@@ -131,8 +177,8 @@ def render(data: dict, development: dict) -> str:
 
 def main() -> None:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    data, development = load_and_validate()
-    OUTPUT.write_text(render(data, development), encoding="utf-8")
+    data, development, external_cases = load_and_validate()
+    OUTPUT.write_text(render(data, development, external_cases), encoding="utf-8")
     print(OUTPUT.relative_to(ROOT))
 
 

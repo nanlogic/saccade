@@ -19,6 +19,10 @@ the clean public repository.
   aliases and retain 128-bit opaque action-token authority.
 - let `web.observe` wait locally for a revision newer than `after_revision`, so
   an Agent does not spend tool calls or context polling unchanged truth.
+- let collapsed ARIA choices complete a verified expand loop before their
+  dynamically created option identities enter the existing select loop;
+- disambiguate duplicate actionable controls across control families with
+  bounded value-free page-authored context.
 
 ### Added
 
@@ -74,6 +78,8 @@ the clean public repository.
   without duplicating full JSON as text;
 - verifier-aware action settlement and bounded pre-dispatch stale refreshes for
   locally orchestrated form steps;
+- declarative cross-site evidence, isolated unknown-page Saccade/Playwright
+  comparisons, stable failure taxonomy, timeout evidence, and artifact redaction;
 
 ### Pending
 

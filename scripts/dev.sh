@@ -597,6 +597,7 @@ compare_route() {
     --browser "$compare_browser" \
     --runtime "$RUNTIME" \
     --runtime-dir "$RUNTIME_DIR" \
+    --case w3c-radio --case w3c-switch --case w3c-tab --case w3c-menu-item \
     --output "$compare_run_dir/saccade.json"
   compare_package_dir="$ROOT/tests/reference/playwright"
   if [ ! -d "$compare_package_dir/node_modules/playwright" ]; then
@@ -616,6 +617,95 @@ compare_route() {
   start_browser "$compare_browser"
   trap - EXIT HUP INT TERM
   printf '%s\n' "External Saccade/Playwright $compare_browser comparison: $compare_run_dir"
+}
+
+external_route() {
+  external_browser=$1
+  external_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$external_browser"
+  mkdirs
+  restore_profile
+  restore_input_policy
+  isolate_input_policy
+  trap 'stop_browser "$external_browser"; restore_input_policy; start_browser "$external_browser"' EXIT
+  up "$external_browser"
+  external_run_dir="$EVIDENCE_DIR/$external_stamp/$external_browser/public-suite"
+  mkdir -p "$external_run_dir"
+  chmod 700 "$external_run_dir"
+  python3 "$ROOT/scripts/external_dogfood.py" \
+    --browser "$external_browser" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --cases "$ROOT/catalog/external_cases.json" \
+    --output "$external_run_dir/saccade.json"
+  stop_browser "$external_browser"
+  restore_input_policy
+  start_browser "$external_browser"
+  trap - EXIT HUP INT TERM
+  printf '%s\n' "Public cross-site $external_browser evidence: $external_run_dir/saccade.json"
+}
+
+external_all() {
+  external_all_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  external_route chrome "$external_all_stamp"
+  external_route edge "$external_all_stamp"
+  printf '%s\n' "Chrome and Edge public cross-site evidence: $EVIDENCE_DIR/$external_all_stamp"
+}
+
+fair_task_path() {
+  case "$1" in
+    selenium) printf '%s\n' "$ROOT/benchmarks/tasks/selenium_web_form.json" ;;
+    demoqa) printf '%s\n' "$ROOT/benchmarks/tasks/demoqa_react_practice_form.json" ;;
+    angular) printf '%s\n' "$ROOT/benchmarks/tasks/angular_material_select.json" ;;
+    *) printf '%s\n' "fair task must be selenium, demoqa, or angular" >&2; return 2 ;;
+  esac
+}
+
+fair_route() {
+  fair_task=$1
+  fair_order=$2
+  fair_stamp=${3:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  fair_task_file=$(fair_task_path "$fair_task")
+  mkdirs
+  restore_profile
+  restore_input_policy
+  isolate_input_policy
+  trap 'stop_browser chrome; restore_input_policy; start_browser chrome' EXIT
+  stop_browser edge
+  up chrome
+  python3 "$ROOT/scripts/wait_for_mcp.py" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --timeout 30
+  fair_run_dir="$EVIDENCE_DIR/$fair_stamp/fair-$fair_task-$fair_order"
+  mkdir -p "$fair_run_dir"
+  chmod 700 "$fair_run_dir"
+  fair_status=0
+  if ! python3 "$ROOT/scripts/benchmark_agent_fair.py" \
+      --task "$fair_task_file" \
+      --runtime "$RUNTIME" \
+      --runtime-dir "$RUNTIME_DIR" \
+      --output "$fair_run_dir" \
+      --order "$fair_order"; then
+    fair_status=$?
+    [ "$fair_status" -ne 0 ] || fair_status=1
+  fi
+  stop_browser chrome
+  restore_input_policy
+  start_browser chrome
+  trap - EXIT HUP INT TERM
+  printf '%s\n' "Fair unknown-page $fair_task/$fair_order evidence: $fair_run_dir/report.json"
+  return "$fair_status"
+}
+
+fair_both() {
+  fair_both_task=$1
+  fair_both_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  fair_both_status=0
+  fair_route "$fair_both_task" saccade-first "$fair_both_stamp" || fair_both_status=1
+  fair_route "$fair_both_task" playwright-first "$fair_both_stamp" || fair_both_status=1
+  printf '%s\n' "Order-reversed fair $fair_both_task evidence: $EVIDENCE_DIR/$fair_both_stamp"
+  return "$fair_both_status"
 }
 
 compare_all() {
@@ -771,6 +861,20 @@ case "${1:-}" in
       *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
     esac
     ;;
+  external)
+    case "${2:-chrome}" in
+      all) external_all ;;
+      chrome|edge) external_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
+  fair)
+    case "${3:-both}" in
+      both) fair_both "${2:-selenium}" ;;
+      saccade-first|playwright-first) fair_route "${2:-selenium}" "$3" ;;
+      *) printf '%s\n' "fair order must be both, saccade-first, or playwright-first" >&2; exit 2 ;;
+    esac
+    ;;
   accuracy)
     case "${2:-chrome}" in
       all) accuracy_all ;;
@@ -782,5 +886,5 @@ case "${1:-}" in
   profile) profile_command "$@" ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|frames [chrome|edge|all]|compare [chrome|edge|all]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|frames [chrome|edge|all]|external [chrome|edge|all]|compare [chrome|edge|all]|fair [selenium|demoqa|angular] [both|saccade-first|playwright-first]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
 esac

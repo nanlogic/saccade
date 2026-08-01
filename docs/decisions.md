@@ -580,3 +580,27 @@ order-reversed public DemoQA React comparisons passed in
 both Saccade and Playwright lanes; metrics and all retained failures are in
 `docs/reports/2026-08-01-modern-react-agent-comparison.md`. Catalog status stays
 `implementation`.
+
+## 2026-08-01: Dynamic choices expand inside the select module
+
+Accepted: a control module may declare multiple finite operation strategies
+without splitting the semantic control. A collapsed ARIA combobox with
+`aria-expanded=false` advertises click; its Catalog strategy uses
+`primary_click` and `expanded_transition`. The verified receipt carries the
+new option delta, after which the existing option-identity select strategy runs
+unchanged. Native select does not advertise this expand action.
+
+The motivating Angular Material page required no URL, framework, selector,
+special-wait, or execution branch. The same investigation generalized duplicate
+control context to every currently actionable control family while continuing
+to remove nested controls and exclude protected values. An accepted but
+unverified software receipt now states that the local policy already learned
+native and requires a fresh authority before another action.
+
+Public stability evidence is source-diverse rather than repetition-based.
+Fixture evidence remains regression-only; external status requires two
+independent traceable public sources per control and browser. Unknown-page
+Saccade/Playwright runs isolate local policy, use Chrome in both lanes, wait for
+MCP readiness, reverse order, retain failures, and redact editable values in
+both raw and nested tool transcripts. Results and current gaps are recorded in
+`docs/reports/2026-08-01-cross-site-stability-and-fair-agent.md`.
