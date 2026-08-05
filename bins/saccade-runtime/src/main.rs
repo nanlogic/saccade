@@ -12,9 +12,12 @@ fn main() -> Result<()> {
             native_host(dev_runtime_dir())
         }
         Some("mcp") => saccade_runtime::mcp::serve(default_grant_path()),
+        Some("reference-actuator-mcp") => {
+            saccade_runtime::mcp::serve_reference_actuator(default_grant_path())
+        }
         Some("doctor") => doctor(),
         Some("repair") => repair(),
-        _ => bail!("usage: saccade-runtime <native-host|mcp|doctor|repair>"),
+        _ => bail!("usage: saccade-runtime <native-host|mcp|reference-actuator-mcp|doctor|repair>"),
     }
 }
 
@@ -36,9 +39,6 @@ fn repair() -> Result<()> {
 }
 
 fn native_host(runtime_dir: PathBuf) -> Result<()> {
-    if !saccade_runtime::platform_input::accessibility_trusted() {
-        let _ = saccade_runtime::platform_input::request_accessibility();
-    }
     let session = Arc::new(NativeHostSession::new(runtime_dir)?);
     let server = saccade_runtime::owner_ipc::OwnerIpcServer::bind(session.runtime_dir())?;
     session.install_endpoint(server.address())?;
@@ -92,7 +92,6 @@ fn doctor() -> Result<()> {
             "schema":"saccade.doctor/1",
             "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
             "host_protocol":saccade_protocol::HOST_PROTOCOL,
-            "accessibility_trusted":saccade_runtime::platform_input::accessibility_trusted(),
             "grant_path":grant_path,
             "ready":ready,
             "capabilities":capabilities,

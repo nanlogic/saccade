@@ -1,67 +1,71 @@
 # Truth Layer coverage
 
-The machine-readable [Control Catalog](../catalog/controls.json) defines the
-current Registry. `catalog/development_evidence.json` records fixture and
-external development proof separately from release evidence. The
-[generated coverage table](generated/control_coverage.md)
-is the public status for implemented controls. The
-[control roadmap](CONTROL_ROADMAP.md) lists planned batches without presenting
-them as current support.
+The machine-readable source of truth is
+[`catalog/truth_inventory.json`](../catalog/truth_inventory.json). It accounts
+for every protocol semantic role, every implemented roadmap variant, and every
+structural boundary. A role may not exist only in prose.
 
-## Status meanings
+## Current complete local gate
 
-| Status | Meaning |
-| --- | --- |
-| `implementation` | Source, fixtures, focused tests, and a development route exist. Release evidence remains incomplete. |
-| `publishable` | Chrome and Edge passed the same release candidate through the production route. |
-| Planned | The role appears only in the contract or roadmap. It has no Catalog module or action claim. |
-| Limited | Saccade reports an object or surface without claiming unsupported semantics or action. |
+The protocol defines 34 roles:
 
-## Current controls
+- 15 interactive roles: `button`, `link`, `text_field`, `search_field`,
+  `text_area`, `content_editable`, `checkbox`, `radio`, `switch`, `select`,
+  `file_input`, `spin_button`, `tab`, `menu_item`, and `reflex_target`;
+- 17 additional semantic roles: `option`, `heading`, `paragraph`, `text`,
+  `list`, `list_item`, `table`, `row`, `cell`, `alert`, `status`, `image`,
+  `slider`, `label`, `generic_control`, `opaque_surface`, and
+  `restricted_document`;
+- `frame`, which uses the structural metadata gate;
+- reserved `unknown`, which uses a negative non-emission gate and must never
+  appear in Agent output.
 
-Saccade currently implements button, link, text field, search field, textarea,
-contenteditable, spin button, checkbox, radio, ARIA switch, select, tab, menu
-item, reflex target, file input, and select-option observation. Paired managed
-run `20260729T225249Z` passed 14 native closed loops in both Chrome and Edge,
-including native select, ARIA listbox, ARIA combobox, bounded structural
-reading, Profile, and stale-token gates. Reflex target, link, and file input have
-focused managed Chrome evidence, including authenticated file-selection
-dogfood, but not paired release evidence. Every Catalog row remains
-`implementation` because signed-product Chrome and Edge evidence for one
-release candidate is pending.
+The 12 reusable variants are `date`, `time`, `month`, `week`,
+`datetime_local`, `color`, `native_listbox`, `aria_listbox`, `aria_combobox`,
+`drag_source`, `drop_target`, and `built_in_pdf`. They reuse a semantic role
+instead of creating arbitrary per-HTML-element roles.
 
-Public W3C WAI-ARIA run `20260729T211221Z` independently produced native
-verified Saccade receipts for radio, switch, tab, and menu item in Chrome and
-Edge. A separate Playwright oracle matched all four semantic names and state
-transitions and saved screenshots. Playwright results are comparative only and
-do not count as Saccade receipts or release evidence.
+The 6 structural/push boundaries are `same_origin_frame`, `restricted_frame`,
+`open_shadow_root`, `closed_shadow_root`, `stream_gap_reset`, and
+`resource_notification`.
 
-## Coverage tiers
+Opaque Canvas2D, WebGL, video, and restricted document surfaces are emitted as
+bounded objects with explicit limitations. Their pixels or internals are not
+claimed as semantic controls. Same-origin frames and open Shadow DOM compose
+into Truth; restricted frames and marked closed-shadow boundaries remain
+limited or opaque.
 
-Common controls require semantic identity, safe state, revision-bound native
-action, control-specific verification, redaction checks, and current Chrome and
-Edge evidence.
+`./scripts/dev.sh test all` must prove in both Chrome and Edge:
 
-Uncommon controls begin with truthful recognition, safe state, and an explicit
-limitation. The team adds native action after a focused browser gate proves the
-postcondition.
+- safe initial projection and no public action authority;
+- a real Extension-produced delta for every positive role and variant;
+- full→delta continuity and unsolicited Resource notification;
+- frame and Shadow boundaries;
+- non-emission of the reserved `unknown` role;
+- absence of editable contents, locators, coordinates, and action tokens from
+  evidence.
 
-Browser and operating-system chrome, arbitrary closed-shadow internals, PDF
-form internals, and arbitrary Canvas/WebGL/custom widgets remain outside the
-core. Saccade reports an opaque or restricted surface instead of inventing
-controls.
+## Reference Actuator boundary
 
-## Evidence required for each control
+`catalog/controls.json` currently retains the 15 families with an audited
+Reference Actuator implementation. Its native primitives and verifiers live in
+`catalog/reference_actuators.json`. That smaller list is not the Truth Layer
+coverage list and must never be presented as the total number of supported
+semantic objects.
 
-- accepted native input and a verified semantic postcondition;
-- stale, replayed, detached, hidden, covered, unfocused, and unauthorized
-  rejection;
-- Profile-ban filtering before Extension preparation;
-- absence of editable or protected values from observations, receipts, logs,
-  diagnostics, and committed artifacts;
-- current Chrome and Edge artifacts tied to one source commit and release
-  candidate.
+## Legacy gauntlet relationship
 
-Historical CEF, Servo, detector, and benchmark work lives in the private
-`nanlogic/saccade-legacy` archive. It can guide a reviewed migration, but it
-cannot satisfy current evidence or appear as current support.
+The reviewed legacy `SACCADE_EVALUATION_GAUNTLET_v1` also lists page behaviors:
+dynamic loading, disappearing elements, dialogs, upload/download, infinite
+scroll, sortable tables, drag/drop, overlay blocking, and slow resources.
+Those are lifecycle or application scenarios, not additional control roles.
+They receive separate public-site and lifecycle evidence; they do not inflate
+the semantic role count or justify copying the retired browser engine.
+
+Local fixture success remains `implementation` evidence. `publishable` still
+requires the same frozen release candidate in current Chrome and Edge plus the
+required independent public-page evidence.
+
+The precise current claim is: the complete local Truth inventory and the
+two-browser pushed-delta framework gate pass. The inventory does not establish
+universal modern-web compatibility or superiority over Playwright.

@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 EXTENSION_VERSION=$(sed -n 's/^[[:space:]]*"version": "\([0-9][0-9.]*\)",*$/\1/p' "$ROOT/extension/manifest.json" | sed -n '1p')
 : "${EXTENSION_VERSION:?development Extension manifest has no version}"
-BROWSER_PROFILE_GENERATION=10
+BROWSER_PROFILE_GENERATION=13
 DEV_ROOT="$HOME/Library/Application Support/Saccade Dev"
 BIN_DIR="$DEV_ROOT/bin"
 RUNTIME_APP="$HOME/Applications/Saccade Dev Runtime.app"
@@ -29,6 +29,8 @@ SYSTEM_HOST_MANIFEST="$SYSTEM_HOST_DIR/com.nanlogic.saccade.dev.json"
 RUNTIME="$RUNTIME_MACOS/saccade-runtime"
 FIXTURE_URL="http://127.0.0.1:8765/fixtures/controls/all.html"
 STRUCTURAL_FIXTURE_URL="http://127.0.0.1:8765/fixtures/structural/frames_and_shadow.html"
+PUSHED_DELTA_URL="http://127.0.0.1:8765/fixtures/structural/pushed_delta.html"
+TRUTH_LATENCY_URL="http://127.0.0.1:8765/fixtures/structural/truth_latency.html"
 MOUSE_ACCURACY_URL="http://127.0.0.1:8765/fixtures/conformance/mouse_accuracy.html"
 MOUSE_ACCURACY_LAYOUT="${SACCADE_MOUSE_ACCURACY_LAYOUT:-buttons}"
 MOUSE_ACCURACY_DIFFICULTY="${SACCADE_MOUSE_ACCURACY_DIFFICULTY:-ordinary}"
@@ -215,12 +217,8 @@ find_codex() {
 }
 
 install_runtime() {
-  signing_identity=${SACCADE_DEV_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development:[^"]*\)"/\1/p' | sed -n '1p')}
-  if [ -z "$signing_identity" ]; then
-    printf '%s\n' "Saccade Dev requires an Apple Development signing identity for stable Accessibility permission." >&2
-    exit 1
-  fi
-  signing_version="3:$signing_identity"
+  signing_identity=${SACCADE_DEV_SIGNING_IDENTITY:--}
+  signing_version="4:truth-layer:$signing_identity"
   cargo build --release --manifest-path "$ROOT/Cargo.toml" -p saccade-runtime
   source_hash=$(shasum -a 256 "$ROOT/target/release/saccade-runtime" | awk '{print $1}')
   installed_source_hash=$(sed -n '1p' "$STATE_DIR/runtime-source.sha256" 2>/dev/null || true)
@@ -451,12 +449,6 @@ up() {
   start_fixture
   stop_browser "$up_browser"
   start_browser "$up_browser"
-  runtime_hash=$(shasum -a 256 "$RUNTIME" | awk '{print $1}')
-  requested_hash=$(sed -n '1p' "$STATE_DIR/accessibility-requested" 2>/dev/null || true)
-  if [ "$requested_hash" != "$runtime_hash" ]; then
-    SACCADE_RUNTIME_DIR="$RUNTIME_DIR" "$RUNTIME" repair
-    printf '%s\n' "$runtime_hash" > "$STATE_DIR/accessibility-requested"
-  fi
   printf '%s\n' "Saccade Dev $up_browser is starting. Run ./scripts/dev.sh status, then ./scripts/dev.sh test $up_browser."
 }
 
@@ -521,6 +513,7 @@ test_route() {
   isolate_input_policy
   trap 'stop_browser "$test_browser"; restore_profile; restore_input_policy; start_browser "$test_browser"' EXIT
   up "$test_browser"
+  SACCADE_RUNTIME_DIR="$RUNTIME_DIR" "$RUNTIME" repair
   test_run_dir="$EVIDENCE_DIR/$test_stamp/$test_browser"
   mkdir -p "$test_run_dir"
   chmod 700 "$test_run_dir"
@@ -546,6 +539,115 @@ test_route() {
   start_browser "$test_browser"
   trap - EXIT HUP INT TERM
   printf '%s\n' "Cataloged-control $test_browser evidence: $test_run_dir"
+}
+
+truth_test_route() {
+  truth_browser=$1
+  truth_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$truth_browser"
+  mkdirs
+  up "$truth_browser"
+  truth_run_dir="$EVIDENCE_DIR/$truth_stamp/$truth_browser/truth"
+  mkdir -p "$truth_run_dir"
+  chmod 700 "$truth_run_dir"
+  python3 "$ROOT/scripts/probe_pushed_delta.py" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --url "$PUSHED_DELTA_URL" --output "$truth_run_dir/pushed-delta.json"
+  python3 "$ROOT/scripts/probe_resource_subscription.py" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --url "$PUSHED_DELTA_URL" --output "$truth_run_dir/resource-subscription.json"
+  python3 "$ROOT/scripts/probe_truth_latency.py" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --url "$TRUTH_LATENCY_URL" --single-p95-limit-ms 150 \
+    --output "$truth_run_dir/latency.json"
+  python3 "$ROOT/scripts/probe_control_truth.py" \
+    --browser "$truth_browser" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --catalog "$ROOT/catalog/controls.json" \
+    --url "$FIXTURE_URL" --output "$truth_run_dir/controls.json"
+  python3 "$ROOT/scripts/probe_semantic_truth.py" \
+    --browser "$truth_browser" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --inventory "$ROOT/catalog/truth_inventory.json" \
+    --url "$FIXTURE_URL" --structure-url "$STRUCTURAL_FIXTURE_URL" \
+    --output "$truth_run_dir/semantics.json"
+  printf '%s\n' "Truth Layer $truth_browser evidence: $truth_run_dir"
+}
+
+truth_test_all() {
+  truth_all_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  truth_all_tmp=$(mktemp -d "${TMPDIR:-/tmp}/saccade-truth-all.XXXXXX")
+  truth_all_cleanup() {
+    down
+    case "$truth_all_tmp" in "${TMPDIR:-/tmp}"/saccade-truth-all.*) rm -rf "$truth_all_tmp" ;; esac
+  }
+  trap truth_all_cleanup EXIT HUP INT TERM
+  down
+  CHROME_PROFILE="$truth_all_tmp/chrome"
+  EDGE_PROFILE="$truth_all_tmp/edge"
+  mkdir -p "$CHROME_PROFILE" "$EDGE_PROFILE"
+  truth_test_route chrome "$truth_all_stamp"
+  truth_test_route edge "$truth_all_stamp"
+  trap - EXIT HUP INT TERM
+  truth_all_cleanup
+  printf '%s\n' "Chrome and Edge clean-profile Truth evidence: $EVIDENCE_DIR/$truth_all_stamp"
+}
+
+latency_matrix() {
+  latency_iterations=${1:-10}
+  case "$latency_iterations" in
+    ''|*[!0-9]*) printf '%s\n' 'latency matrix iterations must be an integer from 1 to 20' >&2; exit 2 ;;
+  esac
+  if [ "$latency_iterations" -lt 1 ] || [ "$latency_iterations" -gt 20 ]; then
+    printf '%s\n' 'latency matrix iterations must be from 1 to 20' >&2
+    exit 2
+  fi
+  latency_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  latency_run_dir="$EVIDENCE_DIR/$latency_stamp/latency-matrix"
+  latency_tmp=$(mktemp -d "${TMPDIR:-/tmp}/saccade-latency-matrix.XXXXXX")
+  latency_cleanup() {
+    down
+    case "$latency_tmp" in "${TMPDIR:-/tmp}"/saccade-latency-matrix.*) rm -rf "$latency_tmp" ;; esac
+  }
+  trap latency_cleanup EXIT HUP INT TERM
+  mkdirs
+  mkdir -p "$latency_run_dir"
+  install_runtime
+  install_native_manifest
+  install_codex_mcp
+  install_fixtures
+  install_extension
+  ensure_browser chrome
+  ensure_browser edge
+  start_fixture
+  latency_round=1
+  while [ "$latency_round" -le "$latency_iterations" ]; do
+    if [ $((latency_round % 2)) -eq 1 ]; then latency_first=chrome; latency_second=edge
+    else latency_first=edge; latency_second=chrome
+    fi
+    latency_position=first
+    for latency_browser in "$latency_first" "$latency_second"; do
+      latency_profile="$latency_tmp/round-$latency_round-$latency_browser"
+      mkdir -p "$latency_profile"
+      case "$latency_browser" in
+        chrome) CHROME_PROFILE=$latency_profile ;;
+        edge) EDGE_PROFILE=$latency_profile ;;
+      esac
+      start_browser "$latency_browser"
+      python3 "$ROOT/scripts/wait_for_mcp.py" --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" --timeout 30
+      python3 "$ROOT/scripts/probe_truth_latency.py" \
+        --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" --url "$TRUTH_LATENCY_URL" \
+        --output "$latency_run_dir/round-$(printf '%02d' "$latency_round")-$latency_position-$latency_browser.json"
+      stop_browser "$latency_browser"
+      latency_position=second
+    done
+    latency_round=$((latency_round + 1))
+  done
+  python3 "$ROOT/scripts/summarize_truth_latency_matrix.py" \
+    --input "$latency_run_dir" --output "$latency_run_dir/report.json" --iterations "$latency_iterations"
+  trap - EXIT HUP INT TERM
+  latency_cleanup
+  printf '%s\n' "Truth latency matrix evidence: $latency_run_dir/report.json"
 }
 
 test_all() {
@@ -842,6 +944,13 @@ case "${1:-}" in
   up) up "${2:-chrome}" ;;
   test)
     case "${2:-chrome}" in
+      all) truth_test_all ;;
+      chrome|edge) truth_test_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
+  test-actuator)
+    case "${2:-chrome}" in
       all) test_all ;;
       chrome|edge) test_route "${2:-chrome}" ;;
       *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
@@ -875,6 +984,7 @@ case "${1:-}" in
       *) printf '%s\n' "fair order must be both, saccade-first, or playwright-first" >&2; exit 2 ;;
     esac
     ;;
+  latency-matrix) latency_matrix "${2:-10}" ;;
   accuracy)
     case "${2:-chrome}" in
       all) accuracy_all ;;
@@ -886,5 +996,5 @@ case "${1:-}" in
   profile) profile_command "$@" ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|frames [chrome|edge|all]|external [chrome|edge|all]|compare [chrome|edge|all]|fair [selenium|demoqa|angular] [both|saccade-first|playwright-first]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|latency-matrix [1-20]|test-actuator [chrome|edge|all]|frames [chrome|edge|all]|external [chrome|edge|all]|compare [chrome|edge|all]|fair [selenium|demoqa|angular] [both|saccade-first|playwright-first]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
 esac

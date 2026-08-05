@@ -107,7 +107,13 @@ async function authorizeTab(tabId) {
   const tab = await chrome.tabs.get(tabId);
   if (!isSupportedUrl(tab.url)) throw new Error('tab URL is not supported');
   const existing = authorizationPromises.get(tabId);
-  if (existing?.url === tab.url) return existing.promise;
+  if (existing?.url === tab.url) {
+    return existing.promise.catch(() => {}).then(() => {
+      const session = sessions.get(tabId);
+      if (session?.url === tab.url && (session.configuring || session.configured)) return;
+      return authorizeTab(tabId);
+    });
+  }
   if (existing) {
     return existing.promise.catch(() => {}).then(() => authorizeTab(tabId));
   }
@@ -128,17 +134,11 @@ async function authorizeTabInner(tabId, expectedUrl) {
   if (prior?.url === tab.url && (prior.configuring || prior.configured)) return;
   sessions.set(tabId, { last: null, url: tab.url, configuring: true });
   let ready = false;
-  try { ready = (await chrome.tabs.sendMessage(tabId, { kind: 'collector.ping' }, { frameId: 0 }))?.ok === true; } catch (_error) { /* inject below */ }
-  if (!ready) {
-    await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: [
-      'src/protocol.js', 'src/consent.js', 'src/controls/common.js', 'src/controls/button.js', 'src/controls/link.js',
-      'src/controls/text_field.js', 'src/controls/search_field.js', 'src/controls/text_area.js',
-      'src/controls/content_editable.js', 'src/controls/spin_button.js',
-      'src/controls/checkbox.js', 'src/controls/radio.js', 'src/controls/switch.js', 'src/controls/select.js',
-      'src/controls/tab.js', 'src/controls/menu_item.js', 'src/controls/reflex_target.js', 'src/controls/file_input.js',
-      'src/controls/registry.js', 'src/collector.js',
-    ] });
+  for (let attempt = 0; attempt < 40 && !ready; attempt += 1) {
+    try { ready = (await chrome.tabs.sendMessage(tabId, { kind: 'collector.ping' }, { frameId: 0 }))?.ok === true; } catch (_error) { /* static bundle may still be starting */ }
+    if (!ready) await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  if (!ready) throw new Error('static Collector is unavailable; reload the authorized tab');
   try {
     const configured = await chrome.tabs.sendMessage(tabId, { kind: 'collector.configure', config: {
       browserInstanceId, tabId: String(tabId), frameId: `frame.${tabId}.0`,
@@ -214,6 +214,31 @@ async function handleHostCommand(command) {
   }
 }
 
+function acceptCollectorObservation(message, sender) {
+  const tabId = sender.tab?.id;
+  const session = tabId === undefined ? null : sessions.get(tabId);
+  if (!session || !isAuthorized(tabId) || message.payload?.browser_instance_id !== browserInstanceId || message.payload.tab_id !== String(tabId)) return false;
+  session.last = message.payload;
+  delete session.error;
+  if (nativePort) post('observation', message.payload);
+  return true;
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'saccade.collector' || port.sender.frameId !== 0) return;
+  const tabId = port.sender.tab?.id;
+  if (tabId === undefined) { port.disconnect(); return; }
+  port.onMessage.addListener((message) => {
+    if (message?.kind !== 'collector.observation' || !acceptCollectorObservation(message, port.sender)) port.disconnect();
+  });
+  port.onDisconnect.addListener(() => {
+    const session = sessions.get(tabId);
+    if (session?.collectorPort === port) delete session.collectorPort;
+  });
+  const session = sessions.get(tabId);
+  if (session) session.collectorPort = port;
+});
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.kind === 'ui.tab.status' || message.kind === 'ui.tab.share' || message.kind === 'ui.tab.revoke') {
     const run = async () => {
@@ -241,16 +266,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     });
     return true;
   }
-  if (message.kind !== 'collector.observation') return false;
-  const tabId = sender.tab?.id;
-  const session = tabId === undefined ? null : sessions.get(tabId);
-  if (!session || !isAuthorized(tabId) || message.payload?.browser_instance_id !== browserInstanceId || message.payload.tab_id !== String(tabId)) {
-    respond({ ok: false }); return false;
-  }
-  session.last = message.payload;
-  delete session.error;
-  if (nativePort) post('observation', message.payload);
-  respond({ ok: true });
   return false;
 });
 

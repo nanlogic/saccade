@@ -1,10 +1,10 @@
 # Profile architecture
 
-Status: accepted and implemented for the first Runtime slice.
+Status: normative for the Truth Layer product.
 
 A Profile tells the Agent how to behave and hides named controls from the
-Agent. It never changes how a control works. Every supported control keeps the
-same observe, prepare, revalidate, native execute, reobserve, and verify loop.
+Agent. It never changes how the Extension recognizes an object, derives its
+identity, projects safe state and affordances, or computes semantic deltas.
 
 The public schema is
 [`catalog/profile.schema.json`](../catalog/profile.schema.json). A Profile has
@@ -53,16 +53,12 @@ If any rule matches, the Runtime bans the control.
 ## Ban effect
 
 The Native Host applies the active Profile before it caches an Extension
-observation. It removes a banned control, its change entries, and any limitation
-that refers only to that object. MCP never receives the control or its action
-token.
-
-The Host accepts an action token only when the token remains in the current
-Profile-filtered observation. A token observed before a Host restart or Profile
-change cannot bypass a ban.
+observation. It removes a banned control, its change entries, and any
+limitation that refers only to that object. MCP never receives the control.
 
 Ban affects Agent access. It does not remove the page control, prevent human
-input, alter the Control Catalog, or weaken the control module's closed loop.
+or Agent-client input, alter the Truth inventory, or change the Extension's
+recognition and projection semantics.
 
 ## Loading and Agent behavior
 
@@ -78,7 +74,7 @@ the file is absent, it uses [`profiles/default.json`](../profiles/default.json):
 ```
 
 The Runtime returns the active Profile's `name` and `behavior` from
-`saccade.system.capabilities` using `saccade.capabilities/4`. MCP reads those
+`saccade.system.capabilities` using `saccade.capabilities/5`. MCP reads those
 fields during initialization and places them in its Agent instructions. It does
 not reveal the ban list.
 

@@ -87,7 +87,11 @@ pub(super) fn dispatch(
     payload: &ActionPayload,
     selection_name: Option<&str>,
 ) -> Result<DispatchStatus> {
-    if !accessibility_trusted() {
+    // Native Messaging and an interactive repair command can have different
+    // macOS responsible-process identities. Request access only here, after an
+    // explicit Reference Actuator dispatch reached the real browser Host, then
+    // preflight again instead of treating the request itself as acceptance.
+    if !accessibility_trusted() && (!request_accessibility() || !accessibility_trusted()) {
         return Ok(DispatchStatus::PermissionRequired);
     }
     let point = CGPoint {

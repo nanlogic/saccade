@@ -250,6 +250,8 @@ pub enum ObservationError {
     InvalidCoverage,
     #[error("a gap must carry a full snapshot, not deltas")]
     GapWithChanges,
+    #[error("semantic changes are internally inconsistent")]
+    InvalidChanges,
     #[error("observation exceeded a protocol limit")]
     LimitExceeded,
 }
@@ -366,6 +368,24 @@ impl ObservationSnapshot {
         }
         if disclosed_bytes > Self::MAX_TEXT_BYTES {
             return Err(ObservationError::LimitExceeded);
+        }
+        let mut changed_ids = BTreeSet::new();
+        for change in &self.changes {
+            if !changed_ids.insert(&change.object_id) {
+                return Err(ObservationError::InvalidChanges);
+            }
+            let current = self
+                .objects
+                .iter()
+                .find(|object| object.object_id == change.object_id);
+            match change.kind {
+                ChangeKind::Appeared | ChangeKind::Updated
+                    if current
+                        .is_some_and(|object| object.object_revision == change.object_revision) => {
+                }
+                ChangeKind::Disappeared if current.is_none() && change.object_revision > 0 => {}
+                _ => return Err(ObservationError::InvalidChanges),
+            }
         }
         Ok(())
     }

@@ -7,6 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { HOST_PROTOCOL, OBSERVATION_SCHEMA, envelope, parseHostMessage, randomToken } = require('../src/protocol.js');
 const { normalizeOrigin, isProtectedFieldType } = require('../src/consent.js');
+const { compileChanges } = require('../src/truth_delta.js');
 
 test('Native Messaging envelope preserves the v1 wire names', () => {
   assert.deepEqual(envelope('hello', { browser_instance_id: 'browser.test' }, 7), {
@@ -36,10 +37,15 @@ test('development manifest preserves identity and excludes out-of-scope capabili
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
-  assert.deepEqual(manifest.permissions, ['tabs', 'nativeMessaging', 'scripting', 'storage']);
+  assert.deepEqual(manifest.permissions, ['tabs', 'nativeMessaging', 'storage']);
+  assert.equal(manifest.content_scripts.length, 1);
+  assert.equal(manifest.content_scripts[0].run_at, 'document_start');
+  assert.equal(manifest.content_scripts[0].world, 'ISOLATED');
+  assert.equal(manifest.content_scripts[0].js.at(-1), 'src/collector.js');
+  assert.ok(manifest.content_scripts[0].js.indexOf('src/truth_delta.js') < manifest.content_scripts[0].js.indexOf('src/collector.js'));
   assert.equal(manifest.action.default_popup, 'popup.html');
   assert.match(worker, /com\.nanlogic\.saccade\.dev/);
-  assert.doesNotMatch(worker, /chrome\.(downloads|debugger)/);
+  assert.doesNotMatch(worker, /chrome\.(downloads|debugger|scripting)/);
   assert.doesNotMatch(worker, /Playwright|CDP|protected_fill|loop\.start/);
 });
 
@@ -68,6 +74,8 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /\[role="combobox"\]/);
   assert.match(collector, /comboboxForListbox/);
   assert.match(collector, /optionsForChoice/);
+  assert.match(collector, /rememberedChoiceOwner/);
+  assert.match(collector, /rememberedChoicePopup/);
   assert.match(collector, /optionEnabled/);
   assert.match(collector, /function composedQuery/);
   assert.match(collector, /\[contenteditable\]/);
@@ -77,6 +85,7 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /content_editable/);
   assert.match(collector, /visibleFileTrigger/);
   assert.match(collector, /aria-controls/);
+  assert.match(collector, /aria-activedescendant/);
   assert.match(collector, /input\[type="file"\]/);
   assert.match(collector, /fileTriggerHasValue/);
   assert.match(collector, /activeFileTrigger/);
@@ -92,7 +101,12 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /Semantic identity:/);
   assert.match(collector, /accessibleFallbackText/);
   assert.match(collector, /aria-hidden/);
-  assert.doesNotMatch(collector, /element\.value[^\n]*name|XPath|canvas|webgl/i);
+  assert.doesNotMatch(collector, /element\.value[^\n]*name|XPath/i);
+  assert.match(collector, /SURFACE_SELECTOR/);
+  assert.match(collector, /opaque_canvas/);
+  assert.match(collector, /opaque_webgl/);
+  assert.match(collector, /opaque_video/);
+  assert.match(collector, /browser_restricted_page/);
 });
 
 test('collector projects bounded structural text without actions or editable descendants', () => {
@@ -101,8 +115,10 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /STRUCTURAL_SELECTOR/);
   assert.match(collector, /function structuralText/);
   assert.match(collector, /function structuralObject/);
+  assert.ok(collector.indexOf("role === 'status'") < collector.indexOf("tag === 'P'"));
   assert.match(collector, /DIALOG_SELECTOR/);
   assert.match(collector, /function dialogTitleCandidates/);
+  assert.match(collector, /state\.modal = String\(element\.getAttribute\('aria-modal'\) === 'true'\)/);
   assert.match(collector, /deferred_content_possible/);
   assert.match(collector, /transitionend/);
   assert.match(collector, /animationend/);
@@ -110,7 +126,11 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /element\.closest\(CONTROL_SELECTOR\)/);
   assert.match(collector, /TextEncoder/);
   assert.match(collector, /document\.readyState === 'loading'/);
+  assert.match(collector, /document\.readyState === 'loading'\) \{\s*schedule\(\);\s*document\.addEventListener\('DOMContentLoaded', collect/s);
+  assert.doesNotMatch(collector, /function collect\(\) \{\s*if \(!config\) return null;\s*if \(document\.readyState === 'loading'\) return null;/s);
+  assert.match(collector, /document\.readyState === 'loading'\) \{\s*for \(const object of objects\).*object\.affordances = \[\].*delete object\.action_token.*tokenTargets\.clear\(\)/s);
   assert.match(collector, /DOMContentLoaded.*collect/s);
+  assert.match(collector, /schedule\(\);\s*return null;/);
 });
 
 test('unrelated page mutations do not churn current control tokens', () => {
@@ -118,6 +138,25 @@ test('unrelated page mutations do not churn current control tokens', () => {
   assert.match(collector, /mutationCanChangeObservation/);
   assert.match(collector, /records\.some\(mutationCanChangeObservation\)/);
   assert.match(collector, /element\.matches\(OBSERVED_SELECTOR\)/);
+  assert.match(collector, /compileChanges\(compiledObjects, objects\)/);
+});
+
+test('Extension compiler emits semantic Truth Layer deltas and ignores authority churn', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /compiledObjects && changes\.length === 0/);
+  const base = {
+    object_id: 'o.internal', object_revision: 1, role: 'button', kind: 'control',
+    name: 'Save', state: { pressed: 'false' }, affordances: ['click'],
+    action_token: 'action.old', document_bounds: { x: 1, y: 1, width: 10, height: 10 },
+  };
+  const authorityOnly = { ...base, object_revision: 2, action_token: 'action.new', document_bounds: { x: 2, y: 2, width: 10, height: 10 } };
+  assert.deepEqual(compileChanges([base], [authorityOnly]), []);
+  const changed = { ...authorityOnly, state: { pressed: 'true' } };
+  assert.deepEqual(compileChanges([base], [changed]), [
+    { kind: 'updated', object_id: 'o.internal', object_revision: 2 },
+  ]);
+  assert.equal(compileChanges([], [base])[0].kind, 'appeared');
+  assert.equal(compileChanges([base], [])[0].kind, 'disappeared');
 });
 
 test('duplicate actionable controls receive value-free semantic context across control families', () => {
@@ -137,7 +176,9 @@ test('same-origin frames and open shadow roots compose without changing the root
   assert.match(collector, /element\.shadowRoot/);
   assert.match(collector, /function topViewportBox/);
   assert.match(collector, /frame\.clientLeft/);
-  assert.match(worker, /message\.kind !== 'collector\.observation'/);
+  assert.match(worker, /port\.name !== 'saccade\.collector'/);
+  assert.match(worker, /acceptCollectorObservation/);
+  assert.match(collector, /chrome\.runtime\.connect\(\{ name: 'saccade\.collector' \}\)/);
   assert.doesNotMatch(worker, /webNavigation|getAllFrames|frame_observation/);
 });
 
@@ -148,8 +189,12 @@ test('open ownership precedes response and loading tabs start collection without
   assert.match(open, /isSupportedUrl\(current\.url\).*authorizeTab\(tab\.id\)/s);
   assert.match(worker, /change\.status === 'loading'.*sessions\.delete\(tabId\)/s);
   assert.match(worker, /change\.url \|\| change\.status === 'loading' \|\| change\.status === 'complete'/);
+  assert.match(worker, /attempt < 40/);
+  assert.doesNotMatch(worker, /executeScript/);
   assert.match(worker, /authorizationPromises\.get\(tabId\)/);
   assert.match(worker, /existing\?\.url === tab\.url/);
+  assert.match(worker, /existing\.promise\.catch\(\(\) => \{\}\)\.then/);
+  assert.match(worker, /session\?\.url === tab\.url && \(session\.configuring \|\| session\.configured\)/);
   assert.match(worker, /tab URL changed during collector authorization/);
 });
 

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const BUILTIN_CATALOG: &str = include_str!("../../../catalog/controls.json");
+const BUILTIN_REFERENCE_ACTUATORS: &str = include_str!("../../../catalog/reference_actuators.json");
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -137,7 +138,12 @@ pub struct Registry {
 
 impl Registry {
     pub fn builtin() -> Result<Self, RegistryError> {
-        let catalog: ControlCatalog = serde_json::from_str(BUILTIN_CATALOG)
+        let mut catalog: serde_json::Value = serde_json::from_str(BUILTIN_CATALOG)
+            .map_err(|error| RegistryError::InvalidCatalog(error.to_string()))?;
+        let actuators: serde_json::Value = serde_json::from_str(BUILTIN_REFERENCE_ACTUATORS)
+            .map_err(|error| RegistryError::InvalidCatalog(error.to_string()))?;
+        merge_reference_actuators(&mut catalog, &actuators)?;
+        let catalog: ControlCatalog = serde_json::from_value(catalog)
             .map_err(|error| RegistryError::InvalidCatalog(error.to_string()))?;
         Self::from_catalog(catalog)
     }
@@ -223,6 +229,56 @@ impl Registry {
             .map(|definition| definition.input_policy)
             .ok_or(RegistryError::UnsupportedRole)
     }
+}
+
+fn merge_reference_actuators(
+    catalog: &mut serde_json::Value,
+    actuators: &serde_json::Value,
+) -> Result<(), RegistryError> {
+    let actuator_items = actuators
+        .get("controls")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            RegistryError::InvalidCatalog("reference actuator controls missing".into())
+        })?;
+    let by_id = actuator_items
+        .iter()
+        .filter_map(|item| {
+            item.get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(|id| (id, item))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let controls = catalog
+        .get_mut("controls")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| RegistryError::InvalidCatalog("truth controls missing".into()))?;
+    for control in &mut *controls {
+        let fields = control.as_object_mut().ok_or_else(|| {
+            RegistryError::InvalidCatalog("truth control must be an object".into())
+        })?;
+        let id = fields
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| RegistryError::InvalidCatalog("truth control id missing".into()))?;
+        let actuator = by_id
+            .get(id)
+            .and_then(|value| value.as_object())
+            .ok_or_else(|| {
+                RegistryError::InvalidCatalog(format!("reference actuator missing for {id}"))
+            })?;
+        for (key, value) in actuator {
+            if key != "id" {
+                fields.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    if controls.len() != by_id.len() {
+        return Err(RegistryError::InvalidCatalog(
+            "truth and reference actuator catalogs must have identical control ids".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryError> {

@@ -1,169 +1,93 @@
-# Control roadmap
+# Truth coverage and evidence roadmap
 
-Saccade grows by implementation family. A batch changes the Catalog, Registry,
-Extension collector, native plan, verifier, fixtures, tests, and evidence as
-one unit. Agents continue to use generic observation/action tools; new controls
-do not add MCP tools. `web.form.fill` is shared orchestration over existing
-Registry loops, not a control-specific execution route.
+Saccade has completed the current local Truth inventory. The next milestone is
+not a larger role count; it is source-diverse evidence that the existing
+Extension compiler remains truthful across real implementations and page
+lifecycles.
 
-## Definition of done
+The machine-readable scope is `catalog/truth_inventory.json`: 34 protocol
+roles, 12 reusable variants, and 6 structural/push boundaries. The separate
+`catalog/controls.json` list contains 15 optional Reference Actuator families
+and is not the core product roadmap.
 
-A control enters the Catalog only when the branch contains:
+`catalog/public_truth_cases.json` is the explicit public-evidence denominator.
+Every inventory and lifecycle row must retain one of `pass`,
+`truthful_limitation`, `unsupported`, or `blocked`; missing source documents or
+same-tab execution capability remain visible blockers rather than implicit
+skips.
 
-- one semantic role and safe-state projection;
-- one Registry module with finite affordances and native primitives;
-- one control-specific postcondition verifier;
-- fixtures for success, unavailable state, stale state, coverage, and focus;
-- Extension and Rust tests, including editable-value leak checks when needed;
-- a real Extension → Native Host → Runtime → MCP → Registry-selected input receipt;
-- Chrome and Edge evidence fields, even while they remain `pending`.
+## Evidence levels
 
-`implementation` means the source and focused development gate exist.
-`publishable` requires Chrome and Edge artifacts from the same release
-candidate.
+- `implemented`: focused source and fixture tests exist.
+- `local Chrome + Edge`: the real Extension → Host → Runtime → MCP → pushed
+  delta route passes in both managed browsers.
+- `public compatibility`: independent public implementations compile and push
+  truthful changes; repeated runs of one site do not increase source diversity.
+- `publishable`: one frozen release candidate passes the complete current
+  Chrome and Edge matrix plus packaging and clean-install gates.
 
-## Batch 0: freeze the first slice
+Local success proves the framework and projection path. It does not prove that
+all modern websites, frameworks, or browser-owned surfaces are supported.
 
-Controls: button, text field, checkbox, select, and select options.
+## Priority 1: public-site compatibility
 
-Status: SDK v1 development freeze complete on 2026-07-28.
+Build a traceable matrix across independent implementations:
 
-The macOS Chrome for Testing development route has verified all four loops.
-The managed Edge route uses the same Extension source, Host protocol, Runtime,
-MCP tools, registered input, fixtures, and probe. `./scripts/dev.sh test all` runs
-both browser profiles in sequence and separates their evidence. Paired run
-`20260728T224742Z` passed both browsers on one source candidate and froze the
-module contract. The clean signed-product, Windows, and release gates remain
-open, so Catalog evidence and publication status stay `pending` and
-`implementation`. Keep stale, replay, covered, focus, navigation, Profile-ban,
-and value-leak checks green.
+- Selenium official forms;
+- WAI-ARIA Authoring Practices Guide examples;
+- Angular Material;
+- one official Vue component library;
+- official Web Components and open Shadow DOM examples;
+- dynamic replacement, delayed rendering, and iframe cases.
 
-## Batch 1: editable controls
+For every case retain the initial Truth view, Extension-produced delta,
+browser/version, source URL, limitation or failure reason, and redacted transfer
+metrics. Fix shared compiler defects at the Registry or collector boundary;
+do not add site-specific selectors.
 
-Controls: search field, textarea, contenteditable, and spin button.
+## Priority 2: fair Playwright comparison
 
-Status: development gate complete on 2026-07-29.
+Run at least three unknown-page, natural-language tasks:
 
-The family reuses the text-field native click-plus-Unicode plan and
-`has_value` verifier while keeping role-specific safe state and name
-derivation. Focused fixtures cover actionable and readonly controls; the
-textarea gate includes multiline Unicode input, and no editable or numeric
-contents enter observations, receipts, diagnostics, or saved evidence. Paired
-managed run `20260729T043308Z` produced eight verified receipts in Chrome for
-Testing and eight in Microsoft Edge through the same source candidate. Full
-IME candidate-window behavior and numeric constraint manipulation remain
-future focused gates; this batch claims native Unicode text entry only.
+1. native HTML form;
+2. React dynamic page;
+3. Angular or Vue multi-control page.
 
-Catalog rows stay `implementation` with release evidence `pending` until the
-signed-product release gate passes.
+The Saccade lane uses Saccade Truth plus Codex or Claude's own web-act tool in
+the same tab. It does not use the Reference Actuator. The Playwright lane uses
+official Playwright MCP. Neither lane receives selectors, control names, page
+structure, prepared scripts, or state from the other lane.
 
-## Batch 2: toggles and choices
+Record completion, initial discovery time, initial bytes and estimated model
+tokens, page-change-to-Agent delta latency, post-action re-observation count,
+stale/dynamic-replacement recovery, total tool calls, total task time, and all
+failure reasons. Compare full trajectories, not click latency.
 
-Controls: radio, radio group, ARIA switch, listbox, and combobox.
+Existing historical actuator/oracle benchmarks remain implementation records;
+they are not evidence that the core Truth Layer is faster than Playwright.
 
-Reuse the checkbox transition verifier and select option identity. Prove radio
-group exclusivity, switch checked transitions, duplicate option names, dynamic
-options, disabled choices, and popup settling.
+## Priority 3: lifecycle scenarios
 
-Status: radio and ARIA switch development loops completed on 2026-07-29.
-Native radio selection proved group exclusivity, and ARIA switch clicks proved
-checked-state transitions in paired managed Chrome and Edge runs. Public W3C
-radio and switch pages passed Saccade and matched the Playwright oracle in run
-`20260729T211221Z`.
+Complete the legacy gauntlet as page-behavior evidence, not new roles:
 
-ARIA listbox and combobox now reuse the `select` role, option-object identity,
-and option-selected verifier. Preparation binds an enabled option to its owner
-and computes its enabled keyboard position. The finite native plan clicks the
-owner, waits for its popup, returns to the first enabled option, advances by
-index, and confirms. Fixtures cover a disabled option, duplicate visible
-names, a dynamically inserted option, and popup close. Static and Runtime
-tests pass. Paired managed run `20260729T225249Z` subsequently produced 14
-`accepted_by_os + verified` receipts in each browser and covered native select,
-ARIA listbox, and ARIA combobox. Public-page and release-candidate evidence
-remain pending.
+- dynamic loading and delayed resources;
+- disappearance and large DOM replacement;
+- overlays, modals, and dialogs;
+- infinite scroll and viewport changes;
+- sortable tables;
+- upload/download Truth representation;
+- drag/drop representation and limitations.
 
-## Batch 3: navigation and command controls
+## Priority 4: release
 
-Controls: link, tab, menu item, bound label, and named generic control.
+After public evidence is complete:
 
-Reuse the button click path. Add postconditions for document transition,
-agent-owned child tabs, selected-tab changes, expanded menus, and bound-label
-control transitions. A revision change without one of these effects stays
-unverified.
+- freeze one release candidate and gate the same build in Chrome and Edge;
+- prove default install and use without Accessibility;
+- package the store Extension, signed macOS DMG, and Windows Setup;
+- dogfood Codex and Claude against the same browser instance;
+- publish a five-minute README quickstart and reproducible evidence bundle.
 
-Status: link implementation and focused authenticated Chrome dogfood completed
-on 2026-07-29. It uses native primary click and requires a document transition.
-Tab and menu item development loops completed on 2026-07-29. Tabs require a
-false-to-true selected transition. Menu items currently require an expanded
-transition, so command-only menu items remain unverified. Both passed paired
-managed Chrome and Edge runs and public W3C pages in comparison run
-`20260729T211221Z`. Bound label, named generic control, child-tab
-verification, and release evidence remain open.
-
-## Batch 4: page understanding
-
-Objects: headings, paragraphs, lists, tables, alerts, status messages, images,
-frames, opaque surfaces, and restricted documents.
-
-This batch improves observation rather than native action. It must compact
-visible text, avoid duplicate labels, report truncation, compose same-origin
-frames, and emit limitations for cross-origin frames, closed shadow roots,
-Canvas, WebGL, video, and built-in PDF documents.
-
-Status: visible headings, paragraphs, list items, table cells, alerts, and
-status messages now project as bounded, non-actionable text objects. The
-collector excludes hidden content, nested controls, editable values, and
-duplicate nested structural objects. It reports truncation after a 256 KiB
-structural-text budget. Node and Rust gates pass, and paired managed run
-`20260729T225249Z` proved the projection in Chrome and Edge.
-
-The image slice remains deliberately narrow. A named image may expose an
-application-declared `data-saccade-image-identity` as a non-actionable
-description. It does not inspect pixels, disclose URLs, or imply equality when
-the bridge is absent.
-
-Same-origin iframe and open-shadow composition completed on 2026-07-31 without
-changing the root collector message route. The top collector assigns frame
-identity, observes descendant mutations, composes native geometry through the
-same-origin frame-element chain, and revalidates ancestor coverage. Inaccessible
-frames emit `restricted_frame`; closed-shadow contents remain opaque and are not
-claimed as generically detectable. Paired managed run `20260731T051006Z` in
-Chrome and Edge proved two observed frames, one restricted
-frame, and native `accepted_by_os + verified` receipts for a frame button and
-an open-shadow button. Lists/table containers, Canvas/WebGL/video, built-in PDF,
-and broader restricted-document reporting remain planned.
-
-## Batch 5: specialized native controls
-
-Controls: file input, slider, date/time/month/week/datetime-local, color, and
-bounded drag/drop.
-
-Start with truthful recognition and limitations. Add action only after a native
-browser gate proves locale behavior, chooser ownership, cancellation, bounds,
-and postconditions. Selected filenames and paths stay outside observations and
-receipts; one supplied path may exist only in the immediate MCP action payload.
-
-Status: single-file selection implementation and authenticated Chrome dogfood
-completed on 2026-07-29. The absolute regular non-symlink path exists only in
-the immediate MCP action payload and the finite OS chooser plan; it does not
-reach the Extension or receipt. A real file-input change verifies chooser
-acceptance, while server transfer persistence requires a separate page effect.
-Multi-file, directory, cancellation, locale, Windows, Edge, and release gates
-remain open.
-
-## Product work outside control modules
-
-The Runtime still needs these release tracks:
-
-- user-shared tab UI and revocation in the store Extension;
-- human-only protected fill for passwords, OTPs, and payment secrets;
-- verified downloads and file-selection flows;
-- signed/notarized macOS packaging plus signed Windows Setup and repair;
-- Chrome Web Store and Edge Add-ons identities and clean-install evidence;
-- Windows native-input and owner-only IPC gates;
-- release manifests, SBOM, checksums, versioning, and evidence publishing;
-- bounded performance, long-session, navigation, frame, and restart tests.
-
-Batch 2 can extend the frozen SDK without changing the production route or
-Profile schema. Batch 0 and Batch 1 release work continues in the product
-tracks above.
+Current honest claim: Saccade has a complete local Truth role inventory and a
+two-browser pushed-delta framework gate. Universal modern-web compatibility and
+superiority over Playwright remain unproven.

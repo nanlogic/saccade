@@ -1,5 +1,10 @@
 # Architecture decisions
 
+Entries are chronological records. The 2026-08-02 Truth Layer decision
+supersedes every earlier statement that made action execution, action tokens,
+input backends, or closed-loop receipts part of the default product. Those
+earlier entries remain only as Reference Actuator and migration history.
+
 ## 2026-07-27 — One final product route
 
 Accepted: Saccade is an open closed-loop control runtime for authenticated
@@ -383,10 +388,13 @@ The previous `complete` dependency failed on GameSpot because advertising and
 other third-party resources kept the tab incomplete past the 15-second
 Truth-Layer gate. Initial truth may grow through ordinary deltas as the page
 continues rendering; navigation still retires the previous document.
-Correction from the first reduction: injection begins during loading, but the
-collector withholds actionable truth until `DOMContentLoaded`. This keeps
-pre-interactive document state out of the actionable Agent view while allowing
-later dynamic content to arrive as ordinary browser-pushed revisions.
+Correction from the first reduction: injection and bounded provisional
+observation begin during loading. Loading-state objects carry no affordances or
+action authority, so pre-interactive document state cannot be executed. At
+`DOMContentLoaded` the collector recompiles and publishes the current semantic
+state and affordances as an ordinary browser-pushed revision. This prevents a
+slow resource or redirect lifecycle from withholding the first Truth record
+while preserving the non-actionable pre-interactive boundary.
 
 ## 2026-07-30: Agent object aliases remove repeated internal identity cost
 
@@ -436,7 +444,7 @@ model rather than hiding controls to improve a benchmark.
 
 ## 2026-07-30: Freeze the permanent product north star
 
-Accepted and normative:
+Historical; superseded by the 2026-08-02 Truth Layer decision below:
 
 > Saccade is a browser protocol that lets any Agent continuously understand a
 > web page, receive browser-pushed changes, and operate it through verified
@@ -604,3 +612,70 @@ Saccade/Playwright runs isolate local policy, use Chrome in both lanes, wait for
 MCP readiness, reverse order, retain failures, and redact editable values in
 both raw and nested tool transcripts. Results and current gaps are recorded in
 `docs/reports/2026-08-01-cross-site-stability-and-fair-agent.md`.
+
+## 2026-08-01: The Extension is the Truth Layer compiler
+
+Accepted: page interpretation belongs to the Extension. It continuously
+projects DOM, ARIA, visibility, state, relationships, and registered control
+semantics into the Truth Layer, and computes appeared, updated, and disappeared
+objects at that source. An Agent does not receive a complete page and identify
+a form from it. MCP does not compare observations to infer page meaning.
+
+The unchanged `saccade.observation/1` v1 evidence record still carries complete
+current objects for local prepare, revalidation, verification, and recovery,
+plus its Extension-compiled `changes`. The Host retains current truth; MCP only
+applies Agent aliases, response compaction, authority refreshes, and envelope
+hydration. The first Agent view is complete and subsequent views are source
+deltas. Form fill is a bounded operation over controls already compiled into
+that Truth Layer, not a second form-recognition architecture.
+
+The Host also retains a bounded per-document sequence of Extension records.
+This is necessary because action settlement may advance through a semantic
+revision and then an authority-only revision before returning. The Host folds
+only Extension-declared touched identities since the Agent's known revision;
+it never recomputes semantic meaning. A missing base produces a full gap reset.
+
+## 2026-08-01: Static compiler and subscribable Agent Browser
+
+Accepted: the ordered Extension compiler bundle is a static isolated-world
+content script and stays dormant until the tab ACL authorizes it. Programmatic
+multi-file injection is removed. Authorized collectors use a long-lived Port to
+the service worker, which retains the one Native Messaging route. A revision
+jump clears delta history and forces a full gap reset.
+
+The current Agent Browser is a subscribable MCP Resource at
+`saccade://tabs/{tab_id}/truth`. Resource update notifications contain only the
+URI, and clients read the resource for a full or delta view. The existing
+blocking `web.observe(after_revision)` remains a compatibility surface. Both
+consume the same Extension-compiled event history; neither polls or interprets
+the webpage.
+
+## 2026-08-02: Truth Layer is the product; execution belongs to the Agent
+
+Accepted, superseding the default execution decisions above: Saccade's public
+product is the continuously compiled semantic Truth Layer. Default MCP exposes
+only capabilities, tab list/open, and `truth.read`; `web.observe`, `web.act`,
+form fill, reflex, input-policy, and diagnostic action tools have no public
+compatibility period. Capabilities advance to `saccade.capabilities/5` with
+`product: truth_layer` and `execution_owner: agent_client`.
+
+Codex, Claude, or another client acts through its own tool in the same
+authorized Chrome/Edge tab. Saccade reports the resulting semantic transition,
+not input acceptance. The old execution engine remains only as the explicitly
+started `reference-actuator-mcp`, under `saccade.reference.*`, with a separate
+execution catalog, lazy Accessibility/input-policy use, and reference
+provenance on every receipt. Historical decisions and evidence remain as the
+record of that implementation but no longer define the default product API.
+
+The current machine scope is 34 protocol roles, 12 reusable variants, and 6
+structural/push boundaries. Fifteen optional Reference Actuator families are a
+separate subset. Passing the local Chrome and Edge pushed-delta gates proves
+the framework and projection path, not universal public-web compatibility.
+
+The primary Playwright comparison must start from the same unknown URL and
+natural-language task. Saccade uses Truth plus the Agent client's own web-act
+tool in the same tab, with no Reference Actuator; the other lane uses official
+Playwright MCP without prepared scripts or selectors. Completion, discovery
+time, transfer/token cost, delta latency, re-observation, stale recovery, tool
+calls, total time, and failures all count. No current evidence supports a
+blanket superiority claim.

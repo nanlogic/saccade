@@ -17,18 +17,20 @@
     <main>
       <h1>Catalog controls</h1>
       <p>This page proves native control loops and bounded structural reading.</p>
-      <ul>
+      <div role="text" id="generic-text">Standalone semantic text</div>
+      <ul aria-label="Workflow list">
         <li>Observe the current page</li>
         <li>Act through native input</li>
       </ul>
-      <table>
-        <tbody><tr><th>Evidence</th><td>Chrome and Edge</td></tr></tbody>
+      <table aria-label="Evidence table">
+        <tbody><tr aria-label="Evidence row"><th>Evidence</th><td>Chrome and Edge</td></tr></tbody>
       </table>
       <div role="alert" aria-busy="false">Fixture ready</div>
       <div role="status">No actions yet</div>
       <p hidden>FIXTURE-HIDDEN-TEXT-SECRET</p>
       <p>Editable values stay private <input type="text" readonly value="FIXTURE-NESTED-TEXT-SECRET"></p>
       <button id="save" type="button" aria-pressed="false">Save</button>
+      <a id="current-page" href="#catalog" aria-current="false">Catalog link</a>
       <label>Email <input id="email" type="email" required></label>
       <label>Search <input id="search" type="search" required></label>
       <label>Notes <textarea id="notes" required></textarea></label>
@@ -51,14 +53,41 @@
           <option>Blue</option>
         </select>
       </label>
+      <div id="portal-city" role="combobox" tabindex="0" aria-label="Portal city"
+           aria-expanded="true" aria-controls="portal-city-options">Austin</div>
+      <div id="portal-city-options" role="listbox" aria-label="Portal city popup">
+        <div role="option" aria-selected="true">Austin</div>
+      </div>
       <div role="tablist" aria-label="Sections">
         <button role="tab" aria-selected="true">Overview</button>
         <button role="tab" aria-selected="false">Details</button>
       </div>
       <button id="more-actions" role="menuitem" aria-expanded="false">More actions</button>
+      <button id="training-target" data-saccade-reflex-target data-saccade-reflex-occurrence="0" aria-label="Training target">Target</button>
+      <label>Evidence file <input id="evidence-file" type="file" required></label>
+      <label>Range <input id="range" type="range" aria-label="Range" min="0" max="100"></label>
+      <div id="bound-label" data-saccade-label aria-label="Deployment label">Deployment label</div>
+      <div id="drag-source" data-saccade-generic-control data-saccade-affordance="drag" aria-label="Drag source">Drag source</div>
+      <div id="drop-target" data-saccade-generic-control aria-label="Drop target">Drop target</div>
+      <label>Date <input id="date-field" type="date"></label>
+      <label>Time <input id="time-field" type="time"></label>
+      <label>Month <input id="month-field" type="month"></label>
+      <label>Week <input id="week-field" type="week"></label>
+      <label>Date and time <input id="datetime-field" type="datetime-local"></label>
+      <label>Color <input id="color-field" type="color"></label>
+      <canvas id="canvas-surface" aria-label="Canvas surface" width="120" height="60"></canvas>
+      <canvas id="webgl-surface" aria-label="WebGL surface" data-saccade-context="webgl" width="120" height="60"></canvas>
+      <video id="video-surface" aria-label="Video surface" width="120" height="60"></video>
+      <div id="restricted-document" data-saccade-restricted-document aria-label="Restricted document" style="width:120px;height:60px"></div>
+      <object id="pdf-document" type="application/pdf" aria-label="Built-in PDF" width="120" height="60"></object>
       <img alt="Gear Up cover" data-saccade-image-identity="gear-up-cover-v2.1" width="80" height="64" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='64'%3E%3Crect width='80' height='64' fill='%23022'/%3E%3C/svg%3E">
     </main>
     <script>
+      setTimeout(() => {
+        document.getElementById('portal-city').removeAttribute('aria-controls');
+        document.getElementById('portal-city').setAttribute('aria-expanded', 'false');
+      }, 500);
+      setTimeout(() => document.getElementById('portal-city-options').remove(), 750);
       document.getElementById('save').addEventListener('click', (event) => {
         const button = event.currentTarget;
         button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
@@ -76,6 +105,60 @@
         const target = event.currentTarget;
         target.setAttribute('aria-expanded', String(target.getAttribute('aria-expanded') !== 'true'));
       });
+
+      // Truth-only conformance sequence. These are page-authored state changes,
+      // not Saccade actions; each step must arrive as a browser-pushed delta.
+      const truthChanges = [
+        () => document.getElementById('save').setAttribute('aria-pressed', 'true'),
+        () => document.getElementById('current-page').setAttribute('aria-current', 'page'),
+        () => { const el = document.getElementById('email'); el.value = 'private'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('search'); el.value = 'private'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('notes'); el.value = 'private'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('draft'); el.textContent = 'private'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('quantity'); el.value = '2'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('remember'); el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); },
+        () => { const eco = document.getElementById('eco-plan'); const fast = document.getElementById('fast-plan'); eco.checked = false; fast.checked = true; fast.dispatchEvent(new Event('change', { bubbles: true })); },
+        () => document.getElementById('notifications').setAttribute('aria-checked', 'true'),
+        () => { const el = document.getElementById('color'); el.disabled = true; },
+        () => { const tabs = document.querySelectorAll('[role="tab"]'); tabs[0].setAttribute('aria-selected', 'false'); tabs[1].setAttribute('aria-selected', 'true'); },
+        () => document.getElementById('more-actions').setAttribute('aria-expanded', 'true'),
+        () => document.getElementById('training-target').setAttribute('data-saccade-reflex-occurrence', '1'),
+        () => { document.getElementById('evidence-file').disabled = true; },
+      ];
+      truthChanges.forEach((change, index) => setTimeout(change, 1800 + index * 350));
+      const semanticChanges = [
+        () => { document.querySelector('h1').textContent = 'Catalog controls updated'; },
+        () => { document.querySelector('main > p').firstChild.nodeValue = 'This page now proves pushed structural changes. '; },
+        () => { document.querySelector('li').textContent = 'Observe the updated page'; },
+        () => { document.querySelector('th').textContent = 'Updated evidence'; },
+        () => { document.querySelector('[role="alert"]').textContent = 'Fixture updated'; },
+        () => { document.querySelector('[role="status"]').textContent = 'Truth changed'; },
+        () => { document.querySelector('img').setAttribute('data-saccade-image-identity', 'gear-up-cover-v2.2'); },
+        () => { document.querySelector('#color option').disabled = true; },
+      ];
+      semanticChanges.forEach((change, index) => setTimeout(change, 7600 + index * 350));
+      const roadmapChanges = [
+        () => { document.getElementById('generic-text').textContent = 'Standalone semantic text updated'; },
+        () => { document.querySelector('ul').setAttribute('aria-label', 'Workflow list updated'); },
+        () => { document.querySelector('table').setAttribute('aria-label', 'Evidence table updated'); },
+        () => { document.querySelector('tr').setAttribute('aria-label', 'Evidence row updated'); },
+        () => { document.getElementById('range').disabled = true; },
+        () => { document.getElementById('bound-label').setAttribute('aria-label', 'Deployment label updated'); },
+        () => { document.getElementById('drag-source').setAttribute('aria-disabled', 'true'); },
+        () => { document.getElementById('drop-target').setAttribute('aria-label', 'Drop target updated'); },
+        () => { const el = document.getElementById('date-field'); el.value = '2026-08-02'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('time-field'); el.value = '12:34'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('month-field'); el.value = '2026-08'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('week-field'); el.value = '2026-W31'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { const el = document.getElementById('datetime-field'); el.value = '2026-08-02T12:34'; el.dispatchEvent(new Event('input', { bubbles: true })); },
+        () => { document.getElementById('color-field').disabled = true; },
+        () => { document.getElementById('canvas-surface').setAttribute('aria-label', 'Canvas surface updated'); },
+        () => { document.getElementById('webgl-surface').setAttribute('aria-label', 'WebGL surface updated'); },
+        () => { document.getElementById('video-surface').setAttribute('aria-label', 'Video surface updated'); },
+        () => { document.getElementById('restricted-document').setAttribute('aria-label', 'Restricted document updated'); },
+        () => { document.getElementById('pdf-document').setAttribute('aria-label', 'Built-in PDF updated'); },
+      ];
+      roadmapChanges.forEach((change, index) => setTimeout(change, 10600 + index * 350));
     </script>
   </body>
 </html>

@@ -1,0 +1,1878 @@
+{
+  "schema": "saccade.public-truth-cases/1",
+  "generated_from": [
+    "catalog/truth_inventory.json",
+    "catalog/external_cases.json",
+    "catalog/control_denominator_sources.json"
+  ],
+  "source_documents": [
+    {
+      "id": "truth_inventory",
+      "status": "merged",
+      "reason": "canonical 34 role, 12 variant, and 6 boundary inventory"
+    },
+    {
+      "id": "legacy_lifecycle_gauntlet_reference",
+      "status": "merged",
+      "reason": "lifecycle scenarios recorded by the current architecture documents"
+    },
+    {
+      "id": "standards_mainstream_uncommon_controls",
+      "status": "merged",
+      "reason": "WHATWG HTML, WAI-ARIA roles, and ARIA APG replace the unavailable historical document"
+    }
+  ],
+  "outcomes": [
+    "pass",
+    "truthful_limitation",
+    "unsupported",
+    "blocked"
+  ],
+  "summary": {
+    "roles": 34,
+    "variants": 12,
+    "boundaries": 6,
+    "lifecycle_scenarios": 11,
+    "total": 63
+  },
+  "items": [
+    {
+      "id": "role:button",
+      "kind": "role",
+      "target": "button",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:link",
+      "kind": "role",
+      "target": "link",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:text_field",
+      "kind": "role",
+      "target": "text_field",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "Selenium",
+          "url": "https://www.selenium.dev/selenium/web/web-form.html",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "native_html"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:search_field",
+      "kind": "role",
+      "target": "search_field",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:text_area",
+      "kind": "role",
+      "target": "text_area",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "Selenium",
+          "url": "https://www.selenium.dev/selenium/web/web-form.html",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "native_html"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:content_editable",
+      "kind": "role",
+      "target": "content_editable",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:checkbox",
+      "kind": "role",
+      "target": "checkbox",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "Selenium",
+          "url": "https://www.selenium.dev/selenium/web/web-form.html",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "native_html"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:radio",
+      "kind": "role",
+      "target": "radio",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "Selenium",
+          "url": "https://www.selenium.dev/selenium/web/web-form.html",
+          "status": "historical_reference_only"
+        },
+        {
+          "name": "W3C WAI-ARIA APG",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/radio/examples/radio/",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "aria",
+        "native_html"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:switch",
+      "kind": "role",
+      "target": "switch",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "W3C WAI-ARIA APG",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/switch/examples/switch/",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "aria"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:select",
+      "kind": "role",
+      "target": "select",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "Selenium",
+          "url": "https://www.selenium.dev/selenium/web/web-form.html",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "native_html"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:option",
+      "kind": "role",
+      "target": "option",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:file_input",
+      "kind": "role",
+      "target": "file_input",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:spin_button",
+      "kind": "role",
+      "target": "spin_button",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:tab",
+      "kind": "role",
+      "target": "tab",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "W3C WAI-ARIA APG",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/tabs/examples/tabs-manual/",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "aria"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:menu_item",
+      "kind": "role",
+      "target": "menu_item",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        },
+        {
+          "name": "W3C WAI-ARIA APG",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/menubar/examples/menubar-navigation/",
+          "status": "historical_reference_only"
+        }
+      ],
+      "implementations": [
+        "aria"
+      ],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:reflex_target",
+      "kind": "role",
+      "target": "reflex_target",
+      "classification": "uncommon_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:heading",
+      "kind": "role",
+      "target": "heading",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:paragraph",
+      "kind": "role",
+      "target": "paragraph",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:list_item",
+      "kind": "role",
+      "target": "list_item",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:cell",
+      "kind": "role",
+      "target": "cell",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:alert",
+      "kind": "role",
+      "target": "alert",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:status",
+      "kind": "role",
+      "target": "status",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:image",
+      "kind": "role",
+      "target": "image",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:frame",
+      "kind": "role",
+      "target": "frame",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:text",
+      "kind": "role",
+      "target": "text",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:list",
+      "kind": "role",
+      "target": "list",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:table",
+      "kind": "role",
+      "target": "table",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:row",
+      "kind": "role",
+      "target": "row",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:slider",
+      "kind": "role",
+      "target": "slider",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:label",
+      "kind": "role",
+      "target": "label",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:generic_control",
+      "kind": "role",
+      "target": "generic_control",
+      "classification": "semantic_object",
+      "sources": [
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:opaque_surface",
+      "kind": "role",
+      "target": "opaque_surface",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:restricted_document",
+      "kind": "role",
+      "target": "restricted_document",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "role:unknown",
+      "kind": "role",
+      "target": "unknown",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "target is absent from Agent Truth",
+      "expected_transition": "no transition required for an inaccessible boundary",
+      "expected_limitation": "reserved role must not appear in Agent Truth",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "reserved role must not appear in Agent Truth",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:date",
+      "kind": "variant",
+      "target": "date",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:time",
+      "kind": "variant",
+      "target": "time",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:month",
+      "kind": "variant",
+      "target": "month",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:week",
+      "kind": "variant",
+      "target": "week",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:datetime_local",
+      "kind": "variant",
+      "target": "datetime_local",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:color",
+      "kind": "variant",
+      "target": "color",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:drag_source",
+      "kind": "variant",
+      "target": "drag_source",
+      "classification": "uncommon_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:drop_target",
+      "kind": "variant",
+      "target": "drop_target",
+      "classification": "uncommon_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "no transition required for an inaccessible boundary",
+      "expected_limitation": "observation-only target; no execution authority",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "observation-only target; no execution authority",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:built_in_pdf",
+      "kind": "variant",
+      "target": "built_in_pdf",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "no transition required for an inaccessible boundary",
+      "expected_limitation": "browser-owned PDF remains an opaque restricted document",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "browser-owned PDF remains an opaque restricted document",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:native_listbox",
+      "kind": "variant",
+      "target": "native_listbox",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:aria_listbox",
+      "kind": "variant",
+      "target": "aria_listbox",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "variant:aria_combobox",
+      "kind": "variant",
+      "target": "aria_combobox",
+      "classification": "mainstream_control",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C ARIA Authoring Practices Guide — Patterns",
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/",
+          "status": "official_implementation_guidance"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "boundary:same_origin_frame",
+      "kind": "boundary",
+      "target": "same_origin_frame",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "boundary:restricted_frame",
+      "kind": "boundary",
+      "target": "restricted_frame",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "no transition required for an inaccessible boundary",
+      "expected_limitation": "inaccessible frame is reported as restricted",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "inaccessible frame is reported as restricted",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "boundary:open_shadow_root",
+      "kind": "boundary",
+      "target": "open_shadow_root",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "boundary:closed_shadow_root",
+      "kind": "boundary",
+      "target": "closed_shadow_root",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "no transition required for an inaccessible boundary",
+      "expected_limitation": "closed shadow contents remain opaque",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "closed shadow contents remain opaque",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "boundary:stream_gap_reset",
+      "kind": "boundary",
+      "target": "stream_gap_reset",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "boundary:resource_notification",
+      "kind": "boundary",
+      "target": "resource_notification",
+      "classification": "truthful_boundary",
+      "sources": [
+        {
+          "name": "WHATWG HTML — Forms",
+          "url": "https://html.spec.whatwg.org/multipage/forms.html",
+          "status": "primary_standard"
+        },
+        {
+          "name": "W3C WAI-ARIA 1.2 — Role definitions",
+          "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions",
+          "status": "primary_standard"
+        }
+      ],
+      "implementations": [],
+      "expected_initial": "truthful role/state/identity projection or declared limitation",
+      "expected_transition": "Extension-produced appeared/updated/disappeared delta when the page changes",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "two independent public sources and a truthful initial view plus externally caused semantic delta",
+      "outcome": "blocked",
+      "reason": "standards_denominator_merged; public_runtime_evidence_pending; historical_reference_evidence_requires_core_revalidation"
+    },
+    {
+      "id": "lifecycle:dynamic_loading",
+      "kind": "lifecycle",
+      "target": "dynamic_loading",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:element_disappearance",
+      "kind": "lifecycle",
+      "target": "element_disappearance",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:overlay_modal",
+      "kind": "lifecycle",
+      "target": "overlay_modal",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:dialog",
+      "kind": "lifecycle",
+      "target": "dialog",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:infinite_scroll",
+      "kind": "lifecycle",
+      "target": "infinite_scroll",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:sortable_table",
+      "kind": "lifecycle",
+      "target": "sortable_table",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:slow_resource",
+      "kind": "lifecycle",
+      "target": "slow_resource",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:upload_download_truth",
+      "kind": "lifecycle",
+      "target": "upload_download_truth",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:large_dom_replacement",
+      "kind": "lifecycle",
+      "target": "large_dom_replacement",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:viewport_change",
+      "kind": "lifecycle",
+      "target": "viewport_change",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    },
+    {
+      "id": "lifecycle:delayed_render",
+      "kind": "lifecycle",
+      "target": "delayed_render",
+      "classification": "lifecycle",
+      "sources": [],
+      "implementations": [],
+      "expected_initial": "truthful bounded page state before the lifecycle event",
+      "expected_transition": "Extension-produced semantic delta or explicit reset after the lifecycle event",
+      "expected_limitation": "",
+      "browsers": [
+        "chrome",
+        "edge"
+      ],
+      "pass_criteria": "one traceable public case in both browsers with retained full/delta evidence",
+      "outcome": "blocked",
+      "reason": "missing_core_public_case"
+    }
+  ]
+}

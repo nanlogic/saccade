@@ -226,7 +226,7 @@ def run_saccade(
                             min(30_000, int((deadline - time.monotonic()) * 1000)),
                         ),
                     })
-                observed_response, _ = client.tool("saccade.web.observe", arguments)
+                observed_response, _ = client.tool("saccade.truth.read", arguments)
                 payloads.append(observed_response.get("result") or observed_response.get("error"))
                 if not observed_response.get("error"):
                     candidate = views.apply(result_value(observed_response))
