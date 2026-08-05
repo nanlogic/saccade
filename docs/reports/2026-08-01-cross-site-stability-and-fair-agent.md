@@ -60,9 +60,12 @@ policy, used different browser families, or lacked the MCP-readiness gate.
 Saccade wins this Selenium task on time, calls, and input tokens. It loses the
 DemoQA and Angular tasks on time and tokens. Angular's large initial Truth
 Layer, page churn, one soft-to-native learning step, and Agent recovery remain
-concrete optimization targets. These results prove compatibility and expose
-current costs; they do not support a blanket claim that Saccade is faster than
-Playwright.
+concrete optimization targets. These results provide task-specific completion
+evidence and expose current costs for these exact pages and candidates. They do
+not prove general modern-web compatibility or support a blanket claim that
+Saccade is faster than Playwright. This historical Saccade lane used the
+execution stack that is now the optional Reference Actuator; it is not the
+current core-product lane.
 
 ## Remaining evidence gaps
 

@@ -1,14 +1,16 @@
 (() => {
   const registry = globalThis.SaccadeControls.registry;
+  const { compileChanges } = globalThis.SaccadeTruthDelta;
   const { OBSERVATION_SCHEMA, randomToken } = globalThis.SaccadeProtocol;
   const { isProtectedFieldType } = globalThis.SaccadeConsent;
   const MAX_OBJECTS = 10000;
   const MAX_STRUCTURAL_TEXT_BYTES = 256 * 1024;
-  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],.target';
+  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],[data-saccade-label],[data-saccade-generic-control],.target';
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
-  const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,th,td,[role="heading"],[role="paragraph"],[role="listitem"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"]';
+  const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,table,tr,th,td,[role="text"],[role="heading"],[role="paragraph"],[role="list"],[role="listitem"],[role="table"],[role="row"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"]';
+  const SURFACE_SELECTOR = 'canvas,video,embed[type="application/pdf"],object[type="application/pdf"],[data-saccade-restricted-document]';
   const DIALOG_SELECTOR = '[role="dialog"],[aria-modal="true"]';
-  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR}`;
+  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR},${SURFACE_SELECTOR}`;
   const SOFTWARE_CLICK_ROLES = new Set([
     'button', 'link', 'checkbox', 'radio', 'switch', 'select', 'tab', 'menu_item', 'reflex_target',
   ]);
@@ -31,6 +33,21 @@
   let frameSerial = 0;
   let observedRoots = new WeakSet();
   let observedDocuments = new WeakSet();
+  let choiceHasValue = new WeakMap();
+  let rememberedChoiceOwner = new WeakMap();
+  let rememberedChoicePopup = new WeakMap();
+  let compiledObjects = null;
+  let workerPort = null;
+
+  function connectWorkerPort() {
+    if (workerPort || !config) return;
+    const port = chrome.runtime.connect({ name: 'saccade.collector' });
+    workerPort = port;
+    port.onDisconnect.addListener(() => {
+      if (workerPort === port) workerPort = null;
+      if (config) setTimeout(() => { connectWorkerPort(); schedule(); }, 100);
+    });
+  }
 
   function normalizedText(value, limit) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -246,6 +263,7 @@
     if (tag === 'INPUT' && type === 'file') return 'file_input';
     if ((tag === 'INPUT' && type === 'radio') || ariaRole === 'radio') return 'radio';
     if (ariaRole === 'switch') return 'switch';
+    if ((tag === 'INPUT' && type === 'range') || ariaRole === 'slider') return 'slider';
     if (ariaRole === 'tab') return 'tab';
     if (ariaRole === 'listbox' && comboboxForListbox(element)) return null;
     if (ariaRole === 'listbox' || ariaRole === 'combobox') return 'select';
@@ -255,10 +273,12 @@
     if (tag === 'INPUT' && type === 'checkbox' || ariaRole === 'checkbox') return 'checkbox';
     if (tag === 'SELECT') return 'select';
     if (tag === 'INPUT' && type === 'number') return 'spin_button';
+    if (element.hasAttribute('data-saccade-label')) return 'label';
+    if (element.hasAttribute('data-saccade-generic-control')) return 'generic_control';
     if (tag === 'INPUT' && type === 'search') return 'search_field';
     if (tag === 'TEXTAREA') return 'text_area';
     if (tag === 'INPUT' && ariaRole === 'searchbox') return 'search_field';
-    if (tag === 'INPUT' && ['text', 'email', 'tel', 'url', 'password'].includes(type)) return 'text_field';
+    if (tag === 'INPUT' && ['text', 'email', 'tel', 'url', 'password', 'date', 'time', 'month', 'week', 'datetime-local', 'color'].includes(type)) return 'text_field';
     if (ariaRole === 'textbox' && element.isContentEditable) return 'content_editable';
     if (element.isContentEditable) return 'content_editable';
     return null;
@@ -341,9 +361,16 @@
     } else if (role === 'menu_item') {
       signals.expanded = ariaBoolean(element, 'expanded');
     } else if (role === 'select') {
+      const choiceOptions = optionsForChoice(element);
+      const selectedOption = choiceOptions.some((option) => option.getAttribute('aria-selected') === 'true');
+      if (choiceOptions.length) choiceHasValue.set(element, selectedOption);
       signals.hasValue = element.tagName === 'SELECT'
         ? element.selectedIndex >= 0
-        : optionsForChoice(element).some((option) => option.getAttribute('aria-selected') === 'true');
+        : selectedOption
+          || (choiceOptions.length === 0 && choiceHasValue.get(element) === true)
+          || (element.getAttribute('role') === 'combobox'
+            && ariaBoolean(element, 'expanded') === false
+            && Boolean(element.getAttribute('aria-activedescendant')));
       signals.required = Boolean(element.required) || element.getAttribute('aria-required') === 'true';
       signals.invalid = element.getAttribute('aria-invalid') === 'true';
       signals.expanded = ariaBoolean(element, 'expanded') ?? element.getAttribute('role') === 'listbox';
@@ -360,6 +387,7 @@
       signals.invalid = element.getAttribute('aria-invalid') === 'true';
       signals.protected = isProtectedFieldType(element.type, element.autocomplete);
     }
+    if (role === 'generic_control') signals.affordance = element.getAttribute('data-saccade-affordance');
     return signals;
   }
 
@@ -402,8 +430,19 @@
     if (!listbox.id) return null;
     for (const candidate of composedQuery(listbox.ownerDocument, '[role="combobox"][aria-controls],[role="combobox"][aria-owns]')) {
       const ids = `${candidate.getAttribute('aria-controls') || ''} ${candidate.getAttribute('aria-owns') || ''}`.split(/\s+/);
-      if (ids.includes(listbox.id)) return candidate;
+      if (ids.includes(listbox.id)) {
+        const priorOwner = rememberedChoiceOwner.get(listbox);
+        if (priorOwner && priorOwner !== candidate && rememberedChoicePopup.get(priorOwner) === listbox) {
+          rememberedChoicePopup.delete(priorOwner);
+        }
+        rememberedChoiceOwner.set(listbox, candidate);
+        rememberedChoicePopup.set(candidate, listbox);
+        return candidate;
+      }
     }
+    const remembered = rememberedChoiceOwner.get(listbox);
+    if (remembered?.isConnected && remembered.ownerDocument === listbox.ownerDocument) return remembered;
+    rememberedChoiceOwner.delete(listbox);
     return null;
   }
 
@@ -419,6 +458,9 @@
     if (owner.tagName === 'SELECT') return Array.from(owner.options);
     const ids = `${owner.getAttribute('aria-controls') || ''} ${owner.getAttribute('aria-owns') || ''}`.split(/\s+/).filter(Boolean);
     const roots = ids.map((id) => owner.ownerDocument.getElementById(id)).filter(Boolean);
+    const remembered = rememberedChoicePopup.get(owner);
+    if (!roots.length && remembered?.isConnected && remembered.ownerDocument === owner.ownerDocument) roots.push(remembered);
+    else if (remembered && (!remembered.isConnected || remembered.ownerDocument !== owner.ownerDocument)) rememberedChoicePopup.delete(owner);
     if (!roots.length && owner.getAttribute('role') === 'listbox') roots.push(owner);
     return roots.flatMap((root) => Array.from(root.querySelectorAll('[role="option"]')));
   }
@@ -467,13 +509,47 @@
   function structuralRole(element) {
     const tag = element.tagName;
     const role = String(element.getAttribute('role') || '').toLowerCase();
-    if (/^H[1-6]$/.test(tag) || role === 'heading') return 'heading';
-    if (tag === 'P' || role === 'paragraph') return 'paragraph';
-    if (tag === 'LI' || role === 'listitem') return 'list_item';
-    if (tag === 'TH' || tag === 'TD' || ['cell', 'columnheader', 'rowheader'].includes(role)) return 'cell';
+    if (role === 'text') return 'text';
+    if (role === 'heading') return 'heading';
+    if (role === 'paragraph') return 'paragraph';
+    if (role === 'list') return 'list';
+    if (role === 'listitem') return 'list_item';
+    if (role === 'table') return 'table';
+    if (role === 'row') return 'row';
+    if (['cell', 'columnheader', 'rowheader'].includes(role)) return 'cell';
     if (role === 'alert') return 'alert';
     if (role === 'status') return 'status';
+    if (/^H[1-6]$/.test(tag)) return 'heading';
+    if (tag === 'P') return 'paragraph';
+    if (tag === 'UL' || tag === 'OL') return 'list';
+    if (tag === 'LI') return 'list_item';
+    if (tag === 'TABLE') return 'table';
+    if (tag === 'TR') return 'row';
+    if (tag === 'TH' || tag === 'TD') return 'cell';
     return null;
+  }
+
+  function surfaceObject(element, frameId) {
+    const box = boxFor(element);
+    const visibility = visibilityFor(element, box);
+    if (visibility === 'hidden') return null;
+    const restricted = element.matches('embed[type="application/pdf"],object[type="application/pdf"],[data-saccade-restricted-document]');
+    const id = objectId(element);
+    const role = restricted ? 'restricted_document' : 'opaque_surface';
+    const kind = role;
+    const object = {
+      object_id: id, object_revision: revision + 1, frame_id: frameId,
+      kind, role, state: {}, affordances: [], protected: false,
+      document_bounds: { x: box.x + element.ownerDocument.defaultView.scrollX, y: box.y + element.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
+      viewport_bounds: box, visibility, transition: 'none',
+    };
+    const name = safeName(element, role);
+    if (name) object.name = name;
+    let limitation = 'opaque_canvas';
+    if (element.tagName === 'VIDEO') limitation = 'opaque_video';
+    else if (element.tagName === 'CANVAS' && element.getAttribute('data-saccade-context') === 'webgl') limitation = 'opaque_webgl';
+    else if (restricted) limitation = element.hasAttribute('data-saccade-restricted-document') ? 'browser_restricted_page' : 'built_in_pdf';
+    return { object, limitation: { kind: limitation, frame_id: frameId, object_id: id } };
   }
 
   function structuralText(element) {
@@ -501,7 +577,8 @@
 
   function structuralObject(element, frameId, forcedRole, forcedText) {
     const role = forcedRole || structuralRole(element);
-    const text = forcedText || (role ? structuralText(element) : undefined);
+    const text = forcedText || (role ? structuralText(element) : undefined)
+      || (['list', 'table', 'row'].includes(role) ? safeName(element, role) : undefined);
     if (!role || !text) return null;
     const box = boxFor(element);
     const visibility = visibilityFor(element, box);
@@ -512,6 +589,9 @@
       const native = /^H[1-6]$/.test(element.tagName) ? Number(element.tagName.slice(1)) : undefined;
       const level = Number.isInteger(authored) && authored > 0 ? authored : native;
       if (level) state.level = String(level);
+      if (forcedRole === 'heading' && element.matches(DIALOG_SELECTOR)) {
+        state.modal = String(element.getAttribute('aria-modal') === 'true');
+      }
     }
     if (['alert', 'status'].includes(role) && element.hasAttribute('aria-busy')) {
       state.busy = String(element.getAttribute('aria-busy') === 'true');
@@ -539,12 +619,14 @@
 
   function collect() {
     if (!config) return null;
-    if (document.readyState === 'loading') return null;
+    const previousTokenTargets = new Map(tokenTargets);
+    const previousObjectTargets = new Map(objectTargets);
     tokenTargets.clear();
     objectTargets.clear();
     const frameState = collectFrameContexts();
     for (const context of frameState.contexts) observeDocument(context.doc);
     const objects = [];
+    const surfaceLimitations = [];
     const seenFileTriggers = new Set();
     let truncated = false;
     if (location.hostname === 'mouseaccuracy.com' && location.pathname.startsWith('/game') && document.body) {
@@ -585,6 +667,16 @@
     }
     if (!truncated) {
       for (const context of frameState.contexts) {
+        for (const element of composedQuery(context.doc, SURFACE_SELECTOR)) {
+          const surface = surfaceObject(element, context.frameId);
+          if (!surface) continue;
+          objects.push(surface.object);
+          surfaceLimitations.push(surface.limitation);
+        }
+      }
+    }
+    if (!truncated) {
+      for (const context of frameState.contexts) {
         for (const element of composedQuery(context.doc, IMAGE_SELECTOR)) {
           const object = imageObject(element, context.frameId);
           if (object) objects.push(object);
@@ -618,21 +710,42 @@
         if (truncated) break;
       }
     }
+    if (document.readyState === 'loading') {
+      for (const object of objects) {
+        object.affordances = [];
+        delete object.action_token;
+      }
+      tokenTargets.clear();
+    }
+    const changes = compileChanges(compiledObjects, objects);
+    if (compiledObjects && changes.length === 0) {
+      tokenTargets.clear();
+      objectTargets.clear();
+      for (const [token, target] of previousTokenTargets) {
+        if (target.element.isConnected) tokenTargets.set(token, target);
+      }
+      for (const [id, element] of previousObjectTargets) {
+        if (element.isConnected) objectTargets.set(id, element);
+      }
+      return null;
+    }
     revision += 1;
     viewportRevision += 1;
     const snapshot = {
       schema: OBSERVATION_SCHEMA, browser_instance_id: config.browserInstanceId,
       tab_id: config.tabId, document_id: documentId, revision, viewport_revision: viewportRevision,
       frames: frameState.frames,
-      objects, changes: [], coverage: {
+      objects, changes, coverage: {
         source: 'dom_extension',
         observed_frame_count: frameState.frames.filter((frame) => frame.status === 'observed').length,
         restricted_frame_count: frameState.frames.filter((frame) => frame.status !== 'observed').length,
         truncated,
       },
-      limitations: [...frameState.limitations, ...(truncated ? [{ kind: 'truncated', frame_id: config.frameId }] : [])], gap: false,
+      limitations: [...frameState.limitations, ...surfaceLimitations, ...(truncated ? [{ kind: 'truncated', frame_id: config.frameId }] : [])], gap: false,
     };
-    chrome.runtime.sendMessage({ kind: 'collector.observation', payload: snapshot });
+    compiledObjects = objects;
+    connectWorkerPort();
+    workerPort?.postMessage({ kind: 'collector.observation', payload: snapshot });
     return snapshot;
   }
 
@@ -779,24 +892,37 @@
 
   function configure(next) {
     config = next;
+    compiledObjects = null;
+    connectWorkerPort();
     for (const observer of observers.splice(0)) observer.disconnect();
     observedRoots = new WeakSet();
     observedDocuments = new WeakSet();
+    choiceHasValue = new WeakMap();
+    rememberedChoiceOwner = new WeakMap();
+    rememberedChoicePopup = new WeakMap();
     observeDocument(document);
     if (document.readyState === 'loading') {
+      schedule();
       document.addEventListener('DOMContentLoaded', collect, { once: true });
       return null;
     }
-    return collect();
+    schedule();
+    return null;
   }
 
   function deauthorize() {
     config = null;
+    compiledObjects = null;
+    if (workerPort) workerPort.disconnect();
+    workerPort = null;
     tokenTargets.clear();
     objectTargets.clear();
     for (const observer of observers.splice(0)) observer.disconnect();
     observedRoots = new WeakSet();
     observedDocuments = new WeakSet();
+    choiceHasValue = new WeakMap();
+    rememberedChoiceOwner = new WeakMap();
+    rememberedChoicePopup = new WeakMap();
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {

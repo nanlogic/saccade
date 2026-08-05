@@ -64,12 +64,12 @@ def redact_editable_values(value: str) -> str:
 
 
 class Mcp:
-    def __init__(self, runtime: Path, runtime_dir: Path) -> None:
+    def __init__(self, runtime: Path, runtime_dir: Path, reference: bool = False) -> None:
         environment = os.environ.copy()
         environment["SACCADE_RUNTIME_DIR"] = str(runtime_dir)
         environment["SACCADE_DIAGNOSTIC_INPUT_OVERRIDES"] = "1"
         self.process = subprocess.Popen(
-            [str(runtime), "mcp"],
+            [str(runtime), "reference-actuator-mcp" if reference else "mcp"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -79,6 +79,8 @@ class Mcp:
         )
         self.next_id = 1
         self.agent_views: dict[str, dict[str, Any]] = {}
+        self.notifications: list[dict[str, Any]] = []
+        self.reference = reference
         try:
             self.initialize = self.rpc("initialize", {})
         except Exception:
@@ -95,21 +97,59 @@ class Mcp:
             + "\n"
         )
         self.process.stdin.flush()
-        ready, _, _ = select.select([self.process.stdout], [], [], timeout)
-        if not ready:
-            raise RuntimeError(f"MCP timed out during {method}")
-        line = self.process.stdout.readline()
-        if not line:
-            stderr = self.process.stderr.read() if self.process.stderr else ""
-            raise RuntimeError(f"MCP exited during {method}: {stderr.strip()}")
-        response = json.loads(line)
-        if response.get("id") != request_id:
+        deadline = time.monotonic() + timeout
+        while True:
+            ready, _, _ = select.select([self.process.stdout], [], [], max(0, deadline - time.monotonic()))
+            if not ready:
+                raise RuntimeError(f"MCP timed out during {method}")
+            line = self.process.stdout.readline()
+            if not line:
+                stderr = self.process.stderr.read() if self.process.stderr else ""
+                raise RuntimeError(f"MCP exited during {method}: {stderr.strip()}")
+            response = json.loads(line)
+            if response.get("id") == request_id:
+                break
+            if response.get("method", "").startswith("notifications/"):
+                self.notifications.append(response)
+                continue
             raise RuntimeError(f"MCP returned the wrong response id during {method}")
         if "error" in response:
             raise RuntimeError(response["error"].get("message", str(response["error"])))
         return response["result"]
 
+    def wait_notification(self, method: str, timeout: float = 10.0) -> dict[str, Any]:
+        for index, notification in enumerate(self.notifications):
+            if notification.get("method") == method:
+                return self.notifications.pop(index)
+        assert self.process.stdout is not None
+        deadline = time.monotonic() + timeout
+        while True:
+            ready, _, _ = select.select([self.process.stdout], [], [], max(0, deadline - time.monotonic()))
+            if not ready:
+                raise RuntimeError(f"MCP timed out waiting for {method}")
+            line = self.process.stdout.readline()
+            if not line:
+                raise RuntimeError(f"MCP exited waiting for {method}")
+            notification = json.loads(line)
+            if notification.get("method") == method:
+                return notification
+            if notification.get("method", "").startswith("notifications/"):
+                self.notifications.append(notification)
+                continue
+            raise RuntimeError("MCP returned a response while only a notification was expected")
+
     def tool(self, name: str, arguments: dict[str, Any], timeout: float = 35.0) -> dict[str, Any]:
+        aliases = {
+            "web.observe": "truth.read",
+            "web.act": "reference.act",
+            "web.act_native": "reference.act_native",
+            "web.act_soft": "reference.act_soft",
+            "input_policy.list": "reference.input_policy.list",
+            "input_policy.remember_native": "reference.input_policy.remember_native",
+            "web.form.fill": "reference.form.fill",
+            "web.reflex.run": "reference.reflex.run",
+        }
+        name = aliases.get(name, name)
         result = self.rpc(
             "tools/call",
             {"name": f"saccade.{name}", "arguments": arguments},
@@ -186,12 +226,14 @@ class Mcp:
             self.process.kill()
 
 
-def wait_for_mcp(runtime: Path, runtime_dir: Path, timeout: float = 30.0) -> Mcp:
+def wait_for_mcp(
+    runtime: Path, runtime_dir: Path, timeout: float = 30.0, reference: bool = False
+) -> Mcp:
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            return Mcp(runtime, runtime_dir)
+            return Mcp(runtime, runtime_dir, reference=reference)
         except Exception as error:  # noqa: BLE001
             last_error = error
             time.sleep(0.25)
@@ -224,6 +266,18 @@ def named_items(observation: dict[str, Any], role: str, name: str) -> list[dict[
         item for item in observation["objects"]
         if item.get("role") == role and item.get("name") == name
     ]
+
+
+def is_stale_action_error(error: Exception) -> bool:
+    detail = str(error)
+    return any(marker in detail for marker in (
+        "stale action basis",
+        "request identity or revision is stale",
+        "action token is not current",
+        "action token is not present in the current",
+        "action token is stale or absent",
+        "tab observation is not current",
+    ))
 
 
 def stable_observation(mcp: Mcp, tab_id: str, timeout: float = 5.0) -> dict[str, Any]:
@@ -274,7 +328,7 @@ def act(
             break
         except Exception as error:
             last_error = error
-            if "stale action basis" not in str(error) and "not current" not in str(error):
+            if not is_stale_action_error(error):
                 raise
             observation = stable_observation(mcp, observation["tab_id"])
     else:
@@ -650,17 +704,14 @@ def frames_and_shadow(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
         raise RuntimeError("open shadow button was omitted")
     if any(item.get("name") in {"Closed shadow must stay opaque", "Opaque button"} for item in observation["objects"]):
         raise RuntimeError("opaque descendant content escaped its boundary")
-    receipts: list[dict[str, Any]] = []
-    receipt, observation = act(mcp, observation, "button", "Frame toggle", "click", lambda _: {"kind": "none"}, "native")
-    receipts.append(receipt)
-    receipt, observation = act(mcp, observation, "button", "Open shadow toggle", "click", lambda _: {"kind": "none"}, "native")
-    receipts.append(receipt)
     return {
         "browser": browser,
         "observed_frame_count": len(observed),
         "restricted_frame_count": len(restricted),
+        "same_origin_frame_observed": True,
+        "open_shadow_observed": True,
         "closed_shadow_opaque": True,
-        "receipts": receipts,
+        "execution_owner": "agent_client",
     }
 
 
@@ -919,7 +970,11 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        mcp = wait_for_mcp(args.runtime.resolve(), args.runtime_dir.resolve())
+        mcp = wait_for_mcp(
+            args.runtime.resolve(),
+            args.runtime_dir.resolve(),
+            reference=args.mode not in {"frames", "profile"},
+        )
         try:
             if args.mode == "controls":
                 evidence = controls(mcp, args.url, args.browser)

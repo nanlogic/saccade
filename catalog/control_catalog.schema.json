@@ -13,28 +13,13 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "role", "implementation_family", "safe_state", "affordances", "native_primitive", "input_policy", "verifier", "limitations", "fixtures", "evidence", "publication_status"],
+        "required": ["id", "role", "implementation_family", "safe_state", "affordances", "limitations", "fixtures", "evidence", "publication_status"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
           "role": { "enum": ["button", "link", "text_field", "search_field", "text_area", "content_editable", "spin_button", "checkbox", "radio", "switch", "select", "tab", "menu_item", "file_input", "reflex_target"] },
           "implementation_family": { "enum": ["button", "navigation", "reflex", "editable", "toggle", "choice", "file"] },
           "safe_state": { "type": "array", "uniqueItems": true, "items": { "enum": ["has_value", "checked", "enabled", "selected", "expanded", "required", "readonly", "pressed", "current", "invalid", "reflex_occurrence"] } },
           "affordances": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["click", "type", "select", "upload"] } },
-          "native_primitive": { "enum": ["primary_click", "unicode_text", "select_option", "file_chooser"] },
-          "input_policy": { "enum": ["software_preferred", "native_required"] },
-          "verifier": { "enum": ["button_effect", "document_transition", "target_advanced", "has_value", "has_file", "checked_transition", "selected_transition", "expanded_transition", "option_selected"] },
-          "secondary_actions": {
-            "type": "array", "uniqueItems": true,
-            "items": {
-              "type": "object", "additionalProperties": false,
-              "required": ["operation", "native_primitive", "verifier"],
-              "properties": {
-                "operation": { "enum": ["click", "type", "select", "upload"] },
-                "native_primitive": { "enum": ["primary_click", "unicode_text", "select_option", "file_chooser"] },
-                "verifier": { "enum": ["button_effect", "document_transition", "target_advanced", "has_value", "has_file", "checked_transition", "selected_transition", "expanded_transition", "option_selected"] }
-              }
-            }
-          },
           "limitations": { "type": "array", "items": { "type": "string" } },
           "fixtures": { "type": "array", "minItems": 1, "items": { "type": "string" } },
           "evidence": {

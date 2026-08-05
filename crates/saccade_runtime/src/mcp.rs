@@ -1,14 +1,16 @@
 //! MCP adapter and per-Agent Browser projection over the single HostClient interface.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use saccade_host_client::HostClient;
-use saccade_protocol::{ActionReceipt, ObservationSnapshot};
+use saccade_protocol::{ActionReceipt, ChangeKind, ObservationSnapshot};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -27,12 +29,49 @@ struct RpcRequest {
 }
 
 pub fn serve(grant_path: PathBuf) -> Result<()> {
-    let host = HostClient::connect(grant_path)?;
-    serve_io(&host, std::io::stdin().lock(), std::io::stdout().lock())
+    serve_mode(grant_path, McpMode::Truth)
 }
 
-fn serve_io(host: &HostClient, input: impl BufRead, mut output: impl Write) -> Result<()> {
-    let mut agent_views = AgentViewState::default();
+pub fn serve_reference_actuator(grant_path: PathBuf) -> Result<()> {
+    serve_mode(grant_path, McpMode::Reference)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpMode {
+    Truth,
+    Reference,
+}
+
+fn serve_mode(grant_path: PathBuf, mode: McpMode) -> Result<()> {
+    let host = HostClient::connect(grant_path)?;
+    let subscriptions = Arc::new(Mutex::new(BTreeMap::new()));
+    let output = Arc::new(Mutex::new(std::io::stdout()));
+    let running = Arc::new(AtomicBool::new(true));
+    spawn_resource_watcher(
+        host.clone(),
+        Arc::clone(&subscriptions),
+        Arc::clone(&output),
+        Arc::clone(&running),
+    );
+    let result = serve_shared_io(
+        &host,
+        BufReader::new(std::io::stdin()),
+        output,
+        subscriptions,
+        mode,
+    );
+    running.store(false, Ordering::Release);
+    result
+}
+
+fn serve_shared_io(
+    host: &HostClient,
+    input: impl BufRead,
+    output: Arc<Mutex<impl Write>>,
+    subscriptions: Arc<Mutex<BTreeMap<String, u64>>>,
+    mode: McpMode,
+) -> Result<()> {
+    let mut agent_views = AgentViewState::new(mode == McpMode::Reference);
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -41,16 +80,20 @@ fn serve_io(host: &HostClient, input: impl BufRead, mut output: impl Write) -> R
         let request = match serde_json::from_str::<RpcRequest>(&line) {
             Ok(request) => request,
             Err(error) => {
-                write_rpc(&mut output, Value::Null, Err((-32700, error.to_string())))?;
+                write_rpc(
+                    &mut *output.lock().map_err(lock_error)?,
+                    Value::Null,
+                    Err((-32700, error.to_string())),
+                )?;
                 continue;
             }
         };
         let Some(id) = request.id.clone() else {
             continue;
         };
-        let result =
-            dispatch(host, &mut agent_views, request).map_err(|error| (-32000, error.to_string()));
-        write_rpc(&mut output, id, result)?;
+        let result = dispatch(host, &mut agent_views, &subscriptions, mode, request)
+            .map_err(|error| (-32000, error.to_string()));
+        write_rpc(&mut *output.lock().map_err(lock_error)?, id, result)?;
     }
     Ok(())
 }
@@ -58,6 +101,8 @@ fn serve_io(host: &HostClient, input: impl BufRead, mut output: impl Write) -> R
 fn dispatch(
     host: &HostClient,
     agent_views: &mut AgentViewState,
+    subscriptions: &Arc<Mutex<BTreeMap<String, u64>>>,
+    mode: McpMode,
     request: RpcRequest,
 ) -> Result<Value> {
     let diagnostics = diagnostic_input_overrides_enabled();
@@ -65,9 +110,13 @@ fn dispatch(
         bail!("unsupported JSON-RPC version {}", request.jsonrpc);
     }
     match request.method.as_str() {
-        "initialize" => initialize(host),
+        "initialize" => initialize(host, mode),
         "notifications/initialized" | "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools":tools(diagnostics)})),
+        "resources/list" => list_truth_resources(host),
+        "resources/read" => read_truth_resource(host, agent_views, &request.params),
+        "resources/subscribe" => subscribe_truth_resource(host, subscriptions, &request.params),
+        "resources/unsubscribe" => unsubscribe_truth_resource(subscriptions, &request.params),
+        "tools/list" => Ok(json!({"tools":tools(mode, diagnostics)})),
         "tools/call" => {
             let name = string(&request.params, "name")?;
             let arguments = request
@@ -75,7 +124,7 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let value = call_tool(host, agent_views, name, arguments, diagnostics)?;
+            let value = call_tool(host, agent_views, name, arguments, mode, diagnostics)?;
             let summary = tool_result_summary(&value);
             Ok(
                 json!({"content":[{"type":"text","text":summary}],"structuredContent":value,"isError":false}),
@@ -85,7 +134,7 @@ fn dispatch(
     }
 }
 
-fn initialize(host: &HostClient) -> Result<Value> {
+fn initialize(host: &HostClient, mode: McpMode) -> Result<Value> {
     let capabilities = host.call(
         NEXT_ID.fetch_add(1, Ordering::Relaxed),
         "system.capabilities",
@@ -94,10 +143,175 @@ fn initialize(host: &HostClient) -> Result<Value> {
     )?;
     let instructions = profile_instructions(&capabilities);
     Ok(json!({
-        "protocolVersion":MCP_VERSION, "capabilities":{"tools":{"listChanged":false}},
-        "serverInfo":{"name":"saccade-runtime","version":env!("CARGO_PKG_VERSION")},
+        "protocolVersion":MCP_VERSION,
+        "capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":true,"listChanged":false}},
+        "serverInfo":{"name":if mode == McpMode::Truth {"saccade-truth-layer"} else {"saccade-reference-actuator"},"version":env!("CARGO_PKG_VERSION")},
         "instructions":instructions
     }))
+}
+
+fn truth_uri(tab_id: &str) -> String {
+    format!("saccade://tabs/{tab_id}/truth")
+}
+
+fn tab_id_from_truth_uri(value: &Value) -> Result<String> {
+    let uri = string(value, "uri")?;
+    let tab_id = uri
+        .strip_prefix("saccade://tabs/")
+        .and_then(|rest| rest.strip_suffix("/truth"))
+        .filter(|tab_id| !tab_id.is_empty() && tab_id.chars().all(|ch| ch.is_ascii_digit()))
+        .context("resource URI must identify a Saccade tab Truth Layer")?;
+    Ok(tab_id.to_string())
+}
+
+fn list_truth_resources(host: &HostClient) -> Result<Value> {
+    let listed = host.call(
+        NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        "tabs.list",
+        json!({}),
+        Duration::from_secs(10),
+    )?;
+    let resources = listed
+        .get("tabs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|tab| tab.get("observation_ready").and_then(Value::as_bool) == Some(true))
+        .filter_map(|tab| {
+            let tab_id = tab.get("tab_id")?.as_str()?;
+            let title = tab
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Saccade tab");
+            Some(json!({
+                "uri":truth_uri(tab_id),
+                "name":format!("Truth Layer for tab {tab_id}"),
+                "title":title,
+                "mimeType":"application/vnd.saccade.agent-view+json"
+            }))
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({"resources":resources}))
+}
+
+fn read_truth_resource(
+    host: &HostClient,
+    agent_views: &mut AgentViewState,
+    params: &Value,
+) -> Result<Value> {
+    let tab_id = tab_id_from_truth_uri(params)?;
+    let view = call_tool(
+        host,
+        agent_views,
+        "saccade.truth.read",
+        json!({"tab_id":tab_id}),
+        McpMode::Truth,
+        false,
+    )?;
+    Ok(json!({"contents":[{
+        "uri":truth_uri(&tab_id),
+        "mimeType":"application/vnd.saccade.agent-view+json",
+        "text":serde_json::to_string(&view)?
+    }]}))
+}
+
+fn subscribe_truth_resource(
+    host: &HostClient,
+    subscriptions: &Arc<Mutex<BTreeMap<String, u64>>>,
+    params: &Value,
+) -> Result<Value> {
+    let tab_id = tab_id_from_truth_uri(params)?;
+    let observation: ObservationSnapshot = serde_json::from_value(host.call(
+        NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        "web.observe",
+        json!({"tab_id":tab_id}),
+        Duration::from_secs(10),
+    )?)?;
+    observation.validate()?;
+    subscriptions
+        .lock()
+        .map_err(lock_error)?
+        .insert(tab_id, observation.revision);
+    Ok(json!({}))
+}
+
+fn unsubscribe_truth_resource(
+    subscriptions: &Arc<Mutex<BTreeMap<String, u64>>>,
+    params: &Value,
+) -> Result<Value> {
+    let tab_id = tab_id_from_truth_uri(params)?;
+    subscriptions.lock().map_err(lock_error)?.remove(&tab_id);
+    Ok(json!({}))
+}
+
+fn spawn_resource_watcher(
+    host: HostClient,
+    subscriptions: Arc<Mutex<BTreeMap<String, u64>>>,
+    output: Arc<Mutex<std::io::Stdout>>,
+    running: Arc<AtomicBool>,
+) {
+    thread::Builder::new()
+        .name("saccade-resource-watcher".into())
+        .spawn(move || {
+            while running.load(Ordering::Acquire) {
+                let entries = subscriptions
+                    .lock()
+                    .map(|items| items.clone())
+                    .unwrap_or_default();
+                if entries.is_empty() {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+                for (tab_id, revision) in entries {
+                    if !running.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let Ok(value) = host.call(
+                        NEXT_ID.fetch_add(1, Ordering::Relaxed),
+                        "web.observe",
+                        json!({"tab_id":tab_id,"after_revision":revision,"timeout_ms":1000}),
+                        Duration::from_millis(1500),
+                    ) else {
+                        continue;
+                    };
+                    let Ok(observation) = serde_json::from_value::<ObservationSnapshot>(value)
+                    else {
+                        continue;
+                    };
+                    if observation.validate().is_err() {
+                        continue;
+                    }
+                    let mut items = match subscriptions.lock() {
+                        Ok(items) => items,
+                        Err(_) => return,
+                    };
+                    if items.get(&tab_id) != Some(&revision) {
+                        continue;
+                    }
+                    items.insert(tab_id.clone(), observation.revision);
+                    drop(items);
+                    let notification = json!({
+                        "jsonrpc":"2.0",
+                        "method":"notifications/resources/updated",
+                        "params":{"uri":truth_uri(&tab_id)}
+                    });
+                    let Ok(mut writer) = output.lock() else {
+                        return;
+                    };
+                    if serde_json::to_writer(&mut *writer, &notification).is_err()
+                        || writer.write_all(b"\n").is_err()
+                        || writer.flush().is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+        })
+        .expect("resource watcher thread must start");
+}
+
+fn lock_error<T>(error: std::sync::PoisonError<T>) -> anyhow::Error {
+    anyhow!("MCP state lock poisoned: {error}")
 }
 
 fn profile_instructions(capabilities: &Value) -> String {
@@ -110,7 +324,7 @@ fn profile_instructions(capabilities: &Value) -> String {
         .and_then(|value| value.get("behavior"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let base = "Observe a tab before acting, use only returned action tokens, and let web.act select the input backend.";
+    let base = "Subscribe to a Saccade Truth Layer resource for browser-pushed semantic changes. Use truth.read for the current full view or a revision-bounded wait. Browser execution belongs to the Agent client's own web-act or computer-use tool and must target the same authorized browser tab.";
     if behavior.is_empty() {
         format!("Active Saccade Profile: {name}. {base}")
     } else {
@@ -123,28 +337,13 @@ fn call_tool(
     agent_views: &mut AgentViewState,
     name: &str,
     mut arguments: Value,
+    mode: McpMode,
     diagnostics: bool,
 ) -> Result<Value> {
-    let method = name
+    let public_method = name
         .strip_prefix("saccade.")
         .context("tool is outside the Saccade namespace")?;
-    if ![
-        "system.capabilities",
-        "tabs.list",
-        "tabs.open",
-        "web.observe",
-        "web.act",
-        "web.act_native",
-        "web.act_soft",
-        "input_policy.list",
-        "input_policy.remember_native",
-        "web.form.fill",
-        "web.reflex.run",
-    ]
-    .contains(&method)
-    {
-        bail!("tool is not registered: {name}");
-    }
+    let method = host_method(public_method, mode).context("tool is not registered")?;
     require_tool_enabled(method, diagnostics)?;
     validate_arguments(method, &arguments, diagnostics)?;
     agent_views.expand_object_aliases(method, &mut arguments)?;
@@ -154,6 +353,24 @@ fn call_tool(
             .as_object_mut()
             .expect("validated observe arguments must be an object")
             .remove("timeout_ms");
+        if let Some(tab_id) = arguments.get("tab_id").and_then(Value::as_str) {
+            if let Some(revision) = agent_views.revision_for_tab(tab_id) {
+                arguments
+                    .as_object_mut()
+                    .expect("validated observe arguments must be an object")
+                    .insert("since_revision".into(), Value::from(revision));
+            }
+        }
+    }
+    if method == "web.observe" && arguments.get("after_revision").is_some() {
+        if let Some(tab_id) = arguments.get("tab_id").and_then(Value::as_str) {
+            if let Some(document_id) = agent_views.document_for_tab(tab_id).map(str::to_owned) {
+                arguments
+                    .as_object_mut()
+                    .expect("validated observe arguments must be an object")
+                    .insert("after_document_id".into(), Value::from(document_id));
+            }
+        }
     }
     let timeout = match method {
         "web.act" | "web.act_native" | "web.act_soft" => Duration::from_secs(30),
@@ -181,13 +398,17 @@ fn call_tool(
         ),
         _ => Duration::from_secs(10),
     };
-    let result = host.call(
+    let mut result = host.call(
         NEXT_ID.fetch_add(1, Ordering::Relaxed),
         method,
         arguments,
         timeout,
     )?;
     match method {
+        "system.capabilities" => {
+            result["reference_actuator_active"] = Value::Bool(mode == McpMode::Reference);
+            return Ok(result);
+        }
         "web.observe" => {
             let observation = serde_json::from_value::<ObservationSnapshot>(result)?;
             observation.validate()?;
@@ -214,6 +435,7 @@ fn call_tool(
             };
             let mut agent_receipt = json!({
                 "schema":"saccade.agent-receipt/1",
+                "provenance":"reference_actuator",
                 "browser_instance_id":receipt.browser_instance_id,
                 "tab_id":receipt.tab_id,
                 "document_id":receipt.document_id,
@@ -241,11 +463,35 @@ fn call_tool(
             observation.validate()?;
             let view = agent_views.project(observation)?;
             form["view"] = view;
+            form["provenance"] = Value::String("reference_actuator".into());
             return Ok(form);
+        }
+        "web.reflex.run" => {
+            result["provenance"] = Value::String("reference_actuator".into());
+            return Ok(result);
         }
         _ => {}
     }
     Ok(result)
+}
+
+fn host_method(public_method: &str, mode: McpMode) -> Option<&'static str> {
+    match public_method {
+        "system.capabilities" => Some("system.capabilities"),
+        "tabs.list" => Some("tabs.list"),
+        "tabs.open" => Some("tabs.open"),
+        "truth.read" => Some("web.observe"),
+        "reference.act" if mode == McpMode::Reference => Some("web.act"),
+        "reference.act_native" if mode == McpMode::Reference => Some("web.act_native"),
+        "reference.act_soft" if mode == McpMode::Reference => Some("web.act_soft"),
+        "reference.input_policy.list" if mode == McpMode::Reference => Some("input_policy.list"),
+        "reference.input_policy.remember_native" if mode == McpMode::Reference => {
+            Some("input_policy.remember_native")
+        }
+        "reference.form.fill" if mode == McpMode::Reference => Some("web.form.fill"),
+        "reference.reflex.run" if mode == McpMode::Reference => Some("web.reflex.run"),
+        _ => None,
+    }
 }
 
 fn validate_arguments(method: &str, value: &Value, diagnostics: bool) -> Result<()> {
@@ -415,24 +661,28 @@ fn form_action_schema() -> Value {
     })
 }
 
-fn tools(diagnostics: bool) -> Vec<Value> {
+fn tools(mode: McpMode, diagnostics: bool) -> Vec<Value> {
     let mut tools = vec![
         json!({"name":"saccade.system.capabilities","description":"Read the active Profile behavior and Runtime capabilities.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
         json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.observe","description":"Read the Agent Browser: one full Truth Layer per document, then semantic deltas and opaque authority refreshes. Pass after_revision to wait locally for a newer browser revision instead of polling through the model. Without after_revision, this returns the current view immediately and ignores timeout_ms.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.act","description":"Run one closed loop from a current action token. Use click for buttons/navigation or to expand an advertised ARIA choice, type with text, select with an observed option object_id, or upload with path. The receipt view contains the fresh delta. If an accepted software action is unverified, retry explains that the local policy already learned native; use a fresh authority and call web.act again.","inputSchema":action_request_schema(&["click","type","select","upload"])}),
-        json!({"name":"saccade.input_policy.list","description":"List this user's local per-page learned input-backend records.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
-        json!({"name":"saccade.input_policy.remember_native","description":"Record an explicit user- or Agent-known requirement that this page control must use native input. Do not call this to recover an unverified software receipt: web.act already records that evidence and returns retry guidance.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.form.fill","description":"Fill a bounded same-document form plan in one request while every control retains its own closed loop. Use type for editables, select with the observed option object_id, and check only for checkbox/radio/switch controls. Saccade resolves all tokens from this Agent's current Truth Layer. Submit buttons and navigation must be a separate web.act click.","inputSchema":{"type":"object","properties":{"actions":{"type":"array","minItems":1,"maxItems":32,"items":form_action_schema()}},"required":["actions"],"additionalProperties":false}}),
-        json!({"name":"saccade.web.reflex.run","description":"Keep a revision-bound reflex target loop local and return millisecond receipts using the Registry-selected backend.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
+        json!({"name":"saccade.truth.read","description":"Read the current Truth Layer. The first view is full; later views contain Extension-compiled semantic deltas. Pass after_revision to wait locally for a newer revision instead of polling through the model.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id"],"additionalProperties":false}}),
     ];
-    if diagnostics {
-        tools.push(json!({"name":"saccade.web.act_native","description":"Diagnostic override: run one revision-bound closed loop with native OS input.","inputSchema":action_request_schema(&["click","type","select","upload"])}));
-        tools.push(json!({"name":"saccade.web.act_soft","description":"Diagnostic override: run one revision-bound click with registered software pointer input.","inputSchema":action_request_schema(&["click"])}));
+    if mode == McpMode::Reference {
+        tools.extend([
+            json!({"name":"saccade.reference.act","description":"Reference-only closed-loop actuator using a current action token.","inputSchema":action_request_schema(&["click","type","select","upload"])}),
+            json!({"name":"saccade.reference.input_policy.list","description":"List local reference-actuator input-backend records.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
+            json!({"name":"saccade.reference.input_policy.remember_native","description":"Record that a page control requires the reference native backend.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"action_token":{"type":"string","minLength":32}},"required":["tab_id","action_token"],"additionalProperties":false}}),
+            json!({"name":"saccade.reference.form.fill","description":"Reference-only bounded form actuator.","inputSchema":{"type":"object","properties":{"actions":{"type":"array","minItems":1,"maxItems":32,"items":form_action_schema()}},"required":["actions"],"additionalProperties":false}}),
+            json!({"name":"saccade.reference.reflex.run","description":"Reference-only revision-bound reflex actuator.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"max_actions":{"type":"integer","minimum":1,"maximum":10000,"default":500},"timeout_ms":{"type":"integer","minimum":1,"maximum":60000,"default":30000}},"required":["tab_id"],"additionalProperties":false}}),
+        ]);
+    }
+    if mode == McpMode::Reference && diagnostics {
+        tools.push(json!({"name":"saccade.reference.act_native","description":"Reference diagnostic override using native OS input.","inputSchema":action_request_schema(&["click","type","select","upload"])}));
+        tools.push(json!({"name":"saccade.reference.act_soft","description":"Reference diagnostic override using audited software input.","inputSchema":action_request_schema(&["click"])}));
         tools
             .iter_mut()
-            .find(|tool| tool["name"] == "saccade.web.reflex.run")
+            .find(|tool| tool["name"] == "saccade.reference.reflex.run")
             .and_then(|tool| tool.pointer_mut("/inputSchema/properties"))
             .and_then(Value::as_object_mut)
             .expect("reflex tool properties must exist")
@@ -456,6 +706,7 @@ fn require_tool_enabled(method: &str, diagnostics: bool) -> Result<()> {
 struct AgentViewState {
     tabs: BTreeMap<String, ObservationSnapshot>,
     aliases: BTreeMap<String, AgentObjectAliases>,
+    include_authority: bool,
 }
 
 #[derive(Default)]
@@ -467,6 +718,24 @@ struct AgentObjectAliases {
 }
 
 impl AgentViewState {
+    fn new(include_authority: bool) -> Self {
+        Self {
+            include_authority,
+            ..Self::default()
+        }
+    }
+    fn revision_for_tab(&self, tab_id: &str) -> Option<u64> {
+        self.tabs
+            .get(tab_id)
+            .map(|observation| observation.revision)
+    }
+
+    fn document_for_tab(&self, tab_id: &str) -> Option<&str> {
+        self.tabs
+            .get(tab_id)
+            .map(|observation| observation.document_id.as_str())
+    }
+
     fn aliases_for(&mut self, observation: &ObservationSnapshot) -> BTreeMap<String, String> {
         let aliases = self.aliases.entry(observation.tab_id.clone()).or_default();
         if aliases.document_id != observation.document_id {
@@ -616,78 +885,77 @@ impl AgentViewState {
             .tabs
             .insert(observation.tab_id.clone(), observation.clone());
         let Some(previous) = previous else {
-            return full_agent_view(observation, &aliases);
+            return full_agent_view(observation, &aliases, self.include_authority);
         };
         if previous.document_id != observation.document_id || observation.gap {
-            return full_agent_view(observation, &aliases);
+            return full_agent_view(observation, &aliases, self.include_authority);
         }
 
-        let previous_default_frame = default_frame_id(&previous);
         let current_default_frame = default_frame_id(&observation);
         let previous_objects = previous
             .objects
             .iter()
             .map(|object| (object.object_id.as_str(), object))
             .collect::<BTreeMap<_, _>>();
+        let mut changes = Vec::new();
+        let mut changed_ids = std::collections::BTreeSet::new();
         let current_objects = observation
             .objects
             .iter()
             .map(|object| (object.object_id.as_str(), object))
             .collect::<BTreeMap<_, _>>();
-        let mut changes = Vec::new();
-        let mut changed_ids = std::collections::BTreeSet::new();
-        for object in &observation.objects {
-            match previous_objects.get(object.object_id.as_str()) {
-                None => {
-                    changed_ids.insert(object.object_id.clone());
-                    changes.push(json!({"kind":"appeared","object":agent_object_value(object, current_default_frame.as_deref(), &aliases)?}));
-                }
-                Some(before)
-                    if agent_object_fingerprint(
-                        before,
-                        previous_default_frame.as_deref(),
-                        &aliases,
-                    )? != agent_object_fingerprint(
-                        object,
-                        current_default_frame.as_deref(),
-                        &aliases,
-                    )? =>
-                {
-                    changed_ids.insert(object.object_id.clone());
-                    changes.push(json!({"kind":"updated","object":agent_object_value(object, current_default_frame.as_deref(), &aliases)?}));
-                }
-                _ => {}
+        for change in &observation.changes {
+            if !changed_ids.insert(change.object_id.clone()) {
+                bail!("Extension Truth Layer delta repeats an object identity");
             }
-        }
-        for object in &previous.objects {
-            if !current_objects.contains_key(object.object_id.as_str()) {
-                changed_ids.insert(object.object_id.clone());
-                changes.push(json!({
-                    "kind":"disappeared",
-                    "object_id":aliases.get(&object.object_id).context("missing Agent object alias")?
-                }));
+            match change.kind {
+                ChangeKind::Appeared | ChangeKind::Updated => {
+                    let object = current_objects.get(change.object_id.as_str()).context(
+                        "Extension Truth Layer delta references a missing current object",
+                    )?;
+                    if object.object_revision != change.object_revision {
+                        bail!("Extension Truth Layer delta has the wrong object revision");
+                    }
+                    let kind = if change.kind == ChangeKind::Appeared {
+                        "appeared"
+                    } else {
+                        "updated"
+                    };
+                    changes.push(json!({"kind":kind,"object":agent_object_value(object, current_default_frame.as_deref(), &aliases, self.include_authority)?}));
+                }
+                ChangeKind::Disappeared => {
+                    if current_objects.contains_key(change.object_id.as_str()) {
+                        bail!("Extension Truth Layer says a current object disappeared");
+                    }
+                    changes.push(json!({
+                        "kind":"disappeared",
+                        "object_id":aliases.get(&change.object_id).context("missing Agent object alias")?
+                    }));
+                }
             }
         }
 
         let population = previous.objects.len().max(observation.objects.len());
         if changes.len() > 100 || (population > 20 && changes.len() * 2 > population) {
-            return full_agent_view(observation, &aliases);
+            return full_agent_view(observation, &aliases, self.include_authority);
         }
 
-        let authorities = observation
-            .objects
-            .iter()
-            .filter(|object| !changed_ids.contains(&object.object_id))
-            .filter_map(|object| {
-                let action_token = object.action_token.as_ref()?;
-                let prior = previous_objects.get(object.object_id.as_str())?;
-                let alias = aliases.get(&object.object_id)?;
-                (prior.action_token.as_ref() != Some(action_token))
-                    .then(|| json!({"object_id":alias,"action_token":action_token}))
-            })
-            .collect::<Vec<_>>();
+        let authorities = self.include_authority.then(|| {
+            observation
+                .objects
+                .iter()
+                .filter(|object| !changed_ids.contains(&object.object_id))
+                .filter_map(|object| {
+                    let action_token = object.action_token.as_ref()?;
+                    let prior = previous_objects.get(object.object_id.as_str())?;
+                    let alias = aliases.get(&object.object_id)?;
+                    (prior.action_token.as_ref() != Some(action_token))
+                        .then(|| json!({"object_id":alias,"action_token":action_token}))
+                })
+                .collect::<Vec<_>>()
+        });
         let frames_changed = previous.frames != observation.frames;
-        Ok(json!({
+        let mut view = json!({
             "schema":"saccade.agent-view/1",
             "mode":"delta",
             "browser_instance_id":observation.browser_instance_id,
@@ -702,7 +970,13 @@ impl AgentViewState {
             "coverage":observation.coverage,
             "limitations":observation.limitations,
             "gap":false
-        }))
+        });
+        if !self.include_authority {
+            view.as_object_mut()
+                .expect("delta view must be an object")
+                .remove("authorities");
+        }
+        Ok(view)
     }
 }
 
@@ -735,12 +1009,15 @@ fn expand_compact_option_alias(action: &mut Value, aliases: &AgentObjectAliases)
 fn full_agent_view(
     observation: ObservationSnapshot,
     aliases: &BTreeMap<String, String>,
+    include_authority: bool,
 ) -> Result<Value> {
     let default_frame = default_frame_id(&observation);
     let objects = observation
         .objects
         .iter()
-        .map(|object| agent_object_value(object, default_frame.as_deref(), aliases))
+        .map(|object| {
+            agent_object_value(object, default_frame.as_deref(), aliases, include_authority)
+        })
         .collect::<Result<Vec<_>>>()?;
     Ok(json!({
         "schema":"saccade.agent-view/1",
@@ -775,25 +1052,11 @@ fn agent_object_defaults(default_frame: Option<&str>) -> Value {
     Value::Object(defaults)
 }
 
-fn agent_object_fingerprint(
-    object: &saccade_protocol::ObservedObject,
-    default_frame: Option<&str>,
-    aliases: &BTreeMap<String, String>,
-) -> Result<Value> {
-    let mut value = agent_object_value(object, default_frame, aliases)?;
-    let fields = value
-        .as_object_mut()
-        .context("observed object did not serialize as an object")?;
-    let actionable = fields.get("action_token").is_some();
-    fields.remove("action_token");
-    fields.insert("actionable".into(), Value::Bool(actionable));
-    Ok(value)
-}
-
 fn agent_object_value(
     object: &saccade_protocol::ObservedObject,
     default_frame: Option<&str>,
     aliases: &BTreeMap<String, String>,
+    include_authority: bool,
 ) -> Result<Value> {
     let mut value = serde_json::to_value(object)?;
     let fields = value
@@ -803,6 +1066,9 @@ fn agent_object_value(
     fields.remove("document_bounds");
     fields.remove("viewport_bounds");
     fields.remove("loop_class_token");
+    if !include_authority {
+        fields.remove("action_token");
+    }
     fields.insert(
         "object_id".into(),
         Value::String(
@@ -986,15 +1252,31 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request.method, "initialize");
-        assert_eq!(tools(false).len(), 9);
-        assert_eq!(tools(true).len(), 11);
-        assert!(tools(false).iter().all(|tool| !matches!(
-            tool["name"].as_str(),
-            Some("saccade.web.act_native" | "saccade.web.act_soft")
-        )));
-        assert!(tools(false)
+        let truth_tools = tools(McpMode::Truth, false);
+        assert_eq!(truth_tools.len(), 4);
+        assert_eq!(tools(McpMode::Reference, false).len(), 9);
+        assert_eq!(tools(McpMode::Reference, true).len(), 11);
+        assert_eq!(
+            truth_tools
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec![
+                "saccade.system.capabilities",
+                "saccade.tabs.list",
+                "saccade.tabs.open",
+                "saccade.truth.read"
+            ]
+        );
+        assert!(host_method("web.observe", McpMode::Truth).is_none());
+        assert!(host_method("web.act", McpMode::Truth).is_none());
+        assert_eq!(
+            host_method("truth.read", McpMode::Truth),
+            Some("web.observe")
+        );
+        assert!(tools(McpMode::Reference, false)
             .iter()
-            .find(|tool| tool["name"] == "saccade.web.reflex.run")
+            .find(|tool| tool["name"] == "saccade.reference.reflex.run")
             .unwrap()
             .pointer("/inputSchema/properties/input_backend")
             .is_none());
@@ -1093,7 +1375,7 @@ mod tests {
             profile_instructions(
                 &json!({"profile":{"name":"focused","behavior":"Work in page order."}})
             ),
-            "Active Saccade Profile: focused. User behavior: Work in page order.\nObserve a tab before acting, use only returned action tokens, and let web.act select the input backend."
+            "Active Saccade Profile: focused. User behavior: Work in page order.\nSubscribe to a Saccade Truth Layer resource for browser-pushed semantic changes. Use truth.read for the current full view or a revision-bounded wait. Browser execution belongs to the Agent client's own web-act or computer-use tool and must target the same authorized browser tab."
         );
     }
 
@@ -1123,6 +1405,7 @@ mod tests {
             assert!(object.get("visibility").is_none());
             assert!(object.get("transition").is_none());
             assert!(object.get("protected").is_none());
+            assert!(object.get("action_token").is_none());
         }
 
         first.revision += 1;
@@ -1131,6 +1414,11 @@ mod tests {
         first.objects[0]
             .state
             .insert("pressed".into(), "true".into());
+        first.changes = vec![saccade_protocol::ObservationChange {
+            kind: ChangeKind::Updated,
+            object_id: first.objects[0].object_id.clone(),
+            object_revision: first.objects[0].object_revision,
+        }];
         first.objects[0].action_token = Some("token.abcdef0123456789abcdef0123456789abcdef".into());
         first.objects[1].object_revision += 1;
         first.objects[1].action_token =
@@ -1139,18 +1427,26 @@ mod tests {
         assert_eq!(delta["mode"], "delta");
         assert_eq!(delta["changes"].as_array().unwrap().len(), 1);
         assert_eq!(delta["changes"][0]["kind"], "updated");
-        assert_eq!(delta["authorities"].as_array().unwrap().len(), 1);
-        assert_eq!(delta["authorities"][0]["object_id"], "o2");
+        assert!(delta.get("authorities").is_none());
         assert!(delta.get("objects").is_none());
 
         first.revision += 1;
         first.objects[1].action_token = None;
-        let unavailable = views.project(first).unwrap();
+        first.changes = vec![saccade_protocol::ObservationChange {
+            kind: ChangeKind::Updated,
+            object_id: first.objects[1].object_id.clone(),
+            object_revision: first.objects[1].object_revision,
+        }];
+        let unavailable = views.project(first.clone()).unwrap();
         assert_eq!(unavailable["changes"].as_array().unwrap().len(), 1);
         assert_eq!(unavailable["changes"][0]["kind"], "updated");
         assert!(unavailable["changes"][0]["object"]
             .get("action_token")
             .is_none());
+
+        let mut reference = AgentViewState::new(true);
+        let reference_full = reference.project(first.clone()).unwrap();
+        assert!(reference_full["objects"][0].get("action_token").is_some());
     }
 
     #[test]

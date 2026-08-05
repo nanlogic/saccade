@@ -45,9 +45,10 @@ exactly split:
 | Passed iterations | 3 / 3 | 3 / 3 |
 
 Saccade used 1.913x the task time and 6.542x the model-facing tokens in this
-single-shot benchmark. Automatic software routing is therefore proven, but it
-does not by itself solve initial Truth Layer token cost or native select
-latency/reliability.
+single-shot benchmark. The result proves that the then-current automatic
+software route completed this bounded Reference Actuator benchmark; it does
+not establish a default Truth Layer capability or solve initial Truth Layer
+token cost or native-select latency/reliability.
 
 The immediately preceding run `20260731T052500Z` stopped at native select after
 two verified native editable steps. That failure remains local evidence. Local

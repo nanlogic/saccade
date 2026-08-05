@@ -1,6 +1,6 @@
 //! Native Host session authority for the cataloged control families.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
@@ -15,9 +15,10 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use saccade_control_sdk::InputPolicy;
 use saccade_protocol::{
-    ActionPayload, ActionReceipt, ActionRequest, ControlError, ControlRequest, ControlResponse,
-    DispatchStatus, HostGrant, LocalAddress, NativeEnvelope, ObservationSnapshot,
-    PostconditionStatus, PreparedAction, SemanticRole, HOST_PROTOCOL, SESSION_CAPABILITY_SCHEME,
+    ActionPayload, ActionReceipt, ActionRequest, ChangeKind, ControlError, ControlRequest,
+    ControlResponse, DispatchStatus, HostGrant, LocalAddress, NativeEnvelope, ObservationChange,
+    ObservationSnapshot, PostconditionStatus, PreparedAction, SemanticRole, HOST_PROTOCOL,
+    SESSION_CAPABILITY_SCHEME,
 };
 use serde_json::{json, Value};
 
@@ -35,6 +36,7 @@ const DEFERRED_CONTENT_QUIET_WINDOW: Duration = Duration::from_millis(750);
 const SELECT_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(750);
 const REFLEX_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(1);
 const VERIFIED_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(25);
+const OBSERVATION_HISTORY_LIMIT: usize = 256;
 
 struct SettlementPolicy<'a> {
     quiet_window: Duration,
@@ -85,7 +87,7 @@ pub struct NativeHostSession {
     next_request_id: AtomicU64,
     outbound: Arc<dyn ExtensionOutbound>,
     profile: Profile,
-    input_policy: Mutex<LocalInputPolicy>,
+    input_policy: Mutex<Option<LocalInputPolicy>>,
     engine: Mutex<ClosedLoopEngine>,
     native: Mutex<Box<dyn NativeInput>>,
 }
@@ -93,6 +95,7 @@ pub struct NativeHostSession {
 #[derive(Default)]
 struct ObservationState {
     current: BTreeMap<String, ObservationSnapshot>,
+    history: BTreeMap<String, VecDeque<ObservationSnapshot>>,
     retired_documents: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -127,7 +130,6 @@ impl NativeHostSession {
         fs::create_dir_all(&runtime_dir)?;
         #[cfg(unix)]
         fs::set_permissions(&runtime_dir, fs::Permissions::from_mode(0o700))?;
-        let input_policy = LocalInputPolicy::load(&runtime_dir)?;
         Ok(Self {
             capability: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes),
             runtime_dir,
@@ -140,7 +142,9 @@ impl NativeHostSession {
             next_request_id: AtomicU64::new(1),
             outbound,
             profile,
-            input_policy: Mutex::new(input_policy),
+            // Execution policy is reference-actuator state. The default Truth
+            // Layer Host must start without reading or creating it.
+            input_policy: Mutex::new(None),
             engine: Mutex::new(ClosedLoopEngine::builtin()?),
             native: Mutex::new(native),
         })
@@ -193,41 +197,46 @@ impl NativeHostSession {
 
     fn dispatch_control(&self, method: &str, params: Value) -> Result<Value> {
         match method {
-            "system.capabilities" => {
-                let learned_rules = self.input_policy.lock().map_err(lock_error)?.rules().len();
-                Ok(json!({
-                "schema":"saccade.capabilities/4",
-                "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
-                "host_protocol":HOST_PROTOCOL,
-                "perception":"dom_extension",
-                "input":"registry_selected",
-                "input_backends":["native","soft"],
-                "input_policy":{
-                    "default_source":"control_catalog",
-                    "local_learning":"per_page_control",
-                    "learned_rules":learned_rules
-                },
-                "native_accessibility_trusted":crate::platform_input::accessibility_trusted(),
-                "browser_support":["chrome","edge"],
-                "extension_connected":self.extension_connected.load(Ordering::Acquire),
-                "first_slice":["button","text_field","checkbox","select"],
-                "restricted_surfaces":[{
-                    "kind":"browser_owned_confirm",
-                    "automatic_action":false,
-                    "human_confirmation":"required"
-                }],
-                "profile":{
-                    "name":self.profile.name,
-                    "behavior":self.profile.behavior
-                }
-                }))
+            "system.capabilities" => Ok(json!({
+            "schema":"saccade.capabilities/5",
+            "product":"truth_layer",
+            "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
+            "host_protocol":HOST_PROTOCOL,
+            "perception":"dom_extension",
+            "truth":{
+                "full_then_delta":true,
+                "resource_subscriptions":true,
+                "stable_object_identity":true
+            },
+            "execution_owner":"agent_client",
+            "reference_actuator_available":true,
+            "browser_support":["chrome","edge"],
+            "extension_connected":self.extension_connected.load(Ordering::Acquire),
+            "first_slice":["button","text_field","checkbox","select"],
+            "restricted_surfaces":[{
+                "kind":"browser_owned_confirm",
+                "automatic_action":false,
+                "human_confirmation":"required"
+            }],
+            "profile":{
+                "name":self.profile.name,
+                "behavior":self.profile.behavior
             }
+            })),
             "web.observe" => {
                 let object = params
                     .as_object()
                     .context("web.observe params must be an object")?;
                 for key in object.keys() {
-                    if !["tab_id", "after_revision", "timeout_ms"].contains(&key.as_str()) {
+                    if ![
+                        "tab_id",
+                        "after_revision",
+                        "after_document_id",
+                        "since_revision",
+                        "timeout_ms",
+                    ]
+                    .contains(&key.as_str())
+                    {
                         bail!("unexpected web.observe argument {key}");
                     }
                 }
@@ -251,10 +260,20 @@ impl NativeHostSession {
                         self.wait_for_observation_after(
                             tab_id,
                             revision,
+                            params.get("after_document_id").and_then(Value::as_str),
                             Duration::from_millis(timeout_ms),
                         )?
                     }
                     None => self.current_observation(tab_id)?,
+                };
+                let since_revision = params
+                    .get("since_revision")
+                    .or_else(|| params.get("after_revision"))
+                    .map(|value| value.as_u64().context("since revision must be an integer"))
+                    .transpose()?;
+                let snapshot = match since_revision {
+                    Some(revision) => self.observation_since(tab_id, revision, snapshot)?,
+                    None => snapshot,
                 };
                 Ok(serde_json::to_value(snapshot)?)
             }
@@ -383,7 +402,7 @@ impl NativeHostSession {
             reflex_loop_class,
             reflex_occurrence,
         };
-        let receipt: ActionReceipt = match backend {
+        let mut receipt: ActionReceipt = match backend {
             InputBackend::Native => {
                 let mut native = self.native.lock().map_err(lock_error)?;
                 engine.execute(&request, &before, &prepared, native.as_mut(), &mut source)?
@@ -393,6 +412,11 @@ impl NativeHostSession {
                 engine.execute(&request, &before, &prepared, &mut software, &mut source)?
             }
         };
+        receipt.post_action_observation = self.observation_since(
+            &request.tab_id,
+            request.basis_revision,
+            receipt.post_action_observation,
+        )?;
         self.learn_from_receipt(
             &page,
             target_role,
@@ -412,11 +436,8 @@ impl NativeHostSession {
         backend_override: Option<InputBackend>,
     ) -> Result<(InputBackend, InputPolicy)> {
         let policy = self.engine.lock().map_err(lock_error)?.input_policy(role)?;
-        let learned = self
-            .input_policy
-            .lock()
-            .map_err(lock_error)?
-            .backend_for(page, role, control);
+        let learned =
+            self.with_input_policy(|policy| Ok(policy.backend_for(page, role, control)))?;
         let backend = match (policy, learned, backend_override) {
             (InputPolicy::NativeRequired, _, Some(InputBackend::Soft)) => {
                 bail!("registered control requires native input")
@@ -479,13 +500,15 @@ impl NativeHostSession {
             PostconditionStatus::TargetInvalidated => None,
         };
         if let Some((learned_backend, evidence)) = learned {
-            self.input_policy.lock().map_err(lock_error)?.remember(
-                page.to_string(),
-                role,
-                control.to_string(),
-                learned_backend,
-                evidence,
-            )?;
+            self.with_input_policy(|policy| {
+                policy.remember(
+                    page.to_string(),
+                    role,
+                    control.to_string(),
+                    learned_backend,
+                    evidence,
+                )
+            })?;
         }
         Ok(())
     }
@@ -494,11 +517,12 @@ impl NativeHostSession {
         if !params.as_object().is_some_and(|object| object.is_empty()) {
             bail!("input_policy.list takes no arguments");
         }
-        let policy = self.input_policy.lock().map_err(lock_error)?;
-        Ok(json!({
-            "schema":"saccade.input-policy/1",
-            "rules":policy.rules()
-        }))
+        self.with_input_policy(|policy| {
+            Ok(json!({
+                "schema":"saccade.input-policy/1",
+                "rules":policy.rules()
+            }))
+        })
     }
 
     fn remember_native_policy(&self, params: Value) -> Result<Value> {
@@ -532,13 +556,15 @@ impl NativeHostSession {
             .name
             .clone()
             .unwrap_or_else(|| format!("{:?}", target.role));
-        self.input_policy.lock().map_err(lock_error)?.remember(
-            page.clone(),
-            target.role,
-            control.clone(),
-            LearnedBackend::Native,
-            PolicyEvidence::UserRememberedNative,
-        )?;
+        self.with_input_policy(|policy| {
+            policy.remember(
+                page.clone(),
+                target.role,
+                control.clone(),
+                LearnedBackend::Native,
+                PolicyEvidence::UserRememberedNative,
+            )
+        })?;
         Ok(json!({
             "remembered":true,
             "page":page,
@@ -546,6 +572,17 @@ impl NativeHostSession {
             "control":control,
             "backend":"native"
         }))
+    }
+
+    fn with_input_policy<T>(
+        &self,
+        operation: impl FnOnce(&mut LocalInputPolicy) -> Result<T>,
+    ) -> Result<T> {
+        let mut policy = self.input_policy.lock().map_err(lock_error)?;
+        if policy.is_none() {
+            *policy = Some(LocalInputPolicy::load(&self.runtime_dir)?);
+        }
+        operation(policy.as_mut().expect("input policy was initialized"))
     }
 
     fn form_fill(&self, params: Value) -> Result<Value> {
@@ -748,7 +785,8 @@ impl NativeHostSession {
                 }));
             }
         }
-        let final_observation = self.current_observation(tab_id)?;
+        let final_observation =
+            self.observation_since(tab_id, initial.revision, self.current_observation(tab_id)?)?;
         Ok(json!({
             "schema":"saccade.form-result/1",
             "completed":summaries.len(),
@@ -992,10 +1030,20 @@ impl NativeHostSession {
         {
             bail!("observation belongs to a retired document");
         }
+        let document_changed = observations
+            .current
+            .get(&snapshot.tab_id)
+            .is_some_and(|previous| previous.document_id != snapshot.document_id);
+        let mut stream_gap = false;
         if let Some(previous) = observations.current.get(&snapshot.tab_id) {
             if previous.document_id == snapshot.document_id {
                 if snapshot.revision <= previous.revision {
                     bail!("observation revision did not advance");
+                }
+                if snapshot.revision != previous.revision + 1 {
+                    stream_gap = true;
+                    snapshot.gap = true;
+                    snapshot.changes.clear();
                 }
             } else {
                 let retired_document = previous.document_id.clone();
@@ -1008,6 +1056,17 @@ impl NativeHostSession {
         }
         self.profile.filter_observation(&mut snapshot);
         snapshot.validate()?;
+        if document_changed || stream_gap {
+            observations.history.remove(&snapshot.tab_id);
+        }
+        let history = observations
+            .history
+            .entry(snapshot.tab_id.clone())
+            .or_default();
+        history.push_back(snapshot.clone());
+        while history.len() > OBSERVATION_HISTORY_LIMIT {
+            history.pop_front();
+        }
         observations
             .current
             .insert(snapshot.tab_id.clone(), snapshot);
@@ -1041,6 +1100,78 @@ impl NativeHostSession {
             .context("no current observation for tab")
     }
 
+    fn observation_since(
+        &self,
+        tab_id: &str,
+        basis_revision: u64,
+        mut current: ObservationSnapshot,
+    ) -> Result<ObservationSnapshot> {
+        if current.revision <= basis_revision {
+            current.changes.clear();
+            return Ok(current);
+        }
+        let observations = self.observations.lock().map_err(lock_error)?;
+        let Some(history) = observations.history.get(tab_id) else {
+            current.gap = true;
+            current.changes.clear();
+            return Ok(current);
+        };
+        let Some(base) = history.iter().find(|item| {
+            item.document_id == current.document_id && item.revision == basis_revision
+        }) else {
+            current.gap = true;
+            current.changes.clear();
+            return Ok(current);
+        };
+        let touched = history
+            .iter()
+            .filter(|item| {
+                item.document_id == current.document_id
+                    && item.revision > basis_revision
+                    && item.revision <= current.revision
+            })
+            .flat_map(|item| item.changes.iter().map(|change| change.object_id.clone()))
+            .collect::<BTreeSet<_>>();
+        let base_objects = base
+            .objects
+            .iter()
+            .map(|object| (object.object_id.as_str(), object))
+            .collect::<BTreeMap<_, _>>();
+        let current_objects = current
+            .objects
+            .iter()
+            .map(|object| (object.object_id.as_str(), object))
+            .collect::<BTreeMap<_, _>>();
+        current.changes = touched
+            .into_iter()
+            .filter_map(|object_id| {
+                match (
+                    base_objects.get(object_id.as_str()),
+                    current_objects.get(object_id.as_str()),
+                ) {
+                    (None, Some(object)) => Some(ObservationChange {
+                        kind: ChangeKind::Appeared,
+                        object_id,
+                        object_revision: object.object_revision,
+                    }),
+                    (Some(_), Some(object)) => Some(ObservationChange {
+                        kind: ChangeKind::Updated,
+                        object_id,
+                        object_revision: object.object_revision,
+                    }),
+                    (Some(object), None) => Some(ObservationChange {
+                        kind: ChangeKind::Disappeared,
+                        object_id,
+                        object_revision: object.object_revision,
+                    }),
+                    (None, None) => None,
+                }
+            })
+            .collect();
+        current.validate()?;
+        Ok(current)
+    }
+
     fn wait_for_first_observation(
         &self,
         tab_id: &str,
@@ -1071,13 +1202,16 @@ impl NativeHostSession {
         &self,
         tab_id: &str,
         revision: u64,
+        document_id: Option<&str>,
         timeout: Duration,
     ) -> Result<ObservationSnapshot> {
         let deadline = Instant::now() + timeout;
         let mut observations = self.observations.lock().map_err(lock_error)?;
         loop {
             if let Some(snapshot) = observations.current.get(tab_id) {
-                if snapshot.revision > revision {
+                if document_id.is_some_and(|basis| snapshot.document_id != basis)
+                    || snapshot.revision > revision
+                {
                     return Ok(snapshot.clone());
                 }
             }
@@ -1509,7 +1643,6 @@ mod tests {
                 payload: json!({"browser_instance_id":"browser-1"}),
             })
             .unwrap();
-
         let first = snapshot(1, field(false));
         session
             .handle_native(NativeEnvelope {
@@ -1548,6 +1681,43 @@ mod tests {
             session.current_observation("tab-1").unwrap().document_id,
             "document-2"
         );
+    }
+
+    #[test]
+    fn missing_extension_revision_forces_a_full_gap_reset() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = NativeHostSession::with_adapters(
+            dir.path().to_path_buf(),
+            Arc::new(CapturingOutbound(out_tx)),
+            Box::new(FakeNative(native_tx)),
+        )
+        .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        session
+            .handle_observation(serde_json::to_value(snapshot(1, field(false))).unwrap())
+            .unwrap();
+        let mut skipped = snapshot(3, field(true));
+        skipped.objects[0].object_revision = 3;
+        skipped.changes = vec![ObservationChange {
+            kind: ChangeKind::Updated,
+            object_id: "field-1".into(),
+            object_revision: 3,
+        }];
+        session
+            .handle_observation(serde_json::to_value(skipped).unwrap())
+            .unwrap();
+        let current = session.current_observation("tab-1").unwrap();
+        assert!(current.gap);
+        assert!(current.changes.is_empty());
     }
 
     #[test]
@@ -1690,6 +1860,71 @@ mod tests {
             capability: session.capability(),
         });
         assert!(!invalid.ok);
+    }
+
+    #[test]
+    fn observe_after_revision_returns_when_navigation_resets_revision() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(15, field(false))).unwrap(),
+            })
+            .unwrap();
+
+        let waiting = Arc::clone(&session);
+        let worker = std::thread::spawn(move || {
+            waiting.handle_control(ControlRequest {
+                id: 11,
+                method: "web.observe".into(),
+                params: json!({
+                    "tab_id":"tab-1",
+                    "after_revision":15,
+                    "after_document_id":"document-1",
+                    "timeout_ms":1000
+                }),
+                capability: waiting.capability(),
+            })
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        let mut navigated = snapshot(1, field(true));
+        navigated.document_id = "document-2".into();
+        navigated.frames[0].document_id = "document-2".into();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(navigated).unwrap(),
+            })
+            .unwrap();
+
+        let response = worker.join().unwrap();
+        assert!(response.ok, "{:?}", response.error);
+        let observation: ObservationSnapshot =
+            serde_json::from_value(response.result.unwrap()).unwrap();
+        assert_eq!(observation.document_id, "document-2");
+        assert_eq!(observation.revision, 1);
     }
 
     #[test]
@@ -1912,16 +2147,15 @@ mod tests {
         assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
         assert!(native_rx.try_recv().is_err());
         session
-            .input_policy
-            .lock()
-            .unwrap()
-            .remember(
-                "https://fixture.test/game".into(),
-                SemanticRole::ReflexTarget,
-                "ReflexTarget".into(),
-                LearnedBackend::Native,
-                PolicyEvidence::UnverifiedSoftwareReceipt,
-            )
+            .with_input_policy(|policy| {
+                policy.remember(
+                    "https://fixture.test/game".into(),
+                    SemanticRole::ReflexTarget,
+                    "ReflexTarget".into(),
+                    LearnedBackend::Native,
+                    PolicyEvidence::UnverifiedSoftwareReceipt,
+                )
+            })
             .unwrap();
         assert_eq!(
             session
@@ -2003,7 +2237,10 @@ mod tests {
             capability: session.capability(),
         });
         let capabilities = capabilities.result.unwrap();
-        assert_eq!(capabilities["schema"], "saccade.capabilities/4");
+        assert_eq!(capabilities["schema"], "saccade.capabilities/5");
+        assert_eq!(capabilities["product"], "truth_layer");
+        assert_eq!(capabilities["execution_owner"], "agent_client");
+        assert!(capabilities.get("native_accessibility_trusted").is_none());
         assert_eq!(
             capabilities["restricted_surfaces"][0]["kind"],
             "browser_owned_confirm"

@@ -7,13 +7,14 @@ protocol, MCP, control-module, input, download, or packaging behavior. Read
 
 ## Permanent product north star
 
-Saccade is a browser protocol that lets any Agent continuously understand a
-web page, receive browser-pushed changes, and operate it through verified
-closed loops. Every core change must preserve fast interaction, low model-token
-cost, easy maintenance and extension, trustworthy execution, and model
-independence. Implementations may evolve; this positioning does not. Do not
-turn Saccade into a browser-testing framework, coordinate clicker, or
-model-specific plugin.
+Saccade is a live semantic Truth Layer for the web. Its Extension continuously
+compiles an authorized page into structured objects and browser-pushed deltas
+for any Agent. The Agent client's own web-act or computer-use tool owns
+execution in the same browser tab; Saccade observes the resulting semantic
+transition. Every core change must preserve fast interaction, low model-token
+cost, easy maintenance and extension, trustworthy observation, and model
+independence. Do not turn Saccade into a browser-testing framework, coordinate
+clicker, execution harness, or model-specific plugin.
 
 ## One production route
 
@@ -33,14 +34,14 @@ fallback execution routes.
   browser-store Extension confirmation.
 - Keep Native Host and MCP modes separate in framing, lifecycle, and
   protected-data boundaries even when one executable supplies both.
-- Every supported control follows observe → prepare → revalidate → native
-  execute → reobserve → verify → receipt or failure.
+- Every supported control has truthful recognition, stable identity, bounded
+  state, affordances, and browser-pushed changes. Execution is external.
 - Agents never receive locators, arbitrary coordinates, editable values,
   protected values, cookies, or browser storage.
-- Control modules request finite native-input primitives and declarative
-  verification rules. They cannot execute arbitrary Host code.
-- Profile filtering stays outside control modules and cannot weaken their
-  closed loop.
+- The optional Reference Actuator may request finite input primitives and
+  declarative verification rules. It is not part of the default product.
+- Profile filtering stays outside control modules and cannot change their
+  recognition or projection semantics.
 - Common controls require current Chrome and Edge proof for the same release
   candidate before the Catalog marks them `publishable`.
 - Uncommon controls require truthful recognition and explicit limitations.
@@ -62,7 +63,7 @@ and path. Do not copy the old tree or its monolithic classifiers.
   must update `docs/FINAL_ARCHITECTURE.md`,
   `docs/extension_observation_contract.md`, and `docs/decisions.md` in the same
   review.
-- Add one focused fixture and closed-loop test for each control behavior.
+- Add one focused fixture and Truth projection/delta test for each control behavior.
 - Run the narrowest checks while editing. Run the complete list from
   `README.md` before merging a control family or changing a contract.
 - Keep local browser profiles, evidence, credentials, signing material, and

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import subprocess
@@ -129,25 +130,35 @@ def tool_name(item: dict[str, Any]) -> str:
 def browser_metrics(tool_items: list[dict[str, Any]]) -> dict[str, Any]:
     trace = []
     serialized_items = []
+    initial_transfer_bytes = None
     for index, item in enumerate(tool_items, start=1):
         serialized = compact(item)
         serialized_items.append(serialized)
+        if initial_transfer_bytes is None and (
+            '"mode":"full"' in serialized or "snapshot" in tool_name(item).casefold()
+        ):
+            initial_transfer_bytes = len(serialized.encode())
         trace.append({
             "sequence": index,
             "tool": tool_name(item),
             "transcript_bytes": len(serialized.encode()),
         })
     combined = "\n".join(serialized_items).casefold()
+    observation_calls = sum(
+        any(word in row["tool"].casefold() for word in ("truth.read", "observe", "snapshot"))
+        for row in trace
+    )
     return {
         "trace": trace,
         "transcript_bytes": sum(row["transcript_bytes"] for row in trace),
+        "initial_transfer_bytes": initial_transfer_bytes,
         "full_views": combined.count('"mode":"full"'),
         "delta_views": combined.count('"mode":"delta"'),
         "stale_events": combined.count("stale_before_dispatch") + combined.count("stale action basis"),
-        "observe_or_snapshot_calls": sum(
-            any(word in row["tool"].casefold() for word in ("observe", "snapshot"))
-            for row in trace
-        ),
+        "observe_or_snapshot_calls": observation_calls,
+        "post_initial_reobservation_calls": max(0, observation_calls - 1),
+        "action_return_to_delta_read_ms": None,
+        "latency_measurement_status": "requires_timed_same_tab_executor_events",
     }
 
 
@@ -167,6 +178,8 @@ def lane_summary(lane: str, elapsed_ms: float, returncode: int, events: list[dic
                 final_value = parsed
         except json.JSONDecodeError:
             final_value = {"completed": False, "summary": text}
+    if not final_value and not agent_messages:
+        final_value = {"completed": False}
     tool_text = compact(tool_items)
     required_evidence = task["success"]["tool_output_contains"]
     evidence = {needle: needle.casefold() in tool_text.casefold() for needle in required_evidence}
@@ -185,6 +198,7 @@ def lane_summary(lane: str, elapsed_ms: float, returncode: int, events: list[dic
         "model_messages": len(agent_messages),
         "success_evidence": evidence,
         "final": final_value,
+        "failure_reason": final_value.get("failure_reason"),
         "stderr_tail": stderr[-2000:],
     }
 
@@ -209,6 +223,69 @@ def redact_text(text: str, values: list[str]) -> str:
     return text
 
 
+def load_client_native_evidence(path: Path, task: dict[str, Any], order: str) -> dict[str, Any]:
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    if evidence.get("schema") != "saccade-client-native-lane/1":
+        raise ValueError("unsupported client-native evidence schema")
+    if evidence.get("task") != {"name": task["name"], "url": task["url"]}:
+        raise ValueError("client-native evidence belongs to a different task")
+    if evidence.get("order") != order:
+        raise ValueError("client-native evidence belongs to a different lane order")
+    browser = evidence.get("browser") or {}
+    if browser.get("family") != "chrome" or browser.get("same_saccade_instance") is not True or browser.get("same_tab") is not True:
+        raise ValueError("client-native evidence does not prove the Saccade Chrome tab boundary")
+    summary = evidence.get("summary")
+    if not isinstance(summary, dict) or summary.get("lane") != "saccade":
+        raise ValueError("client-native evidence has no Saccade lane summary")
+    timing = evidence.get("timing")
+    if not isinstance(timing, dict) or not timing.get("started_at") or not timing.get("completed_at"):
+        raise ValueError("client-native evidence has no verifiable lane timing")
+    result = dict(summary)
+    result["timing"] = timing
+    return result
+
+
+def parse_timestamp(value: str) -> dt.datetime:
+    parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("lane timestamps must include a timezone")
+    return parsed
+
+
+def validate_lane_order(saccade: dict[str, Any], playwright: dict[str, Any], order: str) -> None:
+    first, second = (saccade, playwright) if order == "saccade-first" else (playwright, saccade)
+    first_end = parse_timestamp(str(first["timing"]["completed_at"]))
+    second_start = parse_timestamp(str(second["timing"]["started_at"]))
+    if first_end > second_start:
+        raise ValueError(f"lane timestamps do not prove {order}")
+
+
+def wait_for_evidence(path: Path, timeout_seconds: int) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while not path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError("client_native_same_tab_evidence_timeout")
+        time.sleep(0.25)
+
+
+def blocked_lane(lane: str, reason: str) -> dict[str, Any]:
+    return {
+        "lane": lane,
+        "passed": False,
+        "elapsed_ms": 0.0,
+        "returncode": 0,
+        "timed_out": False,
+        "usage": {},
+        "tool_calls": 0,
+        "browser_metrics": browser_metrics([]),
+        "model_messages": 0,
+        "success_evidence": {},
+        "final": {"completed": False, "failure_reason": reason},
+        "failure_reason": reason,
+        "stderr_tail": "",
+    }
+
+
 def run_lane(
     lane: str,
     task: dict[str, Any],
@@ -218,9 +295,19 @@ def run_lane(
     playwright_package: str,
     output_dir: Path,
 ) -> dict[str, Any]:
+    if lane != "playwright":
+        raise ValueError("Saccade lane must be imported from client-native same-tab evidence")
     with tempfile.TemporaryDirectory(prefix=f"saccade-fair-{lane}-") as temporary:
         workdir = Path(temporary)
-        command = lane_command(lane, model, workdir, runtime, runtime_dir, playwright_package)
+        command = lane_command(
+            lane,
+            model,
+            workdir,
+            runtime,
+            runtime_dir,
+            playwright_package,
+        )
+        started_at = dt.datetime.now(dt.timezone.utc)
         started = time.perf_counter()
         try:
             completed = subprocess.run(
@@ -246,6 +333,7 @@ def run_lane(
             returncode = 124
             timed_out = True
         elapsed_ms = (time.perf_counter() - started) * 1000
+        completed_at = dt.datetime.now(dt.timezone.utc)
     events = parse_events(stdout)
     redactions = task["redact"]
     (output_dir / f"{lane}.jsonl").write_text(
@@ -254,7 +342,12 @@ def run_lane(
     (output_dir / f"{lane}.stderr.log").write_text(
         redact_text(stderr, redactions), encoding="utf-8"
     )
-    return lane_summary(lane, elapsed_ms, returncode, events, stderr, task, timed_out)
+    summary = lane_summary(lane, elapsed_ms, returncode, events, stderr, task, timed_out)
+    summary["timing"] = {
+        "started_at": started_at.isoformat().replace("+00:00", "Z"),
+        "completed_at": completed_at.isoformat().replace("+00:00", "Z"),
+    }
+    return summary
 
 
 def main() -> int:
@@ -265,6 +358,8 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--model")
     parser.add_argument("--playwright-package", default="@playwright/mcp@0.0.78")
+    parser.add_argument("--saccade-client-evidence", type=Path, help="Codex or Claude native-Chrome same-tab lane evidence")
+    parser.add_argument("--client-evidence-timeout", type=int, default=300)
     parser.add_argument("--order", choices=("saccade-first", "playwright-first"), default="saccade-first")
     args = parser.parse_args()
     task = load_task(args.task.resolve())
@@ -273,11 +368,28 @@ def main() -> int:
     order = ["saccade", "playwright"] if args.order == "saccade-first" else ["playwright", "saccade"]
     lanes: dict[str, Any] = {}
     started = time.monotonic()
-    for lane in order:
-        lanes[lane] = run_lane(
-            lane, task, args.model, args.runtime.resolve(), args.runtime_dir.resolve(),
-            args.playwright_package, output_dir,
+    if args.saccade_client_evidence is None:
+        lanes["saccade"] = blocked_lane("saccade", "client_native_same_tab_evidence_unavailable")
+        lanes["playwright"] = blocked_lane(
+            "playwright", "comparison_not_run_without_client_native_saccade_evidence"
         )
+    else:
+        evidence_path = args.saccade_client_evidence.resolve()
+        if args.order == "saccade-first":
+            lanes["saccade"] = load_client_native_evidence(evidence_path, task, args.order)
+            lanes["playwright"] = run_lane(
+                "playwright", task, args.model, args.runtime.resolve(), args.runtime_dir.resolve(),
+                args.playwright_package, output_dir,
+            )
+        else:
+            lanes["playwright"] = run_lane(
+                "playwright", task, args.model, args.runtime.resolve(), args.runtime_dir.resolve(),
+                args.playwright_package, output_dir,
+            )
+            wait_for_evidence(evidence_path, args.client_evidence_timeout)
+            lanes["saccade"] = load_client_native_evidence(evidence_path, task, args.order)
+        validate_lane_order(lanes["saccade"], lanes["playwright"], args.order)
+    blocked = lanes["saccade"]["failure_reason"] == "client_native_same_tab_evidence_unavailable"
     report = {
         "schema": "saccade-agent-benchmark/1",
         "task": {key: task[key] for key in ("name", "url", "success")},
@@ -287,7 +399,7 @@ def main() -> int:
         "timing_boundary": "initial URL through browser-proven completion",
         "forbidden_routes": ["source inspection", "selector", "XPath", "DOM query", "JavaScript evaluation", "coordinate", "screenshot", "human help"],
         "lanes": lanes,
-        "verdict": "PASS" if all(lane["passed"] for lane in lanes.values()) else "FAIL",
+        "verdict": "BLOCKED" if blocked else ("PASS" if all(lane["passed"] for lane in lanes.values()) else "FAIL"),
         "duration_seconds": round(time.monotonic() - started, 3),
     }
     report_text = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
@@ -295,7 +407,7 @@ def main() -> int:
         redact_text(report_text, task["redact"]), encoding="utf-8"
     )
     print(json.dumps({"verdict": report["verdict"], "output": str(output_dir / "report.json")}))
-    return 0 if report["verdict"] == "PASS" else 1
+    return 0 if report["verdict"] == "PASS" else (2 if report["verdict"] == "BLOCKED" else 1)
 
 
 if __name__ == "__main__":

@@ -182,7 +182,7 @@ def main() -> int:
     if selected - {case["id"] for case in cases}:
         raise SystemExit(f"unknown external case ids: {sorted(selected - {case['id'] for case in cases})}")
     started_at = utc_now()
-    mcp = wait_for_mcp(args.runtime.resolve(), args.runtime_dir.resolve())
+    mcp = wait_for_mcp(args.runtime.resolve(), args.runtime_dir.resolve(), reference=True)
     try:
         results = [run_case(mcp, case) for case in cases]
     finally:

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Truth latency and completeness</title></head>
+<body>
+  <h1>Truth latency and completeness</h1>
+  <p role="status" id="initial">Latency initial pending</p>
+  <p role="status" id="single">Latency single idle</p>
+  <div id="batch10"></div>
+  <div id="batch100"></div>
+  <p role="status" id="remove-target">Remove target</p>
+  <p role="status" id="replace-target">Replace target old</p>
+  <p role="status" id="lifecycle">Latency lifecycle idle</p>
+  <ol id="reorder"></ol>
+  <canvas id="canvas" aria-label="Canvas semantic companion idle" width="120" height="60"></canvas>
+  <canvas id="webgl" aria-label="WebGL semantic companion idle" data-saccade-context="webgl" width="120" height="60"></canvas>
+  <p role="status" id="done">Latency test waiting</p>
+  <script>
+    const stamp = (kind, item) => `LT|${kind}|${item}|${performance.timeOrigin + performance.now()}`;
+    const statusNodes = (root, count, prefix) => {
+      for (let index = 0; index < count; index += 1) {
+        const node = document.createElement('p');
+        node.id = `${prefix}-${index}`;
+        node.setAttribute('role', 'status');
+        node.textContent = `${prefix} idle ${index}`;
+        root.appendChild(node);
+      }
+    };
+    statusNodes(document.getElementById('batch10'), 10, 'batch10');
+    statusNodes(document.getElementById('batch100'), 100, 'batch100');
+    const reorder = document.getElementById('reorder');
+    for (let index = 0; index < 100; index += 1) {
+      const item = document.createElement('li');
+      item.textContent = `Stable reorder item ${index}`;
+      reorder.appendChild(item);
+    }
+    document.getElementById('initial').textContent = stamp('initial', '1');
+
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    async function run() {
+      await delay(1000);
+      for (let sequence = 1; sequence <= 20; sequence += 1) {
+        document.getElementById('single').textContent = stamp('single', sequence);
+        await delay(80);
+      }
+      const batch10At = performance.timeOrigin + performance.now();
+      for (let index = 0; index < 10; index += 1) {
+        document.getElementById(`batch10-${index}`).textContent = `LT|batch10|${index}|${batch10At}`;
+      }
+      await delay(250);
+      const batch100At = performance.timeOrigin + performance.now();
+      for (let index = 0; index < 100; index += 1) {
+        document.getElementById(`batch100-${index}`).textContent = `LT|batch100|${index}|${batch100At}`;
+      }
+      await delay(250);
+      document.getElementById('remove-target').remove();
+      document.getElementById('lifecycle').textContent = stamp('remove', 'event');
+      await delay(250);
+      const old = document.getElementById('replace-target');
+      const replacement = document.createElement('p');
+      replacement.id = 'replace-target';
+      replacement.setAttribute('role', 'status');
+      replacement.textContent = stamp('replace', 'new');
+      old.replaceWith(replacement);
+      await delay(250);
+      for (const item of Array.from(reorder.children).reverse()) reorder.appendChild(item);
+      document.getElementById('lifecycle').textContent = stamp('reorder', 'event');
+      await delay(250);
+      const canvas = document.getElementById('canvas');
+      const context2d = canvas.getContext('2d');
+      context2d.fillStyle = '#1565c0';
+      context2d.fillRect(10, 10, 80, 30);
+      canvas.setAttribute('aria-label', stamp('canvas', 'semantic'));
+      await delay(250);
+      const webgl = document.getElementById('webgl');
+      const gl = webgl.getContext('webgl');
+      if (gl) {
+        gl.clearColor(0.2, 0.7, 0.3, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+      webgl.setAttribute('aria-label', stamp('webgl', 'semantic'));
+      await delay(250);
+      document.getElementById('done').textContent = stamp('done', '1');
+    }
+    run();
+  </script>
+</body>
+</html>

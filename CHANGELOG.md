@@ -7,6 +7,35 @@ the clean public repository.
 
 ### Changed
 
+- hard-cut the default MCP surface to the four-tool Truth API, advance
+  capabilities to `saccade.capabilities/5`, remove action authority from the
+  default Agent view, and assign browser execution to the Agent client;
+- split execution metadata into the Reference Actuator catalog and move the
+  old action/form/reflex tools under explicit `saccade.reference.*` names;
+- stop default startup from requesting Accessibility or loading local input
+  policy; reference execution loads both boundaries only when explicitly used;
+- add a Chrome/Edge Truth-only gate for all 34 protocol roles, 12 reusable
+  variants, and 6 structural/push boundaries, including safe projection,
+  absent action authority, and browser-pushed state deltas;
+- keep the 15-family Reference Actuator gate separate from the complete
+  machine-readable Truth inventory;
+- add a generated 63-row public Truth denominator covering every role,
+  variant, structural/push boundary, and recorded lifecycle scenario without
+  hiding blocked evidence;
+- require an explicitly configured same-tab external web-act MCP before a fair
+  Saccade/Playwright run; otherwise mark the complete comparison blocked and do
+  not run an unmatched Playwright lane;
+- implement the remaining roadmap Truth projections for semantic text/list/
+  table/row containers, sliders, bound labels, explicit generic/drag controls,
+  date/time/month/week/datetime/color inputs, and opaque or restricted
+  Canvas/WebGL/video/document surfaces;
+
+- move semantic change compilation to the Extension Truth Layer source; MCP now
+  compacts and aliases source deltas instead of independently interpreting two
+  page snapshots;
+- advance the development Extension and managed-browser profile generations
+  with the source-delta compiler, preventing an older cached MV3 worker from
+  injecting a newer Collector alone;
 - compact repeated Agent Browser defaults without changing the v1 Host wire
   schemas or semantic truth;
 - replace native select's redundant post-action sleep with fresh
@@ -23,6 +52,14 @@ the clean public repository.
   dynamically created option identities enter the existing select loop;
 - disambiguate duplicate actionable controls across control families with
   bounded value-free page-authored context.
+- honor explicit ARIA structural roles before native tag fallbacks, including
+  live status regions authored on paragraph elements.
+- retain bounded Extension delta history in the Host so action settlement and
+  skipped authority-only revisions cannot erase an unconsumed semantic change;
+- replace programmatic Collector injection with one ordered dormant static
+  bundle and a long-lived authorized content-script Port;
+- expose each authorized Agent Browser as a subscribable MCP Resource with
+  unsolicited URI-only update notifications and full/delta reads;
 
 ### Added
 
@@ -83,6 +120,13 @@ the clean public repository.
 
 ### Pending
 
-- same-candidate Chrome and Edge release evidence;
-- signed consumer packaging and browser-store Extension builds;
-- the remaining control batches listed in `docs/CONTROL_ROADMAP.md`.
+- source-diverse public compatibility evidence across Selenium, WAI-ARIA APG,
+  Angular, Vue, Web Components, dynamic replacement, delayed render, and
+  frames;
+- three fair unknown-page Playwright comparisons using Saccade Truth plus the
+  Agent client's own web-act tool, never the Reference Actuator;
+- lifecycle evidence for dynamic loading, disappearance, overlays/modals,
+  infinite scroll, sortable tables, dialogs, slow resources, upload/download,
+  large rearrangements, and viewport changes;
+- same-candidate Chrome and Edge release evidence, signed consumer packaging,
+  and browser-store Extension builds.

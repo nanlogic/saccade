@@ -68,7 +68,7 @@ def saccade_observe(
                 "after_revision": after_revision,
                 "timeout_ms": max(1, min(30_000, int((deadline - time.monotonic()) * 1000))),
             })
-        response, _ = client.tool("saccade.web.observe", arguments)
+        response, _ = client.tool("saccade.truth.read", arguments)
         payloads.append(call_payload(response))
         if not response.get("error"):
             observation = views.apply(result_value(response))
@@ -86,7 +86,7 @@ def run_saccade(
 ) -> dict[str, Any]:
     environment = os.environ.copy()
     environment["SACCADE_RUNTIME_DIR"] = str(runtime_dir)
-    client = Mcp([str(runtime), "mcp"], environment)
+    client = Mcp([str(runtime), "reference-actuator-mcp"], environment)
     views = AgentViews()
     runs = []
     try:
@@ -122,7 +122,7 @@ def run_saccade(
                 actions.append(action)
                 planned.append(role)
             form_response, form_ms = client.tool(
-                "saccade.web.form.fill",
+                "saccade.reference.form.fill",
                 {
                     "actions": actions,
                 },
@@ -143,7 +143,7 @@ def run_saccade(
 
             submit = current_target(observation, "button", "Submit")
             submit_response, submit_ms = client.tool(
-                "saccade.web.act",
+                "saccade.reference.act",
                 {
                     "action_token": submit["action_token"],
                     "operation": "click",

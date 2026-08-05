@@ -88,6 +88,25 @@ fn structural_text_is_non_actionable() {
 }
 
 #[test]
+fn source_delta_must_reference_consistent_current_truth() {
+    let mut value = snapshot();
+    value.changes.push(ObservationChange {
+        kind: ChangeKind::Updated,
+        object_id: "missing-object".into(),
+        object_revision: 1,
+    });
+    assert_eq!(value.validate(), Err(ObservationError::InvalidChanges));
+
+    let mut value = snapshot();
+    value.changes.push(ObservationChange {
+        kind: ChangeKind::Disappeared,
+        object_id: "object-1".into(),
+        object_revision: 1,
+    });
+    assert_eq!(value.validate(), Err(ObservationError::InvalidChanges));
+}
+
+#[test]
 fn migrated_canonical_fixture_is_valid() {
     let fixture = include_str!("../../../tests/protocol/canonical_observation.json");
     let observation: ObservationSnapshot = serde_json::from_str(fixture).unwrap();

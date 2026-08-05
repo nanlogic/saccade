@@ -14,7 +14,7 @@ approved component at a time and record its provenance below.
 | Extension observation | current `extension/src/collector.js`, `truth.js`, protocol helpers | `extension/src/controls` and collector | Move through Registry modules; do not copy monolithic classification as the final design. |
 | Native Messaging | current `bins/saccade-host` framing/session code | `crates/saccade_runtime` + `saccade-runtime native-host` | Preserve framing and validation; separate mode from shared runtime. |
 | MCP adapter | current `bins/saccade-mcp` | `saccade-runtime mcp` | Keep a strict adapter; no browser semantics in MCP. |
-| macOS input | current `bins/saccade-host/src/input/macos.rs` | runtime platform input | Preserve real CoreGraphics events and Accessibility checks; add missing primitives and semantic verifiers. |
+| macOS input | current `bins/saccade-host/src/input/macos.rs` | Reference Actuator only | Preserve reviewed CoreGraphics behavior for explicit regression use; never initialize it or request Accessibility in the default Truth Layer. |
 | Windows input | current `bins/saccade-host/src/input/windows.rs` | runtime platform input | Preserve `SendInput`; add missing primitives and semantic verifiers. |
 | Protected fill | current Extension + Host protected-value path | runtime/Extension | Values must never enter MCP, observations, audit, diagnostics, or artifacts. |
 | Installer/repair | current `installer`, packaging scripts and accepted DMG evidence | `installers/macos`, `installers/windows` | Migrate only after runtime paths/modes stabilize. |
