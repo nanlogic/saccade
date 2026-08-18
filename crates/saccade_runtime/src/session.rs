@@ -22,6 +22,7 @@ use saccade_protocol::{
 };
 use serde_json::{json, Value};
 
+use crate::browser_wake::{write_route, BrowserWakeRoute};
 use crate::input_policy::{page_scope, LearnedBackend, LocalInputPolicy, PolicyEvidence};
 use crate::native_messaging;
 use crate::platform_input::PlatformInput;
@@ -35,6 +36,7 @@ const POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(300);
 const DEFERRED_CONTENT_QUIET_WINDOW: Duration = Duration::from_millis(750);
 const SELECT_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(750);
 const REFLEX_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(1);
+const REFLEX_RECOVERY_BUDGET: Duration = Duration::from_millis(45);
 const VERIFIED_POST_ACTION_QUIET_WINDOW: Duration = Duration::from_millis(25);
 const OBSERVATION_HISTORY_LIMIT: usize = 256;
 
@@ -80,6 +82,8 @@ pub struct NativeHostSession {
     runtime_dir: PathBuf,
     endpoint: Mutex<Option<LocalAddress>>,
     browser_instance_id: Mutex<Option<String>>,
+    expected_extension_candidate: Option<ExtensionCandidate>,
+    extension_candidate: Mutex<Option<ExtensionCandidate>>,
     extension_connected: AtomicBool,
     observations: Mutex<ObservationState>,
     observation_changed: Condvar,
@@ -90,6 +94,51 @@ pub struct NativeHostSession {
     input_policy: Mutex<Option<LocalInputPolicy>>,
     engine: Mutex<ClosedLoopEngine>,
     native: Mutex<Box<dyn NativeInput>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExtensionCandidate {
+    schema: String,
+    id: String,
+    version: String,
+}
+
+impl ExtensionCandidate {
+    fn from_value(value: &Value) -> Result<Self> {
+        let schema = required_string(value, "schema")?.to_string();
+        let id = required_string(value, "id")?.to_string();
+        let version = required_string(value, "version")?.to_string();
+        if schema != "saccade.extension-candidate/1" {
+            bail!("extension candidate used the wrong schema");
+        }
+        if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            bail!("extension candidate id must be a SHA-256 digest");
+        }
+        if version.is_empty() || version.len() > 64 {
+            bail!("extension candidate version is invalid");
+        }
+        Ok(Self {
+            schema,
+            id,
+            version,
+        })
+    }
+
+    fn value(&self) -> Value {
+        json!({"schema":self.schema,"id":self.id,"version":self.version})
+    }
+}
+
+fn load_expected_extension_candidate(runtime_dir: &Path) -> Result<Option<ExtensionCandidate>> {
+    let path = runtime_dir.join("expected-extension-candidate.json");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+    };
+    let value: Value =
+        serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(ExtensionCandidate::from_value(&value)?))
 }
 
 #[derive(Default)]
@@ -130,11 +179,14 @@ impl NativeHostSession {
         fs::create_dir_all(&runtime_dir)?;
         #[cfg(unix)]
         fs::set_permissions(&runtime_dir, fs::Permissions::from_mode(0o700))?;
+        let expected_extension_candidate = load_expected_extension_candidate(&runtime_dir)?;
         Ok(Self {
             capability: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes),
             runtime_dir,
             endpoint: Mutex::new(None),
             browser_instance_id: Mutex::new(None),
+            expected_extension_candidate,
+            extension_candidate: Mutex::new(None),
             extension_connected: AtomicBool::new(false),
             observations: Mutex::new(ObservationState::default()),
             observation_changed: Condvar::new(),
@@ -173,6 +225,9 @@ impl NativeHostSession {
 
     pub fn mark_extension_disconnected(&self) {
         self.extension_connected.store(false, Ordering::Release);
+        if let Ok(mut candidate) = self.extension_candidate.lock() {
+            *candidate = None;
+        }
         self.observation_changed.notify_all();
     }
 
@@ -198,7 +253,7 @@ impl NativeHostSession {
     fn dispatch_control(&self, method: &str, params: Value) -> Result<Value> {
         match method {
             "system.capabilities" => Ok(json!({
-            "schema":"saccade.capabilities/5",
+            "schema":"saccade.capabilities/6",
             "product":"truth_layer",
             "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
             "host_protocol":HOST_PROTOCOL,
@@ -212,12 +267,9 @@ impl NativeHostSession {
             "reference_actuator_available":true,
             "browser_support":["chrome","edge"],
             "extension_connected":self.extension_connected.load(Ordering::Acquire),
+            "extension_candidate":self.extension_candidate.lock().map_err(lock_error)?.as_ref().map(ExtensionCandidate::value),
+            "expected_extension_candidate":self.expected_extension_candidate.as_ref().map(ExtensionCandidate::value),
             "first_slice":["button","text_field","checkbox","select"],
-            "restricted_surfaces":[{
-                "kind":"browser_owned_confirm",
-                "automatic_action":false,
-                "human_confirmation":"required"
-            }],
             "profile":{
                 "name":self.profile.name,
                 "behavior":self.profile.behavior
@@ -278,25 +330,89 @@ impl NativeHostSession {
                 Ok(serde_json::to_value(snapshot)?)
             }
             "tabs.list" => self.request_extension("tabs.list", json!({}), EXTENSION_TIMEOUT),
+            "tabs.close" => {
+                let tab_id = required_string(&params, "tab_id")?;
+                for key in params
+                    .as_object()
+                    .context("tabs.close params must be an object")?
+                    .keys()
+                {
+                    if key != "tab_id" {
+                        bail!("unexpected tabs.close argument {key}");
+                    }
+                }
+                let closed = self.request_extension(
+                    "tabs.close",
+                    json!({"tab_id":tab_id}),
+                    EXTENSION_TIMEOUT,
+                )?;
+                let mut observations = self.observations.lock().map_err(lock_error)?;
+                observations.current.remove(tab_id);
+                observations.history.remove(tab_id);
+                observations.retired_documents.remove(tab_id);
+                drop(observations);
+                self.observation_changed.notify_all();
+                Ok(closed)
+            }
             "tabs.open" => {
                 let url = required_string(&params, "url")?;
                 if url.len() > 8192 || !(url.starts_with("http://") || url.starts_with("https://"))
                 {
                     bail!("url must use HTTP or HTTPS and stay within 8192 bytes");
                 }
-                let active = match params.get("active") {
-                    Some(value) => value.as_bool().context("active must be a boolean")?,
-                    None => true,
+                let claim = match params.get("claim") {
+                    None => None,
+                    Some(claim) => match claim.as_str() {
+                        Some(mode @ ("arm" | "confirm")) => Some(mode.to_string()),
+                        _ => bail!("claim must be arm or confirm"),
+                    },
+                };
+                let allowed: &[&str] = match claim.as_deref() {
+                    Some("confirm") => &["url", "claim", "claim_id", "tab_id"],
+                    Some(_) => &["url", "claim"],
+                    None => &["url", "active"],
                 };
                 for key in params
                     .as_object()
                     .context("tabs.open params must be an object")?
                     .keys()
                 {
-                    if !["url", "active"].contains(&key.as_str()) {
+                    if !allowed.contains(&key.as_str()) {
                         bail!("unexpected tabs.open argument {key}");
                     }
                 }
+                // Arming creates no tab, so there is no tab identity to return
+                // and nothing to wait for. The Agent client creates the tab with
+                // its own tooling and confirms with the identity it received.
+                if claim.as_deref() == Some("arm") {
+                    return self.request_extension(
+                        "tabs.open",
+                        json!({"url":url,"claim":"arm"}),
+                        EXTENSION_TIMEOUT,
+                    );
+                }
+                if claim.as_deref() == Some("confirm") {
+                    let claim_id = required_string(&params, "claim_id")?;
+                    let requested_tab_id = required_string(&params, "tab_id")?;
+                    let mut claimed = self.request_extension(
+                        "tabs.open",
+                        json!({
+                            "url":url,
+                            "claim":"confirm",
+                            "claim_id":claim_id,
+                            "tab_id":requested_tab_id,
+                        }),
+                        EXTENSION_TIMEOUT,
+                    )?;
+                    let tab_id = required_string(&claimed, "tab_id")?.to_string();
+                    self.wait_for_first_observation(&tab_id, FIRST_OBSERVATION_TIMEOUT)?;
+                    claimed["observation_ready"] = Value::Bool(true);
+                    return Ok(claimed);
+                }
+                let active = match params.get("active") {
+                    Some(value) => value.as_bool().context("active must be a boolean")?,
+                    None => true,
+                };
                 let mut opened = self.request_extension(
                     "tabs.open",
                     json!({"url":url,"active":active}),
@@ -307,6 +423,7 @@ impl NativeHostSession {
                 opened["observation_ready"] = Value::Bool(true);
                 Ok(opened)
             }
+            "web.act_object" => self.act_object(params),
             "web.act" => self.act(params, None, None),
             "web.act_native" => self.act(params, Some(InputBackend::Native), None),
             "web.act_soft" => self.act(params, Some(InputBackend::Soft), None),
@@ -318,11 +435,314 @@ impl NativeHostSession {
         }
     }
 
+
+    /// Roles the Extension's software pipe is registered to operate. Anything
+    /// else is the Agent client's job, not a Saccade failure.
+    fn software_capable(role: SemanticRole) -> bool {
+        matches!(
+            role,
+            SemanticRole::Button
+                | SemanticRole::Link
+                | SemanticRole::Checkbox
+                | SemanticRole::Radio
+                | SemanticRole::Switch
+                | SemanticRole::Select
+                | SemanticRole::Tab
+                | SemanticRole::MenuItem
+                | SemanticRole::ReflexTarget
+        )
+    }
+
+    /// The single state field whose change proves this role was operated.
+    /// Roles with no defined evidence return None and yield
+    /// `accepted_but_unverified`; a revision bump or an unrelated object
+    /// changing is never accepted as proof.
+    fn verification_field(role: SemanticRole) -> Option<&'static str> {
+        match role {
+            SemanticRole::Checkbox | SemanticRole::Radio | SemanticRole::Switch => Some("checked"),
+            SemanticRole::Tab => Some("selected"),
+            SemanticRole::Button => Some("pressed"),
+            SemanticRole::MenuItem => Some("expanded"),
+            SemanticRole::ReflexTarget => Some("reflex_occurrence"),
+            _ => None,
+        }
+    }
+
+    fn frame_url(snapshot: &ObservationSnapshot, frame_id: &str) -> Option<String> {
+        snapshot
+            .frames
+            .iter()
+            .find(|frame| frame.frame_id == frame_id)
+            .and_then(|frame| frame.document_url.clone())
+    }
+
+    fn external_required(object_id: &str, role: SemanticRole, reason: &str) -> Value {
+        json!({
+            "dispatch": "external_execution_required",
+            "reason": reason,
+            "object_id": object_id,
+            "role": role,
+        })
+    }
+
+    /// Object-addressed, software-only execution. The Agent names an object_id
+    /// from Truth and never a coordinate; the action token stays inside the
+    /// Runtime. Native input is never engaged from this path.
+    fn act_object(&self, params: Value) -> Result<Value> {
+        const ALLOWED: [&str; 7] = [
+            "tab_id",
+            "object_id",
+            "operation",
+            "document_id",
+            "basis_revision",
+            "option_object_id",
+            "timeout_ms",
+        ];
+        let object = params
+            .as_object()
+            .context("act requires an object of arguments")?;
+        for key in object.keys() {
+            if !ALLOWED.contains(&key.as_str()) {
+                bail!("unsupported act field {key}");
+            }
+        }
+        let tab_id = required_string(&params, "tab_id")?.to_string();
+        let object_id = required_string(&params, "object_id")?.to_string();
+        let operation = required_string(&params, "operation")?.to_string();
+        let document_id = required_string(&params, "document_id")?.to_string();
+        let basis_revision = params
+            .get("basis_revision")
+            .and_then(Value::as_u64)
+            .context("basis_revision is required")?;
+        if operation != "click" && operation != "select" {
+            bail!("operation must be click or select");
+        }
+        let timeout = Duration::from_millis(
+            params
+                .get("timeout_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or(5_000)
+                .clamp(1, 30_000),
+        );
+
+        let before = self.current_observation(&tab_id)?;
+        if before.document_id != document_id || before.revision != basis_revision {
+            bail!(
+                "document_id/basis_revision no longer current; call saccade.truth.read for tab {tab_id}"
+            );
+        }
+        let target = before
+            .objects
+            .iter()
+            .find(|candidate| candidate.object_id == object_id)
+            .with_context(|| {
+                format!(
+                    "unknown object_id at revision {}; call saccade.truth.read for tab {tab_id} first",
+                    before.revision
+                )
+            })?
+            .clone();
+
+        if !Self::software_capable(target.role) {
+            return Ok(Self::external_required(
+                &object_id,
+                target.role,
+                "control role is not registered for software input",
+            ));
+        }
+        // A link whose destination leaves HTTP(S) cannot be verified from Truth,
+        // so it is handed to the Agent client rather than guessed at.
+        if target.role == SemanticRole::Link {
+            if let Some(destination) = &target.navigation_target {
+                if !destination.starts_with("http://") && !destination.starts_with("https://") {
+                    return Ok(Self::external_required(
+                        &object_id,
+                        target.role,
+                        "navigation target is not an HTTP(S) destination",
+                    ));
+                }
+            }
+        }
+        if self
+            .engine
+            .lock()
+            .map_err(lock_error)?
+            .input_policy(target.role)?
+            == InputPolicy::NativeRequired
+        {
+            return Ok(Self::external_required(
+                &object_id,
+                target.role,
+                "registry requires native input for this control",
+            ));
+        }
+
+        let token = target
+            .action_token
+            .clone()
+            .context("object is not currently actionable")?;
+        let payload = if operation == "select" {
+            let option = required_string(&params, "option_object_id")?;
+            json!({"kind":"select","option_object_id":option})
+        } else {
+            json!({"kind":"none"})
+        };
+        let before_url = Self::frame_url(&before, &target.frame_id);
+        let field = Self::verification_field(target.role);
+        let before_state = field.and_then(|name| target.state.get(name).cloned());
+
+        // Reuse the audited closed loop; software backend only, never escalated.
+        self.act_inner(
+            json!({
+                "browser_instance_id": before.browser_instance_id,
+                "tab_id": tab_id,
+                "document_id": document_id,
+                "basis_revision": basis_revision,
+                "action_token": token,
+                "operation": operation,
+                "payload": payload,
+            }),
+            Some(InputBackend::Soft),
+            None,
+            false,
+        )?;
+
+        // A same-document change advances the revision; a cross-document
+        // navigation replaces the document and restarts it at 1. Either is
+        // progress, and waiting only on the revision would miss navigation.
+        let progressed = |snapshot: &ObservationSnapshot| {
+            snapshot.document_id != document_id || snapshot.revision > basis_revision
+        };
+        let deadline = Instant::now() + timeout;
+        let mut after = self.current_observation(&tab_id)?;
+        while !progressed(&after) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+            after = self.current_observation(&tab_id)?;
+        }
+        let unverified = |reason: &str| {
+            json!({
+                "dispatch": "accepted_by_software",
+                "verified": false,
+                "outcome": "accepted_but_unverified",
+                "reason": reason,
+                "revision": after.revision,
+            })
+        };
+        if !progressed(&after) {
+            return Ok(unverified("no observation followed the action"));
+        }
+
+        if target.role == SemanticRole::Link {
+            let Some(destination) = target.navigation_target.clone() else {
+                return Ok(unverified("link has no navigation_target to verify against"));
+            };
+            let after_url = Self::frame_url(&after, &target.frame_id);
+            let reached = after_url.as_deref() == Some(destination.as_str());
+            let same_document = after.document_id == before.document_id;
+            let already_there = before_url.as_deref() == Some(destination.as_str());
+            let verified = if !same_document {
+                reached
+            } else {
+                reached && !already_there
+            };
+            if !verified {
+                return Ok(unverified(if already_there && reached {
+                    "document URL already equalled the navigation_target before the click"
+                } else {
+                    "current document URL does not match the link's navigation_target"
+                }));
+            }
+            return Ok(json!({
+                "dispatch": "accepted_by_software",
+                "verified": true,
+                "verification": {
+                    "object_id": object_id,
+                    "field": "document_url",
+                    "before": before_url,
+                    "after": after_url,
+                },
+                "basis_revision": basis_revision,
+                "revision": after.revision,
+                "document_id": after.document_id,
+            }));
+        }
+
+        if operation == "select" {
+            let option_id = required_string(&params, "option_object_id")?;
+            let after_selected = after
+                .objects
+                .iter()
+                .find(|candidate| candidate.object_id == option_id)
+                .and_then(|candidate| candidate.state.get("selected").cloned());
+            let before_selected = before
+                .objects
+                .iter()
+                .find(|candidate| candidate.object_id == option_id)
+                .and_then(|candidate| candidate.state.get("selected").cloned());
+            if after_selected.as_deref() != Some("true") || before_selected == after_selected {
+                return Ok(unverified("chosen option did not become selected"));
+            }
+            return Ok(json!({
+                "dispatch": "accepted_by_software",
+                "verified": true,
+                "verification": {
+                    "object_id": option_id,
+                    "field": "selected",
+                    "before": before_selected,
+                    "after": after_selected,
+                },
+                "basis_revision": basis_revision,
+                "revision": after.revision,
+                "document_id": after.document_id,
+            }));
+        }
+        let Some(field) = field else {
+            return Ok(unverified("role has no defined verification evidence"));
+        };
+        let after_state = after
+            .objects
+            .iter()
+            .find(|candidate| candidate.object_id == object_id)
+            .and_then(|candidate| candidate.state.get(field).cloned());
+        if before_state.is_none() && after_state.is_none() {
+            return Ok(unverified("role has no defined verification evidence"));
+        }
+        if before_state == after_state {
+            return Ok(unverified("target semantic state did not change"));
+        }
+        Ok(json!({
+            "dispatch": "accepted_by_software",
+            "verified": true,
+            "verification": {
+                "object_id": object_id,
+                "field": field,
+                "before": before_state,
+                "after": after_state,
+            },
+            "basis_revision": basis_revision,
+            "revision": after.revision,
+            "document_id": after.document_id,
+        }))
+    }
+
     fn act(
         &self,
         params: Value,
         backend_override: Option<InputBackend>,
         known_page_scope: Option<&str>,
+    ) -> Result<Value> {
+        self.act_inner(params, backend_override, known_page_scope, true)
+    }
+
+    /// `learn` is false for the public software-only route: Truth-mode
+    /// execution must never record a native escalation, because it must never
+    /// engage native input in the first place.
+    fn act_inner(
+        &self,
+        params: Value,
+        backend_override: Option<InputBackend>,
+        known_page_scope: Option<&str>,
+        learn: bool,
     ) -> Result<Value> {
         let request: ActionRequest = serde_json::from_value(params)?;
         request.validate()?;
@@ -417,14 +837,16 @@ impl NativeHostSession {
             request.basis_revision,
             receipt.post_action_observation,
         )?;
-        self.learn_from_receipt(
-            &page,
-            target_role,
-            &control_name,
-            backend,
-            registered_policy,
-            &receipt,
-        )?;
+        if learn {
+            self.learn_from_receipt(
+                &page,
+                target_role,
+                &control_name,
+                backend,
+                registered_policy,
+                &receipt,
+            )?;
+        }
         Ok(serde_json::to_value(receipt)?)
     }
 
@@ -846,6 +1268,7 @@ impl NativeHostSession {
         let mut latencies = Vec::new();
         let mut failures = 0_u64;
         let mut stale_retries = 0_u64;
+        let mut bounded_recoveries = 0_u64;
         let mut stop_reason = "timeout";
 
         while Instant::now() < deadline && receipts.len() < max_actions {
@@ -879,6 +1302,31 @@ impl NativeHostSession {
                     stale_retries += 1;
                     observation = self.current_observation(tab_id)?;
                     continue;
+                }
+                Err(error) if is_reflex_recoverable_preparation(&error.to_string()) => {
+                    let recovery_deadline = (action_started + REFLEX_RECOVERY_BUDGET).min(deadline);
+                    let remaining = recovery_deadline.saturating_duration_since(Instant::now());
+                    let recovered = (!remaining.is_zero()).then(|| {
+                        self.wait_for_observation_after(
+                            tab_id,
+                            observation.revision,
+                            Some(&observation.document_id),
+                            remaining,
+                        )
+                    });
+                    if let Some(Ok(next)) = recovered {
+                        bounded_recoveries += 1;
+                        observation = next;
+                        continue;
+                    }
+                    failures += 1;
+                    stop_reason = "recovery_exhausted";
+                    receipts.push(json!({
+                        "sequence":receipts.len() + 1,
+                        "error":error.to_string(),
+                        "recovery_budget_ms":REFLEX_RECOVERY_BUDGET.as_millis()
+                    }));
+                    break;
                 }
                 Err(error) => {
                     failures += 1;
@@ -956,6 +1404,8 @@ impl NativeHostSession {
             "actions":receipts.len().saturating_sub(failures as usize),
             "failures":failures,
             "stale_retries":stale_retries,
+            "bounded_recoveries":bounded_recoveries,
+            "recovery_budget_ms":REFLEX_RECOVERY_BUDGET.as_millis(),
             "duration_ms":started.elapsed().as_secs_f64() * 1000.0,
             "latency_ms":{
                 "p50":percentile(0.50),
@@ -1001,15 +1451,38 @@ impl NativeHostSession {
     }
 
     fn handle_hello(&self, payload: Value) -> Result<()> {
+        self.extension_connected.store(false, Ordering::Release);
         let instance = required_string(&payload, "browser_instance_id")?.to_string();
         if instance.len() > 256 {
             bail!("browser instance identity is too long");
+        }
+        let candidate = payload
+            .get("extension_candidate")
+            .map(ExtensionCandidate::from_value)
+            .transpose()?;
+        if let Some(expected) = &self.expected_extension_candidate {
+            if candidate.as_ref() != Some(expected) {
+                bail!(
+                    "live Extension candidate does not match the installed candidate: live={candidate:?} expected={expected:?}"
+                );
+            }
+        }
+        if let (Some(browser_family), Some(development), Some(wake_url)) = (
+            payload.get("browser_family").and_then(Value::as_str),
+            payload.get("development").and_then(Value::as_bool),
+            payload.get("wake_url").and_then(Value::as_str),
+        ) {
+            write_route(
+                &self.runtime_dir,
+                &BrowserWakeRoute::new(browser_family, development, wake_url)?,
+            )?;
         }
         let mut current = self.browser_instance_id.lock().map_err(lock_error)?;
         if current.as_deref().is_some_and(|value| value != instance) {
             bail!("native host cannot switch browser instances");
         }
         *current = Some(instance);
+        *self.extension_candidate.lock().map_err(lock_error)? = candidate;
         self.extension_connected.store(true, Ordering::Release);
         drop(current);
         self.write_grant()
@@ -1214,6 +1687,12 @@ impl NativeHostSession {
                 {
                     return Ok(snapshot.clone());
                 }
+                if snapshot.revision < revision {
+                    let mut reset = snapshot.clone();
+                    reset.gap = true;
+                    reset.changes.clear();
+                    return Ok(reset);
+                }
             }
             if !self.extension_connected.load(Ordering::Acquire) {
                 bail!("extension disconnected while waiting for tab observation");
@@ -1368,6 +1847,10 @@ struct SoftwareInput<'a> {
 }
 
 impl NativeInput for SoftwareInput<'_> {
+    fn requires_physical_hit_testing(&self) -> bool {
+        false
+    }
+
     fn execute(
         &mut self,
         primitive: saccade_control_sdk::NativePrimitive,
@@ -1475,6 +1958,12 @@ fn is_pre_dispatch_stale(detail: &str) -> bool {
     .any(|needle| detail.contains(needle))
 }
 
+fn is_reflex_recoverable_preparation(detail: &str) -> bool {
+    detail.contains(
+        "prepared action failed identity, focus, geometry, visibility, or topmost revalidation",
+    )
+}
+
 fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value
         .get(key)
@@ -1537,6 +2026,69 @@ mod tests {
         }
     }
 
+    #[test]
+    fn expected_extension_candidate_rejects_stale_live_worker() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let expected = json!({
+            "schema":"saccade.extension-candidate/1",
+            "id":"a".repeat(64),
+            "version":"0.3.20"
+        });
+        fs::write(
+            dir.path().join("expected-extension-candidate.json"),
+            serde_json::to_vec(&expected).unwrap(),
+        )
+        .unwrap();
+        let session = NativeHostSession::with_adapters(
+            dir.path().to_path_buf(),
+            Arc::new(CapturingOutbound(out_tx)),
+            Box::new(FakeNative(native_tx)),
+        )
+        .unwrap();
+
+        let stale = session.handle_native(NativeEnvelope {
+            protocol: HOST_PROTOCOL.into(),
+            kind: "hello".into(),
+            request_id: None,
+            payload: json!({
+                "browser_instance_id":"browser-1",
+                "extension_candidate":{
+                    "schema":"saccade.extension-candidate/1",
+                    "id":"b".repeat(64),
+                    "version":"0.3.19"
+                }
+            }),
+        });
+        assert!(stale.unwrap_err().to_string().contains("does not match"));
+
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({
+                    "browser_instance_id":"browser-1",
+                    "extension_candidate":expected
+                }),
+            })
+            .unwrap();
+        let capabilities = session.handle_control(ControlRequest {
+            id: 1,
+            method: "system.capabilities".into(),
+            params: json!({}),
+            capability: session.capability(),
+        });
+        let capabilities = capabilities.result.unwrap();
+        assert_eq!(capabilities["extension_connected"], true);
+        assert_eq!(capabilities["extension_candidate"]["id"], "a".repeat(64));
+        assert_eq!(
+            capabilities["expected_extension_candidate"],
+            capabilities["extension_candidate"]
+        );
+    }
+
     fn field(has_value: bool) -> ObservedObject {
         ObservedObject {
             object_id: "field-1".into(),
@@ -1555,6 +2107,7 @@ mod tests {
             name: Some("Email".into()),
             description: None,
             text: None,
+            navigation_target: None,
             state: BTreeMap::from([
                 ("enabled".into(), "true".into()),
                 ("has_value".into(), has_value.to_string()),
@@ -1598,10 +2151,12 @@ mod tests {
             document_id: "document-1".into(),
             revision,
             viewport_revision: 1,
+            geometry: None,
             frames: vec![FrameObservation {
                 frame_id: "frame-1".into(),
                 parent_frame_id: None,
                 document_id: "document-1".into(),
+                document_url: Some("https://fixture.test/page".into()),
                 origin: "https://fixture.test".into(),
                 status: FrameStatus::Observed,
             }],
@@ -1863,6 +2418,48 @@ mod tests {
     }
 
     #[test]
+    fn impossible_future_revision_returns_a_full_gap_reset() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = NativeHostSession::with_adapters(
+            dir.path().to_path_buf(),
+            Arc::new(CapturingOutbound(out_tx)),
+            Box::new(FakeNative(native_tx)),
+        )
+        .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(3, field(true))).unwrap(),
+            })
+            .unwrap();
+
+        let response = session.handle_control(ControlRequest {
+            id: 11,
+            method: "web.observe".into(),
+            params: json!({"tab_id":"tab-1","after_revision":44,"timeout_ms":1000}),
+            capability: session.capability(),
+        });
+        assert!(response.ok, "{:?}", response.error);
+        let observation: ObservationSnapshot =
+            serde_json::from_value(response.result.unwrap()).unwrap();
+        assert_eq!(observation.revision, 3);
+        assert!(observation.gap);
+        assert!(observation.changes.is_empty());
+    }
+
+    #[test]
     fn observe_after_revision_returns_when_navigation_resets_revision() {
         let (out_tx, _out_rx) = mpsc::channel();
         let (native_tx, _native_rx) = mpsc::channel();
@@ -2108,14 +2705,14 @@ mod tests {
                     tab_id: "tab-1".into(),
                     document_id: "document-1".into(),
                     basis_revision: 1,
-                    viewport_revision: 1,
+                    viewport_revision: 2,
                     object_id: "reflex-1".into(),
                     action_token: request.action_token.clone(),
                     operation: ActionOperation::Click,
                     screen_bounds: before_target.document_bounds,
                     visible: true,
-                    topmost: true,
-                    focus_verified: true,
+                    topmost: false,
+                    focus_verified: false,
                     selection_index: None,
                 })
                 .unwrap(),
@@ -2182,6 +2779,152 @@ mod tests {
     }
 
     #[test]
+    fn reflex_loop_recovers_invalid_preparation_within_bounded_budget() {
+        let (out_tx, out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(1, reflex_target(10.0))).unwrap(),
+            })
+            .unwrap();
+
+        let control = ControlRequest {
+            id: 30,
+            method: "web.reflex.run".into(),
+            params: json!({
+                "tab_id":"tab-1",
+                "input_backend":"soft",
+                "max_actions":1,
+                "timeout_ms":1000
+            }),
+            capability: session.capability(),
+        };
+        let worker_session = Arc::clone(&session);
+        let worker = std::thread::spawn(move || worker_session.handle_control(control));
+
+        let list = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(list.kind, "tabs.list");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: list.request_id,
+                payload: json!({"tabs":[{"tab_id":"tab-1","url":"https://fixture.test/game"}]}),
+            })
+            .unwrap();
+
+        let invalid_prepare = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(invalid_prepare.kind, "prepare_action");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: invalid_prepare.request_id,
+                payload: serde_json::to_value(PreparedAction {
+                    browser_instance_id: "browser-1".into(),
+                    tab_id: "tab-1".into(),
+                    document_id: "document-1".into(),
+                    basis_revision: 1,
+                    viewport_revision: 1,
+                    object_id: "reflex-1".into(),
+                    action_token: invalid_prepare.payload["action_token"]
+                        .as_str()
+                        .unwrap()
+                        .into(),
+                    operation: ActionOperation::Click,
+                    screen_bounds: reflex_target(10.0).document_bounds,
+                    visible: false,
+                    topmost: true,
+                    focus_verified: true,
+                    selection_index: None,
+                })
+                .unwrap(),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(2, reflex_target(20.0))).unwrap(),
+            })
+            .unwrap();
+
+        let prepare = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(prepare.kind, "prepare_action");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: prepare.request_id,
+                payload: serde_json::to_value(PreparedAction {
+                    browser_instance_id: "browser-1".into(),
+                    tab_id: "tab-1".into(),
+                    document_id: "document-1".into(),
+                    basis_revision: 2,
+                    viewport_revision: 1,
+                    object_id: "reflex-1".into(),
+                    action_token: prepare.payload["action_token"].as_str().unwrap().into(),
+                    operation: ActionOperation::Click,
+                    screen_bounds: reflex_target(20.0).document_bounds,
+                    visible: true,
+                    topmost: true,
+                    focus_verified: true,
+                    selection_index: None,
+                })
+                .unwrap(),
+            })
+            .unwrap();
+        let software = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(software.kind, "soft_click");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: software.request_id,
+                payload: json!({"accepted":true}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(3, reflex_target(30.0))).unwrap(),
+            })
+            .unwrap();
+
+        let response = worker.join().unwrap();
+        assert!(response.ok, "{:?}", response.error);
+        let report = response.result.unwrap();
+        assert_eq!(report["actions"], 1);
+        assert_eq!(report["failures"], 0);
+        assert_eq!(report["bounded_recoveries"], 1);
+        assert_eq!(report["recovery_budget_ms"], 45);
+        assert_eq!(report["stop_reason"], "max_actions");
+    }
+
+    #[test]
     fn profile_hides_control_and_rejects_its_token_before_prepare() {
         let (out_tx, out_rx) = mpsc::channel();
         let (native_tx, native_rx) = mpsc::channel();
@@ -2237,14 +2980,11 @@ mod tests {
             capability: session.capability(),
         });
         let capabilities = capabilities.result.unwrap();
-        assert_eq!(capabilities["schema"], "saccade.capabilities/5");
+        assert_eq!(capabilities["schema"], "saccade.capabilities/6");
         assert_eq!(capabilities["product"], "truth_layer");
         assert_eq!(capabilities["execution_owner"], "agent_client");
         assert!(capabilities.get("native_accessibility_trusted").is_none());
-        assert_eq!(
-            capabilities["restricted_surfaces"][0]["kind"],
-            "browser_owned_confirm"
-        );
+        assert!(capabilities.get("restricted_surfaces").is_none());
         assert_eq!(
             capabilities["profile"],
             json!({"name":"focused","behavior":"Use the visible controls in order."})
@@ -2334,6 +3074,204 @@ mod tests {
             response.result.unwrap(),
             json!({"tab_id":"tab-7","opened":true,"observation_ready":true})
         );
+    }
+
+    #[test]
+    fn tabs_open_claim_arms_without_a_tab_and_confirms_one_agent_client_tab() {
+        let (out_tx, out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+
+        // Arm forwards only url and claim, and returns without any tab
+        // identity or observation wait.
+        let arm = ControlRequest {
+            id: 4,
+            method: "tabs.open".into(),
+            params: json!({"url":"https://fixture.test/form","claim":"arm"}),
+            capability: session.capability(),
+        };
+        let worker_session = Arc::clone(&session);
+        let worker = std::thread::spawn(move || worker_session.handle_control(arm));
+        let outbound = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(outbound.kind, "tabs.open");
+        assert_eq!(
+            outbound.payload,
+            json!({"url":"https://fixture.test/form","claim":"arm"})
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: outbound.request_id,
+                payload: json!({
+                    "claim":"armed",
+                    "claim_id":"claim.abc",
+                    "origin":"https://fixture.test",
+                    "expires_in_ms":30000
+                }),
+            })
+            .unwrap();
+        let armed = worker.join().unwrap();
+        assert!(armed.ok);
+        let armed = armed.result.unwrap();
+        assert_eq!(armed["claim"], "armed");
+        assert!(armed.get("tab_id").is_none());
+        assert!(armed.get("opened").is_none());
+        assert!(armed.get("observation_ready").is_none());
+
+        // Confirm forwards the Agent-supplied identity and only then waits for
+        // Truth from that exact tab.
+        let confirm = ControlRequest {
+            id: 5,
+            method: "tabs.open".into(),
+            params: json!({
+                "url":"https://fixture.test/form",
+                "claim":"confirm",
+                "claim_id":"claim.abc",
+                "tab_id":"tab-7"
+            }),
+            capability: session.capability(),
+        };
+        let worker_session = Arc::clone(&session);
+        let worker = std::thread::spawn(move || worker_session.handle_control(confirm));
+        let outbound = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            outbound.payload,
+            json!({
+                "url":"https://fixture.test/form",
+                "claim":"confirm",
+                "claim_id":"claim.abc",
+                "tab_id":"tab-7"
+            })
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: outbound.request_id,
+                payload: json!({
+                    "tab_id":"tab-7",
+                    "claim":"confirmed",
+                    "opened":false,
+                    "provenance":"agent_client"
+                }),
+            })
+            .unwrap();
+        let mut ready = snapshot(1, field(false));
+        ready.tab_id = "tab-7".into();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(ready).unwrap(),
+            })
+            .unwrap();
+        let confirmed = worker.join().unwrap();
+        assert!(confirmed.ok);
+        assert_eq!(
+            confirmed.result.unwrap(),
+            json!({
+                "tab_id":"tab-7",
+                "claim":"confirmed",
+                "opened":false,
+                "provenance":"agent_client",
+                "observation_ready":true
+            })
+        );
+
+        // active belongs to the Saccade-created route only, and arm carries no
+        // tab identity.
+        for rejected in [
+            json!({"url":"https://fixture.test/form","claim":"arm","tab_id":"tab-7"}),
+            json!({"url":"https://fixture.test/form","claim":"confirm","claim_id":"claim.abc","active":true}),
+            json!({"url":"https://fixture.test/form","claim":"adopt"}),
+        ] {
+            let response = session.handle_control(ControlRequest {
+                id: 6,
+                method: "tabs.open".into(),
+                params: rejected,
+                capability: session.capability(),
+            });
+            assert!(!response.ok);
+            assert!(out_rx.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn tabs_close_is_forwarded_and_discards_host_observation_state() {
+        let (out_tx, out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = Arc::new(
+            NativeHostSession::with_adapters(
+                dir.path().to_path_buf(),
+                Arc::new(CapturingOutbound(out_tx)),
+                Box::new(FakeNative(native_tx)),
+            )
+            .unwrap(),
+        );
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "observation".into(),
+                request_id: None,
+                payload: serde_json::to_value(snapshot(1, field(false))).unwrap(),
+            })
+            .unwrap();
+
+        let control = ControlRequest {
+            id: 5,
+            method: "tabs.close".into(),
+            params: json!({"tab_id":"tab-1"}),
+            capability: session.capability(),
+        };
+        let worker_session = Arc::clone(&session);
+        let worker = std::thread::spawn(move || worker_session.handle_control(control));
+
+        let outbound = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(outbound.kind, "tabs.close");
+        assert_eq!(outbound.payload, json!({"tab_id":"tab-1"}));
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: outbound.request_id,
+                payload: json!({"tab_id":"tab-1","closed":true}),
+            })
+            .unwrap();
+
+        let response = worker.join().unwrap();
+        assert!(response.ok);
+        assert_eq!(
+            response.result.unwrap(),
+            json!({"tab_id":"tab-1","closed":true})
+        );
+        assert!(session.current_observation("tab-1").is_err());
     }
 
     #[test]

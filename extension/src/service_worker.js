@@ -518,6 +518,12 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   considerClaimCandidate(tabId, change.url || tab?.pendingUrl || tab?.url);
   if (!isAuthorized(tabId)) return;
   if (change.status === 'loading') sessions.delete(tabId);
+  // history.pushState/replaceState never reach the Collector's isolated world,
+  // so same-document URL changes are relayed here instead.
+  if (change.url && change.status === undefined) {
+    chrome.tabs.sendMessage(tabId, { kind: 'collector.recollect' }, { frameId: 0 })
+      .catch(() => { /* collector not present in this tab */ });
+  }
   if ((change.url || change.status === 'loading' || change.status === 'complete') && isSupportedUrl(tab.url)) {
     authorizeTab(tabId).catch(reportAuthorizationFailure);
   }

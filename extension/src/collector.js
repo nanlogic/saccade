@@ -27,7 +27,14 @@
   const reflexLoopClassToken = randomToken('loop');
   let objectSerial = 0;
   let revision = 0;
+  // A pure hash/pushState change mutates no DOM, so the object fingerprint is
+  // unchanged. The document URL is public browser truth and must still advance
+  // the revision, or anchor navigation would be invisible to Truth.
+  let lastUrlFingerprint = null;
   let viewportRevision = 0;
+  // viewport_revision tracks geometry only. A DOM or URL change must not
+  // advance it, or an Agent cannot tell "the page moved" from "the page changed".
+  let lastGeometryFingerprint = null;
   let config = null;
   let scheduled = false;
   let scheduledFrame = null;
@@ -86,14 +93,14 @@
   }
 
   function collectFrameContexts() {
-    const contexts = [{ doc: document, frameId: config.frameId, documentId, parentFrameId: undefined, origin: location.origin }];
+    const contexts = [{ doc: document, frameId: config.frameId, documentId, parentFrameId: undefined, origin: location.origin, url: location.href }];
     const frames = [];
     const limitations = [];
     for (let index = 0; index < contexts.length; index += 1) {
       const parent = contexts[index];
       frames.push({
         frame_id: parent.frameId, ...(parent.parentFrameId ? { parent_frame_id: parent.parentFrameId } : {}),
-        document_id: parent.documentId, origin: parent.origin, status: 'observed',
+        document_id: parent.documentId, document_url: parent.url, origin: parent.origin, status: 'observed',
       });
       for (const element of composedQuery(parent.doc, 'iframe,frame')) {
         const frameId = frameIdentity(element);
@@ -114,7 +121,7 @@
           limitations.push({ kind: 'restricted_frame', frame_id: frameId });
           continue;
         }
-        contexts.push({ doc: child, frameId, documentId: frameDocumentId(child), parentFrameId: parent.frameId, origin: parent.origin });
+        contexts.push({ doc: child, frameId, documentId: frameDocumentId(child), parentFrameId: parent.frameId, origin: parent.origin, url: child.location.href });
       }
     }
     return { contexts, frames, limitations };
@@ -153,6 +160,9 @@
       }
       schedule();
     }, true);
+    for (const event of ['hashchange', 'popstate', 'pageshow']) {
+      doc.defaultView.addEventListener(event, schedule);
+    }
     doc.defaultView.addEventListener('scroll', scheduleVisual, { passive: true });
     doc.defaultView.addEventListener('resize', scheduleVisual, { passive: true });
   }
@@ -816,7 +826,24 @@
       tokenTargets.clear();
     }
     const changes = compileChanges(compiledObjects, objects);
-    if (compiledObjects && changes.length === 0) {
+    // Bounds come from getBoundingClientRect, so the layout viewport is the
+    // space they are expressed in. device_pixel_ratio is descriptive only.
+    const geometry = {
+      unit: 'css_px',
+      coordinate_space: 'content_viewport',
+      viewport_width: document.documentElement.clientWidth,
+      viewport_height: document.documentElement.clientHeight,
+      scroll_x: Math.round(scrollX),
+      scroll_y: Math.round(scrollY),
+      device_pixel_ratio: devicePixelRatio,
+    };
+    const geometryFingerprint = [geometry.viewport_width, geometry.viewport_height,
+      geometry.scroll_x, geometry.scroll_y, geometry.device_pixel_ratio].join('\u0000');
+    const geometryChanged = geometryFingerprint !== lastGeometryFingerprint;
+    const urlFingerprint = frameState.frames
+      .map((frame) => `${frame.frame_id}\u0000${frame.document_url || ''}`).join('\u0001');
+    if (compiledObjects && changes.length === 0 && urlFingerprint === lastUrlFingerprint
+      && !geometryChanged) {
       tokenTargets.clear();
       objectTargets.clear();
       for (const [token, target] of previousTokenTargets) {
@@ -829,11 +856,14 @@
       return null;
     }
     revision += 1;
-    viewportRevision += 1;
+    if (geometryChanged) viewportRevision += 1;
+    lastGeometryFingerprint = geometryFingerprint;
+    lastUrlFingerprint = urlFingerprint;
     const snapshot = {
       schema: OBSERVATION_SCHEMA, browser_instance_id: config.browserInstanceId,
       tab_id: config.tabId, document_id: documentId, revision, viewport_revision: viewportRevision,
       frames: frameState.frames,
+      geometry: { ...geometry, viewport_revision: viewportRevision },
       objects, changes, coverage: {
         source: 'dom_extension',
         observed_frame_count: frameState.frames.filter((frame) => frame.status === 'observed').length,
@@ -1044,6 +1074,7 @@
       else if (message.kind === 'collector.configure') { configure(message.config); respond({ ok: true, document_id: documentId }); }
       else if (message.kind === 'collector.observe') { collect(); respond({ ok: true }); }
       else if (message.kind === 'collector.deauthorize') { deauthorize(); respond({ ok: true }); }
+      else if (message.kind === 'collector.recollect') { collect(); respond({ ok: true }); }
       else if (message.kind === 'collector.prepare_action') respond({ ok: true, prepared: prepare(message.request) });
       else if (message.kind === 'collector.soft_click') respond({ ok: true, result: softClick(message.request) });
       else if (message.kind === 'collector.soft_action') respond({ ok: true, result: softAction(message.request) });

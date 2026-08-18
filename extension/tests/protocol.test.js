@@ -449,3 +449,55 @@ test('Agent tab lifecycle recovers from no current window and survives last-tab 
   assert.doesNotMatch(windowReconnect, /\.disconnect\(\)/);
   assert.match(windowReconnect, /await connectHost\(\)/);
 });
+
+test('the Collector reads the full document URL in the same collect as the objects', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  // URL must come from the frame context built during collect, never bolted on
+  // afterwards by the Runtime, so document_id + document_url + objects always
+  // describe one instant.
+  assert.match(collector, /origin: location\.origin, url: location\.href/);
+  assert.match(collector, /document_url: parent\.url/);
+  // Child same-origin frames carry their own URL so iframe navigation attributes
+  // correctly instead of inheriting the top document's URL.
+  assert.match(collector, /url: child\.location\.href/);
+});
+
+test('a URL change advances the revision even when no object changed', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  // A pure hash or pushState change mutates no DOM. Without this the delta is
+  // suppressed and same-document link verification is impossible.
+  assert.match(collector, /lastUrlFingerprint/);
+  assert.match(collector, /changes\.length === 0 && urlFingerprint === lastUrlFingerprint/);
+  // The fingerprint is per frame, so an iframe URL change is not masked by the
+  // top document staying put.
+  assert.match(collector, /frame\.frame_id.*frame\.document_url/);
+});
+
+test('same-document navigation events reach the Collector, and pushState is relayed', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  for (const event of ['hashchange', 'popstate', 'pageshow']) {
+    assert.ok(collector.includes(`'${event}'`), `collector must observe ${event}`);
+  }
+  assert.match(collector, /collector\.recollect/);
+  // history.pushState/replaceState never reach an ISOLATED world, so the
+  // Service Worker relays chrome.tabs.onUpdated URL changes instead.
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(worker, /change\.url && change\.status === undefined/);
+  assert.match(worker, /kind: 'collector\.recollect'/);
+});
+
+test('geometry is read in the same collect and viewport_revision tracks geometry only', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  // Read inside collect, emitted on the same snapshot as objects and frames.
+  assert.match(collector, /coordinate_space: 'content_viewport'/);
+  assert.match(collector, /unit: 'css_px'/);
+  assert.match(collector, /viewport_width: document\.documentElement\.clientWidth/);
+  assert.match(collector, /device_pixel_ratio: devicePixelRatio/);
+  assert.match(collector, /geometry: \{ \.\.\.geometry, viewport_revision: viewportRevision \}/);
+  // A DOM-only or URL-only change must not advance viewport_revision.
+  assert.match(collector, /if \(geometryChanged\) viewportRevision \+= 1;/);
+  assert.ok(!/\n\s*viewportRevision \+= 1;/.test(collector.replace(/if \(geometryChanged\) viewportRevision \+= 1;/, '')),
+    'viewport_revision must only advance behind the geometry check');
+  // Geometry change alone must still produce an observation.
+  assert.match(collector, /&& !geometryChanged/);
+});

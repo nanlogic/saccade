@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Same-document URL changes</title></head>
+<body>
+  <h1>Same-document URL changes</h1>
+  <a id="jump" href="#section-3">Jump to section three</a>
+  <p role="status" id="marker">This text never changes.</p>
+  <div style="height:1200px"></div>
+  <h2 id="section-3">Section three</h2>
+  <script>
+    // Zero DOM mutation is the whole point: if Truth still reports a new
+    // revision, it can only be because the document URL itself changed.
+    window.__domMutations = 0;
+    new MutationObserver((records) => { window.__domMutations += records.length; })
+      .observe(document.documentElement, { subtree: true, childList: true,
+                                           attributes: true, characterData: true });
+    // Externally driven, so the proof needs no actuator.
+    setTimeout(() => { location.hash = '#section-3'; }, 1500);
+    setTimeout(() => { history.pushState({}, '', '?step=2#pushed'); }, 3500);
+    setTimeout(() => { history.replaceState({}, '', '?step=3#replaced'); }, 5500);
+  </script>
+</body>
+</html>

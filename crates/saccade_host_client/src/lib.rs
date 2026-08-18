@@ -4,7 +4,8 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use saccade_protocol::{ControlRequest, HostGrant, LocalAddress, ProtocolError};
 use serde_json::Value;
@@ -22,8 +23,11 @@ pub struct HostClient {
 
 impl HostClient {
     pub fn connect(grant_path: PathBuf) -> Result<Self, ProtocolError> {
-        read_owner_only_grant(&grant_path)?;
         Ok(Self { grant_path })
+    }
+
+    pub fn grant_path(&self) -> &Path {
+        &self.grant_path
     }
 
     pub fn call(
@@ -33,14 +37,114 @@ impl HostClient {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, ProtocolError> {
-        let grant = read_owner_only_grant(&self.grant_path)?;
-        let request = ControlRequest {
-            id,
-            method: method.into(),
-            params,
-            capability: grant.capability.clone(),
+        let deadline = Instant::now() + timeout;
+        let method = method.into();
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(ProtocolError::Timeout);
+            }
+            let result = read_owner_only_grant(&self.grant_path).and_then(|grant| {
+                let request = ControlRequest {
+                    id,
+                    method: method.clone(),
+                    params: params.clone(),
+                    capability: grant.capability.clone(),
+                };
+                call_host(&grant, &request, remaining)
+            });
+            match result {
+                Err(ProtocolError::TransportUnavailable(_)) if Instant::now() < deadline => {
+                    thread::sleep(
+                        Duration::from_millis(50)
+                            .min(deadline.saturating_duration_since(Instant::now())),
+                    );
+                }
+                value => return value,
+            }
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use saccade_protocol::{
+        ControlRequest, ControlResponse, HostGrant, LocalAddress, HOST_PROTOCOL,
+        SESSION_CAPABILITY_SCHEME,
+    };
+    use std::fs;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixListener;
+
+    fn write_grant(path: &Path, socket: &Path, capability: &str) {
+        let grant = HostGrant {
+            protocol: HOST_PROTOCOL.into(),
+            browser_instance_id: "browser-recovery".into(),
+            address: LocalAddress::Unix {
+                path: socket.into(),
+            },
+            capability_scheme: SESSION_CAPABILITY_SCHEME.into(),
+            capability: capability.into(),
         };
-        call_host(&grant, &request, timeout)
+        fs::write(path, serde_json::to_vec(&grant).unwrap()).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn serve_once(listener: UnixListener, expected_capability: String, value: &'static str) {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let request: ControlRequest = serde_json::from_str(&line).unwrap();
+        assert_eq!(request.capability, expected_capability);
+        let response = ControlResponse {
+            id: request.id,
+            ok: true,
+            result: Some(serde_json::json!({"host": value})),
+            error: None,
+        };
+        serde_json::to_writer(&mut stream, &response).unwrap();
+        stream.write_all(b"\n").unwrap();
+    }
+
+    #[test]
+    fn one_client_recovers_when_grant_and_socket_appear_then_rotate() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let grant_path = directory.path().join("host-grant.json");
+        let client = HostClient::connect(grant_path.clone()).unwrap();
+
+        let first_socket = directory.path().join("first.sock");
+        let first_listener = UnixListener::bind(&first_socket).unwrap();
+        fs::set_permissions(&first_socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let first_server =
+            thread::spawn(move || serve_once(first_listener, "a".repeat(43), "first"));
+        thread::sleep(Duration::from_millis(75));
+        write_grant(&grant_path, &first_socket, &"a".repeat(43));
+        assert_eq!(
+            client
+                .call(1, "ping", serde_json::json!({}), Duration::from_secs(2))
+                .unwrap()["host"],
+            "first"
+        );
+        first_server.join().unwrap();
+
+        let second_socket = directory.path().join("second.sock");
+        let second_listener = UnixListener::bind(&second_socket).unwrap();
+        fs::set_permissions(&second_socket, fs::Permissions::from_mode(0o600)).unwrap();
+        write_grant(&grant_path, &second_socket, &"b".repeat(43));
+        let second_server =
+            thread::spawn(move || serve_once(second_listener, "b".repeat(43), "second"));
+        assert_eq!(
+            client
+                .call(2, "ping", serde_json::json!({}), Duration::from_secs(2))
+                .unwrap()["host"],
+            "second"
+        );
+        second_server.join().unwrap();
     }
 }
 

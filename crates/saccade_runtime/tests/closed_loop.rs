@@ -71,6 +71,7 @@ fn object(
         name: Some(id.into()),
         description: None,
         text: None,
+        navigation_target: None,
         state: state
             .iter()
             .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -91,10 +92,12 @@ fn snapshot(revision: u64, objects: Vec<ObservedObject>) -> ObservationSnapshot 
         document_id: "document-1".into(),
         revision,
         viewport_revision: 1,
+        geometry: None,
         frames: vec![FrameObservation {
             frame_id: "frame-1".into(),
             parent_frame_id: None,
             document_id: "document-1".into(),
+            document_url: Some("https://fixture.test/page".into()),
             origin: "https://fixture.test".into(),
             status: FrameStatus::Observed,
         }],

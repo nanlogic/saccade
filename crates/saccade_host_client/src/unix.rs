@@ -89,6 +89,11 @@ fn require_private_mode(mode: u32) -> Result<(), ProtocolError> {
 }
 
 fn decode_response(request: &ControlRequest, bytes: &[u8]) -> Result<Value, ProtocolError> {
+    if bytes.is_empty() {
+        return Err(ProtocolError::TransportUnavailable(
+            "Unix socket closed before response".into(),
+        ));
+    }
     let response: ControlResponse = serde_json::from_slice(bytes).map_err(json_error)?;
     if response.id != request.id {
         return Err(ProtocolError::InvalidMessage("response id mismatch".into()));
@@ -104,5 +109,25 @@ fn decode_response(request: &ControlRequest, bytes: &[u8]) -> Result<Value, Prot
             "{}: {}",
             error.code, error.detail
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_response;
+    use saccade_protocol::{ControlRequest, ProtocolError};
+
+    #[test]
+    fn empty_response_is_transport_rotation_not_invalid_json() {
+        let request = ControlRequest {
+            id: 1,
+            method: "ping".into(),
+            params: serde_json::json!({}),
+            capability: "c".repeat(43),
+        };
+        assert!(matches!(
+            decode_response(&request, b""),
+            Err(ProtocolError::TransportUnavailable(_))
+        ));
     }
 }

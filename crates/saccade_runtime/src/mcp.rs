@@ -8,13 +8,16 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::browser_wake;
+use crate::profile::Profile;
 use anyhow::{anyhow, bail, Context, Result};
 use saccade_host_client::HostClient;
-use saccade_protocol::{ActionReceipt, ChangeKind, ObservationSnapshot};
+use saccade_protocol::{ActionReceipt, ChangeKind, ObservationSnapshot, ProtocolError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 const MCP_VERSION: &str = "2025-03-26";
+const ECONOMY_COALESCE_WINDOW: Duration = Duration::from_millis(150);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Deserialize)]
@@ -42,7 +45,100 @@ enum McpMode {
     Reference,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TruthDeliveryMode {
+    Live,
+    Economy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TruthViewMode {
+    Auto,
+    Full,
+    Index,
+    Region {
+        region_id: String,
+        document_id: String,
+        basis_revision: u64,
+    },
+}
+
+impl TruthViewMode {
+    fn from_arguments(arguments: &mut Value) -> Result<Self> {
+        let object = arguments
+            .as_object_mut()
+            .context("tool arguments must be an object")?;
+        let mode = object
+            .remove("view_mode")
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .unwrap_or_else(|| "auto".into());
+        let region_id = object.remove("region_id");
+        let document_id = object.remove("document_id");
+        let basis_revision = object.remove("basis_revision");
+        match mode.as_str() {
+            "auto" if region_id.is_none() && document_id.is_none() && basis_revision.is_none() => {
+                Ok(Self::Auto)
+            }
+            "full" if region_id.is_none() && document_id.is_none() && basis_revision.is_none() => {
+                Ok(Self::Full)
+            }
+            "index" if region_id.is_none() && document_id.is_none() && basis_revision.is_none() => {
+                Ok(Self::Index)
+            }
+            "region" => Ok(Self::Region {
+                region_id: region_id
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .context("region view requires region_id")?
+                    .to_string(),
+                document_id: document_id
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .context("region view requires document_id")?
+                    .to_string(),
+                basis_revision: basis_revision
+                    .as_ref()
+                    .and_then(Value::as_u64)
+                    .filter(|value| *value > 0)
+                    .context("region view requires a positive basis_revision")?,
+            }),
+            "auto" | "full" | "index" => {
+                bail!("region_id, document_id, and basis_revision are valid only for region view")
+            }
+            _ => bail!("view_mode must be auto, full, index, or region"),
+        }
+    }
+}
+
+impl TruthDeliveryMode {
+    fn from_arguments(arguments: &mut Value) -> Result<Self> {
+        let value = arguments
+            .as_object_mut()
+            .context("tool arguments must be an object")?
+            .remove("delivery_mode");
+        match value.as_ref().and_then(Value::as_str) {
+            None | Some("live") => Ok(Self::Live),
+            Some("economy") => Ok(Self::Economy),
+            Some(_) => bail!("delivery_mode must be live or economy"),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Live => "live",
+            Self::Economy => "economy",
+        }
+    }
+}
+
 fn serve_mode(grant_path: PathBuf, mode: McpMode) -> Result<()> {
+    let startup_profile = grant_path
+        .parent()
+        .map(Profile::load)
+        .transpose()?
+        .unwrap_or_default();
     let host = HostClient::connect(grant_path)?;
     let subscriptions = Arc::new(Mutex::new(BTreeMap::new()));
     let output = Arc::new(Mutex::new(std::io::stdout()));
@@ -59,6 +155,7 @@ fn serve_mode(grant_path: PathBuf, mode: McpMode) -> Result<()> {
         output,
         subscriptions,
         mode,
+        startup_profile,
     );
     running.store(false, Ordering::Release);
     result
@@ -70,6 +167,7 @@ fn serve_shared_io(
     output: Arc<Mutex<impl Write>>,
     subscriptions: Arc<Mutex<BTreeMap<String, u64>>>,
     mode: McpMode,
+    startup_profile: Profile,
 ) -> Result<()> {
     let mut agent_views = AgentViewState::new(mode == McpMode::Reference);
     for line in input.lines() {
@@ -91,8 +189,15 @@ fn serve_shared_io(
         let Some(id) = request.id.clone() else {
             continue;
         };
-        let result = dispatch(host, &mut agent_views, &subscriptions, mode, request)
-            .map_err(|error| (-32000, error.to_string()));
+        let result = dispatch(
+            host,
+            &mut agent_views,
+            &subscriptions,
+            mode,
+            &startup_profile,
+            request,
+        )
+        .map_err(|error| (-32000, error.to_string()));
         write_rpc(&mut *output.lock().map_err(lock_error)?, id, result)?;
     }
     Ok(())
@@ -103,6 +208,7 @@ fn dispatch(
     agent_views: &mut AgentViewState,
     subscriptions: &Arc<Mutex<BTreeMap<String, u64>>>,
     mode: McpMode,
+    startup_profile: &Profile,
     request: RpcRequest,
 ) -> Result<Value> {
     let diagnostics = diagnostic_input_overrides_enabled();
@@ -110,7 +216,7 @@ fn dispatch(
         bail!("unsupported JSON-RPC version {}", request.jsonrpc);
     }
     match request.method.as_str() {
-        "initialize" => initialize(host, mode),
+        "initialize" => initialize(host, mode, startup_profile),
         "notifications/initialized" | "ping" => Ok(json!({})),
         "resources/list" => list_truth_resources(host),
         "resources/read" => read_truth_resource(host, agent_views, &request.params),
@@ -134,13 +240,19 @@ fn dispatch(
     }
 }
 
-fn initialize(host: &HostClient, mode: McpMode) -> Result<Value> {
-    let capabilities = host.call(
+fn initialize(host: &HostClient, mode: McpMode, startup_profile: &Profile) -> Result<Value> {
+    let capabilities = match host.call(
         NEXT_ID.fetch_add(1, Ordering::Relaxed),
         "system.capabilities",
         json!({}),
-        Duration::from_secs(10),
-    )?;
+        Duration::from_millis(250),
+    ) {
+        Ok(capabilities) => capabilities,
+        Err(ProtocolError::TransportUnavailable(_) | ProtocolError::Timeout) => {
+            json!({"profile": startup_profile})
+        }
+        Err(error) => return Err(error.into()),
+    };
     let instructions = profile_instructions(&capabilities);
     Ok(json!({
         "protocolVersion":MCP_VERSION,
@@ -324,11 +436,12 @@ fn profile_instructions(capabilities: &Value) -> String {
         .and_then(|value| value.get("behavior"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let base = "Subscribe to a Saccade Truth Layer resource for browser-pushed semantic changes. Use truth.read for the current full view or a revision-bounded wait. Browser execution belongs to the Agent client's own web-act or computer-use tool and must target the same authorized browser tab.";
+    let base = "Saccade is the primary automatic route for browser navigation, page reading, downloads, and web research. In clients with deferred or lazy tool discovery, search the registered tools for Saccade before using generic web search or another browser tool; absence from the initially expanded list is not absence. If a registered Saccade call remains unhealthy after one retry and same-route reconnect, stop the browser task instead of silently falling back. Subscribe to a Saccade Truth Layer resource for browser-pushed semantic changes. When the task has a known HTTP(S) URL and no suitable authorized tab exists, call saccade.tabs.open immediately; it creates an Agent-owned tab that is authorized automatically. Never ask the user to open the page, refresh Saccade, or toggle Agent On merely because tabs.list is empty. When the Agent client can only act in tabs it created itself, call saccade.tabs.open with claim arm for the target URL, create the tab with the Agent client's own tooling, then call saccade.tabs.open with claim confirm carrying that claim_id and the exact tab_id the client returned; that one tab becomes Agent On for this session only. An existing Agent-Off tab remains unreadable unless the user shares that exact tab. Treat Agent-owned tabs opened only for research as temporary: close them with saccade.tabs.close when the task is complete. Keep result pages the user may inspect or continue, pages with unsaved or in-progress work, and tabs the user asked to retain. Never close a user_shared tab. Choose full or progressive discovery from the current page and task: use full when its complete context is useful, or use index plus relevant revision-bound regions on a large unfamiliar page; request full whenever partial context is insufficient. Retain the chosen discovery view locally and fold later deltas into that cached state, because an object omitted from a delta is unchanged, not absent. Choose truth.read delivery_mode per call: live returns the next pushed revision immediately for latency-sensitive work, while economy locally coalesces a short burst into the latest truthful delta for routine low-token work. Saccade does not force either choice. Every projected object carries current CSS-pixel document_bounds and viewport_bounds; movement and resize update the same stable object, so use the newest revision before geometry-based execution. Saccade MCP adds no safety taxonomy or action gate; the Agent client owns all decisions beyond Extension redaction. When several ordinary reversible operations are already determined, execute them consecutively with the Agent client's own same-tab web-act or computer-use tool, then use one revision-bounded truth.read to verify the resulting semantic delta. For custom comboboxes, select the exact authored option and verify the resulting semantic name/state; never choose an ambiguous first text match. For custom radio/checkbox controls, if direct input activation fails, use the visible authored label once and verify a checked-state delta before saving. Replan only when that delta changes an assumption, an operation fails, or the page crosses a material boundary. Do not poll through the model or reread full Truth between predetermined fields. Descriptions beginning with 'Placeholder:' are examples or hints, never current field values.";
+    let progressive = "truth.read defaults to compatible auto full-then-delta behavior. For a large unfamiliar page, index provides bounded region anchors and advisory byte/token estimates; use a relevant revision-bound region when helpful, or request full at any time. Recommendations never hide or replace canonical full Truth. A Truth link may carry a validated navigation_target; open that target through tabs.open and read the source before treating a search title or snippet as verified evidence. Close transient search tabs, but retain useful supporting source pages for user inspection.";
     if behavior.is_empty() {
-        format!("Active Saccade Profile: {name}. {base}")
+        format!("Active Saccade Profile: {name}. {base} {progressive}")
     } else {
-        format!("Active Saccade Profile: {name}. User behavior: {behavior}\n{base}")
+        format!("Active Saccade Profile: {name}. User behavior: {behavior}\n{base} {progressive}")
     }
 }
 
@@ -346,6 +459,31 @@ fn call_tool(
     let method = host_method(public_method, mode).context("tool is not registered")?;
     require_tool_enabled(method, diagnostics)?;
     validate_arguments(method, &arguments, diagnostics)?;
+    let delivery_mode = if method == "web.observe" {
+        TruthDeliveryMode::from_arguments(&mut arguments)?
+    } else {
+        TruthDeliveryMode::Live
+    };
+    let view_mode = if method == "web.observe" {
+        TruthViewMode::from_arguments(&mut arguments)?
+    } else {
+        TruthViewMode::Auto
+    };
+    let requested_after_revision = arguments.get("after_revision").and_then(Value::as_u64);
+    let observation_tab_id = arguments
+        .get("tab_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if method == "web.observe"
+        && delivery_mode == TruthDeliveryMode::Economy
+        && requested_after_revision.is_none()
+        && observation_tab_id
+            .as_deref()
+            .and_then(|tab_id| agent_views.revision_for_tab(tab_id))
+            .is_some()
+    {
+        thread::sleep(ECONOMY_COALESCE_WINDOW);
+    }
     agent_views.expand_object_aliases(method, &mut arguments)?;
     arguments = agent_views.hydrate_action_arguments(method, arguments)?;
     if method == "web.observe" && arguments.get("after_revision").is_none() {
@@ -373,6 +511,7 @@ fn call_tool(
         }
     }
     let timeout = match method {
+        "web.act_object" => Duration::from_secs(45),
         "web.act" | "web.act_native" | "web.act_soft" => Duration::from_secs(30),
         "web.form.fill" => Duration::from_secs(
             arguments
@@ -398,21 +537,78 @@ fn call_tool(
         ),
         _ => Duration::from_secs(10),
     };
+    // A claim never creates a tab, so it must never wake a browser either: the
+    // Agent client already owns a live browser when it arms or confirms one.
+    if method == "tabs.open" && arguments.get("claim").is_none() {
+        let disconnected = match host.call(
+            NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            "system.capabilities",
+            json!({}),
+            Duration::from_millis(250),
+        ) {
+            Ok(capabilities) => !capabilities
+                .get("extension_connected")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            Err(ProtocolError::TransportUnavailable(_) | ProtocolError::Timeout) => true,
+            Err(error) => return Err(error.into()),
+        };
+        if disconnected {
+            let runtime_dir = host
+                .grant_path()
+                .parent()
+                .context("Saccade grant path has no runtime directory")?;
+            browser_wake::wake(runtime_dir)?;
+        }
+    }
     let mut result = host.call(
         NEXT_ID.fetch_add(1, Ordering::Relaxed),
         method,
         arguments,
         timeout,
     )?;
+    if method == "web.observe" && delivery_mode == TruthDeliveryMode::Economy {
+        if let (Some(tab_id), Some(since_revision)) =
+            (observation_tab_id.as_deref(), requested_after_revision)
+        {
+            thread::sleep(ECONOMY_COALESCE_WINDOW);
+            result = host.call(
+                NEXT_ID.fetch_add(1, Ordering::Relaxed),
+                method,
+                json!({"tab_id":tab_id,"since_revision":since_revision}),
+                Duration::from_secs(10),
+            )?;
+        }
+    }
     match method {
+        // The Agent addressed the object by alias, so every identity it gets
+        // back must be that same alias, never the internal identity.
+        "web.act_object" => {
+            agent_views.collapse_object_aliases(&mut result);
+            return Ok(result);
+        }
         "system.capabilities" => {
             result["reference_actuator_active"] = Value::Bool(mode == McpMode::Reference);
+            result["truth"]["delivery_modes"] = json!({
+                "default":"live",
+                "available":["live","economy"],
+                "economy_coalesce_ms":ECONOMY_COALESCE_WINDOW.as_millis()
+            });
+            result["truth"]["view_modes"] = json!({
+                "default":"auto",
+                "available":["auto","full","index","region"],
+                "full_always_available":true,
+                "recommendations":"advisory",
+                "region_basis":["document_id","revision"]
+            });
             return Ok(result);
         }
         "web.observe" => {
             let observation = serde_json::from_value::<ObservationSnapshot>(result)?;
             observation.validate()?;
-            return agent_views.project(observation);
+            let mut view = agent_views.project_with_mode(observation, &view_mode)?;
+            view["delivery_mode"] = Value::String(delivery_mode.name().into());
+            return Ok(view);
         }
         "web.act" | "web.act_native" | "web.act_soft" => {
             let receipt: ActionReceipt = serde_json::from_value(result)?;
@@ -480,7 +676,9 @@ fn host_method(public_method: &str, mode: McpMode) -> Option<&'static str> {
         "system.capabilities" => Some("system.capabilities"),
         "tabs.list" => Some("tabs.list"),
         "tabs.open" => Some("tabs.open"),
+        "tabs.close" => Some("tabs.close"),
         "truth.read" => Some("web.observe"),
+        "act" => Some("web.act_object"),
         "reference.act" if mode == McpMode::Reference => Some("web.act"),
         "reference.act_native" if mode == McpMode::Reference => Some("web.act_native"),
         "reference.act_soft" if mode == McpMode::Reference => Some("web.act_soft"),
@@ -504,8 +702,39 @@ fn validate_arguments(method: &str, value: &Value, diagnostics: bool) -> Result<
         .context("tool arguments must be an object")?;
     let (allowed, required): (&[&str], &[&str]) = match method {
         "system.capabilities" | "tabs.list" | "input_policy.list" => (&[], &[]),
-        "tabs.open" => (&["url", "active"], &["url"]),
-        "web.observe" => (&["tab_id", "after_revision", "timeout_ms"], &["tab_id"]),
+        "tabs.open" => (&["url", "active", "claim", "claim_id", "tab_id"], &["url"]),
+        "tabs.close" => (&["tab_id"], &["tab_id"]),
+        "web.observe" => (
+            &[
+                "tab_id",
+                "after_revision",
+                "timeout_ms",
+                "delivery_mode",
+                "view_mode",
+                "region_id",
+                "document_id",
+                "basis_revision",
+            ],
+            &["tab_id"],
+        ),
+        "web.act_object" => (
+            &[
+                "tab_id",
+                "object_id",
+                "operation",
+                "document_id",
+                "basis_revision",
+                "option_object_id",
+                "timeout_ms",
+            ],
+            &[
+                "tab_id",
+                "object_id",
+                "operation",
+                "document_id",
+                "basis_revision",
+            ],
+        ),
         "input_policy.remember_native" => {
             (&["tab_id", "action_token"], &["tab_id", "action_token"])
         }
@@ -542,9 +771,42 @@ fn validate_arguments(method: &str, value: &Value, diagnostics: bool) -> Result<
             {
                 bail!("active must be a boolean");
             }
+            let claim = match value.get("claim") {
+                None => None,
+                Some(claim) => match claim.as_str() {
+                    Some(mode @ ("arm" | "confirm")) => Some(mode),
+                    _ => bail!("claim must be arm or confirm"),
+                },
+            };
+            if claim.is_some() && value.get("active").is_some() {
+                bail!("active does not apply to a claim; the Agent client creates the tab itself");
+            }
+            if claim == Some("confirm") {
+                if string(value, "claim_id")?.is_empty() {
+                    bail!("claim_id must name the armed claim");
+                }
+                if string(value, "tab_id")?.is_empty() {
+                    bail!("tab_id must identify the tab the Agent client created");
+                }
+            } else {
+                for key in ["claim_id", "tab_id"] {
+                    if value.get(key).is_some() {
+                        bail!("{key} applies only to claim confirm");
+                    }
+                }
+            }
+        }
+        "tabs.close" => {
+            string(value, "tab_id")?;
         }
         "web.observe" => {
             string(value, "tab_id")?;
+            if value
+                .get("delivery_mode")
+                .is_some_and(|delivery| !matches!(delivery.as_str(), Some("live" | "economy")))
+            {
+                bail!("delivery_mode must be live or economy");
+            }
             if let Some(revision) = value.get("after_revision") {
                 revision
                     .as_u64()
@@ -557,6 +819,11 @@ fn validate_arguments(method: &str, value: &Value, diagnostics: bool) -> Result<
                 if !(1..=30_000).contains(&timeout_ms) {
                     bail!("timeout_ms must be between 1 and 30000");
                 }
+            }
+            if value.get("view_mode").is_some_and(|mode| {
+                !matches!(mode.as_str(), Some("auto" | "full" | "index" | "region"))
+            }) {
+                bail!("view_mode must be auto, full, index, or region");
             }
         }
         "input_policy.remember_native" => {
@@ -663,10 +930,12 @@ fn form_action_schema() -> Value {
 
 fn tools(mode: McpMode, diagnostics: bool) -> Vec<Value> {
     let mut tools = vec![
-        json!({"name":"saccade.system.capabilities","description":"Read the active Profile behavior and Runtime capabilities.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
-        json!({"name":"saccade.tabs.list","description":"List tabs managed by Saccade.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
-        json!({"name":"saccade.tabs.open","description":"Open an HTTP or HTTPS tab managed by Saccade.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"}},"required":["url"],"additionalProperties":false}}),
-        json!({"name":"saccade.truth.read","description":"Read the current Truth Layer. The first view is full; later views contain Extension-compiled semantic deltas. Pass after_revision to wait locally for a newer revision instead of polling through the model.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id"],"additionalProperties":false}}),
+        json!({"name":"saccade.system.capabilities","description":"Discover and verify the primary Saccade route before browser navigation, page reading, downloads, or web research. Read the active Profile behavior and Runtime capabilities.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
+        json!({"name":"saccade.tabs.list","description":"Discover authorized Chrome or Edge tabs managed by Saccade before web research or navigation.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
+        json!({"name":"saccade.tabs.open","description":"Primary browser-navigation route: open an HTTP or HTTPS page, including a validated navigation_target from a current Truth link, in a tab managed by Saccade. Omit claim to have Saccade create and authorize the tab. When the Agent client must create the tab with its own browser tooling, call claim \"arm\" first for the target URL; the reply carries a short-lived single-use claim_id bound to that origin and creates, reads, and authorizes nothing. Then create the tab with the Agent client's own tooling and call claim \"confirm\" with that claim_id and the exact tab_id the client received. Only the first new tab matching the armed origin inside the claim window can be confirmed; any mismatch fails uniformly and consumes the claim. Runtime validation requires claim_id and tab_id for confirm, forbids them for other modes, and forbids active for every claim mode.","inputSchema":{"type":"object","properties":{"url":{"type":"string","minLength":1,"maxLength":8192},"active":{"type":"boolean"},"claim":{"type":"string","enum":["arm","confirm"]},"claim_id":{"type":"string","minLength":1},"tab_id":{"type":"string","minLength":1}},"required":["url"],"additionalProperties":false}}),
+        json!({"name":"saccade.tabs.close","description":"Close a tab created by the Agent through Saccade. User-shared tabs cannot be closed by this tool.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1}},"required":["tab_id"],"additionalProperties":false}}),
+        json!({"name":"saccade.truth.read","description":"Primary page-reading route for canonical Saccade Truth with an Agent-selected view. auto preserves compatible full-then-delta behavior; full always returns the complete current page; index returns bounded region anchors and honest cost metadata; region returns one revision-bound region. Recommendations are advisory and full Truth always remains available. Pass after_revision to wait locally instead of polling. Choose live for immediate delivery or economy for bounded coalescing.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000},"delivery_mode":{"type":"string","enum":["live","economy"],"default":"live"},"view_mode":{"type":"string","enum":["auto","full","index","region"],"default":"auto"},"region_id":{"type":"string","minLength":1},"document_id":{"type":"string","minLength":1},"basis_revision":{"type":"integer","minimum":1}},"required":["tab_id"],"additionalProperties":false}}),
+        json!({"name":"saccade.act","description":"Operate one semantic object from current Truth using Saccade's registered software input. Name the object_id from truth.read; never a coordinate, and never a screenshot. The action token stays inside the Runtime. Pass the document_id and basis_revision the object was read at: a stale basis is refused rather than replayed. Returns dispatch accepted_by_software with verified true and a before/after semantic field when Saccade can prove the effect, accepted_but_unverified when the role has no defined evidence, or external_execution_required when the control is not registered for software input, in which case the Agent client performs the action itself. A revision increase alone is never treated as success.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"object_id":{"type":"string","minLength":1},"operation":{"type":"string","enum":["click","select"]},"document_id":{"type":"string","minLength":1},"basis_revision":{"type":"integer","minimum":1},"option_object_id":{"type":"string","minLength":1},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000}},"required":["tab_id","object_id","operation","document_id","basis_revision"],"additionalProperties":false}}),
     ];
     if mode == McpMode::Reference {
         tools.extend([
@@ -760,6 +1029,28 @@ impl AgentViewState {
     }
 
     fn expand_object_aliases(&self, method: &str, arguments: &mut Value) -> Result<()> {
+        // saccade.act is addressed purely by the Agent-facing object alias, so
+        // both the target and any chosen option must be resolved back to the
+        // internal identity before the closed loop sees them.
+        if method == "web.act_object" {
+            let tab_id = string(arguments, "tab_id")?.to_string();
+            let document_id = string(arguments, "document_id")?.to_string();
+            let aliases = self
+                .aliases
+                .get(tab_id.as_str())
+                .filter(|aliases| aliases.document_id == document_id)
+                .context("Agent object aliases are stale or unavailable")?;
+            for field in ["object_id", "option_object_id"] {
+                let Some(alias) = arguments.get(field).and_then(Value::as_str) else {
+                    continue;
+                };
+                let internal = aliases.by_alias.get(alias).with_context(|| {
+                    format!("unknown {field} {alias}; call saccade.truth.read for tab {tab_id} first")
+                })?;
+                arguments[field] = Value::String(internal.clone());
+            }
+            return Ok(());
+        }
         if !matches!(
             method,
             "web.act" | "web.act_native" | "web.act_soft" | "web.form.fill"
@@ -784,6 +1075,45 @@ impl AgentViewState {
             expand_compact_option_alias(arguments, aliases)?;
         }
         Ok(())
+    }
+
+    /// Map internal object identities in an act result back to the Agent
+    /// aliases the caller used.
+    fn collapse_object_aliases(&self, result: &mut Value) {
+        let reverse: BTreeMap<&str, &str> = self
+            .aliases
+            .values()
+            .flat_map(|aliases| {
+                aliases
+                    .by_internal
+                    .iter()
+                    .map(|(internal, alias)| (internal.as_str(), alias.as_str()))
+            })
+            .collect();
+        fn walk(value: &mut Value, reverse: &BTreeMap<&str, &str>) {
+            match value {
+                Value::Object(map) => {
+                    for (key, item) in map.iter_mut() {
+                        if key.ends_with("object_id") {
+                            if let Some(alias) =
+                                item.as_str().and_then(|current| reverse.get(current))
+                            {
+                                *item = Value::String((*alias).to_string());
+                                continue;
+                            }
+                        }
+                        walk(item, reverse);
+                    }
+                }
+                Value::Array(items) => {
+                    for item in items {
+                        walk(item, reverse);
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk(result, &reverse);
     }
 
     fn hydrate_action_arguments(&self, method: &str, arguments: Value) -> Result<Value> {
@@ -879,6 +1209,42 @@ impl AgentViewState {
         context.context("action request has no current token")
     }
 
+    fn project_with_mode(
+        &mut self,
+        observation: ObservationSnapshot,
+        mode: &TruthViewMode,
+    ) -> Result<Value> {
+        let current = observation.clone();
+        let auto = self.project(observation)?;
+        let aliases = self
+            .aliases
+            .get(&current.tab_id)
+            .filter(|aliases| aliases.document_id == current.document_id)
+            .context("Agent object aliases are unavailable for the current document")?
+            .by_internal
+            .clone();
+        let view = match mode {
+            TruthViewMode::Auto => auto,
+            TruthViewMode::Full => {
+                full_agent_view(current.clone(), &aliases, self.include_authority)?
+            }
+            TruthViewMode::Index => agent_index_view(&current)?,
+            TruthViewMode::Region {
+                region_id,
+                document_id,
+                basis_revision,
+            } => agent_region_view(
+                &current,
+                &aliases,
+                self.include_authority,
+                region_id,
+                document_id,
+                *basis_revision,
+            )?,
+        };
+        attach_truth_cost(view, &current, &aliases, self.include_authority)
+    }
+
     fn project(&mut self, observation: ObservationSnapshot) -> Result<Value> {
         let aliases = self.aliases_for(&observation);
         let previous = self
@@ -963,6 +1329,7 @@ impl AgentViewState {
             "document_id":observation.document_id,
             "revision":observation.revision,
             "viewport_revision":observation.viewport_revision,
+            "geometry":observation.geometry,
             "object_defaults":agent_object_defaults(current_default_frame.as_deref()),
             "changes":changes,
             "authorities":authorities,
@@ -1027,6 +1394,7 @@ fn full_agent_view(
         "document_id":observation.document_id,
         "revision":observation.revision,
         "viewport_revision":observation.viewport_revision,
+            "geometry":observation.geometry,
         "object_defaults":agent_object_defaults(default_frame.as_deref()),
         "frames":observation.frames,
         "objects":objects,
@@ -1034,6 +1402,237 @@ fn full_agent_view(
         "limitations":observation.limitations,
         "gap":observation.gap
     }))
+}
+
+const REGION_OBJECT_TARGET: usize = 128;
+const LARGE_FULL_VIEW_BYTES: usize = 24_000;
+
+#[derive(Debug)]
+struct AgentRegion {
+    id: String,
+    frame_id: String,
+    object_indices: Vec<usize>,
+}
+
+fn agent_regions(observation: &ObservationSnapshot) -> Vec<AgentRegion> {
+    let mut regions = Vec::new();
+    for (frame_index, frame) in observation.frames.iter().enumerate() {
+        let mut indices = observation
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(_, object)| object.frame_id == frame.frame_id)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        indices.sort_by(|left, right| {
+            let left = &observation.objects[*left];
+            let right = &observation.objects[*right];
+            left.document_bounds
+                .y
+                .total_cmp(&right.document_bounds.y)
+                .then_with(|| left.document_bounds.x.total_cmp(&right.document_bounds.x))
+                .then_with(|| left.object_id.cmp(&right.object_id))
+        });
+        for (chunk_index, chunk) in indices.chunks(REGION_OBJECT_TARGET).enumerate() {
+            regions.push(AgentRegion {
+                id: format!("r{frame_index}-{chunk_index}"),
+                frame_id: frame.frame_id.clone(),
+                object_indices: chunk.to_vec(),
+            });
+        }
+    }
+    regions
+}
+
+fn role_name(role: saccade_protocol::SemanticRole) -> Result<String> {
+    serde_json::to_value(role)?
+        .as_str()
+        .map(str::to_owned)
+        .context("semantic role did not serialize as a string")
+}
+
+fn bounded_anchor(text: &str) -> String {
+    text.chars().take(96).collect()
+}
+
+fn role_counts<'a>(
+    objects: impl Iterator<Item = &'a saccade_protocol::ObservedObject>,
+) -> Result<Value> {
+    let mut counts = BTreeMap::<String, u64>::new();
+    for object in objects {
+        *counts.entry(role_name(object.role)?).or_default() += 1;
+    }
+    Ok(serde_json::to_value(counts)?)
+}
+
+fn region_descriptor(region: &AgentRegion, observation: &ObservationSnapshot) -> Result<Value> {
+    let objects = region
+        .object_indices
+        .iter()
+        .map(|index| &observation.objects[*index])
+        .collect::<Vec<_>>();
+    let mut preferred = objects
+        .iter()
+        .copied()
+        .filter(|object| {
+            matches!(
+                object.role,
+                saccade_protocol::SemanticRole::Heading
+                    | saccade_protocol::SemanticRole::Label
+                    | saccade_protocol::SemanticRole::Alert
+                    | saccade_protocol::SemanticRole::Status
+            )
+        })
+        .collect::<Vec<_>>();
+    preferred.extend(objects.iter().copied().filter(|object| {
+        !matches!(
+            object.role,
+            saccade_protocol::SemanticRole::Heading
+                | saccade_protocol::SemanticRole::Label
+                | saccade_protocol::SemanticRole::Alert
+                | saccade_protocol::SemanticRole::Status
+        )
+    }));
+    let mut seen = std::collections::BTreeSet::new();
+    let anchors = preferred
+        .into_iter()
+        .filter_map(|object| {
+            let text = object
+                .name
+                .as_deref()
+                .or(object.text.as_deref())
+                .or(object.description.as_deref())?;
+            let text = bounded_anchor(text);
+            if text.is_empty() || !seen.insert(text.clone()) {
+                return None;
+            }
+            Some(json!({"role":role_name(object.role).ok()?,"text":text}))
+        })
+        .take(5)
+        .collect::<Vec<_>>();
+    let min_y = objects
+        .iter()
+        .map(|object| object.document_bounds.y)
+        .reduce(f64::min)
+        .unwrap_or(0.0);
+    let max_y = objects
+        .iter()
+        .map(|object| object.document_bounds.y + object.document_bounds.height)
+        .reduce(f64::max)
+        .unwrap_or(min_y);
+    Ok(json!({
+        "region_id":region.id,
+        "frame_id":region.frame_id,
+        "document_y":{"start":min_y,"end":max_y},
+        "object_count":objects.len(),
+        "role_counts":role_counts(objects.iter().copied())?,
+        "anchors":anchors
+    }))
+}
+
+fn agent_index_view(observation: &ObservationSnapshot) -> Result<Value> {
+    let regions = agent_regions(observation);
+    let descriptors = regions
+        .iter()
+        .map(|region| region_descriptor(region, observation))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(json!({
+        "schema":"saccade.agent-truth-index/1",
+        "mode":"index",
+        "canonical_full_available":true,
+        "browser_instance_id":observation.browser_instance_id,
+        "tab_id":observation.tab_id,
+        "document_id":observation.document_id,
+        "revision":observation.revision,
+        "viewport_revision":observation.viewport_revision,
+            "geometry":observation.geometry,
+        "object_count":observation.objects.len(),
+        "role_counts":role_counts(observation.objects.iter())?,
+        "regions":descriptors,
+        "coverage":observation.coverage,
+        "limitations":observation.limitations,
+        "gap":observation.gap
+    }))
+}
+
+fn agent_region_view(
+    observation: &ObservationSnapshot,
+    aliases: &BTreeMap<String, String>,
+    include_authority: bool,
+    region_id: &str,
+    document_id: &str,
+    basis_revision: u64,
+) -> Result<Value> {
+    if observation.document_id != document_id || observation.revision != basis_revision {
+        bail!("region basis is stale; read a fresh index or full view")
+    }
+    let regions = agent_regions(observation);
+    let region = regions
+        .iter()
+        .find(|region| region.id == region_id)
+        .context("region_id is absent from the current index")?;
+    let default_frame = default_frame_id(observation);
+    let objects = region
+        .object_indices
+        .iter()
+        .map(|index| {
+            agent_object_value(
+                &observation.objects[*index],
+                default_frame.as_deref(),
+                aliases,
+                include_authority,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(json!({
+        "schema":"saccade.agent-region-view/1",
+        "mode":"region",
+        "partial":true,
+        "canonical_full_available":true,
+        "browser_instance_id":observation.browser_instance_id,
+        "tab_id":observation.tab_id,
+        "document_id":observation.document_id,
+        "revision":observation.revision,
+        "viewport_revision":observation.viewport_revision,
+            "geometry":observation.geometry,
+        "object_defaults":agent_object_defaults(default_frame.as_deref()),
+        "region":region_descriptor(region, observation)?,
+        "objects":objects,
+        "coverage":observation.coverage,
+        "limitations":observation.limitations,
+        "gap":observation.gap
+    }))
+}
+
+fn attach_truth_cost(
+    mut view: Value,
+    observation: &ObservationSnapshot,
+    aliases: &BTreeMap<String, String>,
+    include_authority: bool,
+) -> Result<Value> {
+    let full = full_agent_view(observation.clone(), aliases, include_authority)?;
+    let full_bytes = serde_json::to_vec(&full)?.len();
+    let view_bytes = serde_json::to_vec(&view)?.len();
+    let region_count = agent_regions(observation).len();
+    let mode = view.get("mode").and_then(Value::as_str).unwrap_or("full");
+    let recommended_view = match mode {
+        "delta" => "delta",
+        "index" if full_bytes > LARGE_FULL_VIEW_BYTES && region_count > 1 => "region",
+        "region" => "region",
+        _ if full_bytes > LARGE_FULL_VIEW_BYTES && region_count > 1 => "index",
+        _ => "full",
+    };
+    view["cost"] = json!({
+        "advisory":true,
+        "full_bytes":full_bytes,
+        "full_estimated_tokens":full_bytes.div_ceil(4),
+        "view_bytes_before_cost_metadata":view_bytes,
+        "view_estimated_tokens_before_cost_metadata":view_bytes.div_ceil(4),
+        "object_count":observation.objects.len(),
+        "region_count":region_count,
+        "recommended_view":recommended_view
+    });
+    Ok(view)
 }
 
 fn default_frame_id(observation: &ObservationSnapshot) -> Option<String> {
@@ -1063,8 +1662,6 @@ fn agent_object_value(
         .as_object_mut()
         .context("observed object did not serialize as an object")?;
     fields.remove("object_revision");
-    fields.remove("document_bounds");
-    fields.remove("viewport_bounds");
     fields.remove("loop_class_token");
     if !include_authority {
         fields.remove("action_token");
@@ -1246,6 +1843,135 @@ mod tests {
     use super::*;
 
     #[test]
+    fn initialize_keeps_mcp_alive_while_native_host_is_temporarily_absent() {
+        let directory = tempfile::tempdir().unwrap();
+        let host = HostClient::connect(directory.path().join("missing-grant.json")).unwrap();
+        let profile = Profile {
+            name: "聪明的野蛮人 CEO".into(),
+            behavior: "全权推进目标。".into(),
+            ban: Vec::new(),
+        };
+        let response = initialize(&host, McpMode::Truth, &profile).unwrap();
+        assert_eq!(response["serverInfo"]["name"], "saccade-truth-layer");
+        assert!(response["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("聪明的野蛮人 CEO"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialize_does_not_hide_invalid_host_grants() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let grant_path = directory.path().join("invalid-grant.json");
+        std::fs::write(&grant_path, b"not-json").unwrap();
+        std::fs::set_permissions(&grant_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let host = HostClient::connect(grant_path).unwrap();
+        assert!(initialize(&host, McpMode::Truth, &Profile::default()).is_err());
+    }
+
+
+
+    /// Slice one function body so a later function cannot satisfy an assertion
+    /// about this one.
+    fn bounded<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source.split(signature).nth(1).expect("function exists");
+        match start.find("\n    fn ") {
+            Some(end) => &start[..end],
+            None => start,
+        }
+    }
+
+    fn act_object_body(source: &str) -> &str {
+        bounded(source, "fn act_object(")
+    }
+
+    #[test]
+    fn act_is_object_addressed_and_cannot_carry_coordinates() {
+        // The whole point of the tool is that the wrong call is unrepresentable:
+        // there is no place to put a pixel.
+        let act = tools(McpMode::Truth, false)
+            .into_iter()
+            .find(|tool| tool["name"] == "saccade.act")
+            .expect("saccade.act is a default public tool");
+        let schema = &act["inputSchema"];
+        assert_eq!(schema["additionalProperties"], Value::Bool(false));
+        let properties = schema["properties"].as_object().expect("properties");
+        for forbidden in ["x", "y", "coordinate", "screen_bounds", "action_token"] {
+            assert!(
+                !properties.contains_key(forbidden),
+                "saccade.act must not accept {forbidden}"
+            );
+        }
+        // Only what the Extension's software pipe actually implements.
+        assert_eq!(
+            schema["properties"]["operation"]["enum"],
+            serde_json::json!(["click", "select"])
+        );
+        // Stale replay protection is not optional.
+        let required = schema["required"].as_array().expect("required");
+        for key in ["tab_id", "object_id", "operation", "document_id", "basis_revision"] {
+            assert!(
+                required.iter().any(|value| value == key),
+                "{key} must be required"
+            );
+        }
+        assert_eq!(host_method("act", McpMode::Truth), Some("web.act_object"));
+    }
+
+    #[test]
+    fn act_never_reaches_the_native_backend() {
+        // Truth mode promotes software execution only; native input and the
+        // Accessibility grant stay behind the Reference Actuator.
+        let source = include_str!("session.rs");
+        let body = act_object_body(source);
+        assert!(!body.contains("InputBackend::Native"));
+        assert!(body.contains("Some(InputBackend::Soft)"));
+        assert!(body.contains("InputPolicy::NativeRequired"));
+        assert!(body.contains("Self::external_required"));
+        // and that helper is the only thing that emits the hand-off dispatch
+        assert!(bounded(source, "fn external_required(").contains("external_execution_required"));
+    }
+
+    #[test]
+    fn act_verification_evidence_is_defined_per_role() {
+        let source = include_str!("session.rs");
+        let table = bounded(source, "fn verification_field(");
+        for (role, field) in [
+            ("Checkbox", "checked"),
+            ("Tab", "selected"),
+            ("Button", "pressed"),
+            ("MenuItem", "expanded"),
+            ("ReflexTarget", "reflex_occurrence"),
+        ] {
+            assert!(table.contains(role), "role {role} must have defined evidence");
+            assert!(table.contains(field), "field {field} must be named");
+        }
+        // A revision bump alone, or an unrelated object changing, is never proof.
+        let body = act_object_body(source);
+        assert!(body.contains("target semantic state did not change"));
+        assert!(body.contains("accepted_but_unverified"));
+    }
+
+    #[test]
+    fn act_link_verification_matches_the_navigation_target_exactly() {
+        let source = include_str!("session.rs");
+        let body = act_object_body(source);
+        // Cross-document and same-document anchors both require the resulting
+        // URL to equal the link's own navigation_target; arbitrary URL churn
+        // must never be attributed to the click.
+        assert!(body.contains("navigation_target"));
+        assert!(body.contains("already_there"));
+        assert!(body.contains("same_document"));
+        assert!(body.contains("current document URL does not match"));
+        // A non-HTTP(S) destination is handed to the Agent client.
+        assert!(body.contains("navigation target is not an HTTP(S) destination"));
+        assert!(body.contains("Self::external_required"));
+    }
+
+    #[test]
     fn rpc_and_first_slice_tools_are_strict() {
         let request: RpcRequest = serde_json::from_value(
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
@@ -1253,9 +1979,9 @@ mod tests {
         .unwrap();
         assert_eq!(request.method, "initialize");
         let truth_tools = tools(McpMode::Truth, false);
-        assert_eq!(truth_tools.len(), 4);
-        assert_eq!(tools(McpMode::Reference, false).len(), 9);
-        assert_eq!(tools(McpMode::Reference, true).len(), 11);
+        assert_eq!(truth_tools.len(), 6);
+        assert_eq!(tools(McpMode::Reference, false).len(), 11);
+        assert_eq!(tools(McpMode::Reference, true).len(), 13);
         assert_eq!(
             truth_tools
                 .iter()
@@ -1265,7 +1991,9 @@ mod tests {
                 "saccade.system.capabilities",
                 "saccade.tabs.list",
                 "saccade.tabs.open",
-                "saccade.truth.read"
+                "saccade.tabs.close",
+                "saccade.truth.read",
+                "saccade.act"
             ]
         );
         assert!(host_method("web.observe", McpMode::Truth).is_none());
@@ -1280,6 +2008,73 @@ mod tests {
             .unwrap()
             .pointer("/inputSchema/properties/input_backend")
             .is_none());
+        let truth_read = truth_tools
+            .iter()
+            .find(|tool| tool["name"] == "saccade.truth.read")
+            .unwrap();
+        assert_eq!(
+            truth_read["inputSchema"]["properties"]["delivery_mode"]["enum"],
+            json!(["live", "economy"])
+        );
+        assert_eq!(
+            truth_read["inputSchema"]["properties"]["view_mode"]["enum"],
+            json!(["auto", "full", "index", "region"])
+        );
+        assert!(truth_tools
+            .iter()
+            .find(|tool| tool["name"] == "saccade.system.capabilities")
+            .unwrap()["description"]
+            .as_str()
+            .unwrap()
+            .contains("before browser navigation"));
+        let tabs_open = truth_tools
+            .iter()
+            .find(|tool| tool["name"] == "saccade.tabs.open")
+            .unwrap();
+        assert!(tabs_open["description"]
+            .as_str()
+            .unwrap()
+            .contains("Primary browser-navigation route"));
+        // The provisioned claim is callable over MCP, not extension-internal.
+        let open_schema = &tabs_open["inputSchema"];
+        assert_eq!(
+            open_schema["properties"]["claim"]["enum"],
+            json!(["arm", "confirm"])
+        );
+        assert_eq!(
+            open_schema["properties"]["claim_id"]["type"],
+            json!("string")
+        );
+        assert_eq!(open_schema["properties"]["tab_id"]["type"], json!("string"));
+        assert_eq!(open_schema["required"], json!(["url"]));
+        assert_eq!(open_schema["additionalProperties"], json!(false));
+        // Claude and other Agent tool registries reject top-level schema
+        // composition. Runtime validation below remains authoritative for the
+        // cross-field arm/confirm constraints.
+        for composition in ["oneOf", "allOf", "anyOf"] {
+            assert!(open_schema.get(composition).is_none());
+        }
+        assert!(tabs_open["description"]
+            .as_str()
+            .unwrap()
+            .contains("Runtime validation requires claim_id and tab_id"));
+        // The claim stays generic: no model, vendor, or client name in the wire
+        // contract.
+        let open_text = serde_json::to_string(tabs_open).unwrap().to_lowercase();
+        for vendor in [
+            "claude",
+            "codex",
+            "openai",
+            "anthropic",
+            "gemini",
+            "playwright",
+        ] {
+            assert!(!open_text.contains(vendor), "tabs.open leaked {vendor}");
+        }
+        assert!(truth_read["description"]
+            .as_str()
+            .unwrap()
+            .contains("Primary page-reading route"));
         assert!(require_tool_enabled("web.act_native", false).is_err());
         assert!(require_tool_enabled("web.act_soft", false).is_err());
         assert!(require_tool_enabled("web.act_native", true).is_ok());
@@ -1306,6 +2101,44 @@ mod tests {
             false
         )
         .is_ok());
+        assert!(validate_arguments(
+            "web.observe",
+            &json!({"tab_id":"x","after_revision":4,"delivery_mode":"economy"}),
+            false
+        )
+        .is_ok());
+        assert!(validate_arguments(
+            "web.observe",
+            &json!({"tab_id":"x","delivery_mode":"forced"}),
+            false
+        )
+        .is_err());
+        let mut economy = json!({"tab_id":"x","delivery_mode":"economy"});
+        assert_eq!(
+            TruthDeliveryMode::from_arguments(&mut economy).unwrap(),
+            TruthDeliveryMode::Economy
+        );
+        assert!(economy.get("delivery_mode").is_none());
+        let mut region = json!({
+            "tab_id":"x",
+            "view_mode":"region",
+            "region_id":"r0-0",
+            "document_id":"document-1",
+            "basis_revision":4
+        });
+        assert_eq!(
+            TruthViewMode::from_arguments(&mut region).unwrap(),
+            TruthViewMode::Region {
+                region_id: "r0-0".into(),
+                document_id: "document-1".into(),
+                basis_revision: 4
+            }
+        );
+        assert!(region.get("view_mode").is_none());
+        assert!(TruthViewMode::from_arguments(
+            &mut json!({"tab_id":"x","view_mode":"region","region_id":"r0-0"})
+        )
+        .is_err());
         assert!(validate_arguments(
             "web.act",
             &json!({
@@ -1348,6 +2181,61 @@ mod tests {
         )
         .is_err());
         assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim":"arm"}),
+            false
+        )
+        .is_ok());
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim":"confirm","claim_id":"claim.abc","tab_id":"9"}),
+            false
+        )
+        .is_ok());
+        // arm carries no tab identity, confirm requires both halves, and no
+        // third claim mode exists.
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim":"arm","tab_id":"9"}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim":"confirm","claim_id":"claim.abc"}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim":"confirm","tab_id":"9"}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim":"adopt"}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim":"arm","active":true}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments(
+            "tabs.open",
+            &json!({"url":"https://fixture.test","claim_id":"claim.abc"}),
+            false
+        )
+        .is_err());
+        assert!(validate_arguments("tabs.close", &json!({"tab_id":"7"}), false).is_ok());
+        assert!(validate_arguments("tabs.close", &json!({}), false).is_err());
+        assert!(
+            validate_arguments("tabs.close", &json!({"tab_id":"7","force":true}), false).is_err()
+        );
+        assert!(validate_arguments(
             "web.form.fill",
             &json!({
                 "actions":[{
@@ -1371,12 +2259,27 @@ mod tests {
             true
         )
         .is_ok());
-        assert_eq!(
-            profile_instructions(
-                &json!({"profile":{"name":"focused","behavior":"Work in page order."}})
-            ),
-            "Active Saccade Profile: focused. User behavior: Work in page order.\nSubscribe to a Saccade Truth Layer resource for browser-pushed semantic changes. Use truth.read for the current full view or a revision-bounded wait. Browser execution belongs to the Agent client's own web-act or computer-use tool and must target the same authorized browser tab."
+        let instructions = profile_instructions(
+            &json!({"profile":{"name":"focused","behavior":"Work in page order."}}),
         );
+        assert!(instructions
+            .starts_with("Active Saccade Profile: focused. User behavior: Work in page order."));
+        assert!(instructions.contains("fold later deltas into that cached state"));
+        assert!(instructions.contains("deferred or lazy tool discovery"));
+        assert!(instructions.contains("instead of silently falling back"));
+        assert!(instructions.contains("call saccade.tabs.open immediately"));
+        assert!(instructions.contains("Never ask the user to open the page"));
+        assert!(instructions.contains("Agent-Off tab remains unreadable"));
+        assert!(instructions.contains("close them with saccade.tabs.close"));
+        assert!(instructions.contains("Never close a user_shared tab"));
+        assert!(instructions.contains("Choose full or progressive discovery"));
+        assert!(instructions.contains("request full whenever partial context is insufficient"));
+        assert!(!instructions.contains("Read one full view to plan"));
+        assert!(instructions.contains("MCP adds no safety taxonomy or action gate"));
+        assert!(instructions.contains("document_bounds and viewport_bounds"));
+        assert!(instructions.contains("Placeholder:"));
+        assert!(instructions.contains("index provides bounded region anchors"));
+        assert!(instructions.contains("Recommendations never hide"));
     }
 
     #[test]
@@ -1395,6 +2298,8 @@ mod tests {
         assert_eq!(full["objects"].as_array().unwrap().len(), 2);
         assert_eq!(full["objects"][0]["object_id"], "o1");
         assert_eq!(full["objects"][1]["object_id"], "o2");
+        assert_eq!(full["objects"][0]["document_bounds"]["x"], 10.0);
+        assert_eq!(full["objects"][0]["viewport_bounds"]["width"], 100.0);
         assert_eq!(full["object_defaults"]["visibility"], "visible");
         assert_eq!(full["object_defaults"]["transition"], "none");
         assert_eq!(full["object_defaults"]["protected"], false);
@@ -1407,6 +2312,28 @@ mod tests {
             assert!(object.get("protected").is_none());
             assert!(object.get("action_token").is_none());
         }
+
+        first.revision += 1;
+        first.viewport_revision += 1;
+        first.objects[0].object_revision += 1;
+        first.objects[0].document_bounds.x = 25.0;
+        first.objects[0].viewport_bounds.as_mut().unwrap().x = 25.0;
+        first.changes = vec![saccade_protocol::ObservationChange {
+            kind: ChangeKind::Updated,
+            object_id: first.objects[0].object_id.clone(),
+            object_revision: first.objects[0].object_revision,
+        }];
+        let geometry_delta = views.project(first.clone()).unwrap();
+        assert_eq!(geometry_delta["mode"], "delta");
+        assert_eq!(geometry_delta["changes"][0]["kind"], "updated");
+        assert_eq!(
+            geometry_delta["changes"][0]["object"]["document_bounds"]["x"],
+            25.0
+        );
+        assert_eq!(
+            geometry_delta["changes"][0]["object"]["viewport_bounds"]["x"],
+            25.0
+        );
 
         first.revision += 1;
         first.viewport_revision += 1;
@@ -1447,6 +2374,74 @@ mod tests {
         let mut reference = AgentViewState::new(true);
         let reference_full = reference.project(first.clone()).unwrap();
         assert!(reference_full["objects"][0].get("action_token").is_some());
+    }
+
+    #[test]
+    fn progressive_truth_index_and_regions_are_advisory_complete_and_revision_bound() {
+        let fixture = include_str!("../../../tests/protocol/canonical_observation.json");
+        let mut observation: ObservationSnapshot = serde_json::from_str(fixture).unwrap();
+        let template = observation.objects[0].clone();
+        observation.objects.clear();
+        observation.changes.clear();
+        for index in 0..140 {
+            let mut object = template.clone();
+            object.object_id = format!("object-{index}");
+            object.action_token = None;
+            object.name = Some(if index == 0 {
+                "Account settings".into()
+            } else {
+                format!("Field {index}")
+            });
+            object.document_bounds.y = index as f64 * 32.0;
+            observation.objects.push(object);
+        }
+        observation.validate().unwrap();
+        let mut views = AgentViewState::default();
+        let index = views
+            .project_with_mode(observation.clone(), &TruthViewMode::Index)
+            .unwrap();
+        assert_eq!(index["schema"], "saccade.agent-truth-index/1");
+        assert_eq!(index["mode"], "index");
+        assert_eq!(index["canonical_full_available"], true);
+        assert_eq!(index["regions"].as_array().unwrap().len(), 2);
+        assert_eq!(index["regions"][0]["region_id"], "r0-0");
+        assert_eq!(index["regions"][0]["object_count"], 128);
+        assert_eq!(index["regions"][1]["object_count"], 12);
+        assert_eq!(index["cost"]["recommended_view"], "region");
+        assert!(index["cost"]["full_bytes"].as_u64().unwrap() > 24_000);
+
+        let region = views
+            .project_with_mode(
+                observation.clone(),
+                &TruthViewMode::Region {
+                    region_id: "r0-1".into(),
+                    document_id: observation.document_id.clone(),
+                    basis_revision: observation.revision,
+                },
+            )
+            .unwrap();
+        assert_eq!(region["schema"], "saccade.agent-region-view/1");
+        assert_eq!(region["partial"], true);
+        assert_eq!(region["objects"].as_array().unwrap().len(), 12);
+
+        assert!(views
+            .project_with_mode(
+                observation.clone(),
+                &TruthViewMode::Region {
+                    region_id: "r0-1".into(),
+                    document_id: observation.document_id.clone(),
+                    basis_revision: observation.revision + 1,
+                },
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("region basis is stale"));
+
+        let full = views
+            .project_with_mode(observation, &TruthViewMode::Full)
+            .unwrap();
+        assert_eq!(full["mode"], "full");
+        assert_eq!(full["objects"].as_array().unwrap().len(), 140);
     }
 
     #[test]

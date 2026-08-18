@@ -127,6 +127,8 @@ pub struct ObservedObject {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation_target: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub state: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -148,6 +150,28 @@ pub enum FrameStatus {
     Unavailable,
 }
 
+/// Top-level viewport geometry, read by the Collector in the same collect that
+/// produced this revision. It exists so an Agent never has to infer the viewport
+/// from a full-width element. `device_pixel_ratio` is descriptive only:
+/// `saccade.act` never converts coordinates, and no Saccade execution path may
+/// depend on it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservationGeometry {
+    /// Always `css_px`.
+    pub unit: String,
+    /// Always `content_viewport`: the space `viewport_bounds` are expressed in.
+    pub coordinate_space: String,
+    pub viewport_width: f64,
+    pub viewport_height: f64,
+    pub scroll_x: f64,
+    pub scroll_y: f64,
+    pub device_pixel_ratio: f64,
+    /// Advances only when geometry itself changes. A DOM-only or URL-only
+    /// change leaves it untouched.
+    pub viewport_revision: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FrameObservation {
@@ -155,6 +179,12 @@ pub struct FrameObservation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_frame_id: Option<String>,
     pub document_id: String,
+    /// Full document URL including path, query and fragment, read by the
+    /// Collector in the same collect that produced this revision. Anchor
+    /// navigation verification needs the fragment. Absent for restricted
+    /// frames, whose URL the Extension cannot observe.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_url: Option<String>,
     pub origin: String,
     pub status: FrameStatus,
 }
@@ -217,6 +247,8 @@ pub struct ObservationSnapshot {
     pub document_id: String,
     pub revision: u64,
     pub viewport_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<ObservationGeometry>,
     pub frames: Vec<FrameObservation>,
     pub objects: Vec<ObservedObject>,
     #[serde(default)]
@@ -244,6 +276,8 @@ pub enum ObservationError {
     ValueExposed,
     #[error("object kind and semantic role are inconsistent")]
     InvalidSemanticRole,
+    #[error("navigation target is invalid or belongs to a non-link object")]
+    InvalidNavigationTarget,
     #[error("action token lacks an affordance")]
     InvalidActionToken,
     #[error("coverage is inconsistent")]
@@ -346,6 +380,17 @@ impl ObservationSnapshot {
             if object.kind != ObjectKind::Text && object.text.is_some() {
                 return Err(ObservationError::ValueExposed);
             }
+            if let Some(target) = &object.navigation_target {
+                if object.role != SemanticRole::Link
+                    || object.transition != Transition::NavigationPossible
+                    || target.len() > 8_192
+                    || target.chars().any(char::is_control)
+                    || !valid_navigation_target(target)
+                {
+                    return Err(ObservationError::InvalidNavigationTarget);
+                }
+                disclosed_bytes += target.len();
+            }
             if object.kind == ObjectKind::Text
                 && (!object.affordances.is_empty() || object.action_token.is_some())
             {
@@ -410,6 +455,17 @@ fn allowed_state(key: &str) -> bool {
             | "reflex_target"
             | "reflex_occurrence"
     )
+}
+
+fn valid_navigation_target(value: &str) -> bool {
+    let Some((scheme, remainder)) = value.split_once("://") else {
+        return false;
+    };
+    if !matches!(scheme, "http" | "https") {
+        return false;
+    }
+    let authority = remainder.split(['/', '?', '#']).next().unwrap_or_default();
+    !authority.is_empty() && !authority.contains('@')
 }
 
 fn role_matches_kind(kind: ObjectKind, role: SemanticRole) -> bool {

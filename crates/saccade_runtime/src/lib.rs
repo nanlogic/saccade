@@ -9,10 +9,12 @@ use saccade_control_sdk::{
 };
 use saccade_protocol::{
     ActionPayload, ActionReceipt, ActionRequest, ActionValidationError, DispatchStatus,
-    ObservationError, ObservationSnapshot, PostconditionStatus, PreparedAction, Visibility,
+    ObservationError, ObservationSnapshot, PostconditionStatus, PreparedAction, SemanticRole,
+    Visibility,
 };
 use thiserror::Error;
 
+pub mod browser_wake;
 pub mod input_policy;
 pub mod mcp;
 pub mod native_messaging;
@@ -22,6 +24,10 @@ pub mod profile;
 pub mod session;
 
 pub trait NativeInput: Send {
+    fn requires_physical_hit_testing(&self) -> bool {
+        true
+    }
+
     fn execute(
         &mut self,
         primitive: NativePrimitive,
@@ -112,12 +118,14 @@ impl ClosedLoopEngine {
             .find(|object| object.action_token.as_deref() == Some(&request.action_token))
             .ok_or(ClosedLoopError::InvalidToken)?;
         let module = self.registry.resolve(target, request.operation)?;
+        let semantic_reflex_dispatch =
+            target.role == SemanticRole::ReflexTarget && !native.requires_physical_hit_testing();
         if target.visibility == Visibility::Hidden
             || prepared.browser_instance_id != request.browser_instance_id
             || prepared.tab_id != request.tab_id
             || prepared.document_id != request.document_id
             || prepared.basis_revision != request.basis_revision
-            || prepared.viewport_revision != before.viewport_revision
+            || (!semantic_reflex_dispatch && prepared.viewport_revision != before.viewport_revision)
             || prepared.object_id != target.object_id
             || prepared.action_token != request.action_token
             || prepared.operation != request.operation
@@ -125,8 +133,8 @@ impl ClosedLoopEngine {
             || prepared.screen_bounds.width == 0.0
             || prepared.screen_bounds.height == 0.0
             || !prepared.visible
-            || !prepared.topmost
-            || !prepared.focus_verified
+            || (!semantic_reflex_dispatch && !prepared.topmost)
+            || (!semantic_reflex_dispatch && !prepared.focus_verified)
             || (request.operation == saccade_protocol::ActionOperation::Select
                 && prepared.selection_index.is_none())
         {
@@ -146,7 +154,8 @@ impl ClosedLoopEngine {
             || current.tab_id != request.tab_id
             || current.document_id != request.document_id
             || current.revision != request.basis_revision
-            || current.viewport_revision != prepared.viewport_revision
+            || (!semantic_reflex_dispatch
+                && current.viewport_revision != prepared.viewport_revision)
             || !target_is_current
         {
             return Err(ClosedLoopError::Stale);
