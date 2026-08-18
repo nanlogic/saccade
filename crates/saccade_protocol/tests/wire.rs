@@ -46,6 +46,7 @@ fn snapshot() -> ObservationSnapshot {
             description: None,
             text: None,
             navigation_target: None,
+            navigation_disposition: None,
             state: BTreeMap::from([("has_value".into(), "false".into())]),
             affordances: BTreeSet::from([Affordance::Type]),
             transition: Transition::None,
@@ -220,4 +221,31 @@ fn a_snapshot_without_geometry_still_decodes() {
     value.as_object_mut().expect("object").remove("geometry");
     let snapshot: ObservationSnapshot = serde_json::from_value(value).expect("decodes");
     assert!(snapshot.geometry.is_none());
+}
+
+#[test]
+fn navigation_disposition_is_additive_and_only_present_when_unverifiable() {
+    // Absent means an ordinary same-context navigation Saccade can verify.
+    let mut plain = snapshot();
+    plain.objects[0].navigation_disposition = None;
+    let encoded = serde_json::to_value(&plain.objects[0]).expect("encodes");
+    assert!(encoded.get("navigation_disposition").is_none());
+    for disposition in ["download", "new_context"] {
+        let decoded: ObservedObject = serde_json::from_value(serde_json::json!({
+            "object_id": "o1",
+            "frame_id": "frame-1",
+            "object_revision": 1,
+            "kind": "control",
+            "role": "link",
+            "document_bounds": {"x":0.0,"y":0.0,"width":10.0,"height":10.0},
+            "visibility": "visible",
+            "navigation_target": "https://example.test/file",
+            "navigation_disposition": disposition,
+            "affordances": ["click"],
+            "transition": "navigation_possible",
+            "protected": false
+        }))
+        .expect("decodes");
+        assert_eq!(decoded.navigation_disposition.as_deref(), Some(disposition));
+    }
 }

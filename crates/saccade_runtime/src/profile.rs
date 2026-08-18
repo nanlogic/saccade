@@ -166,6 +166,7 @@ mod tests {
             description: description.map(str::to_string),
             text: None,
             navigation_target: None,
+            navigation_disposition: None,
             state: BTreeMap::new(),
             affordances: BTreeSet::from([Affordance::Click]),
             transition: Transition::None,

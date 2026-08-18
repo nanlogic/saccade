@@ -1,3 +1,3 @@
 (() => {
-  globalThis.SaccadeCandidate = Object.freeze({"schema":"saccade.extension-candidate/1","id":"6afe5a9ae45cf3e97d0d84d9688a93bfecf8f94519efa8f13c933d831baaadd4","version":"0.3.22"});
+  globalThis.SaccadeCandidate = Object.freeze({"schema":"saccade.extension-candidate/1","id":"19033cc943455cf3206dfcfe45874a271b3923ecd16817aeb51ee79be6222d51","version":"0.3.22"});
 })();

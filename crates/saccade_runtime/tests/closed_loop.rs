@@ -72,6 +72,7 @@ fn object(
         description: None,
         text: None,
         navigation_target: None,
+            navigation_disposition: None,
         state: state
             .iter()
             .map(|(key, value)| (key.to_string(), value.to_string()))

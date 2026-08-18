@@ -501,3 +501,14 @@ test('geometry is read in the same collect and viewport_revision tracks geometry
   // Geometry change alone must still produce an observation.
   assert.match(collector, /&& !geometryChanged/);
 });
+
+test('links declare a disposition only when this document cannot verify them', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  // A download or a new browsing context leaves this document's URL untouched,
+  // so act must hand off instead of dispatching an unverifiable click.
+  assert.match(collector, /hasAttribute\('download'\)/);
+  assert.match(collector, /'download'/);
+  assert.match(collector, /'new_context'/);
+  // An ordinary same-context link declares nothing, keeping the field additive.
+  assert.match(collector, /if \(disposition !== 'self'\) object\.navigation_disposition = disposition;/);
+});

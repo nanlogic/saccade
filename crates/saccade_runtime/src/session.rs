@@ -562,6 +562,26 @@ impl NativeHostSession {
                     ));
                 }
             }
+            // A download or a new browsing context never changes this
+            // document's URL, so there is no evidence Saccade could produce.
+            // Hand it over rather than dispatch something unverifiable.
+            match target.navigation_disposition.as_deref() {
+                Some("download") => {
+                    return Ok(Self::external_required(
+                        &object_id,
+                        target.role,
+                        "link downloads instead of navigating this document",
+                    ));
+                }
+                Some("new_context") => {
+                    return Ok(Self::external_required(
+                        &object_id,
+                        target.role,
+                        "link opens a new browsing context that this document's URL cannot verify",
+                    ));
+                }
+                _ => {}
+            }
         }
         if self
             .engine
@@ -2108,6 +2128,7 @@ mod tests {
             description: None,
             text: None,
             navigation_target: None,
+            navigation_disposition: None,
             state: BTreeMap::from([
                 ("enabled".into(), "true".into()),
                 ("has_value".into(), has_value.to_string()),

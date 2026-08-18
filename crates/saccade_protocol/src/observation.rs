@@ -129,6 +129,11 @@ pub struct ObservedObject {
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub navigation_target: Option<String>,
+    /// Present only when following this link cannot be verified from this
+    /// document's URL: `download`, or `new_context` for a link that opens a
+    /// new browsing context. Absent means an ordinary same-context navigation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation_disposition: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub state: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]

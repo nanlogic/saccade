@@ -450,6 +450,19 @@
     if (description) object.description = description;
     const navigationTarget = navigationTargetFor(element, role);
     if (navigationTarget) object.navigation_target = navigationTarget;
+    // A link that downloads, or that opens a new browsing context, does not
+    // change this document's URL, so Saccade cannot verify it from Truth.
+    // Declaring the disposition lets execution hand off explicitly instead of
+    // dispatching and then reporting an unverifiable result.
+    if (navigationTarget) {
+      const disposition = element.hasAttribute('download')
+        ? 'download'
+        : (() => {
+          const target = String(element.getAttribute('target') || '').trim().toLowerCase();
+          return target && target !== '_self' ? 'new_context' : 'self';
+        })();
+      if (disposition !== 'self') object.navigation_disposition = disposition;
+    }
     if (role === 'reflex_target') object.loop_class_token = reflexLoopClassToken;
     if (descriptor.affordances.length && interactionElement.ownerDocument.defaultView.getComputedStyle(interactionElement).pointerEvents !== 'none') {
       const token = randomToken('action', 16);
