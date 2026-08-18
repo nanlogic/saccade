@@ -512,3 +512,19 @@ test('links declare a disposition only when this document cannot verify them', (
   // An ordinary same-context link declares nothing, keeping the field additive.
   assert.match(collector, /if \(disposition !== 'self'\) object\.navigation_disposition = disposition;/);
 });
+
+test('software typing sets a value through the native setter and never reaches protected fields', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /SOFTWARE_TYPE_ROLES/);
+  assert.match(collector, /if \(request\.operation === 'type'\) return softType\(request\);/);
+  // Frameworks patch the value property, so assign through the prototype setter
+  // or React and Angular never observe the change.
+  assert.match(collector, /Object\.getOwnPropertyDescriptor\(prototype, 'value'\)\?\.set/);
+  assert.match(collector, /element\.isContentEditable/);
+  assert.match(collector, /new Event\('input'/);
+  assert.match(collector, /new Event\('change'/);
+  // A protected field carries no type affordance, so prepare() refuses it
+  // before any software typing can run.
+  const textField = fs.readFileSync(path.join(__dirname, '../src/controls/text_field.js'), 'utf8');
+  assert.match(textField, /signals\.protected \|\| signals\.enabled === false \|\| signals\.readonly \? \[\] : \['type'\]/);
+});

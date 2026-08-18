@@ -13,6 +13,13 @@
   const SURFACE_SELECTOR = 'canvas,video,embed[type="application/pdf"],object[type="application/pdf"],[data-saccade-restricted-document]';
   const DIALOG_SELECTOR = '[role="dialog"],[aria-modal="true"]';
   const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR},${SURFACE_SELECTOR}`;
+  // Typing is registered for the roles whose Truth exposes has_value, which is
+  // the only evidence a typed value can produce: Truth never exposes the value
+  // itself. Protected fields already carry no type affordance, so prepare()
+  // rejects them before this set is consulted.
+  const SOFTWARE_TYPE_ROLES = new Set([
+    'text_field', 'search_field', 'text_area', 'content_editable', 'spin_button',
+  ]);
   const SOFTWARE_CLICK_ROLES = new Set([
     'button', 'link', 'checkbox', 'radio', 'switch', 'select', 'tab', 'menu_item', 'reflex_target',
   ]);
@@ -990,8 +997,33 @@
     return { accepted: true };
   }
 
+  function softType(request) {
+    prepare(request);
+    const target = tokenTargets.get(request.action_token);
+    if (!target || !SOFTWARE_TYPE_ROLES.has(target.role)) {
+      throw new Error('software typing is not registered for the current control');
+    }
+    const element = target.element;
+    const text = String(request.payload?.text ?? '');
+    if (element.isContentEditable) {
+      element.textContent = text;
+    } else {
+      // Assign through the native setter so frameworks that patch the value
+      // property still observe the change and re-render.
+      const prototype = element instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (setter) setter.call(element, text); else element.value = text;
+    }
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    requestAnimationFrame(collect);
+    return { accepted: true };
+  }
+
   function softAction(request) {
     if (request.operation === 'click') return softClick(request);
+    if (request.operation === 'type') return softType(request);
     const prepared = prepare(request);
     if (request.operation !== 'select' || request.payload?.kind !== 'select') {
       throw new Error('software action is not registered for the current operation');

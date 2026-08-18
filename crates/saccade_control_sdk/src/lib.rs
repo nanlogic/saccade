@@ -364,7 +364,15 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
     if definition.input_policy == InputPolicy::SoftwarePreferred
         && !matches!(
             definition.native_primitive,
-            NativePrimitive::PrimaryClick | NativePrimitive::SelectOption
+            NativePrimitive::PrimaryClick
+                | NativePrimitive::SelectOption
+                // Setting a text value is a registered software primitive. It is
+                // not keystroke-level fidelity, so it is admitted only because
+                // the has_value verifier catches a value that did not take and
+                // software_preferred still escalates to native on an unverified
+                // receipt. Protected fields never carry a type affordance, so
+                // credential-class values never reach this path.
+                | NativePrimitive::UnicodeText
         )
     {
         return Err(RegistryError::InvalidCatalog(
@@ -604,8 +612,22 @@ mod tests {
             registry.input_policy(SemanticRole::Button).unwrap(),
             InputPolicy::SoftwarePreferred
         );
+        for role in [
+            SemanticRole::TextField,
+            SemanticRole::SearchField,
+            SemanticRole::TextArea,
+            SemanticRole::ContentEditable,
+            SemanticRole::SpinButton,
+        ] {
+            assert_eq!(
+                registry.input_policy(role).unwrap(),
+                InputPolicy::SoftwarePreferred,
+                "{role:?} must be software-first"
+            );
+        }
+        // Uploads have no software primitive and stay native.
         assert_eq!(
-            registry.input_policy(SemanticRole::TextField).unwrap(),
+            registry.input_policy(SemanticRole::FileInput).unwrap(),
             InputPolicy::NativeRequired
         );
         let select = registry.modules.get(&SemanticRole::Select).unwrap();

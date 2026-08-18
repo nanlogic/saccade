@@ -73,6 +73,15 @@ pub fn write_route(runtime_dir: &Path, route: &BrowserWakeRoute) -> Result<()> {
     Ok(())
 }
 
+/// The browser family the Extension most recently announced, or None before a
+/// host handshake. Callers use it to attribute evidence to the right browser.
+pub fn attached_browser(runtime_dir: &Path) -> Option<String> {
+    let path = runtime_dir.join(ROUTE_FILE);
+    let route: BrowserWakeRoute = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+    route.validate().ok()?;
+    Some(route.browser_family)
+}
+
 pub fn wake(runtime_dir: &Path) -> Result<()> {
     let path = runtime_dir.join(ROUTE_FILE);
     let route: BrowserWakeRoute = serde_json::from_slice(

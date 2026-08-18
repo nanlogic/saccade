@@ -22,7 +22,7 @@ use saccade_protocol::{
 };
 use serde_json::{json, Value};
 
-use crate::browser_wake::{write_route, BrowserWakeRoute};
+use crate::browser_wake::{attached_browser, write_route, BrowserWakeRoute};
 use crate::input_policy::{page_scope, LearnedBackend, LocalInputPolicy, PolicyEvidence};
 use crate::native_messaging;
 use crate::platform_input::PlatformInput;
@@ -264,6 +264,12 @@ impl NativeHostSession {
                 "stable_object_identity":true
             },
             "execution_owner":"agent_client",
+            // Which browser is actually attached. Without this an operator
+            // cannot tell a Chrome session from an Edge session, and evidence
+            // gets attributed to the wrong browser.
+            "attached_browser": attached_browser(&self.runtime_dir)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
             "reference_actuator_available":true,
             "browser_support":["chrome","edge"],
             "extension_connected":self.extension_connected.load(Ordering::Acquire),
@@ -438,6 +444,17 @@ impl NativeHostSession {
 
     /// Roles the Extension's software pipe is registered to operate. Anything
     /// else is the Agent client's job, not a Saccade failure.
+    fn software_typeable(role: SemanticRole) -> bool {
+        matches!(
+            role,
+            SemanticRole::TextField
+                | SemanticRole::SearchField
+                | SemanticRole::TextArea
+                | SemanticRole::ContentEditable
+                | SemanticRole::SpinButton
+        )
+    }
+
     fn software_capable(role: SemanticRole) -> bool {
         matches!(
             role,
@@ -450,6 +467,11 @@ impl NativeHostSession {
                 | SemanticRole::Tab
                 | SemanticRole::MenuItem
                 | SemanticRole::ReflexTarget
+                | SemanticRole::TextField
+                | SemanticRole::SearchField
+                | SemanticRole::TextArea
+                | SemanticRole::ContentEditable
+                | SemanticRole::SpinButton
         )
     }
 
@@ -464,6 +486,11 @@ impl NativeHostSession {
             SemanticRole::Button => Some("pressed"),
             SemanticRole::MenuItem => Some("expanded"),
             SemanticRole::ReflexTarget => Some("reflex_occurrence"),
+            SemanticRole::TextField
+            | SemanticRole::SearchField
+            | SemanticRole::TextArea
+            | SemanticRole::ContentEditable
+            | SemanticRole::SpinButton => Some("has_value"),
             _ => None,
         }
     }
@@ -489,13 +516,14 @@ impl NativeHostSession {
     /// from Truth and never a coordinate; the action token stays inside the
     /// Runtime. Native input is never engaged from this path.
     fn act_object(&self, params: Value) -> Result<Value> {
-        const ALLOWED: [&str; 7] = [
+        const ALLOWED: [&str; 8] = [
             "tab_id",
             "object_id",
             "operation",
             "document_id",
             "basis_revision",
             "option_object_id",
+            "text",
             "timeout_ms",
         ];
         let object = params
@@ -514,8 +542,8 @@ impl NativeHostSession {
             .get("basis_revision")
             .and_then(Value::as_u64)
             .context("basis_revision is required")?;
-        if operation != "click" && operation != "select" {
-            bail!("operation must be click or select");
+        if !matches!(operation.as_str(), "click" | "select" | "type") {
+            bail!("operation must be click, select or type");
         }
         let timeout = Duration::from_millis(
             params
@@ -543,6 +571,13 @@ impl NativeHostSession {
             })?
             .clone();
 
+        if operation == "type" && !Self::software_typeable(target.role) {
+            return Ok(Self::external_required(
+                &object_id,
+                target.role,
+                "control role is not registered for software typing",
+            ));
+        }
         if !Self::software_capable(target.role) {
             return Ok(Self::external_required(
                 &object_id,
@@ -601,11 +636,13 @@ impl NativeHostSession {
             .action_token
             .clone()
             .context("object is not currently actionable")?;
-        let payload = if operation == "select" {
-            let option = required_string(&params, "option_object_id")?;
-            json!({"kind":"select","option_object_id":option})
-        } else {
-            json!({"kind":"none"})
+        let payload = match operation.as_str() {
+            "select" => {
+                let option = required_string(&params, "option_object_id")?;
+                json!({"kind":"select","option_object_id":option})
+            }
+            "type" => json!({"kind":"text","text":required_string(&params, "text")?}),
+            _ => json!({"kind":"none"}),
         };
         let before_url = Self::frame_url(&before, &target.frame_id);
         let field = Self::verification_field(target.role);
@@ -1888,6 +1925,11 @@ impl NativeInput for SoftwareInput<'_> {
                 saccade_control_sdk::NativePrimitive::SelectOption,
                 saccade_protocol::ActionOperation::Select,
                 ActionPayload::Select { .. }
+            ) | (
+                // Setting a text value is a registered software primitive.
+                saccade_control_sdk::NativePrimitive::UnicodeText,
+                saccade_protocol::ActionOperation::Type,
+                ActionPayload::Text { .. }
             )
         );
         if !supported {
@@ -2546,7 +2588,7 @@ mod tests {
     }
 
     #[test]
-    fn session_closes_text_loop_without_sending_value_to_extension_or_receipt() {
+    fn session_closes_text_loop_keeping_the_value_out_of_preparation_and_receipt() {
         let (out_tx, out_rx) = mpsc::channel();
         let (native_tx, native_rx) = mpsc::channel();
         let dir = tempfile::tempdir().unwrap();
@@ -2596,8 +2638,20 @@ mod tests {
         let worker_session = Arc::clone(&session);
         let worker = std::thread::spawn(move || worker_session.handle_control(control));
 
+        // Software-first text resolves the page scope before preparing.
+        let scope = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(scope.kind, "tabs.list");
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: scope.request_id,
+                payload: serde_json::json!({"tabs":[{"tab_id":"tab-1","url":"https://fixture.test/form","title":"","active":true,"observation_ready":true,"ownership":"agent","provenance":"saccade_tabs_open"}]}),
+            })
+            .unwrap();
         let outbound = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(outbound.kind, "prepare_action");
+        // Preparation never carries the value.
         assert!(!serde_json::to_string(&outbound)
             .unwrap()
             .contains("SENTINEL-SECRET"));
@@ -2629,10 +2683,22 @@ mod tests {
                 payload: serde_json::to_value(prepared).unwrap(),
             })
             .unwrap();
-        assert_eq!(
-            native_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-            NativePrimitive::UnicodeText
-        );
+        // Setting a value requires sending it to the Extension. That is the
+        // narrowed invariant: ordinary text transits, credential-class values
+        // never can, because a protected field carries no type affordance.
+        let dispatched = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(dispatched.kind, "soft_action");
+        assert!(serde_json::to_string(&dispatched)
+            .unwrap()
+            .contains("SENTINEL-SECRET"));
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "response".into(),
+                request_id: dispatched.request_id,
+                payload: serde_json::json!({"accepted":true}),
+            })
+            .unwrap();
         session
             .handle_native(NativeEnvelope {
                 protocol: HOST_PROTOCOL.into(),
@@ -3423,10 +3489,18 @@ mod tests {
                     .unwrap(),
                 })
                 .unwrap();
-            assert_eq!(
-                native_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-                NativePrimitive::UnicodeText
-            );
+            // The value reaches the Extension because setting it requires that;
+            // it must still never appear in the receipt.
+            let dispatched = out_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(dispatched.kind, "soft_action");
+            session
+                .handle_native(NativeEnvelope {
+                    protocol: HOST_PROTOCOL.into(),
+                    kind: "response".into(),
+                    request_id: dispatched.request_id,
+                    payload: serde_json::json!({"accepted":true}),
+                })
+                .unwrap();
             let revision = (sequence + 3) as u64;
             let next_first = named_field("field-1", "First", &format!("first-{revision}"), true);
             let next_second = named_field(
