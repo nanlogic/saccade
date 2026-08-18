@@ -6,8 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { HOST_PROTOCOL, OBSERVATION_SCHEMA, envelope, parseHostMessage, randomToken } = require('../src/protocol.js');
-const { normalizeOrigin, isProtectedFieldType } = require('../src/consent.js');
+const { normalizeOrigin, isProtectedFieldType, redactProtectedText } = require('../src/consent.js');
 const { compileChanges } = require('../src/truth_delta.js');
+const registry = require('../src/controls/registry.js');
 
 test('Native Messaging envelope preserves the v1 wire names', () => {
   assert.deepEqual(envelope('hello', { browser_instance_id: 'browser.test' }, 7), {
@@ -22,46 +23,90 @@ test('Native Messaging envelope preserves the v1 wire names', () => {
   assert.throws(() => randomToken('action', 15));
 });
 
-test('consent helpers normalize origins and recognize protected field types', () => {
+test('consent helpers enforce only password, SSN, and EIN redaction', () => {
   assert.equal(normalizeOrigin('https://Example.test/path'), 'https://example.test');
   assert.equal(normalizeOrigin('not a URL'), null);
   assert.equal(isProtectedFieldType('password'), true);
-  assert.equal(isProtectedFieldType('text', 'one-time-code'), true);
+  assert.equal(isProtectedFieldType('text', 'current-password'), true);
+  assert.equal(isProtectedFieldType('text', '', 'Social Security Number'), true);
+  assert.equal(isProtectedFieldType('text', '', 'Employer Identification Number'), true);
+  assert.equal(isProtectedFieldType('text', 'one-time-code'), false);
+  assert.equal(isProtectedFieldType('text', 'cc-number'), false);
   assert.equal(isProtectedFieldType('text', 'name'), false);
+  assert.equal(redactProtectedText('SSN 123-45-6789; EIN 12-3456789'), 'SSN [REDACTED SSN]; EIN [REDACTED EIN]');
 });
 
 test('development manifest preserves identity and excludes out-of-scope capabilities', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '../manifest.json'), 'utf8'));
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.equal(manifest.manifest_version, 3);
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
-  assert.deepEqual(manifest.permissions, ['tabs', 'nativeMessaging', 'storage']);
+  assert.deepEqual(manifest.permissions, ['tabs', 'nativeMessaging', 'storage', 'alarms']);
+  assert.deepEqual(manifest.icons, {
+    16: 'icons/icon-16.png',
+    32: 'icons/icon-32.png',
+    48: 'icons/icon-48.png',
+    128: 'icons/icon-128.png',
+  });
+  assert.deepEqual(manifest.action.default_icon, {
+    16: 'icons/icon-16.png',
+    32: 'icons/icon-32.png',
+  });
   assert.equal(manifest.content_scripts.length, 1);
   assert.equal(manifest.content_scripts[0].run_at, 'document_start');
   assert.equal(manifest.content_scripts[0].world, 'ISOLATED');
+  assert.equal(manifest.content_scripts[0].js[0], 'src/candidate_identity.js');
   assert.equal(manifest.content_scripts[0].js.at(-1), 'src/collector.js');
   assert.ok(manifest.content_scripts[0].js.indexOf('src/truth_delta.js') < manifest.content_scripts[0].js.indexOf('src/collector.js'));
   assert.equal(manifest.action.default_popup, 'popup.html');
   assert.match(worker, /com\.nanlogic\.saccade\.dev/);
+  assert.match(worker, /com\.nanlogic\.saccade'/);
+  assert.match(worker, /getManifest\(\)\.name\.includes\('\(Development\)'\)/);
+  assert.match(worker, /extension_candidate: LOADED_CANDIDATE/);
+  assert.match(worker, /reloadIfCandidateChanged/);
+  assert.match(worker, /sameCandidate\(ping\.extension_candidate\)/);
+  assert.match(collector, /extension_candidate: globalThis\.SaccadeCandidate/);
   assert.doesNotMatch(worker, /chrome\.(downloads|debugger|scripting)/);
   assert.doesNotMatch(worker, /Playwright|CDP|protected_fill|loop\.start/);
 });
 
-test('tab sharing UI mutates only the session ACL and revocation clears collector authority', () => {
+test('popup uses the brand icon and states the exact protected-value boundary', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../popup.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../popup.css'), 'utf8');
+  const popup = fs.readFileSync(path.join(__dirname, '../popup.js'), 'utf8');
+  assert.match(html, /icons\/icon-48\.png/);
+  assert.match(html, /id="dev-badge"/);
+  assert.match(css, /color-scheme: light/);
+  assert.match(css, /--bg: #ffffff/);
+  assert.match(popup, /Password, SSN, and EIN values stay protected/);
+  assert.doesNotMatch(popup, /Passwords, OTPs, and editable values/);
+  assert.match(popup, /name\.includes\('\(Development\)'\)/);
+});
+
+test('tab sharing UI revokes any authorized tab without closing it', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   const popup = fs.readFileSync(path.join(__dirname, '../popup.js'), 'utf8');
   assert.match(worker, /sender\.url !== chrome\.runtime\.getURL\('popup\.html'\)/);
   assert.match(worker, /userSharedTabs\.add\(tabId\)/);
+  assert.match(worker, /agentOwnedTabs\.delete\(tabId\)/);
   assert.match(worker, /userSharedTabs\.delete\(tabId\)/);
   assert.match(worker, /collector\.deauthorize/);
-  assert.match(worker, /Agent-owned tabs are revoked by closing the tab/);
+  assert.match(worker, /authorizeTab\(tabId, \{ recoverStale: true \}\)/);
+  assert.match(worker, /if \(!ready && recoverStale\)/);
+  assert.match(worker, /chrome\.tabs\.reload\(tabId\)/);
+  assert.match(worker, /waitForCurrentCollector\(tabId, 200\)/);
+  assert.doesNotMatch(worker, /Agent-owned tabs are revoked by closing the tab/);
   assert.match(collector, /function deauthorize/);
   assert.match(collector, /tokenTargets\.clear\(\)/);
   assert.match(popup, /ui\.tab\.share/);
   assert.match(popup, /ui\.tab\.revoke/);
+  assert.match(popup, /current\?\.authorized \? 'ui\.tab\.revoke'/);
+  assert.match(popup, /Saccade access is on for this tab/);
+  assert.doesNotMatch(popup, /Agent-owned tab/);
   assert.doesNotMatch(popup, /storage\.(local|session)|executeScript|connectNative/);
 });
 
@@ -84,6 +129,9 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /spin_button/);
   assert.match(collector, /content_editable/);
   assert.match(collector, /visibleFileTrigger/);
+  assert.match(collector, /function navigationTargetFor/);
+  assert.match(collector, /\['http:', 'https:'\]/);
+  assert.match(collector, /object\.navigation_target = navigationTarget/);
   assert.match(collector, /aria-controls/);
   assert.match(collector, /aria-activedescendant/);
   assert.match(collector, /input\[type="file"\]/);
@@ -118,6 +166,13 @@ test('collector projects bounded structural text without actions or editable des
   assert.ok(collector.indexOf("role === 'status'") < collector.indexOf("tag === 'P'"));
   assert.match(collector, /DIALOG_SELECTOR/);
   assert.match(collector, /function dialogTitleCandidates/);
+  assert.match(collector, /function dialogTextCandidates/);
+  assert.match(collector, /GENERIC_TEXT_SELECTOR/);
+  assert.match(collector, /function genericTextCandidates/);
+  assert.match(collector, /\.\.\.genericTexts/);
+  assert.match(collector, /visibilityFor\(element, boxFor\(element\)\) === 'hidden'/);
+  assert.match(collector, /element\.hasAttribute\('aria-live'\)\) return 'status'/);
+  assert.match(collector, /\(dialogText \|\| genericText\) \? 'text'/);
   assert.match(collector, /state\.modal = String\(element\.getAttribute\('aria-modal'\) === 'true'\)/);
   assert.match(collector, /deferred_content_possible/);
   assert.match(collector, /transitionend/);
@@ -141,7 +196,27 @@ test('unrelated page mutations do not churn current control tokens', () => {
   assert.match(collector, /compileChanges\(compiledObjects, objects\)/);
 });
 
-test('Extension compiler emits semantic Truth Layer deltas and ignores authority churn', () => {
+test('semantic mutations are not gated by rendering frames', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /if \(!records\.some\(mutationCanChangeObservation\)\) return/);
+  assert.match(collector, /if \(isMouseAccuracyGame\(document\)\) scheduleVisual\(\);\s*else schedule\(\)/);
+  assert.match(collector, /function schedule\(\).*queueMicrotask/s);
+  assert.match(collector, /addEventListener\('scroll', scheduleVisual/);
+  assert.match(collector, /addEventListener\('resize', scheduleVisual/);
+  assert.match(collector, /function scheduleVisual\(\).*requestAnimationFrame/s);
+  assert.match(collector, /ResizeObserver\(scheduleVisual\)/);
+  assert.match(collector, /function currentGeometryIsAnimating/);
+  assert.match(collector, /getAnimations\?\.\(\).*playState === 'running'/s);
+  assert.match(collector, /transitionrun.*animationstart/s);
+});
+
+test('editable placeholders are explicitly distinguished from current values', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /return `Placeholder: \$\{placeholder\}`/);
+  assert.doesNotMatch(collector, /if \(placeholder && placeholder !== name\) return placeholder;/);
+});
+
+test('Extension compiler emits semantic and geometry Truth Layer deltas while ignoring authority churn', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /compiledObjects && changes\.length === 0/);
   const base = {
@@ -149,7 +224,7 @@ test('Extension compiler emits semantic Truth Layer deltas and ignores authority
     name: 'Save', state: { pressed: 'false' }, affordances: ['click'],
     action_token: 'action.old', document_bounds: { x: 1, y: 1, width: 10, height: 10 },
   };
-  const authorityOnly = { ...base, object_revision: 2, action_token: 'action.new', document_bounds: { x: 2, y: 2, width: 10, height: 10 } };
+  const authorityOnly = { ...base, object_revision: 2, action_token: 'action.new' };
   assert.deepEqual(compileChanges([base], [authorityOnly]), []);
   const changed = { ...authorityOnly, state: { pressed: 'true' } };
   assert.deepEqual(compileChanges([base], [changed]), [
@@ -157,6 +232,52 @@ test('Extension compiler emits semantic Truth Layer deltas and ignores authority
   ]);
   assert.equal(compileChanges([], [base])[0].kind, 'appeared');
   assert.equal(compileChanges([base], [])[0].kind, 'disappeared');
+});
+
+test('control movement emits Truth updates when geometry changes', () => {
+  const staticGeometry = { x: 1, y: 2, width: 10, height: 10 };
+  const nextGeometry = { x: 30, y: 40, width: 10, height: 10 };
+  const before = {
+    object_id: 'o.move', object_revision: 1, role: 'button', kind: 'control', name: 'Move', state: { pressed: 'false' },
+    affordances: ['click'], protected: false, action_token: 'action.001', visibility: 'visible',
+    document_bounds: staticGeometry, viewport_bounds: staticGeometry,
+  };
+  const after = { ...before, object_revision: 2, document_bounds: nextGeometry, viewport_bounds: nextGeometry };
+  assert.deepEqual(compileChanges([before], [after]), [
+    { kind: 'updated', object_id: 'o.move', object_revision: 2 },
+  ]);
+});
+
+test('hidden-to-removed transition stays truthful: update first, disappear on omission', () => {
+  const base = {
+    object_id: 'o.visible', object_revision: 1, role: 'button', kind: 'control', name: 'Submit', state: { pressed: 'false' },
+    affordances: ['click'], protected: false, action_token: 'action.002', visibility: 'visible',
+    document_bounds: { x: 4, y: 8, width: 25, height: 8 }, viewport_bounds: { x: 4, y: 8, width: 25, height: 8 },
+  };
+  const hidden = { ...base, object_revision: 2, visibility: 'hidden' };
+  assert.deepEqual(compileChanges([base], [hidden]), [
+    { kind: 'updated', object_id: 'o.visible', object_revision: 2 },
+  ]);
+  assert.deepEqual(compileChanges([hidden], []), [
+    { kind: 'disappeared', object_id: 'o.visible', object_revision: 2 },
+  ]);
+});
+
+test('protected controls still expose geometry fields and stay value-free', () => {
+  const observed = registry.observe('text_field', { hasValue: true, protected: true, value: 'SENSITIVE' });
+  const projected = {
+    object_id: 'o.protected-field', object_revision: 1, kind: 'control', role: 'text_field',
+    name: 'Protected field', state: observed.state, affordances: observed.affordances,
+    protected: true, visibility: 'visible',
+    document_bounds: { x: 12, y: 34, width: 160, height: 20 },
+    viewport_bounds: { x: 12, y: 34, width: 160, height: 20 },
+  };
+  const wire = JSON.stringify(projected);
+  assert.equal(projected.protected, true);
+  assert.equal(projected.document_bounds.x, 12);
+  assert.equal(projected.viewport_bounds.width, 160);
+  assert.equal(wire.includes('SENSITIVE'), false);
+  assert.equal(wire.includes('redacted'), false);
 });
 
 test('duplicate actionable controls receive value-free semantic context across control families', () => {
@@ -184,18 +305,52 @@ test('same-origin frames and open shadow roots compose without changing the root
 
 test('open ownership precedes response and loading tabs start collection without waiting for complete', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
-  const open = worker.slice(worker.indexOf("command.kind === 'tabs.open'"), worker.indexOf("command.kind === 'prepare_action'"));
+  // The Saccade-created branch is the last tabs.open branch; the claim arm and
+  // confirm branches are matched ahead of it and create no tab.
+  const open = worker.slice(worker.lastIndexOf("command.kind === 'tabs.open'"), worker.indexOf("command.kind === 'prepare_action'"));
+  const openAgentTab = worker.slice(worker.indexOf('async function openAgentTab'), worker.indexOf('function armTabClaim'));
+  assert.match(openAgentTab, /chrome\.windows\.getAll\(\{ windowTypes: \['normal'\] \}\)/);
+  assert.match(openAgentTab, /normalWindows\.find\(\(window\) => window\.focused\) \|\| normalWindows\.at\(-1\)/);
+  assert.match(openAgentTab, /chrome\.tabs\.create\(\{\s*windowId: targetWindow\.id, url, active/s);
+  assert.match(openAgentTab, /chrome\.windows\.create\(\{\s*url, type: 'normal', focused: active/s);
+  assert.match(openAgentTab, /chrome\.tabs\.query\(\{ windowId: createdWindow\.id, active: true \}\)/);
+  assert.doesNotMatch(open, /chrome\.tabs\.create\(\{ url:/);
   assert.ok(open.indexOf('agentOwnedTabs.add(tab.id)') < open.indexOf('reply(command'));
   assert.match(open, /isSupportedUrl\(current\.url\).*authorizeTab\(tab\.id\)/s);
   assert.match(worker, /change\.status === 'loading'.*sessions\.delete\(tabId\)/s);
   assert.match(worker, /change\.url \|\| change\.status === 'loading' \|\| change\.status === 'complete'/);
-  assert.match(worker, /attempt < 40/);
+  assert.match(worker, /waitForCurrentCollector\(tabId, 40\)/);
   assert.doesNotMatch(worker, /executeScript/);
   assert.match(worker, /authorizationPromises\.get\(tabId\)/);
   assert.match(worker, /existing\?\.url === tab\.url/);
   assert.match(worker, /existing\.promise\.catch\(\(\) => \{\}\)\.then/);
   assert.match(worker, /session\?\.url === tab\.url && \(session\.configuring \|\| session\.configured\)/);
   assert.match(worker, /tab URL changed during collector authorization/);
+});
+
+test('tab cleanup exposes ownership and closes Agent-owned tabs only', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const close = worker.slice(worker.indexOf("command.kind === 'tabs.close'"), worker.indexOf("command.kind === 'prepare_action'"));
+  assert.match(worker, /ownership: agentOwnedTabs\.has\(tabId\) \? 'agent' : 'user_shared'/);
+  assert.match(close, /if \(!agentOwnedTabs\.has\(tabId\)\) throw new Error/);
+  assert.match(close, /chrome\.tabs\.remove\(tabId\)/);
+  assert.match(close, /only Agent-owned tabs may be closed through Saccade/);
+  assert.match(close, /const closesLastWindowTab = windowTabs\.length === 1/);
+  assert.ok(close.indexOf('reply(command, { tab_id: String(tabId), closed: true });') < close.indexOf('try { await chrome.tabs.remove(tabId); }'));
+  assert.match(worker, /chrome\.windows\.onRemoved\.addListener\(\(\) => \{ reconnectAfterWindowRemoval\(\); \}\)/);
+  assert.doesNotMatch(close, /userSharedTabs\.has\(tabId\).*chrome\.tabs\.remove/s);
+});
+
+test('tab ownership survives Extension reload but resets at browser startup', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(worker, /chrome\.storage\.local\.set\(\{ \[TAB_ACL_KEY\]/);
+  assert.match(worker, /chrome\.storage\.local\.get\(TAB_ACL_KEY\)/);
+  assert.match(worker, /async function resetAclForBrowserStartup/);
+  assert.match(worker, /chrome\.storage\.local\.remove\(TAB_ACL_KEY\)/);
+  assert.match(worker, /chrome\.runtime\.onStartup\.addListener.*resetAclForBrowserStartup\(\)\.then\(connectHost\)/s);
+  assert.match(worker, /connectHost\(\)\.catch\(scheduleReconnect\);\s*$/);
+  assert.doesNotMatch(worker, /bootTimer|setTimeout\(\(\) => \{ connectHost/);
+  assert.doesNotMatch(worker, /chrome\.storage\.session\.(get|set)\(TAB_ACL_KEY/);
 });
 
 test('prepare checks the revision basis after tab activation and focus', () => {
@@ -223,7 +378,8 @@ test('software action bridge is token-bound and limited to Registry roles', () =
   assert.match(collector, /SOFTWARE_CLICK_ROLES/);
   assert.match(collector, /software click is not registered for the current control/);
   assert.ok(collector.indexOf('prepare(request);') < collector.indexOf('target.element.dispatchEvent'));
-  assert.match(collector, /SCORE\\s\*\(\\d\+\)/);
+  assert.match(collector, /reflexOccurrence/);
+  assert.match(collector, /isMouseAccuracyGame\(document\).*scheduleVisual/s);
   assert.match(collector, /target\.element\.dispatchEvent/);
   assert.match(worker, /command\.kind === 'soft_action'/);
   assert.match(collector, /choiceOwner\(option\) !== target/);
@@ -255,4 +411,41 @@ test('managed Chrome and Edge routes share one protocol and keep browser evidenc
   assert.match(probe, /--browser/);
   assert.match(probe, /"browser": browser/);
   assert.match(host, /chrome-extension:\/\/bobfbgjplflcigednmccmbhlgclomgod\//);
+});
+
+test('Native Host ownership conflicts recover without requiring a popup wake-up', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const reconnect = worker.slice(worker.indexOf('function scheduleReconnect'), worker.indexOf('async function connectHost'));
+  assert.match(reconnect, /Math\.min\(250 \* \(2 \*\* reconnectAttempts\+\+\), 4000\)/);
+  assert.doesNotMatch(reconnect, /reconnectAttempts\s*>=/);
+  assert.match(reconnect, /chrome\.alarms\.create\(RECONNECT_ALARM/);
+  assert.match(worker, /RECONNECT_ALARM_DELAY_MS = 30_000/);
+  assert.match(worker, /async function settleReconnect\(port\)/);
+  assert.match(worker, /chrome\.windows\.getAll\(\{ windowTypes: \['normal'\] \}\)/);
+  assert.match(worker, /if \(windows\.length\) chrome\.alarms\.clear\(RECONNECT_ALARM\)/);
+  assert.match(worker, /chrome\.alarms\.onAlarm\.addListener/);
+});
+
+test('Native Host hello supplies a fixed browser lifecycle wake route', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(worker, /BROWSER_FAMILY = navigator\.userAgent\.includes\('Edg\/'\) \? 'edge' : 'chrome'/);
+  assert.match(worker, /browser_family: BROWSER_FAMILY/);
+  assert.match(worker, /development: NATIVE_HOST\.endsWith\('\.dev'\)/);
+  assert.match(worker, /wake_url: chrome\.runtime\.getURL\('popup\.html'\)/);
+});
+
+test('Agent tab lifecycle recovers from no current window and survives last-tab close', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const opener = worker.slice(worker.indexOf('async function openAgentTab'), worker.indexOf('async function authorizeTab'));
+  assert.match(opener, /chrome\.windows\.getAll\(\{ windowTypes: \['normal'\] \}\)/);
+  assert.match(opener, /chrome\.tabs\.create\(\{[\s\S]*windowId: targetWindow\.id/);
+  assert.match(opener, /chrome\.windows\.create\(\{[\s\S]*url, type: 'normal'/);
+  const close = worker.slice(worker.indexOf("command.kind === 'tabs.close'"), worker.indexOf("command.kind === 'prepare_action'"));
+  assert.match(close, /closesLastWindowTab/);
+  assert.ok(close.indexOf("reply(command, { tab_id: String(tabId), closed: true })") < close.indexOf('await chrome.tabs.remove(tabId)'));
+  assert.match(worker, /chrome\.windows\.onRemoved\.addListener\(\(\) => \{ reconnectAfterWindowRemoval\(\); \}\)/);
+  const windowReconnect = worker.slice(worker.indexOf('async function reconnectAfterWindowRemoval'), worker.indexOf('async function connectHost'));
+  assert.match(windowReconnect, /if \(nativePort\) return/);
+  assert.doesNotMatch(windowReconnect, /\.disconnect\(\)/);
+  assert.match(windowReconnect, /await connectHost\(\)/);
 });

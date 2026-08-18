@@ -1,12 +1,11 @@
 (() => {
-  // The Collector, not an Agent adapter, owns semantic change detection. Fields
-  // used only for local authority and native revalidation intentionally do not
-  // turn into Truth Layer changes.
+  // The Collector, not an Agent adapter, owns Truth change detection. Current
+  // document/viewport geometry is public browser truth, so movement and resize
+  // must update the same stable object identity. Only local authority fields are
+  // excluded from the public fingerprint.
   function semanticObject(object) {
     const copy = { ...object };
     delete copy.object_revision;
-    delete copy.document_bounds;
-    delete copy.viewport_bounds;
     delete copy.action_token;
     delete copy.loop_class_token;
     copy.actionable = Boolean(object.action_token);

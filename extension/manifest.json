@@ -1,17 +1,30 @@
 {
   "manifest_version": 3,
   "name": "Saccade Extension (Development)",
-  "description": "Authorized closed-loop observation and native-input bridge for Saccade.",
-  "version": "0.3.19",
+  "description": "Live semantic Truth Layer for authorized Chrome and Edge tabs.",
+  "version": "0.3.22",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtC/G61gnFJPwXR5toQSPVNWVc6+5OVLa1MakG7LF5ctF46EZAnsby1ZjAECVbSIl8PyxJtgYy/4IVzlZ7Vl4Chqt/u/z6tt9Wi2D+wvlnNYSy2weVb2eh/B0Ag1D0/FXPXuxr/gRToHMRMmaUBLMH2r1HAsSSyykDPyc+r3RH4bhkxMz5ERWRSPFYodyZMwDhXnIyNWI4Yd2VvZMqFMrHjHyzV9Ypdw094JIywGYqu2ujhH9GY0BYWn3b9tAOuur2+KdO4aTY+7Ca8FkG+2PL6SaEZoxxfe64vmJk6AaDtHGdRX1Uo6lqOB4JWwnI3Z9F8gOGO1x4QZK0a1e0gEyvwIDAQAB",
   "minimum_chrome_version": "120",
-  "action": { "default_title": "Saccade", "default_popup": "popup.html" },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Saccade",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
   "background": { "service_worker": "src/service_worker.js" },
   "host_permissions": ["http://*/*", "https://*/*"],
-  "permissions": ["tabs", "nativeMessaging", "storage"],
+  "permissions": ["tabs", "nativeMessaging", "storage", "alarms"],
   "content_scripts": [{
     "matches": ["http://*/*", "https://*/*"],
-    "js": ["src/protocol.js","src/consent.js","src/controls/common.js","src/controls/button.js","src/controls/link.js","src/controls/text_field.js","src/controls/search_field.js","src/controls/text_area.js","src/controls/content_editable.js","src/controls/spin_button.js","src/controls/checkbox.js","src/controls/radio.js","src/controls/switch.js","src/controls/select.js","src/controls/tab.js","src/controls/menu_item.js","src/controls/reflex_target.js","src/controls/file_input.js","src/controls/slider.js","src/controls/label.js","src/controls/generic_control.js","src/controls/registry.js","src/truth_delta.js","src/collector.js"],
+    "js": ["src/candidate_identity.js","src/protocol.js","src/consent.js","src/controls/common.js","src/controls/button.js","src/controls/link.js","src/controls/text_field.js","src/controls/search_field.js","src/controls/text_area.js","src/controls/content_editable.js","src/controls/spin_button.js","src/controls/checkbox.js","src/controls/radio.js","src/controls/switch.js","src/controls/select.js","src/controls/tab.js","src/controls/menu_item.js","src/controls/reflex_target.js","src/controls/file_input.js","src/controls/slider.js","src/controls/label.js","src/controls/generic_control.js","src/controls/registry.js","src/truth_delta.js","src/collector.js"],
     "run_at": "document_start",
     "all_frames": false,
     "world": "ISOLATED"

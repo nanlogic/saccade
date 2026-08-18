@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const registry = require('../src/controls/registry.js');
 const select = require('../src/controls/select.js');
+const reflexTarget = require('../src/controls/reflex_target.js');
 
 test('registry exposes only safe state for cataloged controls', () => {
   assert.deepEqual(registry.observe('button', { enabled: true, pressed: false }), {
@@ -51,6 +52,12 @@ test('unavailable and protected controls do not advertise Host actions', () => {
   assert.deepEqual(registry.observe('content_editable', { required: true, invalid: true, hasValue: true }).state, {
     has_value: 'true', readonly: 'false',
   });
+});
+
+test('reflex occurrence accepts an authored counter or a visible score', () => {
+  assert.equal(reflexTarget.occurrence('17', 'SCORE 9'), '17');
+  assert.equal(reflexTarget.occurrence('', 'TIME\n28\nSCORE\n16\nESC TO END'), '16');
+  assert.equal(reflexTarget.occurrence(null, 'No score here'), '0');
 });
 
 test('text contents and submitted option values cannot enter projections', () => {

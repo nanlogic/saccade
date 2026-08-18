@@ -1,13 +1,202 @@
-:root { color-scheme: light dark; font: 14px/1.4 system-ui, sans-serif; }
-body { margin: 0; min-width: 320px; background: #0d1518; color: #e9f5f5; }
-main { padding: 18px; }
-header { display: flex; gap: 12px; align-items: center; }
-.mark { width: 28px; height: 28px; border: 3px solid #73e4d1; border-radius: 50%; box-shadow: inset 8px 0 #73e4d1; }
+:root {
+  color-scheme: light;
+  font: 14px/1.45 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bg: #ffffff;
+  --surface: #f4f7fc;
+  --surface-raised: #edf4ff;
+  --border: #dbe4f0;
+  --border-strong: #c5d2e3;
+  --text: #0b2247;
+  --muted: #52647e;
+  --quiet: #6e7f96;
+  --blue: #0b6cff;
+  --blue-bright: #126cf3;
+  --green: #168663;
+  --red: #c83f52;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  width: 360px;
+  min-width: 360px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button { font: inherit; }
 h1, p { margin: 0; }
-h1 { font-size: 18px; letter-spacing: .01em; }
-#state { color: #9fb9b8; margin-top: 2px; }
-#detail { min-height: 40px; margin: 18px 0 14px; color: #c4d5d4; }
-button { width: 100%; min-height: 42px; border: 0; border-radius: 8px; background: #73e4d1; color: #071110; font: 600 14px system-ui; cursor: pointer; }
-button.danger { background: #ffb5a8; }
-button:disabled { cursor: default; opacity: .45; }
-.meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; color: #78918f; font-size: 12px; }
+
+.shell { padding: 20px; }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-icon {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.brand-copy { min-width: 0; }
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 680;
+  letter-spacing: -0.025em;
+}
+
+.brand-copy > p {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dev-badge {
+  padding: 2px 6px;
+  border: 1px solid #9bbef2;
+  border-radius: 5px;
+  color: var(--blue-bright);
+  background: #f4f8ff;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.4;
+  letter-spacing: 0.11em;
+}
+
+.status-card {
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+}
+
+.status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--quiet);
+}
+
+.status-dot.on { background: var(--blue-bright); }
+.status-dot.off { background: var(--quiet); }
+.status-dot.error { background: var(--red); }
+.status-dot.pending { background: #d7a84b; }
+
+#state { font-size: 14px; font-weight: 650; }
+
+.separator {
+  width: 1px;
+  height: 14px;
+  margin: 0 10px;
+  background: var(--border-strong);
+}
+
+#phase {
+  color: var(--blue-bright);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#detail {
+  min-height: 40px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#toggle {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 14px;
+  border: 1px solid #3b82f6;
+  border-radius: 10px;
+  background: var(--blue);
+  color: #ffffff;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+#toggle:hover:not(:disabled) { background: #246ee0; }
+
+#toggle:focus-visible {
+  outline: 2px solid #2f7df7;
+  outline-offset: 2px;
+}
+
+#toggle.locked {
+  border-color: #bad1f5;
+  background: var(--surface-raised);
+  color: #315d9b;
+}
+
+#toggle.danger {
+  border-color: #e7a8b1;
+  background: #fff5f6;
+  color: #a52f41;
+}
+
+#toggle.danger:hover:not(:disabled) { background: #ffecef; }
+
+#toggle:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--quiet);
+  font-size: 11px;
+}
+
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.meta-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--quiet);
+}
+
+.meta-dot.connected { background: var(--green); }
+
+.shield {
+  width: 10px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 5px 5px 6px 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #toggle { transition: none; }
+}

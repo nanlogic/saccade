@@ -2,12 +2,14 @@
   const registry = globalThis.SaccadeControls.registry;
   const { compileChanges } = globalThis.SaccadeTruthDelta;
   const { OBSERVATION_SCHEMA, randomToken } = globalThis.SaccadeProtocol;
-  const { isProtectedFieldType } = globalThis.SaccadeConsent;
+  const { isProtectedFieldType, redactProtectedText } = globalThis.SaccadeConsent;
+  const { occurrence: reflexOccurrence } = globalThis.SaccadeControls.reflex_target;
   const MAX_OBJECTS = 10000;
   const MAX_STRUCTURAL_TEXT_BYTES = 256 * 1024;
   const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],[data-saccade-label],[data-saccade-generic-control],.target';
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
-  const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,table,tr,th,td,[role="text"],[role="heading"],[role="paragraph"],[role="list"],[role="listitem"],[role="table"],[role="row"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"]';
+  const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,table,tr,th,td,[role="text"],[role="heading"],[role="paragraph"],[role="list"],[role="listitem"],[role="table"],[role="row"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"],[aria-live]';
+  const GENERIC_TEXT_SELECTOR = 'div,span,section,article,main,aside';
   const SURFACE_SELECTOR = 'canvas,video,embed[type="application/pdf"],object[type="application/pdf"],[data-saccade-restricted-document]';
   const DIALOG_SELECTOR = '[role="dialog"],[aria-modal="true"]';
   const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR},${SURFACE_SELECTOR}`;
@@ -28,6 +30,7 @@
   let viewportRevision = 0;
   let config = null;
   let scheduled = false;
+  let scheduledFrame = null;
   let activeFileTrigger = null;
   let repeatedActionKeys = new Set();
   let frameSerial = 0;
@@ -38,6 +41,8 @@
   let rememberedChoicePopup = new WeakMap();
   let compiledObjects = null;
   let workerPort = null;
+  let geometryResizeObserver = null;
+  let geometryObservedElements = new Set();
 
   function connectWorkerPort() {
     if (workerPort || !config) return;
@@ -50,7 +55,7 @@
   }
 
   function normalizedText(value, limit) {
-    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    const text = redactProtectedText(value).replace(/\s+/g, ' ').trim();
     return text ? text.slice(0, limit) : undefined;
   }
 
@@ -119,7 +124,9 @@
     if (!root || observedRoots.has(root)) return;
     observedRoots.add(root);
     const observer = new MutationObserver((records) => {
-      if (records.some(mutationCanChangeObservation)) schedule();
+      if (!records.some(mutationCanChangeObservation)) return;
+      if (isMouseAccuracyGame(document)) scheduleVisual();
+      else schedule();
     });
     observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
     observers.push(observer);
@@ -133,7 +140,10 @@
       if (element.shadowRoot) observeMutationRoot(element.shadowRoot);
     }
     for (const event of ['input', 'focusin', 'focusout']) doc.addEventListener(event, schedule, true);
-    for (const event of ['transitionend', 'animationend']) doc.addEventListener(event, schedule, true);
+    for (const event of ['transitionrun', 'transitionstart', 'transitionend', 'transitioncancel', 'animationstart', 'animationend', 'animationcancel']) {
+      doc.addEventListener(event, scheduleVisual, true);
+    }
+    doc.fonts?.addEventListener?.('loadingdone', scheduleVisual);
     doc.addEventListener('change', (event) => {
       const changed = event.target;
       if (activeFileTrigger && changed?.tagName === 'INPUT'
@@ -143,8 +153,8 @@
       }
       schedule();
     }, true);
-    doc.defaultView.addEventListener('scroll', schedule, { passive: true });
-    doc.defaultView.addEventListener('resize', schedule, { passive: true });
+    doc.defaultView.addEventListener('scroll', scheduleVisual, { passive: true });
+    doc.defaultView.addEventListener('resize', scheduleVisual, { passive: true });
   }
 
   function accessibleFallbackText(element, limit) {
@@ -242,7 +252,7 @@
     const described = referencedText(element, 'aria-describedby', 1024);
     if (described) return described;
     const placeholder = normalizedText(element.getAttribute('placeholder'), 1024);
-    if (placeholder && placeholder !== name) return placeholder;
+    if (placeholder && placeholder !== name) return `Placeholder: ${placeholder}`;
     const title = normalizedText(element.getAttribute('title'), 1024);
     return title && title !== name ? title : undefined;
   }
@@ -252,9 +262,7 @@
     const type = String(element.type || '').toLowerCase();
     const ariaRole = String(element.getAttribute('role') || '').toLowerCase();
     const applicationBridge = element.hasAttribute('data-saccade-reflex-target');
-    const pageLocation = element.ownerDocument.location;
-    const mouseAccuracyBridge = pageLocation.hostname === 'mouseaccuracy.com'
-      && pageLocation.pathname.startsWith('/game')
+    const mouseAccuracyBridge = isMouseAccuracyGame(element.ownerDocument)
       && element.classList.contains('target')
       && !element.classList.contains('hit');
     if (applicationBridge || mouseAccuracyBridge) return 'reflex_target';
@@ -327,16 +335,25 @@
     return value === null ? undefined : value === 'true';
   }
 
+  function navigationTargetFor(element, role) {
+    if (role !== 'link') return undefined;
+    try {
+      const target = new URL(element.getAttribute('href'), element.ownerDocument.baseURI);
+      if (!['http:', 'https:'].includes(target.protocol)
+        || target.username || target.password || target.href.length > 8192) return undefined;
+      return target.href;
+    } catch (_) {
+      return undefined;
+    }
+  }
+
   function signalsFor(element, role) {
     const signals = { enabled: !element.disabled && element.getAttribute('aria-disabled') !== 'true' };
     if (role === 'reflex_target') {
       const page = element.ownerDocument;
-      if (element === page.body && page.location.hostname === 'mouseaccuracy.com') signals.enabled = false;
+      if (element === page.body && isMouseAccuracyGame(page)) signals.enabled = false;
       const authored = element.getAttribute('data-saccade-reflex-occurrence');
-      const score = page.location.hostname === 'mouseaccuracy.com'
-        ? (page.body?.innerText || '').match(/SCORE\s*(\d+)/i)?.[1]
-        : undefined;
-      signals.occurrence = authored ?? score ?? '0';
+      signals.occurrence = reflexOccurrence(authored, isMouseAccuracyGame(page) ? page.body?.innerText : '');
     } else if (role === 'link') {
       signals.current = element.getAttribute('aria-current') || undefined;
       signals.expanded = ariaBoolean(element, 'expanded');
@@ -385,7 +402,11 @@
       signals.required = Boolean(element.required);
       signals.readonly = Boolean(element.readOnly);
       signals.invalid = element.getAttribute('aria-invalid') === 'true';
-      signals.protected = isProtectedFieldType(element.type, element.autocomplete);
+      const semanticHint = [
+        element.name, element.id, element.getAttribute('aria-label'), element.getAttribute('placeholder'),
+        ...Array.from(element.labels || []).map((label) => label.textContent),
+      ].filter(Boolean).join(' ');
+      signals.protected = isProtectedFieldType(element.type, element.autocomplete, semanticHint);
     }
     if (role === 'generic_control') signals.affordance = element.getAttribute('data-saccade-affordance');
     return signals;
@@ -417,6 +438,8 @@
     };
     if (name) object.name = name;
     if (description) object.description = description;
+    const navigationTarget = navigationTargetFor(element, role);
+    if (navigationTarget) object.navigation_target = navigationTarget;
     if (role === 'reflex_target') object.loop_class_token = reflexLoopClassToken;
     if (descriptor.affordances.length && interactionElement.ownerDocument.defaultView.getComputedStyle(interactionElement).pointerEvents !== 'none') {
       const token = randomToken('action', 16);
@@ -519,6 +542,7 @@
     if (['cell', 'columnheader', 'rowheader'].includes(role)) return 'cell';
     if (role === 'alert') return 'alert';
     if (role === 'status') return 'status';
+    if (element.hasAttribute('aria-live')) return 'status';
     if (/^H[1-6]$/.test(tag)) return 'heading';
     if (tag === 'P') return 'paragraph';
     if (tag === 'UL' || tag === 'OL') return 'list';
@@ -617,6 +641,76 @@
     return titles;
   }
 
+  function dialogTextCandidates(doc) {
+    const candidates = [];
+    for (const dialog of composedQuery(doc, DIALOG_SELECTOR)) {
+      const dialogBox = boxFor(dialog);
+      if (visibilityFor(dialog, dialogBox) === 'hidden') continue;
+      for (const element of composedQuery(dialog, GENERIC_TEXT_SELECTOR)) {
+        if (element.matches(`${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR}`)) continue;
+        if (element.parentElement?.closest(STRUCTURAL_SELECTOR)) continue;
+        if (visibilityFor(element, boxFor(element)) === 'hidden') continue;
+        const text = structuralText(element);
+        if (text) candidates.push({ element, text });
+      }
+    }
+    return candidates.filter(({ element }) => !candidates.some(({ element: descendant }) => (
+      descendant !== element && element.contains(descendant)
+    )));
+  }
+
+  function genericTextCandidates(doc) {
+    const candidates = [];
+    for (const element of composedQuery(doc, GENERIC_TEXT_SELECTOR)) {
+      if (element.matches(`${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR}`)) continue;
+      if (element.closest(`${DIALOG_SELECTOR},${STRUCTURAL_SELECTOR}`)) continue;
+      if (visibilityFor(element, boxFor(element)) === 'hidden') continue;
+      const text = structuralText(element);
+      if (text) candidates.push({ element, text });
+    }
+    return candidates.filter(({ element }) => !candidates.some(({ element: descendant }) => (
+      descendant !== element && element.contains(descendant)
+    )));
+  }
+
+  function isMouseAccuracyGame(doc) {
+    return doc?.location?.hostname === 'mouseaccuracy.com' && doc.location.pathname.startsWith('/game');
+  }
+
+  function observeCurrentGeometry() {
+    if (!globalThis.ResizeObserver) return;
+    if (!geometryResizeObserver) geometryResizeObserver = new ResizeObserver(scheduleVisual);
+    const currentElements = new Set([...objectTargets.values()].filter((element) => element?.isConnected));
+    for (const element of geometryObservedElements) {
+      if (!currentElements.has(element)) geometryResizeObserver.unobserve(element);
+    }
+    for (const element of currentElements) {
+      if (!geometryObservedElements.has(element)) geometryResizeObserver.observe(element);
+    }
+    geometryObservedElements = currentElements;
+  }
+
+  function currentGeometryIsAnimating() {
+    const visited = new Set();
+    for (const element of objectTargets.values()) {
+      let current = element;
+      while (current?.nodeType === Node.ELEMENT_NODE) {
+        if (!visited.has(current)) {
+          visited.add(current);
+          if (current.getAnimations?.().some((animation) => animation.playState === 'running')) return true;
+        }
+        const root = current.getRootNode?.();
+        current = current.parentElement || root?.host || null;
+      }
+    }
+    return false;
+  }
+
+  function continueGeometryTracking() {
+    observeCurrentGeometry();
+    if (currentGeometryIsAnimating()) scheduleVisual();
+  }
+
   function collect() {
     if (!config) return null;
     const previousTokenTargets = new Map(tokenTargets);
@@ -629,7 +723,7 @@
     const surfaceLimitations = [];
     const seenFileTriggers = new Set();
     let truncated = false;
-    if (location.hostname === 'mouseaccuracy.com' && location.pathname.startsWith('/game') && document.body) {
+    if (isMouseAccuracyGame(document) && document.body) {
       const loopStatus = observationObject(document.body, 'reflex_target', config.frameId);
       if (loopStatus) objects.push(loopStatus);
     }
@@ -693,12 +787,16 @@
           .map((element) => ({ element, dialogTitle: false }));
         const dialogTitles = dialogTitleCandidates(context.doc)
           .map(({ element, text }) => ({ element, dialogTitle: true, text }));
+        const dialogTexts = dialogTextCandidates(context.doc)
+          .map(({ element, text }) => ({ element, dialogText: true, text }));
+        const genericTexts = genericTextCandidates(context.doc)
+          .map(({ element, text }) => ({ element, genericText: true, text }));
         const seenStructural = new Set();
-        for (const { element, dialogTitle, text } of [...ordinary, ...dialogTitles]) {
+        for (const { element, dialogTitle, dialogText, genericText, text } of [...ordinary, ...dialogTitles, ...dialogTexts, ...genericTexts]) {
           if (seenStructural.has(element)) continue;
           seenStructural.add(element);
           const projected = structuralObject(
-            element, context.frameId, dialogTitle ? 'heading' : undefined, text,
+            element, context.frameId, dialogTitle ? 'heading' : (dialogText || genericText) ? 'text' : undefined, text,
           );
           if (!projected) continue;
           const bytes = encoder.encode(projected.text).byteLength;
@@ -727,6 +825,7 @@
       for (const [id, element] of previousObjectTargets) {
         if (element.isConnected) objectTargets.set(id, element);
       }
+      continueGeometryTracking();
       return null;
     }
     revision += 1;
@@ -744,6 +843,7 @@
       limitations: [...frameState.limitations, ...surfaceLimitations, ...(truncated ? [{ kind: 'truncated', frame_id: config.frameId }] : [])], gap: false,
     };
     compiledObjects = objects;
+    continueGeometryTracking();
     connectWorkerPort();
     workerPort?.postMessage({ kind: 'collector.observation', payload: snapshot });
     return snapshot;
@@ -873,11 +973,19 @@
   function schedule() {
     if (scheduled || !config) return;
     scheduled = true;
-    requestAnimationFrame(() => { scheduled = false; collect(); });
+    queueMicrotask(() => { scheduled = false; collect(); });
+  }
+
+  function scheduleVisual() {
+    if (scheduled || scheduledFrame !== null || !config) return;
+    scheduledFrame = requestAnimationFrame(() => {
+      scheduledFrame = null;
+      collect();
+    });
   }
 
   function mutationCanChangeObservation(record) {
-    if (location.hostname === 'mouseaccuracy.com' && location.pathname.startsWith('/game')) return true;
+    if (isMouseAccuracyGame(document)) return true;
     const element = record.target.nodeType === Node.ELEMENT_NODE
       ? record.target : record.target.host || record.target.parentElement;
     if (!element) return false;
@@ -915,8 +1023,13 @@
     compiledObjects = null;
     if (workerPort) workerPort.disconnect();
     workerPort = null;
+    if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
+    scheduledFrame = null;
+    scheduled = false;
     tokenTargets.clear();
     objectTargets.clear();
+    geometryResizeObserver?.disconnect();
+    geometryObservedElements = new Set();
     for (const observer of observers.splice(0)) observer.disconnect();
     observedRoots = new WeakSet();
     observedDocuments = new WeakSet();
@@ -927,7 +1040,7 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     try {
-      if (message.kind === 'collector.ping') respond({ ok: true });
+      if (message.kind === 'collector.ping') respond({ ok: true, extension_candidate: globalThis.SaccadeCandidate });
       else if (message.kind === 'collector.configure') { configure(message.config); respond({ ok: true, document_id: documentId }); }
       else if (message.kind === 'collector.observe') { collect(); respond({ ok: true }); }
       else if (message.kind === 'collector.deauthorize') { deauthorize(); respond({ ok: true }); }

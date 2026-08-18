@@ -1,0 +1,15 @@
+{
+  "schema": "saccade.setup-release/1",
+  "published": false,
+  "version": "0.1.0",
+  "extension_candidate": {
+    "schema": "saccade.extension-candidate/1",
+    "id": "86fda146ce3024c005029c774caa4f37998a4dfa4a65ee7e30155f3ac8881b2a",
+    "version": "0.3.22"
+  },
+  "native_host": {
+    "name": "com.nanlogic.saccade",
+    "allowed_origins": []
+  },
+  "artifacts": {}
+}
