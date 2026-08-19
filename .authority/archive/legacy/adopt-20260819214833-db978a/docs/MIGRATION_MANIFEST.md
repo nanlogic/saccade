@@ -17,7 +17,7 @@ approved component at a time and record its provenance below.
 | macOS input | current `bins/saccade-host/src/input/macos.rs` | Reference Actuator only | Preserve reviewed CoreGraphics behavior for explicit regression use; never initialize it or request Accessibility in the default Truth Layer. |
 | Windows input | current `bins/saccade-host/src/input/windows.rs` | runtime platform input | Preserve `SendInput`; add missing primitives and semantic verifiers. |
 | Protected fill | current Extension + Host protected-value path | runtime/Extension | Values must never enter MCP, observations, audit, diagnostics, or artifacts. |
-| Installer/repair | current `installer`, packaging scripts and accepted DMG evidence | `installers/macos`, `installers/windows` | Migrate only after runtime paths/modes stabilize. |
+| Setup/repair | reviewed Runtime registration behavior | npm setup package | Install the headless Runtime and user-level Native Messaging manifests through explicit `npx -y @saccade/setup`; do not migrate DMG, visible-app, Windows Setup, or default Accessibility behavior. |
 | Contract and coverage inventory | current working-tree docs | `docs` and later generated Catalog output | Contract stays normative; matrix stays evidence-oriented and must eventually be generated. |
 
 ## Research/reference only

@@ -22,6 +22,23 @@ Chrome/Edge Extension → Native Messaging Host mode → owner-only local IPC �
 MCP mode. Do not add CEF, Servo, Playwright, CDP, visual-coordinate, or other
 fallback execution routes.
 
+## Required Agent browser routing
+
+- Before any web search, navigation, page read, or download, inspect the
+  client's deferred/lazy tool registry for a Saccade MCP server and its six
+  public tools. Absence from the initially expanded tool list is not evidence
+  that Saccade is unavailable.
+- When Saccade is registered, call `saccade.system.capabilities` before using
+  any other web-capable tool. A registered call that times out means Saccade is
+  present but unhealthy; it does not mean the tool is absent.
+- On timeout or connection failure, retry once and repair/reconnect the same
+  Saccade route. If it remains unhealthy, stop the browser task and report the
+  connection blocker. Never silently fall back to generic web search, Codex
+  Browser, Chrome control, Safari, Playwright, CDP, or another browser.
+- Another browser route may be used only when Wayne explicitly names or
+  authorizes it for that task. Research obtained through another route is not
+  Saccade dogfood and must never be reported as such.
+
 ## Product invariants
 
 - Treat MCP as the current model-independent adapter, not the product identity;
@@ -30,14 +47,21 @@ fallback execution routes.
   full-page transfer, model polling, or model replanning.
 - Keep wire schemas at `saccade.observation/1` and
   `saccade-extension-host/1` until an explicit version decision lands.
-- Ship one signed product: a DMG on macOS or Setup on Windows, plus one
-  browser-store Extension confirmation.
+- Ship one browser-store Extension plus `npx -y @saccade/setup`. Setup installs
+  the headless local MCP and Native Host for supported local Agent clients. The
+  first release has no DMG, visible Runtime app, or Windows Setup.
 - Keep Native Host and MCP modes separate in framing, lifecycle, and
   protected-data boundaries even when one executable supplies both.
 - Every supported control has truthful recognition, stable identity, bounded
-  state, affordances, and browser-pushed changes. Execution is external.
-- Agents never receive locators, arbitrary coordinates, editable values,
-  protected values, cookies, or browser storage.
+  state, affordances, and browser-pushed changes. Registry-approved,
+  object-addressed `saccade.act` software execution is preferred when the
+  affordance is supported; the Agent client's own same-tab execution is the
+  fallback when that bounded route is unavailable, rejected, or unverified.
+- Agents receive current document- and viewport-relative bounds for every
+  projected object, with geometry changes pushed under the same stable
+  identity. They never receive locators, DOM paths, editable values, protected
+  values, cookies, browser storage, or authority to issue arbitrary-coordinate
+  actions.
 - The optional Reference Actuator may request finite input primitives and
   declarative verification rules. It is not part of the default product.
 - Profile filtering stays outside control modules and cannot change their

@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "baseline",
+  "topic": "product-execution-boundary",
+  "scope": ".",
+  "title": "Saccade product and execution boundary",
+  "revision": 1,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "3077b4e9ae120c39b6ac1e51af306e635be5693e5d6a06a5b348061649fbcb8c",
+  "baseCurrentSha256": null,
+  "previousEvidencePath": null,
+  "previousEvidenceSha256": null,
+  "previousEvidenceDataPath": null,
+  "previousEvidenceDataSha256": null,
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Saccade is a model-independent live semantic Truth Layer for authorized Chrome and Edge tabs."
+    },
+    {
+      "item": "R-002",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "The production route is Extension → Native Messaging Host → owner-only local IPC → MCP."
+    },
+    {
+      "item": "R-003",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Registry-approved, object-addressed `saccade.act` software execution is the preferred bounded action path when the target exposes a supported affordance."
+    },
+    {
+      "item": "R-004",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "The Agent client's own same-tab execution is the fallback when bounded software execution is unavailable, rejected, or cannot verify the requested transition."
+    },
+    {
+      "item": "R-005",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Playwright, CDP, screenshots, selectors, and arbitrary coordinates are not product fallback routes."
+    },
+    {
+      "item": "R-006",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "The optional Reference Actuator remains development-only and is not a default product dependency."
+    },
+    {
+      "item": "R-007",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Software execution never receives arbitrary coordinates, DOM locators, or protected values; it binds the object, document, and revision and must report verified, accepted-but-unverified, or explicit handoff truthfully."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/product-execution-boundary.md",
+      "archivePath": ".authority/archive/proposals/1787176561951-product-execution-boundary.md",
+      "sha256": "895d6b746c857d644ae93a4fbf3d7a1cb77d39deff7f52f822a75bb80dfa7aaa",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-19T21:56:01.981Z"
+}

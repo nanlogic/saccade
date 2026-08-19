@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "baseline",
+  "topic": "profile-boundary",
+  "scope": ".",
+  "title": "Profile architecture and filtering boundary",
+  "revision": 1,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "accept-draft",
+  "reviewer": "current-session",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": "adopt-20260819214833-db978a",
+  "decisionId": "profile-boundary",
+  "currentSha256": "2877406baa1b181abe2251b47ad12c1b8e490eeebb8ffe5dd48805ce4c28a6c6",
+  "baseCurrentSha256": null,
+  "previousEvidencePath": null,
+  "previousEvidenceSha256": null,
+  "previousEvidenceDataPath": null,
+  "previousEvidenceDataSha256": null,
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Profile behavior and filtering are consistently defined outside control recognition. Profiles may shape Agent-facing behavior and hide controls, but cannot alter control semantics, create authority, or expose protected values.",
+      "confidence": "high",
+      "text": "Profiles are strict runtime inputs that contain Agent-facing behavior and bounded filtering policy."
+    },
+    {
+      "item": "R-002",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Profile behavior and filtering are consistently defined outside control recognition. Profiles may shape Agent-facing behavior and hide controls, but cannot alter control semantics, create authority, or expose protected values.",
+      "confidence": "high",
+      "text": "Profile filtering occurs after canonical control recognition and cannot change a control module's recognition or projection semantics."
+    },
+    {
+      "item": "R-003",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Profile behavior and filtering are consistently defined outside control recognition. Profiles may shape Agent-facing behavior and hide controls, but cannot alter control semantics, create authority, or expose protected values.",
+      "confidence": "high",
+      "text": "A filtered control and its action authority are both absent from the Agent projection."
+    },
+    {
+      "item": "R-004",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Profile behavior and filtering are consistently defined outside control recognition. Profiles may shape Agent-facing behavior and hide controls, but cannot alter control semantics, create authority, or expose protected values.",
+      "confidence": "high",
+      "text": "Profile policy cannot reveal editable values, protected values, cookies, browser storage, locators, or arbitrary execution authority."
+    },
+    {
+      "item": "R-005",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Profile behavior and filtering are consistently defined outside control recognition. Profiles may shape Agent-facing behavior and hide controls, but cannot alter control semantics, create authority, or expose protected values.",
+      "confidence": "high",
+      "text": "Profile boundary changes update the normative architecture, observation contract, and decisions together."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-004",
+      "path": "docs/PROFILE_ARCHITECTURE.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/PROFILE_ARCHITECTURE.md",
+      "sha256": "3d4dbaaaec2a2e023b38c1554d892224e70222b91edc7fb456aa52c6b558e506",
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00"
+    },
+    {
+      "id": "S-005",
+      "path": "docs/decisions.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/decisions.md",
+      "sha256": "ae5d105f3353a7510789723aa0aa2659844ed555173da769672d0b9a9987a503",
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00"
+    },
+    {
+      "id": "S-006",
+      "path": "docs/extension_observation_contract.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/extension_observation_contract.md",
+      "sha256": "a64bb0b241e8807516b43bbc17cf9668a41ec1682c1f11d7f9fbf994b620ea70",
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-19T21:54:03.137Z"
+}

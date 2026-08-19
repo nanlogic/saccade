@@ -1,0 +1,18 @@
+{
+  "createdAt": "2026-08-19T21:54:03.080Z",
+  "paths": [
+    "docs/MIGRATION_MANIFEST.md",
+    "docs/PROFILE_ARCHITECTURE.md",
+    "docs/migrations/0002_runtime_route.md",
+    "docs/migrations/0003_extension_managed_chrome.md",
+    "docs/migrations/0005_editable_controls.md",
+    "docs/migrations/0006_native_mouse_accuracy.md",
+    "docs/migrations/0007_reflex_target_soft_mouse.md",
+    "docs/migrations/0008_link_file_input.md",
+    "docs/migrations/0009_toggle_command_controls.md",
+    "docs/migrations/0010_structural_page_reading.md",
+    "docs/migrations/0011_aria_choice_controls.md",
+    "docs/migrations/0012_shared_tab_ui.md",
+    "docs/migrations/0013_frame_shadow_composition.md"
+  ]
+}

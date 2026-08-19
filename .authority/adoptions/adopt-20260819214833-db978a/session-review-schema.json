@@ -1,0 +1,110 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "topics"
+  ],
+  "properties": {
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "topic",
+          "scope",
+          "title",
+          "confidence",
+          "requiresOwner",
+          "summary",
+          "sources",
+          "currentMarkdown",
+          "changes"
+        ],
+        "properties": {
+          "decisionId": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "requiresOwner": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "currentMarkdown": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "item",
+                "change",
+                "sources",
+                "reason",
+                "confidence"
+              ],
+              "properties": {
+                "item": {
+                  "type": "string"
+                },
+                "change": {
+                  "enum": [
+                    "selected",
+                    "merged",
+                    "added",
+                    "modified",
+                    "wording-only",
+                    "removed",
+                    "superseded"
+                  ]
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

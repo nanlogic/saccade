@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .authority/hooks/agent-guard.mjs",
+            "command_windows": "node .authority\\hooks\\agent-guard.mjs",
+            "timeout": 10,
+            "statusMessage": "Markdown Gatekeeper authority guard"
+          }
+        ]
+      }
+    ]
+  }
+}

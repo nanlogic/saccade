@@ -17,7 +17,11 @@ The popup uses the current session ACL and authorization functions in
   its collector, and rolls back on failure.
 - Revocation removes the shared tab, discards its observation session, clears
   collector authority, and stops its mutation observer.
-- Agent-owned tabs remain separate and are revoked by closing them.
+- Agent-created and user-shared tabs retain separate internal provenance, but
+  the popup presents one truthful authorization state. Any authorized tab can
+  be revoked with `Stop sharing` without closing it; revocation clears both ACL
+  classifications, discards its observation session, and deauthorizes the
+  Collector.
 
 ## Checks and evidence
 

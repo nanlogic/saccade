@@ -1,0 +1,99 @@
+{
+  "topics": [
+    {
+      "topic": "product-execution-boundary",
+      "scope": ".",
+      "title": "Saccade product and execution boundary",
+      "confidence": "medium",
+      "requiresOwner": true,
+      "summary": "The sources agree that Saccade is a semantic Truth Layer with one Extension-to-MCP route, but conflict on whether all execution is external or Registry-bounded object-addressed software execution is part of core Saccade. This must not be auto-published until the owner resolves the stale external-only wording.",
+      "sources": ["S-001", "S-002", "S-005", "S-006"],
+      "currentMarkdown": "# Product and execution boundary\n\n- R-001 — Saccade is a model-independent live semantic Truth Layer for authorized Chrome and Edge tabs.\n- R-002 — The production route is Extension → Native Messaging Host → owner-only local IPC → MCP.\n- R-003 — Playwright, CDP, screenshots, selectors, and arbitrary coordinates are not product fallback routes.\n- R-004 — Unresolved: older contributor guidance says execution is entirely Agent-owned, while current architecture permits Registry-approved object-addressed software click, select, and type through `saccade.act`.\n- R-005 — The optional Reference Actuator remains development-only and is not a default product dependency.\n",
+      "changes": [
+        {
+          "item": "R-004",
+          "change": "modified",
+          "sources": ["S-001", "S-002", "S-005", "S-006"],
+          "reason": "The execution-owner statements are materially inconsistent and require an owner decision rather than date-based selection.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "topic": "truth-observation-contract",
+      "scope": ".",
+      "title": "Browser Truth observation contract",
+      "confidence": "high",
+      "requiresOwner": false,
+      "summary": "The architecture, decisions, and Extension contract consistently define one full semantic document view followed by pushed revision-bounded deltas, stable document-local object identity, current CSS-pixel geometry, protected-value redaction, and explicit opaque or restricted boundaries.",
+      "sources": ["S-002", "S-005", "S-006"],
+      "currentMarkdown": "# Browser Truth observation contract\n\n- R-001 — The Extension compiles each authorized tab into one canonical full semantic view and then pushes meaningful revision-bounded deltas.\n- R-002 — Objects have stable document-local identity, bounded semantic state, affordances, current document- and viewport-relative CSS-pixel geometry, and explicit limitations.\n- R-003 — Geometry changes update the same object identity; document replacement creates a new document boundary and invalidates stale authority.\n- R-004 — Editable values, protected values, cookies, storage, DOM paths, and locators are never exposed as Truth.\n- R-005 — Same-origin frames and open Shadow DOM may be composed; restricted frames and arbitrary Canvas or WebGL remain explicitly opaque unless an approved semantic bridge supplies revalidatable objects.\n- R-006 — Stream gaps and impossible revisions force an exact-tab reset rather than guessed state.\n",
+      "changes": [
+        {
+          "item": "R-001–R-006",
+          "change": "merged",
+          "sources": ["S-002", "S-005", "S-006"],
+          "reason": "These invariants are consistent across all three current architectural sources.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "topic": "profile-boundary",
+      "scope": ".",
+      "title": "Profile architecture and filtering boundary",
+      "confidence": "high",
+      "requiresOwner": false,
+      "summary": "Profile behavior and filtering are consistently defined outside control recognition. Profiles may shape Agent-facing behavior and hide controls, but cannot alter control semantics, create authority, or expose protected values.",
+      "sources": ["S-004", "S-005", "S-006"],
+      "currentMarkdown": "# Profile architecture\n\n- R-001 — Profiles are strict runtime inputs that contain Agent-facing behavior and bounded filtering policy.\n- R-002 — Profile filtering occurs after canonical control recognition and cannot change a control module's recognition or projection semantics.\n- R-003 — A filtered control and its action authority are both absent from the Agent projection.\n- R-004 — Profile policy cannot reveal editable values, protected values, cookies, browser storage, locators, or arbitrary execution authority.\n- R-005 — Profile boundary changes update the normative architecture, observation contract, and decisions together.\n",
+      "changes": [
+        {
+          "item": "R-001–R-005",
+          "change": "merged",
+          "sources": ["S-004", "S-005", "S-006"],
+          "reason": "The sources state the same separation between canonical semantics and Agent-specific filtering.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "topic": "legacy-migration-policy",
+      "scope": ".",
+      "title": "Legacy migration policy",
+      "confidence": "high",
+      "requiresOwner": false,
+      "summary": "The migration manifest and component records consistently require reviewed, component-by-component migration from the private legacy archive with provenance, tests, and explicit release limitations. Component migration notes are evidence of bounded imports, not independent product authority.",
+      "sources": ["S-003", "S-007", "S-008", "S-009", "S-010", "S-011", "S-012", "S-013", "S-014", "S-015", "S-016", "S-017"],
+      "currentMarkdown": "# Legacy migration policy\n\n- R-001 — Use the private `nanlogic/saccade-legacy` archive only as a reviewed source.\n- R-002 — Migrate one approved component at a time; never copy the legacy tree or revive monolithic classifiers.\n- R-003 — Every migrated component records its source commit and path, preserves or replaces its focused tests, and retains truthful limitations.\n- R-004 — A migration record proves the bounded provenance of that component; it does not independently promote Catalog or public release status.\n- R-005 — Public status still requires the current release candidate's browser and evidence gates.\n",
+      "changes": [
+        {
+          "item": "R-001–R-005",
+          "change": "merged",
+          "sources": ["S-003", "S-007", "S-008", "S-009", "S-010", "S-011", "S-012", "S-013", "S-014", "S-015", "S-016", "S-017"],
+          "reason": "The manifest and all migration notes share the same provenance-first, bounded-component process.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "topic": "historical-agent-evidence",
+      "scope": ".",
+      "title": "Historical Agent and benchmark evidence",
+      "confidence": "medium",
+      "requiresOwner": true,
+      "summary": "The reports are time-scoped evidence from different candidates, clients, sites, and execution routes. Some describe successful same-tab loops while another records a contemporaneous blocker. They should remain historical evidence and must not be merged into a timeless product or performance claim without owner-selected current release evidence.",
+      "sources": ["S-018", "S-019", "S-020", "S-021", "S-022"],
+      "currentMarkdown": "# Historical Agent evidence policy\n\n- R-001 — Benchmark and dogfood reports are evidence scoped to their recorded candidate, client, browser, task, route, and date.\n- R-002 — A local fixture or historical public-site result does not authorize a general compatibility, speed, token, or release claim.\n- R-003 — Conflicting pass and blocker reports remain historical until a current frozen matrix supersedes them explicitly.\n- R-004 — Current public claims require complete machine-readable evidence from the frozen release candidate.\n",
+      "changes": [
+        {
+          "item": "R-001–R-004",
+          "change": "merged",
+          "sources": ["S-018", "S-019", "S-020", "S-021", "S-022"],
+          "reason": "The reports cover different moments and cannot safely be selected as one timeless current result.",
+          "confidence": "high"
+        }
+      ]
+    }
+  ]
+}
