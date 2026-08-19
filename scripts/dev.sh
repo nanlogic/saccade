@@ -230,9 +230,17 @@ install_runtime() {
   cargo build --release --manifest-path "$ROOT/Cargo.toml" -p saccade-runtime
   source_hash=$(shasum -a 256 "$ROOT/target/release/saccade-runtime" | awk '{print $1}')
   installed_source_hash=$(sed -n '1p' "$STATE_DIR/runtime-source.sha256" 2>/dev/null || true)
+  recorded_runtime_hash=$(sed -n '1p' "$STATE_DIR/runtime-installed.sha256" 2>/dev/null || true)
+  actual_runtime_hash=
+  if [ -x "$RUNTIME" ]; then
+    actual_runtime_hash=$(shasum -a 256 "$RUNTIME" | awk '{print $1}')
+  fi
   installed_signing_version=$(sed -n '1p' "$STATE_DIR/runtime-signing.version" 2>/dev/null || true)
   runtime_changed=false
-  if [ ! -x "$RUNTIME" ] || [ "$source_hash" != "$installed_source_hash" ]; then
+  if [ ! -x "$RUNTIME" ] \
+    || [ "$source_hash" != "$installed_source_hash" ] \
+    || [ -z "$recorded_runtime_hash" ] \
+    || [ "$actual_runtime_hash" != "$recorded_runtime_hash" ]; then
     runtime_installing="$RUNTIME_MACOS/saccade-runtime.installing"
     cp "$ROOT/target/release/saccade-runtime" "$runtime_installing"
     chmod 700 "$runtime_installing"
@@ -256,6 +264,7 @@ install_runtime() {
     codesign --verify --deep --strict "$RUNTIME_APP"
     printf '%s\n' "$source_hash" > "$STATE_DIR/runtime-source.sha256"
     printf '%s\n' "$signing_version" > "$STATE_DIR/runtime-signing.version"
+    shasum -a 256 "$RUNTIME" | awk '{print $1}' > "$STATE_DIR/runtime-installed.sha256"
   fi
   if [ ! -f "$RUNTIME_DIR/profile.json" ]; then
     cp "$ROOT/profiles/default.json" "$RUNTIME_DIR/profile.json"

@@ -84,6 +84,19 @@ class DevelopmentLifecycleTests(unittest.TestCase):
         self.assertIn('"$RUNTIME chrome-extension://"*', body)
         self.assertNotIn("pkill", body)
 
+    def test_runtime_install_repairs_a_stale_or_replaced_binary(self) -> None:
+        script = (Path(__file__).parents[1] / "scripts" / "dev.sh").read_text(
+            encoding="utf-8"
+        )
+        body = script.split("install_runtime() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn('"$STATE_DIR/runtime-installed.sha256"', body)
+        self.assertIn('actual_runtime_hash=$(shasum -a 256 "$RUNTIME"', body)
+        self.assertIn('[ "$actual_runtime_hash" != "$recorded_runtime_hash" ]', body)
+        self.assertIn(
+            'shasum -a 256 "$RUNTIME" | awk \'{print $1}\' > "$STATE_DIR/runtime-installed.sha256"',
+            body,
+        )
+
     def test_managed_release_gates_suspend_only_ordinary_chrome_host(self) -> None:
         script = (Path(__file__).parents[1] / "scripts" / "dev.sh").read_text(
             encoding="utf-8"
