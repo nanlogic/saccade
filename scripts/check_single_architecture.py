@@ -16,13 +16,84 @@ def require(path: str, needle: str) -> None:
         raise SystemExit(f"{path}: missing {needle!r}")
 
 
+def forbid(path: str, needle: str) -> None:
+    text = (ROOT / path).read_text(encoding="utf-8")
+    if needle in text:
+        raise SystemExit(f"{path}: retained obsolete release route {needle!r}")
+
+
 def main() -> None:
     require("crates/saccade_protocol/src/lib.rs", '"saccade.observation/1"')
     require("crates/saccade_protocol/src/lib.rs", '"saccade-extension-host/1"')
     require("AGENTS.md", "docs/PROFILE_ARCHITECTURE.md")
     require("README.md", "docs/PROFILE_ARCHITECTURE.md")
     require("docs/FINAL_ARCHITECTURE.md", "`PROFILE_ARCHITECTURE.md`")
+    require("docs/FINAL_ARCHITECTURE.md", "`npx -y @saccade/setup`")
+    require("docs/SETUP_TARGET.md", "Status: normative for the first public release.")
+    require("docs/SETUP_TARGET.md", "`postinstall`")
+    require("docs/SETUP_TARGET.md", "Cloud-only Agent sessions cannot reach")
+    setup_package = json.loads(
+        (ROOT / "packages/setup/package.json").read_text(encoding="utf-8")
+    )
+    if setup_package.get("name") != "@saccade/setup":
+        raise SystemExit("setup package lost its public npm name")
+    if "postinstall" in setup_package.get("scripts", {}):
+        raise SystemExit("setup package must not mutate the system from postinstall")
+    setup_release = json.loads(
+        (ROOT / "packages/setup/release.json").read_text(encoding="utf-8")
+    )
+    if setup_release.get("published") is not False:
+        raise SystemExit("placeholder setup release must stay unpublished")
+    if setup_release.get("native_host", {}).get("name") != "com.nanlogic.saccade":
+        raise SystemExit("setup release lost the production Native Host identity")
+    extension_candidate = json.loads(
+        (ROOT / "extension/candidate.json").read_text(encoding="utf-8")
+    )
+    if setup_release.get("extension_candidate") != extension_candidate:
+        raise SystemExit("setup release does not name the exact Extension candidate")
+    require("packages/setup/src/setup.js", "exact Extension → Native Host → Runtime → MCP candidate")
+    require("packages/setup/src/setup.js", "saccade.capabilities/6")
     require("docs/extension_observation_contract.md", "`PROFILE_ARCHITECTURE.md`")
+    require(
+        "docs/HOW_SACCADE_WORKS.md",
+        "A closed-loop Saccade test must include the Agent-owned action",
+    )
+    require(
+        "docs/RELEASE_PLAN.md",
+        "Codex and Claude each act with their own tool",
+    )
+    require(
+        "docs/RELEASE_PLAN.md",
+        "are not a release gate",
+    )
+    require("scripts/audit_public_evidence.py", "Reference Actuator reports are rejected")
+    require("scripts/summarize_fair_matrix.py", "public_comparison_claims_authorized")
+    dogfood_path = "docs/reports/2026-08-11-steamworks-onboarding-dogfood.md"
+    for needle in (
+        "Saccade-observe / Agent-act / Saccade-verify",
+        "same-tab tool owns",
+        "Restricted frames, CAPTCHA, login/account mismatch",
+        "does not promote any Control Catalog row",
+    ):
+        require(dogfood_path, needle)
+    dogfood = (ROOT / dogfood_path).read_text(encoding="utf-8").lower()
+    for forbidden in (
+        "token=",
+        "4044414380",
+        "8840 mason",
+        "quentin.ma@gmail.com",
+    ):
+        if forbidden in dogfood:
+            raise SystemExit(f"authenticated dogfood report retained private material: {forbidden!r}")
+    for path, needle in (
+        ("README.md", "scripts/package_preview_macos.py"),
+        ("README.md", "unsigned DMG"),
+        ("docs/RELEASE_PLAN.md", "signed DMG"),
+        ("docs/RELEASE_PLAN.md", "Windows Setup"),
+        ("docs/CONTROL_ROADMAP.md", "unsigned DMG"),
+        ("docs/CONTROL_ROADMAP.md", "package the store Extension, signed macOS DMG"),
+    ):
+        forbid(path, needle)
     require(
         "docs/decisions.md",
         "Profiles provide behavior and ban named controls",
@@ -47,18 +118,35 @@ def main() -> None:
     default_profile = json.loads(
         (ROOT / "profiles/default.json").read_text(encoding="utf-8")
     )
-    if default_profile != {"name": "default", "behavior": "", "ban": []}:
+    setup_profile = json.loads(
+        (ROOT / "packages/setup/default-profile.json").read_text(encoding="utf-8")
+    )
+    if setup_profile != default_profile:
+        raise SystemExit("setup package default Profile drifted from the product default")
+    if set(default_profile) != {"name", "behavior", "ban"}:
         raise SystemExit("default Profile changed")
+    if default_profile["name"] != "default" or default_profile["ban"] != []:
+        raise SystemExit("default Profile identity or bans changed")
+    behavior = default_profile["behavior"]
+    if (
+        not isinstance(behavior, str)
+        or "autonomously" not in behavior
+        or "Agent-owned tab is Agent On" not in behavior
+        or "MCP adds no safety taxonomy or action gate" not in behavior
+    ):
+        raise SystemExit("default Profile must require autonomous Agent-owned access without an MCP safety gate")
     require("crates/saccade_runtime/src/profile.rs", "pub struct Profile")
     require("crates/saccade_runtime/src/profile.rs", "pub struct BanRule")
-    require("crates/saccade_runtime/src/session.rs", '"saccade.capabilities/5"')
+    require("crates/saccade_runtime/src/session.rs", '"saccade.capabilities/6"')
     require("crates/saccade_runtime/src/session.rs", '"product":"truth_layer"')
     require("crates/saccade_runtime/src/session.rs", '"execution_owner":"agent_client"')
-    require("crates/saccade_runtime/src/session.rs", '"browser_owned_confirm"')
+    require("crates/saccade_runtime/src/session.rs", '"extension_candidate"')
+    require("crates/saccade_runtime/src/session.rs", '"expected_extension_candidate"')
     require("crates/saccade_runtime/src/session.rs", "filter_observation")
     require("crates/saccade_runtime/src/session.rs", '"tabs.list"')
     require("crates/saccade_runtime/src/session.rs", '"tabs.open"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.tabs.list"')
+    require("crates/saccade_runtime/src/mcp.rs", '"saccade.tabs.close"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.tabs.open"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.truth.read"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.agent-view/1"')
@@ -67,8 +155,13 @@ def main() -> None:
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.reference.form.fill"')
     require("crates/saccade_runtime/src/mcp.rs", '"saccade.reference.reflex.run"')
     require("extension/src/service_worker.js", "com.nanlogic.saccade.dev")
+    require("extension/src/service_worker.js", "com.nanlogic.saccade'")
+    require("extension/src/service_worker.js", "getManifest().name.includes('(Development)')")
     require("extension/src/service_worker.js", "prepare_action")
     require("extension/src/service_worker.js", "saccade.collector")
+    require("extension/src/service_worker.js", "reloadIfCandidateChanged")
+    require("extension/src/service_worker.js", "sameCandidate(ping.extension_candidate)")
+    require("extension/src/collector.js", "extension_candidate: globalThis.SaccadeCandidate")
     require("extension/src/collector.js", "registry.observe(role")
     require("extension/src/collector.js", "option_object_id")
     require("extension/src/collector.js", "!element.classList.contains('hit')")
@@ -90,9 +183,17 @@ def main() -> None:
     if len(content_scripts) != 1 or content_scripts[0].get("js", [])[-1:] != ["src/collector.js"]:
         raise SystemExit("Extension lost its ordered static Collector bundle")
     runtime = (ROOT / "bins/saccade-runtime/src/main.rs").read_text(encoding="utf-8")
-    for mode in ("native-host", "mcp", "reference-actuator-mcp", "doctor", "repair"):
+    for mode in (
+        "native-host",
+        "mcp",
+        "doctor",
+        "reference-actuator-mcp",
+        "reference-actuator-repair",
+    ):
         if f'"{mode}"' not in runtime:
             raise SystemExit(f"runtime mode missing: {mode}")
+    if 'Some("repair")' in runtime:
+        raise SystemExit("default Runtime retained the legacy Accessibility repair command")
     manifests = "\n".join(path.read_text(encoding="utf-8") for path in ROOT.rglob("Cargo.toml"))
     for forbidden in ("playwright", "cef", "servo", "chromiumoxide", "headless_chrome"):
         if forbidden in manifests.lower():
@@ -103,7 +204,7 @@ def main() -> None:
     catalog = json.loads((ROOT / "catalog/controls.json").read_text(encoding="utf-8"))
     expected_roles = {
         "button", "text_field", "search_field", "text_area", "content_editable",
-        "spin_button", "checkbox", "radio", "switch", "select", "tab", "menu_item",
+        "spin_button", "checkbox", "radio", "switch", "select", "option", "tab", "menu_item",
         "reflex_target", "link", "file_input",
     }
     if {item["role"] for item in catalog["controls"]} != expected_roles:
@@ -135,7 +236,7 @@ def main() -> None:
         raise SystemExit("Truth inventory control gate does not match the Catalog")
     if {item["role"] for item in inventory["roles"] if item.get("gate") == "semantic"} != {
         "text", "heading", "paragraph", "list", "list_item", "table", "row", "cell",
-        "alert", "status", "option", "slider", "label", "generic_control", "image",
+        "alert", "status", "slider", "label", "generic_control", "image",
         "opaque_surface", "restricted_document",
     }:
         raise SystemExit("Truth inventory semantic gate changed without runner coverage")

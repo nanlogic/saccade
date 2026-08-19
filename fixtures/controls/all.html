@@ -53,6 +53,17 @@
           <option>Blue</option>
         </select>
       </label>
+      <label>Native listbox
+        <select id="native-listbox" size="3">
+          <option selected>One</option>
+          <option>Two</option>
+          <option>Three</option>
+        </select>
+      </label>
+      <div id="priority-listbox" role="listbox" tabindex="0" aria-label="Priority">
+        <div role="option" aria-selected="true">Normal</div>
+        <div role="option" aria-selected="false">Urgent</div>
+      </div>
       <div id="portal-city" role="combobox" tabindex="0" aria-label="Portal city"
            aria-expanded="true" aria-controls="portal-city-options">Austin</div>
       <div id="portal-city-options" role="listbox" aria-label="Portal city popup">
@@ -120,6 +131,7 @@
         () => { const eco = document.getElementById('eco-plan'); const fast = document.getElementById('fast-plan'); eco.checked = false; fast.checked = true; fast.dispatchEvent(new Event('change', { bubbles: true })); },
         () => document.getElementById('notifications').setAttribute('aria-checked', 'true'),
         () => { const el = document.getElementById('color'); el.disabled = true; },
+        () => { const options = document.querySelectorAll('#priority-listbox [role="option"]'); options[0].setAttribute('aria-selected', 'false'); options[1].setAttribute('aria-selected', 'true'); },
         () => { const tabs = document.querySelectorAll('[role="tab"]'); tabs[0].setAttribute('aria-selected', 'false'); tabs[1].setAttribute('aria-selected', 'true'); },
         () => document.getElementById('more-actions').setAttribute('aria-expanded', 'true'),
         () => document.getElementById('training-target').setAttribute('data-saccade-reflex-occurrence', '1'),
@@ -128,7 +140,7 @@
       truthChanges.forEach((change, index) => setTimeout(change, 1800 + index * 350));
       const semanticChanges = [
         () => { document.querySelector('h1').textContent = 'Catalog controls updated'; },
-        () => { document.querySelector('main > p').firstChild.nodeValue = 'This page now proves pushed structural changes. '; },
+        () => { document.querySelector('main > p').firstChild.nodeValue = 'This page proves native control loops and bounded structural changes. '; },
         () => { document.querySelector('li').textContent = 'Observe the updated page'; },
         () => { document.querySelector('th').textContent = 'Updated evidence'; },
         () => { document.querySelector('[role="alert"]').textContent = 'Fixture updated'; },
@@ -152,6 +164,9 @@
         () => { const el = document.getElementById('week-field'); el.value = '2026-W31'; el.dispatchEvent(new Event('input', { bubbles: true })); },
         () => { const el = document.getElementById('datetime-field'); el.value = '2026-08-02T12:34'; el.dispatchEvent(new Event('input', { bubbles: true })); },
         () => { document.getElementById('color-field').disabled = true; },
+        () => { document.getElementById('native-listbox').disabled = true; },
+        () => { document.getElementById('priority-listbox').setAttribute('aria-disabled', 'true'); },
+        () => { document.getElementById('portal-city').setAttribute('aria-disabled', 'true'); },
         () => { document.getElementById('canvas-surface').setAttribute('aria-label', 'Canvas surface updated'); },
         () => { document.getElementById('webgl-surface').setAttribute('aria-label', 'WebGL surface updated'); },
         () => { document.getElementById('video-surface').setAttribute('aria-label', 'Video surface updated'); },

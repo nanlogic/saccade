@@ -53,7 +53,10 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
 def compact_object(item: dict[str, Any]) -> dict[str, Any]:
     return {
         key: item[key]
-        for key in ("object_id", "role", "name", "description", "text", "state", "affordances")
+        for key in (
+            "object_id", "role", "name", "description", "text", "state",
+            "affordances", "document_bounds", "viewport_bounds", "visibility",
+        )
         if key in item
     }
 

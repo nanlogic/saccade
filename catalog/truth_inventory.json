@@ -11,7 +11,7 @@
     {"role":"radio","status":"implemented","gate":"control"},
     {"role":"switch","status":"implemented","gate":"control"},
     {"role":"select","status":"implemented","gate":"control"},
-    {"role":"option","status":"implemented","gate":"semantic"},
+    {"role":"option","status":"implemented","gate":"control"},
     {"role":"file_input","status":"implemented","gate":"control"},
     {"role":"spin_button","status":"implemented","gate":"control"},
     {"role":"tab","status":"implemented","gate":"control"},

@@ -18,7 +18,7 @@ Protocol roles: 34. Reusable variants: 12. Structural/push boundaries: 6.
 | role | radio | radio | implemented | control |
 | role | switch | switch | implemented | control |
 | role | select | select | implemented | control |
-| role | option | option | implemented | semantic |
+| role | option | option | implemented | control |
 | role | file_input | file_input | implemented | control |
 | role | spin_button | spin_button | implemented | control |
 | role | tab | tab | implemented | control |
@@ -67,7 +67,7 @@ These 15 rows are the optional Reference Actuator subset, not the complete Truth
 
 ## Reference Actuator evidence summary
 
-Implemented: 15. Chrome + Edge fixture: 13. Chrome + Edge external: 1. Publishable: 0.
+Implemented: 16. Chrome + Edge fixture: 13. Chrome + Edge external: 1. Publishable: 0.
 
 Chrome / Edge values are shown in that order.
 External status requires two independent traceable public sources per control and browser.
@@ -85,6 +85,7 @@ External status requires two independent traceable public sources per control an
 | radio | yes | passed / passed | passed / passed | pending / pending |
 | switch | yes | passed / passed | pending / pending | pending / pending |
 | select | yes | passed / passed | pending / pending | pending / pending |
+| option | yes | pending / pending | pending / pending | pending / pending |
 | reflex_target | yes | passed / pending | pending / pending | pending / pending |
 | tab | yes | passed / passed | pending / pending | pending / pending |
 | menu_item | yes | passed / passed | pending / pending | pending / pending |
@@ -107,6 +108,7 @@ External status requires two independent traceable public sources per control an
 | radio | 2 | Selenium, W3C WAI-ARIA APG | aria, native_html |
 | switch | 1 | W3C WAI-ARIA APG | aria |
 | select | 1 | Selenium | native_html |
+| option | 0 | gap | gap |
 | reflex_target | 0 | gap | gap |
 | tab | 1 | W3C WAI-ARIA APG | aria |
 | menu_item | 1 | W3C WAI-ARIA APG | aria |
@@ -127,6 +129,7 @@ External status requires two independent traceable public sources per control an
 | radio | toggle | checked, enabled, required, invalid | click | pending | pending | implementation |
 | switch | toggle | checked, enabled | click | pending | pending | implementation |
 | select | choice | has_value, enabled, required, invalid, expanded | click, select | pending | pending | implementation |
+| option | choice | selected, enabled | click | pending | pending | implementation |
 | reflex_target | reflex | enabled, reflex_occurrence | click | pending | pending | implementation |
 | tab | navigation | selected, enabled | click | pending | pending | implementation |
 | menu_item | navigation | expanded, enabled | click | pending | pending | implementation |

@@ -42,6 +42,7 @@ ACCURACY_DIFFICULTIES = ("ordinary", "hard")
 MOUSE_BACKENDS = ("native", "soft")
 SOFTWARE_PREFERRED_ROLES = {
     "button", "link", "checkbox", "radio", "switch", "select", "tab", "menu_item", "reflex_target",
+    "text_field", "search_field", "text_area", "content_editable", "spin_button",
 }
 MOUSEACCURACY_DIFFICULTY_VALUES = ("Easy", "Normal", "Hard", "Insane")
 MOUSEACCURACY_SIZE_VALUES = ("Large", "Medium", "Small", "Tiny")
@@ -55,6 +56,46 @@ ACCURACY_SIZES = {
         "hard": (10, 14, 18),
     },
 }
+
+
+def merge_truth_patch(document: Any, patch: Any) -> Any:
+    """Apply the Runtime's recursive JSON merge patch to one cached object."""
+    if not isinstance(patch, dict):
+        return patch
+    result = dict(document) if isinstance(document, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            result.pop(key, None)
+        else:
+            result[key] = merge_truth_patch(result.get(key), value)
+    return result
+
+
+def fold_truth_change(
+    objects: dict[str, dict[str, Any]],
+    change: dict[str, Any],
+    defaults: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Fold an appeared, updated-patch, or disappeared Agent change in place."""
+    defaults = defaults or {}
+    kind = change.get("kind")
+    object_id = str(change.get("object_id") or change.get("object", {}).get("object_id") or "")
+    if not object_id:
+        raise RuntimeError("Truth delta change omitted object_id")
+    if kind == "disappeared":
+        return objects.pop(object_id, None)
+    if kind == "appeared":
+        item = dict(defaults, **(change.get("object") or {}))
+    elif kind == "updated":
+        prior = objects.get(object_id)
+        if prior is None:
+            raise RuntimeError(f"Truth delta patch has no cached object {object_id}")
+        item = dict(defaults, **merge_truth_patch(prior, change.get("patch") or {}))
+    else:
+        raise RuntimeError(f"unsupported Truth delta change kind {kind!r}")
+    item["object_id"] = object_id
+    objects[object_id] = item
+    return item
 
 
 def redact_editable_values(value: str) -> str:
@@ -150,13 +191,10 @@ class Mcp:
             "web.reflex.run": "reference.reflex.run",
         }
         name = aliases.get(name, name)
-        result = self.rpc(
-            "tools/call",
-            {"name": f"saccade.{name}", "arguments": arguments},
-            timeout=timeout,
-        )
-        value = result["structuredContent"]
+        value = self.raw_tool(name, arguments, timeout=timeout)
         if value.get("schema") == "saccade.agent-view/1":
+            if value.get("mode") == "catalog":
+                return self.materialize_catalog(value, timeout=timeout)
             return self.materialize_view(value)
         if value.get("schema") == "saccade.agent-receipt/1":
             receipt = dict(value)
@@ -168,14 +206,84 @@ class Mcp:
             return form
         return value
 
+    def raw_tool(
+        self, name: str, arguments: dict[str, Any], timeout: float = 35.0
+    ) -> dict[str, Any]:
+        result = self.rpc(
+            "tools/call",
+            {"name": f"saccade.{name}", "arguments": arguments},
+            timeout=timeout,
+        )
+        return result["structuredContent"]
+
+    def materialize_catalog(
+        self, first: dict[str, Any], timeout: float = 35.0
+    ) -> dict[str, Any]:
+        """Expand a diagnostic catalog without changing the public Agent contract."""
+        tab_id = str(first["tab_id"])
+        document_id = str(first["document_id"])
+        revision = int(first["revision"])
+        catalog = dict(first)
+        entries = list(first.get("entries", []))
+        page = first.get("page") or {"complete": True}
+        while page.get("complete") is False:
+            continuation = self.raw_tool("truth.read", {"tab_id": tab_id}, timeout=timeout)
+            if (
+                continuation.get("mode") != "catalog"
+                or continuation.get("document_id") != document_id
+                or continuation.get("revision") != revision
+            ):
+                raise RuntimeError("Truth catalog continuation changed its frozen basis")
+            entries.extend(continuation.get("entries", []))
+            page = continuation.get("page") or {"complete": True}
+
+        objects: list[dict[str, Any]] = []
+        object_ids = [str(entry["object_id"]) for entry in entries]
+        for offset in range(0, len(object_ids), 64):
+            details = self.raw_tool(
+                "truth.read",
+                {
+                    "tab_id": tab_id,
+                    "document_id": document_id,
+                    "basis_revision": revision,
+                    "object_ids": object_ids[offset:offset + 64],
+                },
+                timeout=timeout,
+            )
+            if details.get("mode") != "details":
+                raise RuntimeError("Truth catalog detail request did not return details")
+            defaults = details.get("object_defaults") or {}
+            objects.extend(dict(defaults, **item) for item in details.get("objects", []))
+
+        snapshot = {
+            "schema": "saccade.agent-browser-state/1",
+            **{
+                key: value for key, value in catalog.items()
+                if key not in {"schema", "mode", "entries", "entry_defaults", "page"}
+            },
+            "objects": objects,
+            "changes": [],
+            "catalog_expanded_for_diagnostics": True,
+        }
+        self.agent_views[tab_id] = snapshot
+        return snapshot
+
     def materialize_view(self, view: dict[str, Any]) -> dict[str, Any]:
         tab_id = str(view["tab_id"])
         defaults = view.get("object_defaults") or {}
         if view["mode"] == "full":
+            page = view.get("page") or {}
+            prior_objects: list[dict[str, Any]] = []
+            if page.get("index", 1) > 1:
+                previous = self.agent_views.get(tab_id)
+                if previous is None or previous.get("document_id") != view.get("document_id"):
+                    raise RuntimeError("received a full continuation without its first page")
+                prior_objects = [dict(item) for item in previous.get("objects", [])]
+            next_objects = [dict(defaults, **item) for item in view.get("objects", [])]
             snapshot = {
                 "schema": "saccade.agent-browser-state/1",
                 **{key: value for key, value in view.items() if key not in {"schema", "mode"}},
-                "objects": [dict(defaults, **item) for item in view.get("objects", [])],
+                "objects": prior_objects + next_objects,
                 "changes": [],
             }
             self.agent_views[tab_id] = snapshot
@@ -187,11 +295,7 @@ class Mcp:
         objects = {item["object_id"]: dict(item) for item in previous.get("objects", [])}
         changes = view.get("changes", [])
         for change in changes:
-            if change["kind"] == "disappeared":
-                objects.pop(change["object_id"], None)
-            else:
-                item = dict(defaults, **change["object"])
-                objects[item["object_id"]] = item
+            fold_truth_change(objects, change, defaults)
         for authority in view.get("authorities", []):
             if authority["object_id"] in objects:
                 objects[authority["object_id"]]["action_token"] = authority["action_token"]
@@ -226,6 +330,22 @@ class Mcp:
             self.process.kill()
 
 
+def open_when_browser_ready(mcp: Mcp, url: str, timeout: float = 20.0) -> dict[str, Any]:
+    """Open through Saccade after the first real browser window exists."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return mcp.tool("tabs.open", {"url": url, "active": True})
+        except RuntimeError as error:
+            transient = (
+                "No current window", "extension is not connected", "operation timed out",
+                "transport unavailable", "Connection refused", "EOF while parsing",
+            )
+            if not any(marker in str(error) for marker in transient) or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
+
+
 def wait_for_mcp(
     runtime: Path, runtime_dir: Path, timeout: float = 30.0, reference: bool = False
 ) -> Mcp:
@@ -233,7 +353,15 @@ def wait_for_mcp(
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            return Mcp(runtime, runtime_dir, reference=reference)
+            client = Mcp(runtime, runtime_dir, reference=reference)
+            try:
+                capabilities = client.tool("system.capabilities", {})
+                if capabilities.get("extension_connected") is not True:
+                    raise RuntimeError("Saccade Extension is not connected")
+                return client
+            except Exception:
+                client.close()
+                raise
         except Exception as error:  # noqa: BLE001
             last_error = error
             time.sleep(0.25)
@@ -277,6 +405,7 @@ def is_stale_action_error(error: Exception) -> bool:
         "action token is not present in the current",
         "action token is stale or absent",
         "tab observation is not current",
+        "prepared action failed identity, focus, geometry, visibility, or topmost revalidation",
     ))
 
 
@@ -677,6 +806,63 @@ def controls(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     return evidence
 
 
+def upload_download(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
+    observation = open_fixture(mcp, url)
+    upload_path = str(Path(__file__).resolve())
+    try:
+        receipt, observation = act(
+            mcp,
+            observation,
+            "file_input",
+            "Evidence file",
+            "upload",
+            lambda _current: {"kind": "file", "path": upload_path},
+            "native",
+        )
+        if upload_path in json.dumps(receipt):
+            raise RuntimeError("upload receipt disclosed the local file path")
+        upload_verified = (
+            named(observation, "file_input", "Evidence file")
+            .get("state", {}).get("has_value") == "true"
+        )
+        upload_result = {
+            "verified": upload_verified,
+            "receipt": receipt,
+            "path_disclosed": False,
+        }
+    except Exception as error:  # noqa: BLE001
+        upload_verified = False
+        upload_result = {
+            "verified": False,
+            "error": redact_editable_values(str(error)),
+            "path_disclosed": False,
+        }
+
+    download_url = urllib.parse.urljoin(url, "../structural/link_dispositions.html")
+    download_observation = open_fixture(mcp, download_url)
+    download = named(download_observation, "link", "Downloads a file")
+    handoff = mcp.tool("act", {
+        "tab_id": download_observation["tab_id"],
+        "object_id": download["object_id"],
+        "operation": "click",
+        "document_id": download_observation["document_id"],
+        "basis_revision": download_observation["revision"],
+    })
+    if handoff.get("dispatch") != "external_execution_required" or handoff.get("retry_safe") is not True:
+        raise RuntimeError("download link was not handed to the Agent client explicitly")
+    return {
+        "mode": "upload_download",
+        "browser": browser,
+        "passed": upload_verified,
+        "upload": upload_result,
+        "download": {
+            "truth_disposition": download.get("navigation_disposition"),
+            "handoff": handoff,
+            "actual_transfer": "agent_client_required",
+        },
+    }
+
+
 def profile(mcp: Mcp, url: str, browser: str) -> dict[str, Any]:
     instructions = mcp.initialize.get("instructions", "")
     if "Saccade profile integration test." not in instructions:
@@ -759,6 +945,25 @@ def mouseaccuracy_setting_value(
     raise RuntimeError(f"MouseAccuracy setting is not one of the audited values: {values}")
 
 
+def wait_mouseaccuracy_settings(
+    mcp: Mcp,
+    observation: dict[str, Any],
+    timeout: float = 12.0,
+) -> dict[str, Any]:
+    """Wait for the client-rendered settings instead of accepting the shell."""
+    deadline = time.monotonic() + timeout
+    current = observation
+    while time.monotonic() < deadline:
+        try:
+            mouseaccuracy_setting_value(current, MOUSEACCURACY_DIFFICULTY_VALUES)
+            mouseaccuracy_setting_value(current, MOUSEACCURACY_SIZE_VALUES)
+            return current
+        except RuntimeError as _error:
+            time.sleep(0.25)
+            current = mcp.tool("web.observe", {"tab_id": observation["tab_id"]})
+    raise RuntimeError("MouseAccuracy client-rendered settings did not become observable")
+
+
 def drive_mouseaccuracy_setting(
     mcp: Mcp,
     observation: dict[str, Any],
@@ -780,7 +985,7 @@ def drive_mouseaccuracy_setting(
                 observation = receipt["post_action_observation"]
                 break
             except Exception as error:  # noqa: BLE001
-                if attempt == 4 or "stale" not in str(error):
+                if attempt == 4 or not is_stale_action_error(error):
                     raise
         next_value = mouseaccuracy_setting_value(observation, values)
         current = next_value
@@ -791,7 +996,10 @@ def drive_mouseaccuracy_setting(
 
 
 def configure_mouseaccuracy(mcp: Mcp) -> dict[str, Any]:
-    observation = open_fixture(mcp, "https://mouseaccuracy.com/")
+    observation = wait_mouseaccuracy_settings(
+        mcp,
+        open_fixture(mcp, "https://mouseaccuracy.com/"),
+    )
     difficulty, difficulty_transitions = drive_mouseaccuracy_setting(
         mcp, observation, "Increase", MOUSEACCURACY_DIFFICULTY_VALUES
     )
@@ -955,7 +1163,10 @@ def mouse_accuracy(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["controls", "frames", "profile", "mouse_accuracy", "reflex"])
+    parser.add_argument(
+        "mode",
+        choices=["controls", "upload_download", "frames", "profile", "mouse_accuracy", "reflex"],
+    )
     parser.add_argument("--browser", choices=["chrome", "edge"], required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path, required=True)
@@ -978,6 +1189,8 @@ def main() -> None:
         try:
             if args.mode == "controls":
                 evidence = controls(mcp, args.url, args.browser)
+            elif args.mode == "upload_download":
+                evidence = upload_download(mcp, args.url, args.browser)
             elif args.mode == "frames":
                 evidence = frames_and_shadow(mcp, args.url, args.browser)
             elif args.mode == "profile":

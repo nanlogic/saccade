@@ -1,6 +1,6 @@
 (() => {
   const registry = globalThis.SaccadeControls.registry;
-  const { compileChanges } = globalThis.SaccadeTruthDelta;
+  const { compileChanges, compactTransport } = globalThis.SaccadeTruthDelta;
   const { OBSERVATION_SCHEMA, randomToken } = globalThis.SaccadeProtocol;
   const { isProtectedFieldType, redactProtectedText } = globalThis.SaccadeConsent;
   const { occurrence: reflexOccurrence } = globalThis.SaccadeControls.reflex_target;
@@ -21,7 +21,7 @@
     'text_field', 'search_field', 'text_area', 'content_editable', 'spin_button',
   ]);
   const SOFTWARE_CLICK_ROLES = new Set([
-    'button', 'link', 'checkbox', 'radio', 'switch', 'select', 'tab', 'menu_item', 'reflex_target',
+    'button', 'link', 'checkbox', 'radio', 'switch', 'select', 'option', 'tab', 'menu_item', 'reflex_target',
   ]);
   const identities = new WeakMap();
   const tokenTargets = new Map();
@@ -474,7 +474,10 @@
     if (descriptor.affordances.length && interactionElement.ownerDocument.defaultView.getComputedStyle(interactionElement).pointerEvents !== 'none') {
       const token = randomToken('action', 16);
       object.action_token = token;
-      tokenTargets.set(token, { element: interactionElement, role, objectId: id, affordances: descriptor.affordances });
+      tokenTargets.set(token, {
+        element: interactionElement, role, objectId: id, affordances: descriptor.affordances,
+        authorityFingerprint: authorityFingerprint(object),
+      });
     }
     return object;
   }
@@ -527,17 +530,33 @@
     const name = safeName(option, 'option');
     const owner = choiceOwner(option);
     if (!owner) return null;
+    const enabled = optionEnabled(option, owner);
+    const clickable = option.matches('[role="option"]');
     const selected = option.tagName === 'OPTION' ? option.selected : option.getAttribute('aria-selected') === 'true';
-    const descriptor = { ...registry.option(name || '', selected, optionEnabled(option, owner)) };
+    const descriptor = { ...registry.option(name || '', selected, enabled, clickable) };
     if (!name) delete descriptor.name;
-    const box = boxFor(owner);
+    // Native <option> geometry is browser-owned and often empty, so it remains
+    // an alias used by the parent select operation. An ARIA option is a real
+    // rendered target and can be clicked generically without a framework- or
+    // site-specific selector.
+    const interactionElement = clickable ? option : owner;
+    const box = boxFor(interactionElement);
     const id = objectId(option);
     objectTargets.set(id, option);
-    return {
+    const object = {
       object_id: id, object_revision: revision + 1, frame_id: frameId, ...descriptor,
-      document_bounds: { x: box.x + owner.ownerDocument.defaultView.scrollX, y: box.y + owner.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
-      viewport_bounds: box, visibility: visibilityFor(owner, box), transition: 'none',
+      document_bounds: { x: box.x + interactionElement.ownerDocument.defaultView.scrollX, y: box.y + interactionElement.ownerDocument.defaultView.scrollY, width: box.width, height: box.height },
+      viewport_bounds: box, visibility: visibilityFor(interactionElement, box), transition: 'none',
     };
+    if (descriptor.affordances.length && interactionElement.ownerDocument.defaultView.getComputedStyle(interactionElement).pointerEvents !== 'none') {
+      const token = randomToken('action', 16);
+      object.action_token = token;
+      tokenTargets.set(token, {
+        element: interactionElement, role: 'option', objectId: id, affordances: descriptor.affordances,
+        authorityFingerprint: authorityFingerprint(object),
+      });
+    }
+    return object;
   }
 
   function imageObject(element, frameId) {
@@ -741,8 +760,39 @@
     if (currentGeometryIsAnimating()) scheduleVisual();
   }
 
-  function collect() {
+  function authorityFingerprint(object) {
+    const contract = { ...object };
+    delete contract.action_token;
+    delete contract.object_revision;
+    delete contract.document_bounds;
+    delete contract.viewport_bounds;
+    return JSON.stringify(contract);
+  }
+
+  function reuseStableAuthorities(objects, previousTokenTargets) {
+    const previousByObject = new Map();
+    for (const [token, target] of previousTokenTargets) {
+      previousByObject.set(target.objectId, { token, target });
+    }
+    for (const object of objects) {
+      if (!object.action_token) continue;
+      const currentToken = object.action_token;
+      const current = tokenTargets.get(currentToken);
+      const previous = previousByObject.get(object.object_id);
+      if (!current || !previous
+        || previous.target.element !== current.element
+        || previous.target.role !== current.role
+        || previous.target.affordances.join('\u0000') !== current.affordances.join('\u0000')
+        || previous.target.authorityFingerprint !== current.authorityFingerprint) continue;
+      tokenTargets.delete(currentToken);
+      object.action_token = previous.token;
+      tokenTargets.set(previous.token, current);
+    }
+  }
+
+  function collect({ forceSnapshot = false } = {}) {
     if (!config) return null;
+    const hadCompiledObjects = compiledObjects !== null;
     const previousTokenTargets = new Map(tokenTargets);
     const previousObjectTargets = new Map(objectTargets);
     tokenTargets.clear();
@@ -844,6 +894,12 @@
         delete object.action_token;
       }
       tokenTargets.clear();
+    } else {
+      // Authority is bound to the stable object identity and exact current DOM
+      // element, role, and affordances. Unrelated semantic churn must not make
+      // read-then-act impossible on live pages. Replacement, role/affordance
+      // changes, navigation, and disconnect still invalidate it immediately.
+      reuseStableAuthorities(objects, previousTokenTargets);
     }
     const changes = compileChanges(compiledObjects, objects);
     // Bounds come from getBoundingClientRect, so the layout viewport is the
@@ -862,8 +918,9 @@
     const geometryChanged = geometryFingerprint !== lastGeometryFingerprint;
     const urlFingerprint = frameState.frames
       .map((frame) => `${frame.frame_id}\u0000${frame.document_url || ''}`).join('\u0001');
-    if (compiledObjects && changes.length === 0 && urlFingerprint === lastUrlFingerprint
-      && !geometryChanged) {
+    const unchanged = hadCompiledObjects && changes.length === 0
+      && urlFingerprint === lastUrlFingerprint && !geometryChanged;
+    if (unchanged && !forceSnapshot) {
       tokenTargets.clear();
       objectTargets.clear();
       for (const [token, target] of previousTokenTargets) {
@@ -875,8 +932,8 @@
       continueGeometryTracking();
       return null;
     }
-    revision += 1;
-    if (geometryChanged) viewportRevision += 1;
+    if (!unchanged) revision += 1;
+    if (!unchanged && geometryChanged) viewportRevision += 1;
     lastGeometryFingerprint = geometryFingerprint;
     lastUrlFingerprint = urlFingerprint;
     const snapshot = {
@@ -884,7 +941,7 @@
       tab_id: config.tabId, document_id: documentId, revision, viewport_revision: viewportRevision,
       frames: frameState.frames,
       geometry: { ...geometry, viewport_revision: viewportRevision },
-      objects, changes, coverage: {
+      objects, changes: hadCompiledObjects && !forceSnapshot ? changes : [], coverage: {
         source: 'dom_extension',
         observed_frame_count: frameState.frames.filter((frame) => frame.status === 'observed').length,
         restricted_frame_count: frameState.frames.filter((frame) => frame.status !== 'observed').length,
@@ -895,7 +952,26 @@
     compiledObjects = objects;
     continueGeometryTracking();
     connectWorkerPort();
-    workerPort?.postMessage({ kind: 'collector.observation', payload: snapshot });
+    if (!hadCompiledObjects || forceSnapshot) {
+      workerPort?.postMessage({ kind: 'collector.observation', payload: snapshot });
+    } else {
+      const compact = compactTransport(objects, changes);
+      workerPort?.postMessage({ kind: 'collector.observation_delta', payload: {
+        browser_instance_id: config.browserInstanceId,
+        tab_id: config.tabId,
+        document_id: documentId,
+        base_revision: revision - 1,
+        revision,
+        viewport_revision: viewportRevision,
+        frames: frameState.frames,
+        geometry: { ...geometry, viewport_revision: viewportRevision },
+        objects: compact.objects,
+        changes,
+        authorities: compact.authorities,
+        coverage: snapshot.coverage,
+        limitations: snapshot.limitations,
+      } });
+    }
     return snapshot;
   }
 
@@ -936,12 +1012,25 @@
 
   function prepare(request) {
     if (!config || request.browser_instance_id !== config.browserInstanceId || request.tab_id !== config.tabId
-      || request.document_id !== documentId || request.basis_revision !== revision) throw new Error('stale action basis');
+      || request.document_id !== documentId || request.basis_revision > revision) {
+      throw actionFailure('prepare', 'stale_action_basis', false, 'stale action basis');
+    }
     const target = tokenTargets.get(request.action_token);
-    if (!target || !target.element.isConnected || !target.affordances.includes(request.operation)) throw new Error('action token is not current for operation');
-    target.element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    if (request.operation === 'type' || request.operation === 'select') {
-      target.element.focus({ preventScroll: true });
+    if (!target || !target.element.isConnected || !target.affordances.includes(request.operation)) {
+      throw actionFailure('prepare', 'stale_action_token', false, 'action token is not current for operation');
+    }
+    // Software dispatch prepares twice: once for the Runtime's closed-loop
+    // receipt, then again inside the Extension command that performs the
+    // action. Defer scrolling on the first pass so its own scroll observation
+    // cannot make the immediately following dispatch stale. The dispatch pass
+    // scrolls and acts synchronously in one task, while all identity, token,
+    // document, revision, and affordance checks remain mandatory.
+    const deferred = request.defer_scroll === true;
+    if (!deferred) {
+      target.element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      if (request.operation === 'type' || request.operation === 'select') {
+        target.element.focus({ preventScroll: true });
+      }
     }
     const box = boxFor(target.element);
     const topBox = topViewportBox(target.element, box);
@@ -961,10 +1050,12 @@
       const owner = option ? choiceOwner(option) : null;
       const choices = owner ? optionsForChoice(owner).filter((item) => optionEnabled(item, owner)) : [];
       if (!option || !option.matches('option,[role="option"]') || owner !== target.element || !optionEnabled(option, owner)) {
-        throw new Error('select option is not bound and enabled for this control');
+        throw actionFailure('prepare', 'select_option_not_current', false, 'select option is not bound and enabled for this control');
       }
       prepared.selection_index = choices.indexOf(option);
-      if (prepared.selection_index < 0) throw new Error('select option has no enabled option position');
+      if (prepared.selection_index < 0) {
+        throw actionFailure('prepare', 'select_option_not_current', false, 'select option has no enabled option position');
+      }
     }
     if (request.operation === 'upload' && target.role === 'file_input') {
       activeFileTrigger = target.element;
@@ -974,11 +1065,87 @@
     return prepared;
   }
 
-  function softClick(request) {
-    prepare(request);
+  function actionFailure(stage, code, retrySafe, message) {
+    const error = new Error(message);
+    error.saccadeStage = stage;
+    error.saccadeCode = code;
+    error.saccadeRetrySafe = retrySafe;
+    return error;
+  }
+
+  function targetEnabled(target) {
+    return !target.element.disabled && target.element.getAttribute('aria-disabled') !== 'true';
+  }
+
+  function targetGeometryIsAnimating(element) {
+    let current = element;
+    while (current?.nodeType === Node.ELEMENT_NODE) {
+      if (current.getAnimations?.().some((animation) => animation.playState === 'running')) return true;
+      const root = current.getRootNode?.();
+      current = current.parentElement || root?.host || null;
+    }
+    return false;
+  }
+
+  function preparationIssue(prepared, target) {
+    if (!prepared.visible) return 'not_visible';
+    if (!prepared.topmost) return 'not_topmost';
+    if (!prepared.focus_verified) return 'focus_not_verified';
+    if (!targetEnabled(target)) return 'not_enabled';
+    return null;
+  }
+
+  function sameBox(left, right) {
+    return Boolean(left && right
+      && left.x === right.x && left.y === right.y
+      && left.width === right.width && left.height === right.height);
+  }
+
+  async function waitForSoftwarePreparation(request) {
+    const startedAt = performance.now();
+    let prepared = prepare(request);
+    let target = tokenTargets.get(request.action_token);
+    if (!preparationIssue(prepared, target) && !targetGeometryIsAnimating(target.element)) {
+      prepared.local_wait_ms = 0;
+      return prepared;
+    }
+    const timeoutMs = Math.max(1, Math.min(30000, Number(request.timeout_ms) || 5000));
+    const deadline = performance.now() + timeoutMs;
+    let previousBox = null;
+    let stableFrames = 0;
+    let lastIssue = preparationIssue(prepared, target) || 'geometry_unstable';
+    while (performance.now() < deadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      // Recompile locally before revalidation. If identity, semantic authority,
+      // document, or token changed, the old token is absent and prepare()
+      // fails stale instead of rebinding. Geometry-only revisions may rebase
+      // this private dispatch preparation; the public object identity and
+      // action token never change.
+      collect();
+      prepared = prepare({ ...request, basis_revision: revision });
+      target = tokenTargets.get(request.action_token);
+      lastIssue = preparationIssue(prepared, target);
+      const box = prepared.screen_bounds;
+      stableFrames = sameBox(previousBox, box) ? stableFrames + 1 : 1;
+      previousBox = box;
+      if (!lastIssue && stableFrames >= 2) {
+        prepared.local_wait_ms = Math.max(0, performance.now() - startedAt);
+        return prepared;
+      }
+    }
+    throw actionFailure(
+      'prepare',
+      `actionability_timeout_${lastIssue || 'geometry_unstable'}`,
+      true,
+      `software actionability timed out: ${lastIssue || 'geometry_unstable'}`,
+    );
+  }
+
+  async function softClick(request) {
+    const prepared = await waitForSoftwarePreparation(request);
     const target = tokenTargets.get(request.action_token);
     if (!target || !SOFTWARE_CLICK_ROLES.has(target.role)) {
-      throw new Error('software click is not registered for the current control');
+      throw actionFailure('dispatch', 'operation_not_registered', false, 'software click is not registered for the current control');
     }
     const box = boxFor(target.element);
     const clientX = box.x + box.width / 2;
@@ -994,44 +1161,55 @@
       }));
     }
     requestAnimationFrame(collect);
-    return { accepted: true };
+    return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
 
-  function softType(request) {
-    prepare(request);
+  async function softType(request) {
+    const prepared = await waitForSoftwarePreparation(request);
     const target = tokenTargets.get(request.action_token);
     if (!target || !SOFTWARE_TYPE_ROLES.has(target.role)) {
-      throw new Error('software typing is not registered for the current control');
+      throw actionFailure('dispatch', 'operation_not_registered', false, 'software typing is not registered for the current control');
     }
     const element = target.element;
     const text = String(request.payload?.text ?? '');
+    // The generic editing sequence a real edit produces, in order. No control is
+    // special-cased and no framework is detected: a page listening for any of
+    // these sees the same order it would see from a person. prepare() already
+    // focused the element for the 'type' operation, so this does not repeat it.
+    const proceed = element.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: text,
+    }));
+    if (!proceed) throw actionFailure('dispatch', 'page_canceled_beforeinput', false, 'software type was canceled by the page');
     if (element.isContentEditable) {
       element.textContent = text;
     } else {
-      // Assign through the native setter so frameworks that patch the value
-      // property still observe the change and re-render.
+      // Assign through the prototype setter. A framework tracking a controlled
+      // value installs its own accessor on the element, so assigning the
+      // property directly is swallowed and the framework never re-renders.
       const prototype = element instanceof HTMLTextAreaElement
         ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
       if (setter) setter.call(element, text); else element.value = text;
     }
-    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new InputEvent('input', {
+      bubbles: true, composed: true, inputType: 'insertText', data: text,
+    }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     requestAnimationFrame(collect);
-    return { accepted: true };
+    return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
 
-  function softAction(request) {
+  async function softAction(request) {
     if (request.operation === 'click') return softClick(request);
     if (request.operation === 'type') return softType(request);
-    const prepared = prepare(request);
+    const prepared = await waitForSoftwarePreparation(request);
     if (request.operation !== 'select' || request.payload?.kind !== 'select') {
-      throw new Error('software action is not registered for the current operation');
+      throw actionFailure('dispatch', 'operation_not_registered', false, 'software action is not registered for the current operation');
     }
     const target = tokenTargets.get(request.action_token)?.element;
     const option = objectTargets.get(request.payload.option_object_id);
     if (!target || !option || choiceOwner(option) !== target || !optionEnabled(option, target)) {
-      throw new Error('software select option is not bound and enabled for this control');
+      throw actionFailure('dispatch', 'select_option_not_current', false, 'software select option is not bound and enabled for this control');
     }
     if (target.matches('select') && option.matches('option')) {
       option.selected = true;
@@ -1042,7 +1220,7 @@
         target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
       }
     }
-    return { accepted: true };
+    return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
 
   function schedule() {
@@ -1114,20 +1292,38 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+    if (message.kind === 'collector.soft_click' || message.kind === 'collector.soft_action') {
+      const action = message.kind === 'collector.soft_click' ? softClick : softAction;
+      action(message.request).then((result) => respond({ ok: true, result })).catch((error) => {
+        respond({
+          ok: false,
+          error: String(error.message || error),
+          failure_stage: error.saccadeStage || 'dispatch',
+          failure_code: error.saccadeCode || 'software_action_rejected',
+          retry_safe: error.saccadeRetrySafe === true,
+        });
+      });
+      return true;
+    }
     try {
       if (message.kind === 'collector.ping') respond({ ok: true, extension_candidate: globalThis.SaccadeCandidate });
       else if (message.kind === 'collector.configure') { configure(message.config); respond({ ok: true, document_id: documentId }); }
       else if (message.kind === 'collector.observe') { collect(); respond({ ok: true }); }
+      else if (message.kind === 'collector.snapshot') { collect({ forceSnapshot: true }); respond({ ok: true }); }
       else if (message.kind === 'collector.deauthorize') { deauthorize(); respond({ ok: true }); }
       else if (message.kind === 'collector.recollect') { collect(); respond({ ok: true }); }
       else if (message.kind === 'collector.prepare_action') respond({ ok: true, prepared: prepare(message.request) });
-      else if (message.kind === 'collector.soft_click') respond({ ok: true, result: softClick(message.request) });
-      else if (message.kind === 'collector.soft_action') respond({ ok: true, result: softAction(message.request) });
       else return false;
     } catch (error) {
       const detail = String(error.message || error);
       if (message.kind === 'collector.prepare_action' && detail === 'stale action basis') collect();
-      respond({ ok: false, error: detail });
+      respond({
+        ok: false,
+        error: detail,
+        failure_stage: error.saccadeStage,
+        failure_code: error.saccadeCode,
+        retry_safe: error.saccadeRetrySafe === true,
+      });
     }
     return true;
   });

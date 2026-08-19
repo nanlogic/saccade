@@ -23,17 +23,45 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Extension tests
         run: node --test extension/tests/*.test.js
-      - name: Reference harness syntax
+      - name: Setup package tests
         run: |
-          node --check tests/reference/playwright/oracle.cjs
-          python3 -m py_compile scripts/external_dogfood.py scripts/compare_external_evidence.py
+          node --test packages/setup/test/*.test.js
+          npm pack ./packages/setup --dry-run
+      - name: Reference harness syntax
+        run: node --check tests/reference/playwright/oracle.cjs
       - name: Development script syntax
         run: sh -n scripts/dev.sh
-      - name: Development Profile tests
-        run: python3 -m unittest tests/test_dev_profile.py
+      - name: Script syntax
+        run: python3 -m py_compile scripts/*.py
+      - name: Harness and evidence tests
+        run: |
+          python3 -m unittest \
+            tests/test_dev_profile.py \
+            tests/test_dev_probe.py \
+            tests/test_benchmark_agent_fair.py \
+            tests/test_external_dogfood.py \
+            tests/test_public_truth_cases.py
+          python3 -m unittest \
+            tests/test_dev_lifecycle.py \
+            tests/test_lifecycle_truth.py \
+            tests/test_summarize_fair_matrix.py \
+            tests/test_build_setup_release.py \
+            tests/test_audit_public_evidence.py
+          python3 -m unittest \
+            tests/test_truth_latency.py \
+            tests/test_denominator_evidence.py \
+            tests/test_run_claude_same_tab.py \
+            tests/test_probe_no_window_recovery.py \
+            tests/test_benchmark_same_model_fair.py \
+            tests/test_run_same_model_matrix.py \
+            tests/test_generate_long_horizon_benchmark.py
       - name: Generate control coverage
         run: python3 scripts/generate_control_matrix.py
+      - name: Generate public Truth cases
+        run: python3 scripts/generate_public_truth_cases.py
       - name: Check one architecture
         run: python3 scripts/check_single_architecture.py
       - name: Check generated files
-        run: git diff --exit-code -- docs/generated/control_coverage.md
+        run: |
+          git diff --exit-code -- docs/generated/control_coverage.md
+          git diff --exit-code -- catalog/public_truth_cases.json

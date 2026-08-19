@@ -9,8 +9,7 @@ use saccade_control_sdk::{
 };
 use saccade_protocol::{
     ActionPayload, ActionReceipt, ActionRequest, ActionValidationError, DispatchStatus,
-    ObservationError, ObservationSnapshot, PostconditionStatus, PreparedAction, SemanticRole,
-    Visibility,
+    ObservationError, ObservationSnapshot, PostconditionStatus, PreparedAction, Visibility,
 };
 use thiserror::Error;
 
@@ -118,23 +117,36 @@ impl ClosedLoopEngine {
             .find(|object| object.action_token.as_deref() == Some(&request.action_token))
             .ok_or(ClosedLoopError::InvalidToken)?;
         let module = self.registry.resolve(target, request.operation)?;
-        let semantic_reflex_dispatch =
-            target.role == SemanticRole::ReflexTarget && !native.requires_physical_hit_testing();
-        if target.visibility == Visibility::Hidden
+        // Software input performs its authoritative visibility/topmost/focus
+        // revalidation inside the Extension immediately after scrolling and
+        // immediately before dispatch. Its first prepare is deliberately
+        // geometry-passive so scrolling cannot advance the observation and
+        // stale the command against itself. Physical input still requires the
+        // complete prepared geometry here.
+        let software_dispatch = !native.requires_physical_hit_testing();
+        let native_reflex_rebase = !software_dispatch
+            && target.role == saccade_protocol::SemanticRole::ReflexTarget
+            && prepared.basis_revision >= request.basis_revision;
+        if (!software_dispatch && target.visibility == Visibility::Hidden)
             || prepared.browser_instance_id != request.browser_instance_id
             || prepared.tab_id != request.tab_id
             || prepared.document_id != request.document_id
-            || prepared.basis_revision != request.basis_revision
-            || (!semantic_reflex_dispatch && prepared.viewport_revision != before.viewport_revision)
+            || (!software_dispatch
+                && !native_reflex_rebase
+                && prepared.basis_revision != request.basis_revision)
+            || (software_dispatch && prepared.basis_revision < request.basis_revision)
+            || (!software_dispatch
+                && !native_reflex_rebase
+                && prepared.viewport_revision != before.viewport_revision)
             || prepared.object_id != target.object_id
             || prepared.action_token != request.action_token
             || prepared.operation != request.operation
-            || !prepared.screen_bounds.is_valid()
-            || prepared.screen_bounds.width == 0.0
-            || prepared.screen_bounds.height == 0.0
-            || !prepared.visible
-            || (!semantic_reflex_dispatch && !prepared.topmost)
-            || (!semantic_reflex_dispatch && !prepared.focus_verified)
+            || (!software_dispatch && !prepared.screen_bounds.is_valid())
+            || (!software_dispatch && prepared.screen_bounds.width == 0.0)
+            || (!software_dispatch && prepared.screen_bounds.height == 0.0)
+            || (!software_dispatch && !prepared.visible)
+            || (!software_dispatch && !prepared.topmost)
+            || (!software_dispatch && !prepared.focus_verified)
             || (request.operation == saccade_protocol::ActionOperation::Select
                 && prepared.selection_index.is_none())
         {
@@ -149,13 +161,18 @@ impl ClosedLoopEngine {
             object.object_id == target.object_id
                 && object.action_token.as_deref() == Some(&request.action_token)
                 && object.affordances == target.affordances
+                && ((!software_dispatch && !native_reflex_rebase)
+                    || software_semantics_unchanged(target, object))
         });
         if current.browser_instance_id != request.browser_instance_id
             || current.tab_id != request.tab_id
             || current.document_id != request.document_id
-            || current.revision != request.basis_revision
-            || (!semantic_reflex_dispatch
-                && current.viewport_revision != prepared.viewport_revision)
+            || (!software_dispatch
+                && !native_reflex_rebase
+                && current.revision != request.basis_revision)
+            || (native_reflex_rebase && current.revision < prepared.basis_revision)
+            || (software_dispatch && current.revision < prepared.basis_revision)
+            || (!software_dispatch && current.viewport_revision != prepared.viewport_revision)
             || !target_is_current
         {
             return Err(ClosedLoopError::Stale);
@@ -177,6 +194,15 @@ impl ClosedLoopEngine {
             &request.payload,
             selection_name,
         );
+        if !matches!(
+            dispatch_status,
+            DispatchStatus::AcceptedByOs | DispatchStatus::AcceptedBySoftware
+        ) {
+            // A bounded prepare/dispatch rejection has no accepted side effect.
+            // Release the reservation so a machine-readable retry_safe result
+            // is truthful; accepted actions remain single-use.
+            self.consumed_tokens.remove(&request.action_token);
+        }
         let mut sufficient = |candidate: &ObservationSnapshot| {
             verify_strategy_with_documents(
                 module.verifier,
@@ -221,9 +247,35 @@ impl ClosedLoopEngine {
             action_token: request.action_token.clone(),
             operation: request.operation,
             dispatch_status,
+            failure_stage: None,
+            failure_code: None,
+            retry_safe: None,
+            local_wait_ms: None,
             postcondition,
             settled: observed_settled && fresh,
             post_action_observation: after,
         })
     }
+}
+
+/// Geometry and visibility may change while the Extension performs its local
+/// actionability wait. Every semantic or authority-bearing field must remain
+/// identical; software dispatch may never use this allowance to rebind.
+fn software_semantics_unchanged(
+    before: &saccade_protocol::ObservedObject,
+    current: &saccade_protocol::ObservedObject,
+) -> bool {
+    current.frame_id == before.frame_id
+        && current.kind == before.kind
+        && current.role == before.role
+        && current.name == before.name
+        && current.description == before.description
+        && current.text == before.text
+        && current.navigation_target == before.navigation_target
+        && current.navigation_disposition == before.navigation_disposition
+        && current.state == before.state
+        && current.affordances == before.affordances
+        && current.transition == before.transition
+        && current.loop_class_token == before.loop_class_token
+        && current.protected == before.protected
 }

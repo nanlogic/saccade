@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from dev_probe import wait_for_mcp
+from dev_probe import fold_truth_change, wait_for_mcp
 
 
 TARGETS = {
@@ -24,6 +24,7 @@ TARGETS = {
     "radio": ("radio", "Fast plan"),
     "switch": ("switch", "Notifications"),
     "select": ("select", "Color"),
+    "option": ("option", "Urgent"),
     "tab": ("tab", "Details"),
     "menu_item": ("menu_item", "More actions"),
     "reflex_target": ("reflex_target", "Training target"),
@@ -64,10 +65,9 @@ def main() -> None:
         capabilities = tool(mcp, "system.capabilities", {})
         opened = tool(mcp, "tabs.open", {"url": args.url, "active": True})
         tab_id = str(opened["tab_id"])
-        initial = tool(mcp, "truth.read", {"tab_id": tab_id})
-        if initial.get("mode") != "full":
-            raise RuntimeError("first control Truth view was not full")
+        initial = mcp.tool("truth.read", {"tab_id": tab_id})
         objects = {object_key(item): item for item in initial.get("objects", [])}
+        objects_by_id = {item["object_id"]: item for item in initial.get("objects", [])}
         initial_states: dict[str, Any] = {}
         checks: dict[str, Any] = {}
         for control_id, target in TARGETS.items():
@@ -94,12 +94,16 @@ def main() -> None:
 
         revision = int(initial["revision"])
         changed: dict[str, Any] = {}
+        pending_page = False
         for _ in range(20):
             try:
+                read_arguments = {"tab_id": tab_id}
+                if not pending_page:
+                    read_arguments.update({"after_revision": revision, "timeout_ms": 3000})
                 view = tool(
                     mcp,
                     "truth.read",
-                    {"tab_id": tab_id, "after_revision": revision, "timeout_ms": 3000},
+                    read_arguments,
                     timeout=5.0,
                 )
             except RuntimeError as error:
@@ -107,8 +111,11 @@ def main() -> None:
                     break
                 raise
             revision = int(view["revision"])
+            pending_page = (view.get("page") or {}).get("complete") is False
             for change in view.get("changes", []):
-                item = change.get("object") or {}
+                item = fold_truth_change(
+                    objects_by_id, change, view.get("object_defaults")
+                ) or {}
                 for control_id, target in TARGETS.items():
                     if object_key(item) == target and item.get("state") != initial_states[control_id]:
                         changed[control_id] = {

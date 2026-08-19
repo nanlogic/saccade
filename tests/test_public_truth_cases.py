@@ -52,6 +52,24 @@ class PublicTruthCasesTests(unittest.TestCase):
             source["status"] for row in manifest["items"] for source in row["sources"]
         } <= source_statuses)
 
+    def test_runtime_matrix_adds_angular_vue_and_web_component_sources(self) -> None:
+        manifest = json.loads(
+            (ROOT / "catalog/public_truth_extra_cases.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["schema"], "saccade.external-cases/1")
+        self.assertEqual(
+            {case["implementation"] for case in manifest["cases"]},
+            {"angular", "vue", "web_component"},
+        )
+
+    def test_public_probe_separates_default_truth_from_test_stimulus(self) -> None:
+        source = (ROOT / "scripts/probe_public_truth.py").read_text(encoding="utf-8")
+        self.assertIn("core = wait_for_mcp", source)
+        self.assertIn("reference=True", source)
+        self.assertIn('"observation": "default_truth_mcp"', source)
+        self.assertIn('"receipt_in_evidence": False', source)
+        self.assertIn('"authority_in_evidence": False', source)
+
 
 if __name__ == "__main__":
     unittest.main()

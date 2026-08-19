@@ -7,7 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { HOST_PROTOCOL, OBSERVATION_SCHEMA, envelope, parseHostMessage, randomToken } = require('../src/protocol.js');
 const { normalizeOrigin, isProtectedFieldType, redactProtectedText } = require('../src/consent.js');
-const { compileChanges } = require('../src/truth_delta.js');
+const { compileChanges, compactTransport } = require('../src/truth_delta.js');
 const registry = require('../src/controls/registry.js');
 
 test('Native Messaging envelope preserves the v1 wire names', () => {
@@ -196,6 +196,19 @@ test('unrelated page mutations do not churn current control tokens', () => {
   assert.match(collector, /compileChanges\(compiledObjects, objects\)/);
 });
 
+test('semantic page churn preserves authority only for the same live object contract', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const reuse = collector.slice(
+    collector.indexOf('function reuseStableAuthorities('),
+    collector.indexOf('function collect('),
+  );
+  assert.match(reuse, /previous\.target\.element !== current\.element/);
+  assert.match(reuse, /previous\.target\.role !== current\.role/);
+  assert.match(reuse, /previous\.target\.affordances\.join/);
+  assert.match(reuse, /object\.action_token = previous\.token/);
+  assert.ok(collector.indexOf('reuseStableAuthorities(objects, previousTokenTargets)') < collector.indexOf('const changes = compileChanges'));
+});
+
 test('semantic mutations are not gated by rendering frames', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /if \(!records\.some\(mutationCanChangeObservation\)\) return/);
@@ -218,7 +231,7 @@ test('editable placeholders are explicitly distinguished from current values', (
 
 test('Extension compiler emits semantic and geometry Truth Layer deltas while ignoring authority churn', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
-  assert.match(collector, /compiledObjects && changes\.length === 0/);
+  assert.match(collector, /const unchanged = hadCompiledObjects && changes\.length === 0/);
   const base = {
     object_id: 'o.internal', object_revision: 1, role: 'button', kind: 'control',
     name: 'Save', state: { pressed: 'false' }, affordances: ['click'],
@@ -232,6 +245,38 @@ test('Extension compiler emits semantic and geometry Truth Layer deltas while ig
   ]);
   assert.equal(compileChanges([], [base])[0].kind, 'appeared');
   assert.equal(compileChanges([base], [])[0].kind, 'disappeared');
+});
+
+test('Extension transports one full snapshot then only changed objects and compact authorities', () => {
+  const unchanged = {
+    object_id: 'o.keep', object_revision: 2, role: 'button', kind: 'control',
+    name: 'Keep', state: { pressed: 'false' }, affordances: ['click'],
+    action_token: 'action.keep', document_bounds: { x: 1, y: 1, width: 10, height: 10 },
+  };
+  const updated = {
+    object_id: 'o.change', object_revision: 2, role: 'checkbox', kind: 'control',
+    name: 'Change', state: { checked: 'true' }, affordances: ['click'],
+    action_token: 'action.change', document_bounds: { x: 1, y: 20, width: 10, height: 10 },
+  };
+  const changes = [
+    { kind: 'updated', object_id: 'o.change', object_revision: 2 },
+    { kind: 'disappeared', object_id: 'o.gone', object_revision: 1 },
+  ];
+  assert.deepEqual(compactTransport([unchanged, updated], changes), {
+    objects: [updated],
+    authorities: [{ object_id: 'o.keep', action_token: 'action.keep' }],
+  });
+  assert.throws(() => compactTransport([updated], [changes[0], changes[0]]));
+
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(collector, /collector\.observation_delta/);
+  assert.match(collector, /base_revision: revision - 1/);
+  assert.match(collector, /collector\.snapshot/);
+  assert.match(worker, /observation\.delta/);
+  assert.match(worker, /command\.kind === 'observation\.resync'/);
+  assert.match(worker, /requestCollectorSnapshot\(tabId\)/);
+  assert.doesNotMatch(worker, /chrome\.storage\.(local|session)\.(set|get)\([^\n]*observation/i);
 });
 
 test('control movement emits Truth updates when geometry changes', () => {
@@ -345,9 +390,10 @@ test('tab ownership survives Extension reload but resets at browser startup', ()
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /chrome\.storage\.local\.set\(\{ \[TAB_ACL_KEY\]/);
   assert.match(worker, /chrome\.storage\.local\.get\(TAB_ACL_KEY\)/);
-  assert.match(worker, /async function resetAclForBrowserStartup/);
+  assert.match(worker, /chrome\.storage\.session\.get\(BROWSER_SESSION_KEY\)/);
+  assert.match(worker, /freshBrowserSession \? \{\} : \(storedAcl\[TAB_ACL_KEY\] \|\| \{\}\)/);
   assert.match(worker, /chrome\.storage\.local\.remove\(TAB_ACL_KEY\)/);
-  assert.match(worker, /chrome\.runtime\.onStartup\.addListener.*resetAclForBrowserStartup\(\)\.then\(connectHost\)/s);
+  assert.match(worker, /chrome\.runtime\.onStartup\.addListener\(\(\) => \{\s*connectHost\(\)\.catch\(scheduleReconnect\)/s);
   assert.match(worker, /connectHost\(\)\.catch\(scheduleReconnect\);\s*$/);
   assert.doesNotMatch(worker, /bootTimer|setTimeout\(\(\) => \{ connectHost/);
   assert.doesNotMatch(worker, /chrome\.storage\.session\.(get|set)\(TAB_ACL_KEY/);
@@ -359,7 +405,9 @@ test('prepare checks the revision basis after tab activation and focus', () => {
   assert.match(worker, /if \(!browserWindow\.focused\).*chrome\.windows\.update/s);
   assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
-  assert.match(collector, /request\.basis_revision !== revision/);
+  assert.match(collector, /request\.basis_revision > revision/);
+  assert.match(collector, /previous\.target\.authorityFingerprint !== current\.authorityFingerprint/);
+  assert.match(collector, /authorityFingerprint: authorityFingerprint\(object\)/);
   assert.match(collector, /request\.document_id !== documentId/);
   assert.match(collector, /detail === 'stale action basis'\) collect\(\)/);
   assert.doesNotMatch(worker, /sessions\.get\(tabId\)\?\.last\?\.document_id !== payload\.document_id/);
@@ -376,6 +424,9 @@ test('software action bridge is token-bound and limited to Registry roles', () =
   assert.match(collector, /'Decrease' : 'Increase'/);
   assert.match(collector, /loop_class_token = reflexLoopClassToken/);
   assert.match(collector, /SOFTWARE_CLICK_ROLES/);
+  assert.match(collector, /'select', 'option', 'tab'/);
+  assert.match(collector, /const interactionElement = clickable \? option : owner/);
+  assert.match(collector, /role: 'option'.*affordances: descriptor\.affordances/s);
   assert.match(collector, /software click is not registered for the current control/);
   assert.ok(collector.indexOf('prepare(request);') < collector.indexOf('target.element.dispatchEvent'));
   assert.match(collector, /reflexOccurrence/);
@@ -467,7 +518,7 @@ test('a URL change advances the revision even when no object changed', () => {
   // A pure hash or pushState change mutates no DOM. Without this the delta is
   // suppressed and same-document link verification is impossible.
   assert.match(collector, /lastUrlFingerprint/);
-  assert.match(collector, /changes\.length === 0 && urlFingerprint === lastUrlFingerprint/);
+  assert.match(collector, /changes\.length === 0\s*&& urlFingerprint === lastUrlFingerprint/);
   // The fingerprint is per frame, so an iframe URL change is not masked by the
   // top document staying put.
   assert.match(collector, /frame\.frame_id.*frame\.document_url/);
@@ -495,8 +546,8 @@ test('geometry is read in the same collect and viewport_revision tracks geometry
   assert.match(collector, /device_pixel_ratio: devicePixelRatio/);
   assert.match(collector, /geometry: \{ \.\.\.geometry, viewport_revision: viewportRevision \}/);
   // A DOM-only or URL-only change must not advance viewport_revision.
-  assert.match(collector, /if \(geometryChanged\) viewportRevision \+= 1;/);
-  assert.ok(!/\n\s*viewportRevision \+= 1;/.test(collector.replace(/if \(geometryChanged\) viewportRevision \+= 1;/, '')),
+  assert.match(collector, /if \(!unchanged && geometryChanged\) viewportRevision \+= 1;/);
+  assert.ok(!/\n\s*viewportRevision \+= 1;/.test(collector.replace(/if \(!unchanged && geometryChanged\) viewportRevision \+= 1;/, '')),
     'viewport_revision must only advance behind the geometry check');
   // Geometry change alone must still produce an observation.
   assert.match(collector, /&& !geometryChanged/);
@@ -521,10 +572,80 @@ test('software typing sets a value through the native setter and never reaches p
   // or React and Angular never observe the change.
   assert.match(collector, /Object\.getOwnPropertyDescriptor\(prototype, 'value'\)\?\.set/);
   assert.match(collector, /element\.isContentEditable/);
-  assert.match(collector, /new Event\('input'/);
+  assert.match(collector, /new InputEvent\('input'/);
   assert.match(collector, /new Event\('change'/);
   // A protected field carries no type affordance, so prepare() refuses it
   // before any software typing can run.
   const textField = fs.readFileSync(path.join(__dirname, '../src/controls/text_field.js'), 'utf8');
   assert.match(textField, /signals\.protected \|\| signals\.enabled === false \|\| signals\.readonly \? \[\] : \['type'\]/);
+});
+
+test('software typing dispatches a cancelable beforeinput before any mutation and honors cancellation', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const softType = collector.slice(collector.indexOf('function softType('), collector.indexOf('function softAction('));
+  // prepare() already focuses the element for the 'type' operation; softType
+  // must not dispatch a second, redundant focus.
+  assert.ok(!/\.focus\(/.test(softType), 'softType must not call focus itself — prepare() already did');
+  // beforeinput must be dispatched, cancelable, and its result checked before
+  // any value or DOM mutation runs.
+  const beforeinputIndex = softType.indexOf("new InputEvent('beforeinput'");
+  const cancelableIndex = softType.indexOf('cancelable: true');
+  const checkIndex = softType.indexOf('if (!proceed)');
+  const mutationIndex = softType.indexOf('element.textContent = text');
+  assert.ok(beforeinputIndex >= 0, 'beforeinput must be dispatched');
+  assert.ok(cancelableIndex >= 0 && cancelableIndex < mutationIndex, 'beforeinput must be cancelable');
+  assert.ok(checkIndex >= 0 && checkIndex < mutationIndex,
+    'the dispatchEvent result must be checked before any mutation');
+  assert.match(softType, /const proceed = element\.dispatchEvent\(new InputEvent\('beforeinput'/);
+  assert.match(softType, /if \(!proceed\) throw actionFailure\('dispatch', 'page_canceled_beforeinput', false/);
+});
+
+test('software preparation keeps a zero-wait fast path and bounds local actionability waiting', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const prepare = collector.slice(collector.indexOf('function prepare('), collector.indexOf('function softClick('));
+  assert.match(prepare, /request\.defer_scroll === true/);
+  assert.match(prepare, /scrollIntoView/);
+  assert.match(prepare, /function waitForSoftwarePreparation/);
+  assert.match(prepare, /!preparationIssue\(prepared, target\) && !targetGeometryIsAnimating/);
+  assert.match(prepare, /await new Promise\(\(resolve\) => requestAnimationFrame\(resolve\)\)/);
+  assert.match(prepare, /stableFrames >= 2/);
+  assert.match(prepare, /collect\(\);\s+prepared = prepare\(\{ \.\.\.request, basis_revision: revision \}\)/);
+  assert.match(prepare, /actionability_timeout_/);
+  assert.match(prepare, /request\.timeout_ms/);
+  assert.match(prepare, /targetEnabled/);
+  assert.match(prepare, /prepared\.local_wait_ms = 0/);
+  assert.match(prepare, /performance\.now\(\) - startedAt/);
+  const softType = collector.slice(collector.indexOf('function softType('), collector.indexOf('function softAction('));
+  assert.match(softType, /await waitForSoftwarePreparation\(request\)/);
+  assert.match(softType, /local_wait_ms: prepared\.local_wait_ms/);
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(worker, /saccade_action_error\|\$\{stage\}\|\$\{code\}\|\$\{retrySafe\}/);
+});
+
+test('the browser harness edits through the same statements as the collector', () => {
+  // The harness is what Chrome and Edge actually execute to prove the event
+  // order. It only proves anything about the product while it edits the way
+  // the collector edits, so the shared statements are compared directly.
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const harness = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/software_type_harness.html'), 'utf8');
+  const shared = [
+    "const proceed = element.dispatchEvent(new InputEvent('beforeinput', {",
+    "bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: text,",
+    'if (element.isContentEditable) {',
+    'element.textContent = text;',
+    "const prototype = element instanceof HTMLTextAreaElement",
+    "? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;",
+    "const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;",
+    'if (setter) setter.call(element, text); else element.value = text;',
+    "element.dispatchEvent(new InputEvent('input', {",
+    "bubbles: true, composed: true, inputType: 'insertText', data: text,",
+    "element.dispatchEvent(new Event('change', { bubbles: true }));",
+  ];
+  for (const statement of shared) {
+    assert.ok(collector.includes(statement), `collector must contain: ${statement}`);
+    assert.ok(harness.includes(statement), `harness has drifted from the collector: ${statement}`);
+  }
+  assert.match(collector, /if \(!proceed\) throw actionFailure/);
+  assert.match(harness, /if \(!proceed\) throw new Error/);
 });

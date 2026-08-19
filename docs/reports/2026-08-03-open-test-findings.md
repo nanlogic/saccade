@@ -17,12 +17,21 @@ Collector behavior, public-site drift, and client execution behavior.
 | F-007 | Fair benchmark | All three `Saccade-first` pairs completed, but order-reversed pairs have not run. Saccade client-native traces also lack model-token accounting and use a later timing origin than Codex Playwright lanes. | comparison limitation | `/private/tmp/saccade-fair-20260803/*/report.json` | open |
 | F-008 | Optional Reference Actuator | Final-candidate actuator regression reached the `Email` input but native type dispatch returned `permission_required`, despite repair reporting Accessibility trusted. | optional executor permission/routing issue; core Truth unaffected | `~/Library/Application Support/Saccade Dev/evidence/20260803T191716Z/chrome/controls.json` | open; investigate only if retaining actuator support |
 | F-009 | Fair benchmark ordering | `benchmark_agent_fair.py` accepted `playwright-first`, but always loaded completed client-native Saccade evidence before invoking Playwright and did not validate lane timestamps. | comparison harness defect | focused ordering tests in `tests/test_benchmark_agent_fair.py`; final first-pair reports under `/private/tmp/saccade-fair-final-20260803` | runner fixed; real order-reversed reruns pending |
-| F-010 | Codex Saccade MCP lifecycle | A Codex task retained a dead Unix-socket transport after the development Runtime restarted. A fresh direct MCP client reached the healthy Runtime, but the task-owned MCP connection continued returning `Connection refused`. | client MCP reconnect/lifecycle incompatibility | 2026-08-04 task trace; Runtime doctor reported `extension_connected:true` while task tool calls failed | open; core Truth unaffected |
+| F-010 | Codex Saccade MCP lifecycle | A Codex task lost usable Saccade calls while development Runtime/browser cycles were running. The MCP adapter previously required a live grant/Host during initialization, so a temporary absence could make the client discard the task-owned MCP process. | generic MCP/Host lifecycle defect, compounded by the old harness rewriting live Codex MCP configuration | 2026-08-04 and 2026-08-05 task traces; Kickstarter dry run failed before navigation; real Unix-socket regression now proves one client starts before the grant exists and survives socket/capability rotation; MCP regression proves initialization succeeds while Host is absent | source root fix implemented and locally green; installed-candidate proof remains open until one unchanged Codex task survives real Runtime/Extension loss and recovery and completes the Kickstarter pre-navigation loop |
 | F-011 | Codex Computer Use / Chrome for Testing | Computer Use refused the Saccade-managed Chrome for Testing app by display name, exact bundle id, and full application path. The test launcher intentionally disables every extension except Saccade. Loading the installed GPT store-extension directory as a second unpacked extension changed its identity, so its native host rejected it; this is not a valid workaround. | test-browser/client same-tab integration incompatibility | 2026-08-04 Angular task trace and Chrome native-messaging log | resolved for client-native testing by using an ordinary Chrome profile with both extensions installed |
 | F-012 | Angular initial Truth size | The official select examples project 171 objects and about 40 KB / 10k estimated tokens before Profile filtering. The projection is complete, but it is larger than the “see and immediately understand” product target. | semantic prioritization/compression gap; not a correctness failure | 2026-08-04 Angular direct-MCP measurement | open; research bounded overview/profile strategy without hiding denominator items |
 | F-013 | Dialog modality semantics | Opening the official Angular dialog pushes its heading and action buttons and removes background content from the active semantic view. The existing protocol already permits bounded `state.modal`; the Collector now projects it on the forced dialog heading without adding a role or changing the wire schema. | missing projection in the Collector | 2026-08-04 Angular dialog revisions 6–8 plus clean-profile Chrome/Edge pushed-delta gate `20260804T230400Z` | fixed; official Angular truthfully reports `modal:false` because its example does not author `aria-modal=true`, while the focused fixture proves `modal:true` appearance and disappearance |
 | F-014 | PrimeVue initial observation | The first current-candidate Chrome open of the official Select page timed out before the first observation. The Collector suppressed every observation while `document.readyState` remained `loading`, so the normal authorization path could not satisfy the Runtime's bounded first-observation wait. | generic loading-state liveness defect, amplified by a dirty persistent test profile with many restored public tabs | failing retained runs on 2026-08-04; after removing the experimental watchdog/retry patch, a fresh-profile root-cause proof produced 5/5 first observations in 1.44–2.03 s and complete 336–337-object/27-select Truth 155–217 ms later; final dual-browser gate `20260805T005946Z` | fixed at the Collector boundary; loading pages publish non-actionable bounded Truth and recompile after DOMContentLoaded; no retry loop, site branch, or timeout increase |
 | F-015 | Legacy `frames` harness | `./scripts/dev.sh frames all` recognized the same-origin frame and open-shadow buttons, then failed because the harness attempted Reference Actuator native clicks and received `permission_required`. The core semantic gate already proved frame/shadow composition without execution. | obsolete optional-actuator harness boundary; core Truth unaffected | failing Chrome evidence `20260804T231118Z`; repaired Chrome/Edge evidence `20260804T232323Z` | fixed; frame/shadow command now uses core MCP observation only and reports `execution_owner: agent_client` |
+| F-016 | Codex / managed-browser same-tab route | In the 2026-08-05 lifecycle continuation, Saccade `tabs.open` created the public page in the managed Chrome for Testing instance, while Codex's installed Chrome execution extension exposed only ordinary-Chrome tabs. The Agent therefore could not act in the observed tab. | client same-tab incompatibility in the automated public-test route; not a Truth defect | dynamic-loading tab `294227834` was readable through core MCP but absent from the fresh Codex Chrome `openTabs()` listing | open; public action transitions remain blocked and no execution fallback is permitted |
+| F-017 | Chrome delta completeness / latency stability | The original probe overwrote one object every 80 ms but required every intermediate value even though `truth.read(after_revision)` folds retained revisions into current Truth. Rendering-frame scheduling also allowed genuine semantic delivery tails in throttled tabs. | mixed harness-contract defect plus generic Collector scheduling defect | failing evidence `20260805T111727Z` and `20260805T111826Z`; corrected five-run completeness evidence `/private/tmp/saccade-f017-harness-{1..5}.json`; folded batch evidence `/private/tmp/saccade-f017-batches.json` | completeness root fixed in fixture; Collector semantic scheduling fixed independently of paint; strict clean-profile latency matrix still exposes environment/MCP tail variance and remains open |
+| F-018 | Ordinary-Chrome automatic dogfood | After the managed browser released Native Host ownership, ordinary Chrome exhausted five reconnect attempts and never recovered. The workflow then incorrectly required Wayne to wake/share the Extension manually. | generic Extension reconnect defect plus the MCP/Host lifecycle defect in F-010 | 2026-08-05 ordinary-Chrome attach trace and Kickstarter pre-navigation failure; Extension reconnect-cap regression plus Host socket/capability-rotation and Host-absent MCP-init regressions now pass | source root fixes implemented; installed-candidate ordinary-Chrome zero-user-action loop remains open and must pass before dogfood is called fixed |
+| F-019 | Kickstarter Goal amount Truth | Chrome exposed the live spinbutton value as `0`, while Saccade exposed `has_value:true` and description `500`. The latter was the authored placeholder, but the unlabeled description made it look like a current value. | generic editable placeholder provenance ambiguity; live state itself was not fabricated | 2026-08-05 Kickstarter Basics trace, Chrome snapshot and Saccade full revision 36 object `o70` | fixed generically: editable placeholder descriptions are explicitly prefixed `Placeholder:`; MCP instructions prohibit treating them as values |
+| F-020 | Kickstarter AI disclosure persistence | Saccade consistently reported the Yes radio and generated-content checkbox as unchecked after save/navigation. Chrome could transiently click the visible label, but direct checkbox activation failed and the site restored unchecked state. | client custom-control execution/site persistence incompatibility; Saccade Truth was correct | 2026-08-05 Story revisions 61+ and Chrome checked-state probes | no Collector fix; generic Agent instructions now try the authored label once, require a checked-state delta before save, and retain a truthful blocker on failure |
+| F-021 | Kickstarter location custom combobox | The client used broad text matching and `first()` while resolving location suggestions, producing an unintended selection before correction. | client ambiguous-hit selection, not a demonstrated Truth defect | 2026-08-05 Basics Chrome trace | generic Agent instruction now requires an exact authored option and semantic post-selection verification; no site selector added |
+| F-022 | Revision-bounded read after reset | The client requested `after_revision:44` while the current observation was revision 36 and received a timeout/rejection, then required a full reread. | generic impossible/future revision recovery gap plus client basis misuse | 2026-08-05 Basics Saccade calls at 17:44:50–17:45:04 | fixed generically: an impossible future basis returns an immediate full gap reset; Agent instructions retain and fold deltas instead of treating omitted objects as absent |
+| F-024 | Steam account-profile dogfood | The Agent refused ordinary work and repeatedly invented Saccade-side safety/confirmation categories. | MCP/Profile tried to encode safety policy that belongs to the calling LLM/Agent | 2026-08-06 Steam continuation; Extension 21/21, Profile 4/4, Runtime 29/29, architecture gate | fixed in source: MCP has no safety taxonomy/action gate; Extension alone protects password/SSN/EIN |
+| F-025 | Ordinary-Chrome candidate installation | `attach` replaced the Runtime/Extension files but the running Chrome Extension continued using its old Collector: live Truth protected OTP/card, exposed SSN/EIN fields, and failed to mask formatted identifiers. Restarting only Native Host updated capabilities/Profile but not Extension JS. | unpacked Extension hot-reload gap; disk installation was incorrectly treated as live-candidate activation | original fixture tabs `1680319810`/`1680319811`; 2026-08-11 attach rejected the pre-handshake Worker, Chrome Extensions Reload activated candidate `ae471d3d…`, attach verified the exact live identity, and tab `1680321272` projected Password/SSN/EIN as protected, OTP/card as ordinary, plus masked SSN/EIN-shaped text | fixed: content-addressed Worker/Collector/Host handshake, reconnect self-reload, fail-closed attach verification, official legacy-worker bootstrap, and live protected-redaction evidence pass |
 
 ## 2026-08-04 React and Angular continuation
 
@@ -210,6 +219,14 @@ to `expanded:false, has_value:true`; option `o173` (`Pizza`) changed to
 
 ### Other findings
 
+- F-023: after a TaxIdentity support message was sent, Chrome exposed the
+  visible confirmation inside a dialog but Saccade emitted no corresponding
+  text object. The dialog used an otherwise-unmarked generic text container,
+  outside the structural selector. The generic repair projects authored
+  `aria-live` regions as status and deepest unmarked visible dialog text as
+  bounded `text`; the latency/completeness fixture now requires both dynamic
+  cases. No TaxIdentity selector was added.
+
 - F-001 is an Agent-client Accessibility focus/modal-menu issue: Saccade had
   already produced correct menu deltas, while Computer Use remained scoped to
   a standalone AX menu after the tab changed.
@@ -220,3 +237,56 @@ to `expanded:false, has_value:true`; option `o173` (`Pizza`) changed to
 - F-003 and F-007 are benchmark-harness design limitations rather than runtime
   defects: clocks, model-token accounting, and order-reversed acquisition are
   not yet symmetric.
+
+## 2026-08-05 lifecycle evidence continuation
+
+This round executed the requested lifecycle matrix and classification pass
+without modifying product code. The public action cases were attempted first
+through the required product boundary: Saccade opened and observed the managed
+tab, and Codex was reserved as the external executor. F-016 prevented the
+external action because the two clients exposed different Chrome instances.
+The run stopped there instead of substituting Reference Actuator, Playwright,
+CDP, selectors, or another browser.
+
+| Scenario | Public evidence | Local protocol evidence | Outcome |
+| --- | --- | --- | --- |
+| dynamic loading / delayed render | initial The Internet state and prior Shoelace upgrade retained; button transition blocked by F-016 | pushed delta and delayed-render tests pass | `blocked` for new public action trace |
+| element disappearance | prior APG/Angular dialog disappearance retained | disappearance marker received in both 2026-08-05 latency runs | `pass` for existing public dialog; second generic source missing |
+| overlay / modal / dialog | prior APG and Angular transitions retained | modal appearance/disappearance tests pass | `pass` |
+| infinite scroll / viewport | initial public Truth retained; append-on-scroll blocked by F-016 | viewport/reorder mechanics pass | `blocked` for new public append trace |
+| sortable table | 52 public cells retained; sort action blocked by F-016 | reorder identity remained stable | `blocked` for new public sort trace |
+| slow resource | eventual public Truth retained | Resource push notification arrived in 390.692 ms | `truthful_limitation`: exact resource mutation timestamp unavailable |
+| upload / download | no external file action performed because the executor was not in the observed instance | file-input and restricted-document representation tests pass | `blocked` for public action trace |
+| large replacement / reorder | no second public action source obtained | replacement disappearance/appearance and 100-object reorder pass | `blocked` for second public source |
+| stream gap / reset | public source not required | focused Runtime gap-reset test passes | `pass` locally |
+| Resource notification | public source not required | unsolicited notification passes with zero Agent requests during wait | `pass` locally |
+| Canvas / WebGL change | arbitrary internals remain opaque by contract | semantic companion changes arrived; 152.858 ms Canvas and 36.122 ms WebGL in the first run | `pass` with truthful opaque boundary |
+
+The first Chrome gate at `20260805T111727Z` passed pushed delta and Resource
+subscription but failed the latency/completeness gate because `single:10` was
+missing. Its lifecycle markers were otherwise complete: removal 8.811 ms,
+replacement 20.950 ms, stable reorder 10.120 ms, Canvas 152.858 ms, and WebGL
+36.122 ms. The immediate clean-profile repeat at `20260805T111826Z` received
+all 136 markers and preserved reorder identity, but the initial full took
+611.993 ms. These two failures are recorded as F-017 and are intentionally not
+repaired in this evidence-only round.
+
+Focused non-browser checks remained green: all 18 Extension tests passed, and
+the Runtime test `missing_extension_revision_forces_a_full_gap_reset` passed.
+
+## 2026-08-11 authenticated-workflow evidence continuation
+
+An ordinary-Chrome Steamworks onboarding run exercised the production
+Saccade-observe / Codex-act / Saccade-verify boundary in a signed-in session.
+It completed ordinary company, agreement, mailing-address, permission, and
+post-save observation work. Complex controls and the site's explicit
+account-mismatch response remained visible through Truth without a
+site-specific selector or Saccade execution route.
+
+The run also preserved two truthful limitations: a CAPTCHA remained human
+work, and a cross-origin Google account selector remained a restricted frame.
+The user stopped before Steam Direct payment and app registration, so neither
+is claimed as evidence. This is a successful dogfood continuation, not a new
+defect ID and not a Chrome/Edge publication claim. The sanitized report and
+non-regression criteria are in
+`2026-08-11-steamworks-onboarding-dogfood.md`.

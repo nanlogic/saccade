@@ -1,0 +1,11 @@
+{
+  "schema": "saccade-agent-benchmark-task/1",
+  "name": "nanmesh_homepage_identity",
+  "url": "https://www.nanmesh.ai/",
+  "task": "Read the NanMesh homepage and verify that it describes itself as the trust and outcome protocol layer for AI agents.",
+  "success": {
+    "tool_output_contains": ["The trust and outcome protocol layer for AI agents"]
+  },
+  "redact": [],
+  "timeout_seconds": 300
+}

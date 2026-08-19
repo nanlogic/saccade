@@ -9,12 +9,24 @@ meaningful changes; the Agent uses its own web-act or computer-use tool in the
 same browser tab.
 
 ```text
-page → Extension compiler → full Truth Layer → semantic delta → Agent
+page change → Extension compiler → current Truth → MCP delta → Agent reaction
 ```
 
 Agents receive semantic objects, safe state, affordances, stable document-local
-identity, and limitations. They do not receive selectors, DOM paths, editable
-values, cookies, browser storage, or default execution authority.
+identity, current document/viewport bounds, and limitations. Geometry changes
+arrive as deltas on the same identity. Agents do not receive selectors, DOM
+paths, editable values, cookies, browser storage, or default execution
+authority.
+
+The Extension owns page interpretation. The Native Host keeps the latest Truth
+and bounded revision history. MCP delivers a full view or folded delta. The
+Agent chooses `live` delivery for fast reactions or `economy` delivery for
+lower model churn, then acts through its own same-tab tool.
+
+Read [How Saccade works](docs/HOW_SACCADE_WORKS.md) for the public architecture
+overview. The [final architecture](docs/FINAL_ARCHITECTURE.md) and
+[Extension Truth contract](docs/extension_observation_contract.md) define the
+normative boundary.
 
 ## Product north star
 
@@ -22,22 +34,19 @@ values, cookies, browser storage, or default execution authority.
 > browser pages into structured objects and pushes meaningful changes to any
 > Agent. Execution belongs to the Agent client's own tools.
 
-The Extension—not the Agent—continuously compiles the authorized webpage into
-that Truth Layer. The Agent never scans a complete webpage to identify a form
-or control. After the first compiled view, it receives semantic changes through
-a subscribable Truth Layer resource or `saccade.truth.read(after_revision)`;
-neither requires model polling.
+The Extension continuously compiles the authorized webpage into that Truth
+Layer. The Agent builds its plan from the compiled view. After the first view,
+it receives semantic changes through a subscribable Truth Layer resource or
+`saccade.truth.read(after_revision)` without model polling.
 
-The protocol is permanently aimed at five product qualities: fast interaction,
-low model-token cost, easy maintenance and extension, trustworthy observation,
-and model independence. The browser publishes one semantic Truth Layer and
-then deltas; registered control modules provide reusable semantic vocabulary;
-fresh observations expose the result of external actions. Behavioral policy is
-declarative Profile data rather than a dependency on one model or prompt.
+The protocol favors fast interaction, low model-token cost, trustworthy
+observation, and model independence. Registered control modules provide a
+reusable semantic vocabulary. Fresh observations expose the result of external
+actions, while declarative Profile data supplies Agent-facing behavior.
 
-Implementations and control coverage will evolve. This positioning does not:
-Saccade is not another browser-testing framework, coordinate clicker, or
-model-specific browser plugin or replacement computer-use system.
+Saccade remains a live Truth Layer as implementations and control coverage
+evolve. Browser testing, arbitrary-coordinate execution, and model-specific
+input backends stay outside the core product.
 
 ## Status
 
@@ -48,9 +57,10 @@ Testing and Microsoft Edge profiles.
 | Inventory | Count | Current evidence |
 | --- | ---: | --- |
 | Protocol Truth roles | 34 | local Chrome and Edge gate passed |
-| Reference Actuator families | 15 | historical local closed-loop evidence; current rerun blocked by macOS permission |
+| Reference Actuator families | 15 | local closed-loop evidence; soft reflex reached 96/96 on `Insane + Tiny` |
 | Reusable variants | 12 | local pushed-delta gate passed |
 | Structural/push boundaries | 6 | local gate passed |
+| Lifecycle scenarios | 11 | page-driven Chrome and Edge matrix passed locally |
 
 All roles, variants, and boundaries are defined in
 `catalog/truth_inventory.json`. Full→delta compilation, Profile filtering,
@@ -66,13 +76,13 @@ every modern website. Public-source compatibility, lifecycle coverage, and a
 fair core-product Playwright comparison remain open. No current evidence
 supports a blanket claim that Saccade is faster than Playwright. Catalog
 entries remain `implementation` until one frozen release candidate passes the
-public and same-candidate Chrome/Edge release gates. Saccade does not ship a
-consumer installer yet.
+public and same-candidate Chrome/Edge release gates. The public setup package
+is the release target and is not published yet.
 
 See the [generated coverage table](docs/generated/control_coverage.md) for the
 current Registry and [evidence roadmap](docs/CONTROL_ROADMAP.md) for the next
 gates. The [Developer Preview release plan](docs/RELEASE_PLAN.md) defines the
-product, evidence, packaging, and launch gates.
+product, evidence, setup, and launch gates.
 
 ## One route
 
@@ -86,23 +96,49 @@ authorized Chrome/Edge tab
 ```
 
 Saccade has no Playwright, CDP, embedded-browser, screenshot, vision, or
-coordinate fallback. The [final architecture](docs/FINAL_ARCHITECTURE.md) and
-[Truth Layer contract](docs/extension_observation_contract.md) define the
-route and its boundaries.
+arbitrary-coordinate action fallback. The
+[How Saccade works](docs/HOW_SACCADE_WORKS.md) overview explains this route for
+Agent builders.
 
 ## Development on macOS
 
 The managed development environment uses its own browser profile, Extension
-identity, Native Messaging manifest, Runtime app, and fixture server.
+identity, Native Messaging manifest, headless Runtime, and fixture server. Its
+internal macOS app wrapper exists only for development signing and Native
+Messaging tests; it is not a public product component.
 
 ```sh
+./scripts/dev.sh mcp install
 ./scripts/dev.sh up chrome
 ./scripts/dev.sh status
 ./scripts/dev.sh test chrome
 ./scripts/dev.sh test edge
 ./scripts/dev.sh test all
+./scripts/dev.sh public-truth chrome
+./scripts/dev.sh public-truth edge
+./scripts/dev.sh lifecycle all
+./scripts/dev.sh denominator
 ./scripts/dev.sh down
 ```
+
+Install the Codex MCP entry once. Normal `up`, `down`, `attach`, and test
+commands never rewrite or restore the live Codex configuration, because doing
+so destroys the MCP transport owned by an already-running task. Use
+`./scripts/dev.sh mcp restore` only when intentionally removing the development
+entry; start a new Codex task after either explicit configuration change.
+
+The managed browser intentionally contains only Saccade and cannot prove a
+Codex/Claude same-tab execution loop. For that test, use ordinary Chrome with
+both browser extensions installed:
+
+```sh
+./scripts/dev.sh down
+./scripts/dev.sh attach
+```
+
+Then open the target HTTP(S) page in ordinary Chrome and enable it from the
+Saccade popup. Do not run `up chrome` at the same time: that would give the
+single Native Host session to a different Chrome instance.
 
 Optional Reference Actuator and historical comparison commands are explicit:
 
@@ -116,8 +152,12 @@ Optional Reference Actuator and historical comparison commands are explicit:
 ./scripts/dev.sh reflex chrome native
 ```
 
-Core-product fair comparisons require a retained Codex or Claude native-Chrome
-same-tab evidence file:
+Core-product fair comparisons use one Claude model and effort level for both
+lanes. The Saccade lane uses Truth plus `saccade.act`; the Playwright lane uses
+the locked official Playwright MCP. The command temporarily isolates and then
+restores user-local input-policy state so prior diagnostics cannot bias either
+lane. Defaults are Claude Opus 5 at low effort; override them with
+`SACCADE_FAIR_MODEL` and `SACCADE_FAIR_EFFORT`:
 
 ```sh
 ./scripts/dev.sh fair selenium both
@@ -125,17 +165,42 @@ same-tab evidence file:
 ./scripts/dev.sh fair angular both
 ```
 
+The unknown long-horizon gate generates oracle-checked review queues at
+lengths 1, 5, 10, 25, and 50 for same-identity updates, DOM replacement, and
+document navigation. Each seed runs in both lane orders. Interrupted runs may
+resume only reports already marked `PASS`; failed, invalid, or missing reports
+are rerun:
+
+```sh
+python3 scripts/run_long_horizon_matrix.py \
+  --runtime "$HOME/Applications/Saccade Dev Runtime.app/Contents/MacOS/saccade-runtime" \
+  --runtime-dir "$HOME/Library/Application Support/Saccade Dev/runtime" \
+  --fixture-root "$HOME/Library/Application Support/Saccade Dev/fixture-root" \
+  --output "$HOME/Library/Application Support/Saccade Dev/evidence/long-horizon" \
+  --resume
+```
+
+The six frozen public read-only tasks use the same resumable PASS-only rule:
+
+```sh
+python3 scripts/run_public_agent_fair_matrix.py \
+  --runtime "$HOME/Applications/Saccade Dev Runtime.app/Contents/MacOS/saccade-runtime" \
+  --runtime-dir "$HOME/Library/Application Support/Saccade Dev/runtime" \
+  --output "$HOME/Library/Application Support/Saccade Dev/evidence/public-matrix" \
+  --resume
+```
+
 The first `up` may download Chrome for Testing and request administrator
 approval for the Chrome for Testing Native Messaging
-manifest. `down` stops recorded development processes and restores the prior
-Codex MCP configuration.
+manifest. `down` stops recorded development processes and leaves the installed
+Codex MCP configuration unchanged.
 
 The Edge route uses the stable app at `/Applications/Microsoft Edge.app` and a
 separate Saccade browser profile. Set `SACCADE_EDGE_PATH` when the executable
 lives elsewhere. Chrome and Edge run one at a time so one browser instance owns
 the Host session. `test all` gives each browser a disposable clean profile,
 runs them in sequence, writes evidence under separate `chrome/` and `edge/`
-directories, and restores the prior Codex MCP configuration when finished.
+directories, without mutating the live Codex MCP configuration.
 Single-browser `test chrome` and `test edge` retain the managed development
 profiles for quick diagnosis. `up` synchronizes the Extension and
 fixtures into the fixed Saccade Dev directory before launch so macOS TCC does
@@ -177,6 +242,84 @@ application then updates its accessible semantic companion, which must arrive
 as a delta on the same `opaque_surface`. Pure pixels remain opaque; this gate
 does not infer internal controls or game objects from raster content.
 
+Sequential completeness markers use distinct stable semantic objects. This is
+intentional: `truth.read(after_revision)` folds retained source revisions into
+the latest current state, so repeatedly overwriting one object cannot demand an
+event log of obsolete intermediate values. Delivery evidence retains folded
+revision batches separately from object completeness.
+
+`truth.read` also accepts an optional per-call `delivery_mode`. `live` is the
+compatible default and returns the next push immediately. `economy` waits a
+bounded 150 ms inside MCP and folds the burst into one latest truthful delta,
+reducing routine model-facing churn without hiding objects or geometry. The
+Agent chooses freely on every call and can switch modes without restarting.
+
+Truth view delivery is automatic rather than model-selected. The first read is
+optionally one bounded semantic `query` working set when the task already names
+useful roles, labels, or affordances; Runtime keeps the complete canonical
+observation locally. Distinguishing task words plus a narrow role are preferred
+for a single target; all whitespace-separated words must match across the
+object's name, text, or description. `visible_only: false` includes rendered offscreen controls but never
+hidden ones, and `min_objects` waits through bounded initial hydration. A
+follow-up query for a revealed option folds queued ambient geometry locally
+instead of sending it to the model. Without a query it is one bounded full view
+or, for an oversized document, one complete compact catalog of stable object
+IDs, roles, labels, affordances, and visibility. The
+Agent requests full records only for task-relevant IDs against that exact
+document and revision. Every later ordinary read in that MCP session is only
+the delta from the last delivered revision. A document change, stream gap, or
+unavailable history base returns a new full-or-catalog reset. If the Agent's
+folded cache is wrong, `truth.read` accepts `resync: true` only together with
+the exact required `tab_id`; it resets only that Agent/tab cursor. There is no
+all-tabs Truth read or reset. The public schema has no model-selected
+`view_mode` or routine repeated-full override. Runtime stores one current full
+observation plus at most 256 compact change-journal entries, not 256 full pages.
+`saccade.act` advances the same cursor. `verified: true` or batch
+`all_verified: true` is complete proof and carries no structural transition or
+ambient pending hint. Unrelated animation, timer, advertisement, geometry, and
+frame churn remains silently queued on the ordinary Truth cursor. An
+unverified action may still return same-frame structural evidence, so ordinary
+verified actions require no follow-up read.
+Independent ordinary form edits can be sent once as `actions`; Runtime
+sequentially rebases and verifies them, while submit, navigation, upload, and
+other material actions remain separate. The batch result supplies
+`next_basis_revision` for a following separate action, so the Agent does not
+read ambient churn merely to recover the new basis. Updated delta objects use recursive
+merge patches: only changed fields cross MCP, and a `null` value removes a
+cached field. Appeared objects remain complete.
+
+MCP initialize is a compact route/loop invariant. The first
+`system.capabilities` call returns the active Profile name and behavior once,
+with `behavior_delivery: "capabilities_once"`, `profile_digest`, Runtime
+version, and MCP contract hash. The ban list remains private. A contract change
+requires a new Agent session; setup doctor rejects stale installed identities.
+
+Current Truth links may include a resolved, bounded HTTP(S)
+`navigation_target`. Agents use the existing `tabs.open` tool to inspect that
+source; search titles and snippets alone are not verified research. Temporary
+search tabs should be closed, while useful source pages supporting the answer
+should remain open for the user to inspect.
+
+`public-truth chrome|edge` opens official Selenium, W3C APG, Angular Material,
+PrimeVue, and Shoelace pages through default Saccade Truth. A separate
+Reference Actuator process supplies test-only page stimulus; default MCP reads
+the initial view and verifies the pushed transition. Public evidence contains
+no action token, receipt, or editable test value. A stimulus failure remains
+`blocked` or `fail` and never counts as a Truth pass. This command is an
+observation regression diagnostic, not Codex dogfood and not the public
+compatibility release gate. A valid end-to-end gate uses Codex or another Agent
+client's own same-tab browser tool. The report therefore publishes two numbers:
+`recognition_rate` for targets truthfully present in default Truth and
+`closed_loop_rate` for transitions completed by the optional test stimulus.
+It also closes every temporary Agent-owned case tab before starting the next
+case.
+
+`denominator` runs the complete clean-profile Truth inventory and the
+11-scenario lifecycle gate in both Chrome and Edge against one candidate, then
+emits a 63-row report. Local `pass` and `truthful_limitation` results remain
+separate from public `publishable` evidence; the command never promotes a
+Catalog row merely because its fixture passed.
+
 `external` and `compare` remain historical Reference Actuator evidence. The
 `fair` harness has been hard-cut to the core comparison boundary: Saccade Truth
 plus the Agent client's own web-act tool in the same tab, with no Reference
@@ -197,13 +340,19 @@ client-native evidence, the comparison returns `BLOCKED` with
 Default Saccade never chooses an input backend and does not request macOS
 Accessibility. Codex, Claude, or another Agent client executes through its own
 tool in the same authorized Chrome/Edge tab. The Reference Actuator retains its
-value-free input-policy log only inside that explicit mode.
+value-free input-policy log only inside that explicit mode. A permission error
+from `test-actuator`, `public-truth`, `accuracy`, or `reflex native` belongs to
+that optional diagnostic harness; it is not a Saccade Runtime requirement and
+must not be reported as a product or release blocker.
 
 To share an existing HTTP or HTTPS tab, open the Saccade Extension popup in
 that tab and choose **Share this tab**. The popup reports Agent On only for the
 current session ACL. Choose **Stop sharing** to remove the tab, discard its
 observation session, and invalidate collector tokens. Agent-owned tabs opened
-through `tabs.open` are revoked by closing them.
+through `tabs.open` are labeled `agent` by `tabs.list` and may be closed with
+`tabs.close`. The close tool rejects user-shared tabs. Agents should close
+temporary research tabs at task completion and retain user-facing results,
+unfinished work, and tabs the user asked to keep.
 
 The historical Reference `compare` command first completes radio, switch, tab,
 and menu-item loops independently on public W3C WAI-ARIA pages. It then runs an isolated
@@ -225,6 +374,21 @@ bounded local MCP loop. `soft` is a token-bound Extension software mouse and
 `native` remains the real OS mouse. Neither accepts Agent coordinates. The
 canvas itself stays opaque; only the site's current audited DOM target bridge is
 actionable, and every successful receipt requires the score to advance.
+
+## Public setup target
+
+The first release uses the browser-store Extension plus one explicit command:
+
+```sh
+npx -y @saccade/setup
+```
+
+The command will install the headless local Runtime, user-level Native
+Messaging manifests, and local MCP entries for supported Codex and Claude
+clients. It will not install a visible app or request Accessibility. The npm
+scope is not yet confirmed, so this command defines the target and is not yet
+an available package. See [the setup target](docs/SETUP_TARGET.md) for the
+normative install, update, doctor, uninstall, and client boundaries.
 
 ## Profiles
 
@@ -261,7 +425,7 @@ Read [Profile architecture](docs/PROFILE_ARCHITECTURE.md) and the
 User-visible changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 Select a managed-development Profile with
-`./scripts/dev.sh profile set smart-barbarian-eco`; inspect it with
+`./scripts/dev.sh profile set smart-barbarian-ceo`; inspect it with
 `./scripts/dev.sh profile show` and restore the default with
 `./scripts/dev.sh profile reset`.
 
@@ -276,10 +440,19 @@ node --check tests/reference/playwright/oracle.cjs
 python3 -m unittest tests/test_dev_profile.py
 python3 -m unittest tests/test_dev_probe.py
 python3 -m unittest tests/test_benchmark_agent_fair.py
+python3 -m unittest tests/test_operation_inference_ab.py
 python3 -m unittest tests/test_external_dogfood.py
 python3 -m unittest tests/test_public_truth_cases.py
-python3 -m py_compile scripts/dev_probe.py scripts/external_dogfood.py scripts/compare_external_evidence.py scripts/benchmark_playwright_parity.py scripts/benchmark_selenium_qa.py
-python3 -m py_compile scripts/benchmark_agent_fair.py scripts/generate_public_truth_cases.py scripts/wait_for_mcp.py scripts/redact_benchmark_artifacts.py
+python3 -m unittest tests/test_dev_lifecycle.py tests/test_lifecycle_truth.py tests/test_summarize_fair_matrix.py tests/test_build_setup_release.py tests/test_audit_public_evidence.py
+python3 -m unittest tests/test_truth_latency.py tests/test_denominator_evidence.py
+python3 -m unittest tests/test_benchmark_same_model_fair.py
+python3 -m unittest tests/test_run_same_model_matrix.py
+python3 -m unittest tests/test_run_claude_same_tab.py
+python3 -m unittest tests/test_probe_no_window_recovery.py
+python3 -m unittest tests/test_generate_long_horizon_benchmark.py
+node --test packages/setup/test/*.test.js
+npm pack ./packages/setup --dry-run
+python3 -m py_compile scripts/*.py
 python3 scripts/generate_control_matrix.py
 python3 scripts/generate_public_truth_cases.py
 python3 scripts/check_single_architecture.py

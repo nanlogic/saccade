@@ -191,7 +191,10 @@ fn document_url_is_additive_and_may_be_absent() {
     .expect("decodes without document_url");
     assert_eq!(frame.document_url, None);
     let reencoded = serde_json::to_value(&frame).expect("encodes");
-    assert!(reencoded.get("document_url").is_none(), "absent field must not be emitted");
+    assert!(
+        reencoded.get("document_url").is_none(),
+        "absent field must not be emitted"
+    );
 }
 
 #[test]
@@ -221,6 +224,44 @@ fn a_snapshot_without_geometry_still_decodes() {
     value.as_object_mut().expect("object").remove("geometry");
     let snapshot: ObservationSnapshot = serde_json::from_value(value).expect("decodes");
     assert!(snapshot.geometry.is_none());
+}
+
+#[test]
+fn internal_delta_is_strict_and_revision_bounded_without_a_second_public_schema() {
+    let mut current = snapshot();
+    current.revision = 2;
+    current.objects[0].object_revision = 2;
+    current.objects[0]
+        .state
+        .insert("has_value".into(), "true".into());
+    let delta = ObservationDelta {
+        browser_instance_id: current.browser_instance_id.clone(),
+        tab_id: current.tab_id.clone(),
+        document_id: current.document_id.clone(),
+        base_revision: 1,
+        revision: 2,
+        viewport_revision: current.viewport_revision,
+        geometry: current.geometry.clone(),
+        frames: current.frames.clone(),
+        objects: current.objects.clone(),
+        changes: vec![ObservationChange {
+            kind: ChangeKind::Updated,
+            object_id: current.objects[0].object_id.clone(),
+            object_revision: 2,
+        }],
+        authorities: vec![],
+        coverage: current.coverage.clone(),
+        limitations: current.limitations.clone(),
+    };
+    delta.validate().unwrap();
+    let mut encoded = serde_json::to_value(&delta).unwrap();
+    assert!(encoded.get("schema").is_none());
+    encoded["locator"] = serde_json::json!("#secret");
+    assert!(serde_json::from_value::<ObservationDelta>(encoded).is_err());
+
+    let mut skipped = delta;
+    skipped.base_revision = 0;
+    assert_eq!(skipped.validate(), Err(ObservationError::InvalidRevision));
 }
 
 #[test]

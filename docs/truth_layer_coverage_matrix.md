@@ -39,15 +39,17 @@ limited or opaque.
 
 - safe initial projection and no public action authority;
 - a real Extension-produced delta for every positive role and variant;
+- current `document_bounds` and `viewport_bounds` for projected objects plus a
+  pushed update when an object's geometry changes;
 - full→delta continuity and unsolicited Resource notification;
 - frame and Shadow boundaries;
 - non-emission of the reserved `unknown` role;
-- absence of editable contents, locators, coordinates, and action tokens from
-  evidence.
+- absence of editable contents, locators, arbitrary-coordinate action
+  authority, and action tokens from evidence.
 
 ## Reference Actuator boundary
 
-`catalog/controls.json` currently retains the 15 families with an audited
+`catalog/controls.json` currently retains the 16 families with an audited
 Reference Actuator implementation. Its native primitives and verifiers live in
 `catalog/reference_actuators.json`. That smaller list is not the Truth Layer
 coverage list and must never be presented as the total number of supported
@@ -67,5 +69,10 @@ requires the same frozen release candidate in current Chrome and Edge plus the
 required independent public-page evidence.
 
 The precise current claim is: the complete local Truth inventory and the
-two-browser pushed-delta framework gate pass. The inventory does not establish
-universal modern-web compatibility or superiority over Playwright.
+two-browser pushed-delta framework gate pass. `./scripts/dev.sh denominator`
+binds that inventory to the 11 lifecycle rows and emits all 63 results for one
+candidate. The current split is 56 local passes and 7 truthful limitations:
+opaque surfaces, restricted documents, the reserved unknown role, the
+observation-only drop target, built-in PDF, restricted frames, and closed
+Shadow DOM. The inventory does not establish universal modern-web compatibility
+or superiority over Playwright.

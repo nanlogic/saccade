@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Truth lifecycle gauntlet</title>
+  <style>
+    body { font: 16px system-ui; margin: 16px; }
+    #spacer { height: 1400px; }
+    [role="dialog"] { position: fixed; inset: 80px; padding: 24px; background: white; border: 2px solid black; }
+    table { border-collapse: collapse; }
+    td, th { border: 1px solid #888; padding: 4px 8px; }
+    [data-saccade-generic-control] { border: 1px solid #888; padding: 8px; margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <h1>Truth lifecycle gauntlet</h1>
+  <button id="viewport-anchor">Viewport anchor</button>
+  <p id="remove-target">Lifecycle remove target</p>
+  <p id="replace-target">Lifecycle replacement old</p>
+
+  <table aria-label="Sortable lifecycle table">
+    <thead><tr><th>Name</th><th>Rank</th></tr></thead>
+    <tbody id="sortable-body">
+      <tr id="row-alpha"><td>Alpha</td><td>2</td></tr>
+      <tr id="row-bravo"><td>Bravo</td><td>1</td></tr>
+    </tbody>
+  </table>
+
+  <label>Upload lifecycle file <input type="file" required></label>
+  <a href="data:text/plain,lifecycle" download="lifecycle.txt">Download lifecycle sample</a>
+  <div data-saccade-generic-control data-saccade-affordance="drag" draggable="true" aria-label="Drag source">Drag source</div>
+  <div data-saccade-generic-control aria-label="Drop target">Drop target</div>
+  <div id="markers" style="display: contents"></div>
+  <iframe id="slow-frame" title="Slow lifecycle frame"></iframe>
+  <div id="infinite-list" role="list" aria-label="Infinite lifecycle list"></div>
+  <div id="large-replacement"><p>Large replacement old</p></div>
+  <div id="spacer"></div>
+
+  <script>
+    const markers = document.getElementById('markers');
+    function marker(name) {
+      const node = document.createElement('div');
+      node.setAttribute('role', 'status');
+      node.textContent = `LC|${name}`;
+      markers.appendChild(node);
+    }
+    function later(delay, action) { setTimeout(action, delay); }
+
+    document.getElementById('slow-frame').addEventListener('load', () => {
+      if (document.getElementById('slow-frame').src) marker('slow-resource');
+    });
+    later(1100, () => { document.getElementById('slow-frame').src = '/fixtures/structural/slow_resource_payload.html'; });
+    later(1500, () => marker('delayed-render'));
+    later(1850, () => { document.getElementById('remove-target').remove(); marker('disappearance'); });
+    later(2200, () => {
+      const old = document.getElementById('replace-target');
+      const replacement = document.createElement('p');
+      replacement.id = 'replacement-new';
+      replacement.textContent = 'Lifecycle replacement new';
+      old.replaceWith(replacement);
+      marker('replacement');
+    });
+    later(2550, () => {
+      const dialog = document.createElement('div');
+      dialog.id = 'lifecycle-dialog';
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.setAttribute('aria-label', 'Lifecycle modal');
+      dialog.innerHTML = '<h2>Lifecycle modal</h2><p>Overlay lifecycle content</p>';
+      document.body.appendChild(dialog);
+      marker('modal-open');
+    });
+    later(2900, () => { document.getElementById('lifecycle-dialog').remove(); marker('modal-close'); });
+    later(3250, () => {
+      const list = document.getElementById('infinite-list');
+      for (let index = 1; index <= 20; index += 1) {
+        const item = document.createElement('div');
+        item.setAttribute('role', 'listitem');
+        item.textContent = `Infinite item ${index}`;
+        list.appendChild(item);
+      }
+      marker('infinite-append');
+    });
+    later(3700, () => {
+      const replacement = document.createElement('div');
+      replacement.id = 'large-replacement-new';
+      for (let index = 1; index <= 150; index += 1) {
+        const item = document.createElement('p');
+        item.textContent = `Large replacement item ${index}`;
+        replacement.appendChild(item);
+      }
+      document.getElementById('large-replacement').replaceWith(replacement);
+      marker('large-dom-replacement');
+    });
+    later(4050, () => {
+      const body = document.getElementById('sortable-body');
+      body.insertBefore(document.getElementById('row-bravo'), document.getElementById('row-alpha'));
+      marker('table-reorder');
+    });
+    later(4400, () => { window.scrollTo(0, document.body.scrollHeight); marker('viewport-change'); });
+    later(4800, () => marker('done'));
+  </script>
+</body>
+</html>

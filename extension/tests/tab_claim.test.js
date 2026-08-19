@@ -29,6 +29,7 @@ function createChromeDouble() {
   const calls = [];
   const tabs = new Map();
   const storage = new Map();
+  const sessionStorage = new Map();
   let nextTabId = 100;
   let port;
 
@@ -71,6 +72,11 @@ function createChromeDouble() {
         get: async (key) => (storage.has(key) ? { [key]: storage.get(key) } : {}),
         set: async (entries) => { for (const [key, value] of Object.entries(entries)) storage.set(key, value); },
         remove: async (key) => { storage.delete(key); },
+      },
+      session: {
+        get: async (key) => (sessionStorage.has(key) ? { [key]: sessionStorage.get(key) } : {}),
+        set: async (entries) => { for (const [key, value] of Object.entries(entries)) sessionStorage.set(key, value); },
+        remove: async (key) => { sessionStorage.delete(key); },
       },
     },
     tabs: {
@@ -488,7 +494,7 @@ test('a claimed tab is revoked by Stop sharing, tab removal, and host disconnect
   }
 });
 
-test('browser startup clears every claimed tab and any armed claim', async () => {
+test('a delayed browser startup event cannot revoke a claim created after Host readiness', async () => {
   const { world } = await loadWorker();
   const armed = await arm(world, 'https://fixture.test/checkout');
   const tabId = world.openTab({ url: 'https://fixture.test/checkout' });
@@ -498,8 +504,8 @@ test('browser startup clears every claimed tab and any armed claim', async () =>
   world.events.startup.emit();
   for (let tick = 0; tick < 40; tick += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   const status = await popupCommand(world, 'ui.tab.status', tabId);
-  assert.equal(status.status.authorized, false);
-  assert.equal(status.status.provenance, 'none');
+  assert.equal(status.status.authorized, true);
+  assert.equal(status.status.provenance, 'agent_client');
 });
 
 test('ordinary user tabs stay Agent Off and user_shared lifecycle is unaffected', async () => {
@@ -538,6 +544,37 @@ test('ordinary user tabs stay Agent Off and user_shared lifecycle is unaffected'
   const status = await popupCommand(world, 'ui.tab.status', userTab);
   assert.equal(status.status.authorized, true);
   assert.equal(status.status.provenance, 'user_shared');
+});
+
+test('a new tab never inherits Agent On from its opener', async () => {
+  const { world } = await loadWorker();
+  const armed = await arm(world, 'https://fixture.test/agent');
+  const agentTab = world.openTab({ url: 'https://fixture.test/agent' });
+  await hostCommand(world, 'tabs.open', {
+    url: 'https://fixture.test/agent', claim: 'confirm',
+    claim_id: armed.claim_id, tab_id: String(agentTab),
+  });
+
+  const userTab = world.openTab({
+    url: 'https://fixture.test/user-opened', openerTabId: agentTab,
+  });
+  const status = await popupCommand(world, 'ui.tab.status', userTab);
+  assert.equal(status.status.authorized, false);
+  assert.equal(status.status.provenance, 'none');
+  assert.deepEqual((await listTabs(world)).map((tab) => tab.tab_id), [String(agentTab)]);
+});
+
+test('observation resync targets one authorized tab and never scans other tabs', async () => {
+  const { world } = await loadWorker();
+  const target = world.openTab({ url: 'https://fixture.test/target' });
+  const unrelated = world.openTab({ url: 'https://fixture.test/unrelated' });
+  assert.equal((await popupCommand(world, 'ui.tab.share', target)).ok, true);
+
+  const result = await hostCommand(world, 'observation.resync', { tab_id: String(target) });
+  assert.deepEqual(plain(result), { tab_id: String(target), resync_requested: true });
+  const snapshotCalls = world.calls.filter((call) => call.kind === 'collector.snapshot');
+  assert.deepEqual(snapshotCalls, [{ call: 'tabs.sendMessage', tabId: target, kind: 'collector.snapshot' }]);
+  assert.ok(!snapshotCalls.some((call) => call.tabId === unrelated));
 });
 
 test('the claim is one generic Chrome/Edge codepath with no browser branch', () => {

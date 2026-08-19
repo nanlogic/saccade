@@ -27,6 +27,10 @@ test('registry exposes only safe state for cataloged controls', () => {
   assert.equal(registry.observe('select', { hasValue: true }).state.has_value, 'true');
   assert.deepEqual(registry.observe('select', { expanded: false, expandable: true }).affordances, ['click', 'select']);
   assert.deepEqual(registry.observe('select', { expanded: false, expandable: false }).affordances, ['select']);
+  assert.deepEqual(select.option('Pizza', false, true, true).affordances, ['click']);
+  assert.deepEqual(select.option('Pizza', false, false, true).affordances, []);
+  assert.deepEqual(select.option('Pizza', false, true, false).affordances, []);
+  assert.deepEqual(registry.option('Pizza', false, true, true).affordances, ['click']);
   assert.equal(registry.observe('link', { current: 'page' }).kind, 'link');
   assert.deepEqual(registry.observe('file_input', { hasValue: false }).affordances, ['upload']);
   assert.deepEqual(registry.observe('reflex_target', { enabled: true }), {
@@ -87,4 +91,56 @@ test('control files can populate the browser global without CommonJS', () => {
   assert.equal(context.SaccadeControls.registry.observe('reflex_target', {}).role, 'reflex_target');
   assert.equal(context.SaccadeControls.registry.observe('file_input', {}).role, 'file_input');
   assert.equal(context.SaccadeControls.registry.observe('menu_item', {}).role, 'menu_item');
+});
+
+test('a protected field carries no type affordance in any typeable role', () => {
+  const { isProtectedFieldType } = require('../src/consent.js');
+  // The classifier and the registry are the two halves of the gate: the first
+  // decides a value is protected, the second refuses to mint a type affordance
+  // for it. Without an affordance the collector never mints an action token,
+  // so prepare() rejects the request before any mutation can be attempted.
+  const protectedIdentities = [
+    { type: 'password', autocomplete: '', hint: 'Password' },
+    { type: 'text', autocomplete: 'current-password', hint: 'Current password' },
+    { type: 'text', autocomplete: 'new-password', hint: 'Choose a password' },
+    { type: 'text', autocomplete: '', hint: 'Social Security Number' },
+    { type: 'text', autocomplete: '', hint: 'SSN' },
+    { type: 'text', autocomplete: '', hint: 'Employer Identification Number' },
+    { type: 'text', autocomplete: '', hint: 'EIN' },
+    { type: 'text', autocomplete: '', hint: 'Federal Tax Identification Number' },
+  ];
+  for (const role of ['text_field', 'search_field', 'text_area', 'spin_button']) {
+    for (const identity of protectedIdentities) {
+      const isProtected = isProtectedFieldType(identity.type, identity.autocomplete, identity.hint);
+      assert.equal(isProtected, true, `${identity.hint} must classify as protected`);
+      const observed = registry.observe(role, { enabled: true, hasValue: false, protected: isProtected });
+      assert.deepEqual(observed.affordances, [],
+        `${role} holding ${identity.hint} must expose no affordance`);
+      assert.equal(observed.protected, true);
+      // Truth still reports whether a human-only channel has filled the field,
+      // and nothing more: has_value is the only evidence, never the value.
+      assert.equal(observed.state.has_value, 'false');
+      assert.equal(Object.values(observed.state).includes(identity.hint), false);
+    }
+  }
+});
+
+test('an ordinary field of the same roles keeps exactly one type affordance', () => {
+  // The negative gate above is only meaningful if the positive case still
+  // works, or "no affordance" would be indistinguishable from a broken registry.
+  for (const role of ['text_field', 'search_field', 'text_area', 'spin_button']) {
+    for (const hint of ['Email', 'Telephone', 'Search', 'Full name', 'Quantity']) {
+      assert.equal(require('../src/consent.js').isProtectedFieldType('text', '', hint), false,
+        `${hint} must not be classified as protected`);
+      assert.deepEqual(
+        registry.observe(role, { enabled: true, hasValue: false, protected: false }).affordances,
+        ['type'],
+      );
+    }
+  }
+  // readonly and disabled remove the affordance for the same structural reason.
+  assert.deepEqual(registry.observe('text_field', { enabled: true, readonly: true }).affordances, []);
+  assert.deepEqual(registry.observe('text_field', { enabled: false }).affordances, []);
+  assert.deepEqual(registry.observe('content_editable', { enabled: true }).affordances, ['type']);
+  assert.deepEqual(registry.observe('content_editable', { enabled: true, readonly: true }).affordances, []);
 });

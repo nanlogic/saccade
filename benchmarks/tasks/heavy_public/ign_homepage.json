@@ -1,0 +1,11 @@
+{
+  "schema": "saccade-agent-benchmark-task/1",
+  "name": "ign_homepage_navigation",
+  "url": "https://www.ign.com/",
+  "task": "Read the current IGN homepage and verify that the primary site navigation exposes Reviews, News, and Guides.",
+  "success": {
+    "tool_output_contains": ["Reviews", "News", "Guides"]
+  },
+  "redact": [],
+  "timeout_seconds": 300
+}

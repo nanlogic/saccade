@@ -173,6 +173,7 @@ impl Registry {
             SemanticRole::Radio,
             SemanticRole::Switch,
             SemanticRole::Select,
+            SemanticRole::Option,
             SemanticRole::Tab,
             SemanticRole::MenuItem,
             SemanticRole::ReflexTarget,
@@ -334,6 +335,11 @@ fn validate_definition(definition: &ControlDefinition) -> Result<(), RegistryErr
             ImplementationFamily::Choice,
             NativePrimitive::SelectOption,
             Verifier::OptionSelected,
+        ),
+        SemanticRole::Option => (
+            ImplementationFamily::Choice,
+            NativePrimitive::PrimaryClick,
+            Verifier::SelectedTransition,
         ),
         SemanticRole::ReflexTarget => (
             ImplementationFamily::Reflex,
@@ -603,7 +609,7 @@ mod tests {
     #[test]
     fn builtins_are_catalog_backed_and_not_publishable() {
         let registry = Registry::builtin().unwrap();
-        assert_eq!(registry.modules.len(), 15);
+        assert_eq!(registry.modules.len(), 16);
         assert!(registry
             .modules
             .values()
@@ -629,6 +635,10 @@ mod tests {
         assert_eq!(
             registry.input_policy(SemanticRole::FileInput).unwrap(),
             InputPolicy::NativeRequired
+        );
+        assert_eq!(
+            registry.input_policy(SemanticRole::Option).unwrap(),
+            InputPolicy::SoftwarePreferred
         );
         let select = registry.modules.get(&SemanticRole::Select).unwrap();
         assert!(select.secondary_actions.iter().any(|strategy| {

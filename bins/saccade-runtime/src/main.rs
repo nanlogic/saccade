@@ -127,6 +127,8 @@ fn doctor() -> Result<()> {
             "schema":"saccade.doctor/1",
             "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
             "host_protocol":saccade_protocol::HOST_PROTOCOL,
+            "runtime_version":env!("CARGO_PKG_VERSION"),
+            "mcp_contract_hash":saccade_runtime::mcp::truth_contract_hash(),
             "grant_path":grant_path,
             "ready":ready,
             "capabilities":capabilities,

@@ -28,6 +28,25 @@ class TruthLatencyTests(unittest.TestCase):
         self.assertIsNotNone(MODULE.MARKER.match("LT|single|1|1234.5"))
         self.assertIsNone(MODULE.MARKER.match("LT|single|1"))
 
+    def test_probe_retains_folded_delivery_batch_evidence(self) -> None:
+        source = (ROOT / "scripts/probe_truth_latency.py").read_text()
+        self.assertIn('"delivery_batches": delivery_batches', source)
+        self.assertIn('"change_count": len(changes)', source)
+
+    def test_sequential_markers_use_distinct_stable_objects(self) -> None:
+        fixture = (ROOT / "fixtures/structural/truth_latency.html").read_text()
+        self.assertIn("node.id = `single-${sequence}`", fixture)
+        self.assertIn("appendChild(node)", fixture)
+        self.assertNotIn("getElementById('single').textContent = stamp", fixture)
+
+    def test_dialog_and_live_status_markers_are_public_truth_cases(self) -> None:
+        fixture = (ROOT / "fixtures/structural/truth_latency.html").read_text()
+        probe = (ROOT / "scripts/probe_truth_latency.py").read_text()
+        self.assertIn("stamp('dialog', 'text')", fixture)
+        self.assertIn('style="display: contents"', fixture)
+        self.assertIn("stamp('live', 'status')", fixture)
+        self.assertIn('"dialog:text", "live:status"', probe)
+
     def test_matrix_metrics_use_nearest_rank(self) -> None:
         self.assertEqual(MATRIX.metrics(list(range(1, 101)))["p95_ms"], 95)
         self.assertEqual(MATRIX.metrics([])["samples"], 0)

@@ -2,13 +2,17 @@
   "schema": "saccade-agent-benchmark-task/1",
   "name": "selenium-official-web-form",
   "url": "https://www.selenium.dev/selenium/web/web-form.html",
-  "task": "Complete the web form. Enter SACCADE-FAIR-TEXT-Ω in Text input, enter SACCADE FAIR LINE ONE then LINE TWO Ω on a new line in Textarea, choose Two in Dropdown (select), ensure Default checkbox and Default radio are selected, then submit the form.",
+  "task": "Complete the web form. Enter SACCADE-FAIR-TEXT-\u03a9 in Text input, enter SACCADE FAIR LINE ONE then LINE TWO \u03a9 on a new line in Textarea, choose Two in Dropdown (select), ensure Default checkbox and Default radio are selected, then submit the form.",
   "success": {
-    "tool_output_contains": ["Received!"]
+    "tool_output_contains": [
+      "submitted-form.html",
+      "my-select=2",
+      "my-radio=on"
+    ]
   },
   "redact": [
-    "SACCADE-FAIR-TEXT-Ω",
-    "SACCADE FAIR LINE ONE\nLINE TWO Ω"
+    "SACCADE-FAIR-TEXT-\u03a9",
+    "SACCADE FAIR LINE ONE\nLINE TWO \u03a9"
   ],
-  "timeout_seconds": 180
+  "timeout_seconds": 300
 }

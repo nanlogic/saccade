@@ -16,7 +16,7 @@ OUTPUT = ROOT / "docs" / "generated" / "control_coverage.md"
 
 ALLOWED_ROLES = {
     "button", "text_field", "search_field", "text_area", "content_editable",
-    "spin_button", "checkbox", "radio", "switch", "select", "tab", "menu_item",
+    "spin_button", "checkbox", "radio", "switch", "select", "option", "tab", "menu_item",
     "reflex_target", "link", "file_input",
 }
 ALLOWED_STATES = {

@@ -34,8 +34,8 @@
     return Object.freeze(controlModule.observe(Object.freeze({ ...signals })));
   }
 
-  function option(name, selected, enabled = true) {
-    return Object.freeze(moduleFor('select').option(name, selected, enabled));
+  function option(name, selected, enabled = true, clickable = false) {
+    return Object.freeze(moduleFor('select').option(name, selected, enabled, clickable));
   }
 
   const api = Object.freeze({ observe, option });

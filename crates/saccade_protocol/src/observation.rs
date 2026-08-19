@@ -265,6 +265,89 @@ pub struct ObservationSnapshot {
     pub gap: bool,
 }
 
+/// Internal Extension → Native Host transport for one continuous document.
+///
+/// Public Truth remains `ObservationSnapshot` / `saccade.observation/1`. This
+/// compact payload is distinguished by the Native Messaging envelope kind and
+/// deliberately has no second public schema name. The Host applies it only to
+/// the exact `base_revision`; otherwise it requests a new full snapshot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservationDelta {
+    pub browser_instance_id: String,
+    pub tab_id: String,
+    pub document_id: String,
+    pub base_revision: u64,
+    pub revision: u64,
+    pub viewport_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<ObservationGeometry>,
+    pub frames: Vec<FrameObservation>,
+    /// Complete current values only for appeared or updated identities.
+    pub objects: Vec<ObservedObject>,
+    /// Source-declared semantic changes for this one revision.
+    pub changes: Vec<ObservationChange>,
+    /// Current opaque authorities for unchanged actionable objects. Authority
+    /// churn is not semantic Truth and therefore is not an `updated` change.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authorities: Vec<ObservationAuthority>,
+    pub coverage: ObservationCoverage,
+    #[serde(default)]
+    pub limitations: Vec<Limitation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservationAuthority {
+    pub object_id: String,
+    pub action_token: String,
+}
+
+impl ObservationDelta {
+    pub fn validate(&self) -> Result<(), ObservationError> {
+        if self.base_revision == 0
+            || self.revision != self.base_revision.saturating_add(1)
+            || self.viewport_revision == 0
+        {
+            return Err(ObservationError::InvalidRevision);
+        }
+        let partial = ObservationSnapshot {
+            schema: OBSERVATION_SCHEMA.into(),
+            browser_instance_id: self.browser_instance_id.clone(),
+            tab_id: self.tab_id.clone(),
+            document_id: self.document_id.clone(),
+            revision: self.revision,
+            viewport_revision: self.viewport_revision,
+            geometry: self.geometry.clone(),
+            frames: self.frames.clone(),
+            objects: self.objects.clone(),
+            changes: self.changes.clone(),
+            coverage: self.coverage.clone(),
+            limitations: self.limitations.clone(),
+            gap: false,
+        };
+        partial.validate()?;
+        let changed = self
+            .changes
+            .iter()
+            .map(|change| change.object_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let mut authority_ids = BTreeSet::new();
+        let mut tokens = BTreeSet::new();
+        for authority in &self.authorities {
+            validate_identity(&authority.object_id)?;
+            validate_token(&authority.action_token)?;
+            if changed.contains(authority.object_id.as_str())
+                || !authority_ids.insert(authority.object_id.as_str())
+                || !tokens.insert(authority.action_token.as_str())
+            {
+                return Err(ObservationError::DuplicateIdentity);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ObservationError {
     #[error("wrong observation schema")]

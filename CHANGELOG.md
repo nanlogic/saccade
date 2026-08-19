@@ -1,5 +1,61 @@
 # Changelog
 
+- Reduced the Truth MCP fixed control plane to a compact initialize contract
+  and per-tool descriptions; Profile behavior now arrives once from
+  `system.capabilities`, with deterministic Runtime, Profile, and contract
+  identities verified by setup doctor.
+- Added bounded Collector-local actionability waiting for transient animation,
+  coverage, focus, and enablement, while preserving the immediate fast path and
+  returning machine-readable prepare/dispatch/verify failures.
+- Added oracle-generated 1/5/10/25/50 review queues and separate benchmark
+  accounting for control plane, discovery, steady state, model cache usage,
+  stability, and infrastructure failures.
+- Surface a bounded pair of already-public semantic transition signals in the
+  compact `saccade.act` tool result, so completion proof carried by the action
+  is not lost behind a redundant follow-up read.
+- Restore a missing local MCP action cursor only from a fresh snapshot of the
+  exact tab and exact document; never rebind an alias across navigation or
+  object replacement.
+- Classify API rate limits alongside overloads, timeouts, and zero-tool runs as
+  invalid infrastructure evidence rather than a browser-lane loss.
+- Grade generated queues from their independent tool-output oracle rather than
+  letting a contradictory model self-report erase objective completion proof;
+  preflight every generated fixture over HTTP before spending model calls.
+- Simplified `saccade.act` so current Truth semantics are executable directly:
+  callers may omit `operation`, Runtime infers the sole advertised
+  click/type/select affordance (or the payload-implied type/select action), and
+  ambiguous objects fail closed instead of making the model guess. This is
+  Runtime-only and adds no Extension Truth bytes or authority.
+- Let a bounded semantic query carry `after_revision` as a canonical lower
+  bound, eliminating the failed revision-read plus unbounded-query retry after
+  a verified action reveals or replaces controls.
+- Stop new tabs from inheriting Agent On through an Agent-owned
+  `openerTabId`; only `tabs.open`, an exact confirmed claim, or explicit user
+  sharing can authorize the new tab.
+- Fixed semantic working-set hydration so `min_objects` is an actual completion
+  boundary instead of waiting for a quiet page; added bounded `text_any`
+  multi-target matching, with one distinct result reserved per matching phrase,
+  so noisy early matches cannot truncate later named targets.
+- Isolated concurrent MCP task tabs downstream: each session lists, reads, acts
+  on, and closes only its own Agent tabs plus explicitly shared tabs.
+- Let exact semantic queries match a control through bounded nearby heading
+  context already present in canonical Truth, avoiding broad same-role reads on
+  pages with many repeated examples.
+- Rebase a stale object-addressed action only when Runtime's retained journal
+  and the Extension's current opaque authority both prove the target unchanged;
+  target changes still fail closed.
+- Clear restored tab authority synchronously on the first worker initialization
+  of a browser lifetime, so a delayed `runtime.onStartup` event cannot revoke a
+  tab opened after the Host is already ready.
+- Keep the ordinary-Chrome Native Host suspension effective across repeated dev
+  installs, preventing it from stealing the single test Host mid-run.
+- Make the public `saccade.act` schema acceptable to Claude and other strict
+  tool registries by removing top-level JSON Schema composition while retaining
+  all single-versus-batch constraints in Runtime validation.
+- Fix root-scoped semantic queries on pages with same-origin child frames by
+  selecting the unique frame without a parent instead of requiring the entire
+  observation to contain only one frame.
+
 Saccade has no stable release yet. This file records user-visible changes from
 the clean public repository.
 
@@ -7,7 +63,109 @@ the clean public repository.
 
 ### Changed
 
-- hard-cut the default MCP surface to the four-tool Truth API, advance
+- send one eager full Snapshot when an authorized document Collector becomes
+  ready, then send Extension→Host deltas instead of retransmitting the whole
+  page on every revision; materialize one current Truth in Runtime, recover a
+  transport gap by requesting a full Snapshot for that exact tab, and allow an
+  Agent with a corrupt cache to request a one-tab-only `truth.read` resync;
+- let an Agent client obtain Agent On for exactly one tab it created itself,
+  through `claim: "arm"` and `claim: "confirm"` modes of the existing
+  `saccade.tabs.open` tool: the intent is short-lived, origin-bound, single-use,
+  and latches only the first new tab on that origin, the Agent must supply the
+  tab identity its own tooling returned, every mismatch fails with one uniform
+  message, and the confirmed tab is session-only with `provenance: agent_client`;
+  ordinary user tabs stay Agent Off and the public tool count stays at six;
+- make Truth delivery an automatic Agent cursor: one full view per document,
+  then only revision-bound deltas, with automatic full reset on navigation or
+  stream gap; remove public `view_mode` selection and routine repeated-full
+  requests while retaining explicit recovery for one exact tab;
+- return additional post-action page changes inline from `saccade.act`, advance
+  the same Agent cursor, and replace Runtime's bounded full-snapshot history
+  with one current observation plus a compact 256-entry change journal;
+- add bounded semantic working-set queries to the existing `truth.read` tool,
+  keeping complete canonical Truth local while selecting at most 32 objects by
+  label, role, affordance, visibility, and frame scope; split action-relevant
+  transitions from queued ambient page/frame churn without losing either;
+- make semantic queries hydration-aware, include rendered offscreen targets by
+  default, clear already-folded ambient pages on a new working set, and verify
+  select opening through `expanded` before querying a named option;
+- make verified action receipts suppress unrelated structural churn, return a
+  batch `next_basis_revision`, and avoid duplicating Profile behavior in every
+  capabilities response;
+- let the existing sixth public tool execute one prevalidated batch of
+  independent ordinary form edits with per-step semantic verification and one
+  final delta, while keeping submit, navigation, upload, and arbitrary controls
+  outside the batch;
+- isolate fair comparisons from user-local learned input history through an
+  explicit evidence-stamped benchmark override that never edits the policy;
+- harden the same-model benchmark with real-time JSONL event stamps, explicit
+  Claude authentication failures, archived prior attempts, and nonzero matrix
+  exits whenever any run is not valid and passing;
+- project resolved, bounded HTTP(S) navigation targets for Truth links, require
+  source-page reading before verified recommendations, and retain useful
+  supporting result tabs while cleaning up temporary search tabs;
+- converge Extension candidate `0.3.22`, add finite macOS zero-window browser
+  wake through the Extension's own validated popup surface, and prove two cold
+  open → Truth → close cycles without adding webpage execution or fallback;
+- add ownership-aware `saccade.tabs.close` cleanup for Agent-owned temporary
+  tabs, expose `agent` versus `user_shared` in `tabs.list`, and advance public
+  capabilities to `saccade.capabilities/6`; preserve the value-free ownership
+  ACL across Extension Reload/update and clear it on browser startup;
+- define closed-loop evidence as an Agent-owned same-tab action followed by a
+  Saccade-observed delta; reclassify Reference Actuator public-page runs as
+  observation diagnostics rather than product dogfood or a release gate;
+- refresh an obsolete ordinary-Chrome Saccade Native Host during `dev.sh attach`
+  without restarting Chrome or touching the Agent client's execution extension;
+- add an 11-scenario page-driven lifecycle gate for Chrome and Edge, including
+  deterministic slow HTTP resources, large replacement, modal, infinite-list,
+  sortable-table, viewport, upload/download, and drag/drop Truth evidence;
+- set the first-release distribution target to the browser-store Extension plus
+  `npx -y @saccade/setup`, with a headless local MCP and Native Host configured
+  for supported Codex and Claude clients;
+- implement the dependency-free setup CLI with checksum-gated Runtime install,
+  user-level Chrome and Edge manifests, additive Codex and Claude MCP setup,
+  doctor, update, rollback, Profile preservation, and safe uninstall;
+- move the Accessibility permission helper out of the default Runtime command
+  namespace and rename it `reference-actuator-repair`;
+- add a default-MCP public Truth probe with test-only Reference Actuator
+  stimulus, five official source families, explicit pass/blocked/fail outcomes,
+  browser versions, and value-free evidence;
+- fingerprint dirty local candidates and record commit, Runtime, Extension,
+  Chrome, and Edge versions before the clean-profile two-browser Truth gate;
+- keep latency and structural fixtures geometry-stable so single-object and
+  iframe gates measure the declared scenario after coordinates became public
+  Truth;
+- add a publishable architecture overview that explains the Extension compiler,
+  stable objects with current geometry, Agent-selected delivery modes, local
+  fast-reaction pattern, and protected-content boundary;
+- let Agents select `live` or `economy` Truth delivery per read, keeping live
+  immediate while economy coalesces a bounded 150 ms revision burst into one
+  latest truthful delta without filtering objects or geometry;
+- recover dynamic Reference Reflex preparation races within a 45 ms budget and
+  keep semantic soft clicks separate from native physical hit-testing, reaching
+  96/96 targets with zero failures on Mouse Accuracy `Insane + Tiny`;
+- expose current `document_bounds` and `viewport_bounds` for every projected
+  object, treat movement and resizing as first-class Truth deltas, and keep
+  animated/transitioning object geometry fresh through frame-bounded local
+  tracking without exposing action authority;
+- keep the client-owned MCP process alive when the Native Host is temporarily
+  absent, and reconnect bounded Host calls across recreated sockets and rotated
+  owner capabilities without weakening permission or protocol failures;
+- instruct Agent clients to plan once per page, consecutively execute already
+  determined reversible operations, and verify them with one revision-bounded
+  delta instead of rereading full Truth between fields;
+- make autonomous completion the default Profile behavior, require known URLs
+  to open as automatically Agent-On tabs, keep existing Agent-Off tabs private,
+  and remove Saccade-side safety/action policy from MCP;
+- keep the Extension as the only product content gate: protect password, SSN,
+  and EIN fields and mask formatted SSN/EIN text before observation emission;
+- distinguish editable placeholders from current values in Agent Truth, recover
+  impossible future revision bases with an immediate full gap reset, and guide
+  clients to fold deltas plus verify exact custom-control selections;
+- project authored `aria-live` regions and otherwise unmarked leaf text inside
+  visible dialogs, so dynamic success and failure confirmations produce Truth
+  deltas without site-specific selectors;
+- hard-cut the default MCP surface to the five-tool Truth API, advance
   capabilities to `saccade.capabilities/5`, remove action authority from the
   default Agent view, and assign browser execution to the Agent client;
 - split execution metadata into the Reference Actuator catalog and move the
@@ -85,8 +243,9 @@ the clean public repository.
   deduplicated file/image chooser triggers for cover and screenshot uploads;
 - versioned unpacked-Extension directories and browser-profile generations so
   MV3 worker updates do not require reading or copying login cookies;
-- human-only managed Profile selection with the bundled smart-barbarian-eco
-  Profile;
+- human-only managed Profile selection with the bundled smart-barbarian-ceo;
+  the removed development name smart-barbarian-eco now has an explicit CLI
+  migration alias to that Profile;
 - explicit restricted reporting for browser-owned confirmation dialogs;
 - non-actionable, application-declared semantic image identity;
 - public W3C WAI-ARIA dogfood for radio, switch, tab, and menu item, with an
@@ -128,5 +287,5 @@ the clean public repository.
 - lifecycle evidence for dynamic loading, disappearance, overlays/modals,
   infinite scroll, sortable tables, dialogs, slow resources, upload/download,
   large rearrangements, and viewport changes;
-- same-candidate Chrome and Edge release evidence, signed consumer packaging,
-  and browser-store Extension builds.
+- same-candidate Chrome and Edge release evidence, the published and verified
+  `@saccade/setup` package, and browser-store Extension builds.

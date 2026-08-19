@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 from typing import Any
 
-from dev_probe import wait_for_mcp
+from dev_probe import fold_truth_change, stable_observation, wait_for_mcp
 
 
 TARGETS = {
@@ -39,6 +40,9 @@ TARGETS = {
     "opaque_video": ("opaque_surface", "name", "Video surface"),
     "restricted_document": ("restricted_document", "name", "Restricted document"),
     "built_in_pdf": ("restricted_document", "name", "Built-in PDF"),
+    "native_listbox": ("select", "name", "Native listbox"),
+    "aria_listbox": ("select", "name", "Priority"),
+    "aria_combobox": ("select", "name", "Portal city"),
 }
 
 
@@ -69,7 +73,7 @@ def main() -> None:
     try:
         opened = tool(mcp, "tabs.open", {"url": args.url, "active": True})
         tab_id = str(opened["tab_id"])
-        initial = tool(mcp, "truth.read", {"tab_id": tab_id})
+        initial = mcp.tool("truth.read", {"tab_id": tab_id})
         if any(item.get("role") == "unknown" for item in initial.get("objects", [])):
             raise RuntimeError("reserved unknown role escaped into public Truth")
         found: dict[str, dict[str, Any]] = {}
@@ -77,12 +81,18 @@ def main() -> None:
             item = next((x for x in initial.get("objects", []) if x.get("role") == expected_role and x.get(field) == value), None)
             if item is None:
                 raise RuntimeError(f"initial Truth omitted semantic role {role}")
-            actionable_variants = {"option", "slider", "drag_source", "date", "time", "month", "week", "datetime_local", "color"}
+            actionable_variants = {"option", "slider", "drag_source", "date", "time", "month", "week", "datetime_local", "color", "native_listbox", "aria_listbox", "aria_combobox"}
             if item.get("affordances") and role not in actionable_variants:
                 raise RuntimeError(f"non-control semantic role {role} became actionable")
             if item.get("action_token") is not None:
                 raise RuntimeError(f"default Truth leaked action authority for {role}")
-            found[role] = {"object_id": item["object_id"], "initial": {k: item.get(k) for k in ("text", "name", "description", "state")}}
+            if not isinstance(item.get("document_bounds"), dict) or not isinstance(item.get("viewport_bounds"), dict):
+                raise RuntimeError(f"initial Truth omitted geometry for {role}")
+            found[role] = {
+                "object_id": item["object_id"],
+                "initial": {k: item.get(k) for k in ("text", "name", "description", "state")},
+                "geometry": {k: item.get(k) for k in ("document_bounds", "viewport_bounds")},
+            }
 
         detached_popup_value = next(
             (item for item in initial.get("objects", []) if item.get("role") == "select" and item.get("name") == "Portal city"),
@@ -92,17 +102,25 @@ def main() -> None:
             raise RuntimeError("closed ARIA combobox lost its value after the popup options detached")
 
         revision = int(initial["revision"])
+        current = {item["object_id"]: item for item in initial.get("objects", [])}
         changed: dict[str, Any] = {}
+        pending_page = False
         for _ in range(60):
             try:
-                view = tool(mcp, "truth.read", {"tab_id": tab_id, "after_revision": revision, "timeout_ms": 3000}, timeout=5.0)
+                read_arguments = {"tab_id": tab_id}
+                if not pending_page:
+                    read_arguments.update({"after_revision": revision, "timeout_ms": 3000})
+                view = tool(mcp, "truth.read", read_arguments, timeout=5.0)
             except RuntimeError as error:
                 if "no observation after revision" in str(error):
                     break
                 raise
             revision = int(view["revision"])
+            pending_page = (view.get("page") or {}).get("complete") is False
             for change in view.get("changes", []):
-                item = change.get("object") or {}
+                item = fold_truth_change(
+                    current, change, view.get("object_defaults")
+                ) or {}
                 if item.get("role") == "select" and item.get("name") == "Portal city":
                     if item.get("state", {}).get("has_value") != "true":
                         raise RuntimeError("detached combobox popup cleared its retained value")
@@ -120,9 +138,17 @@ def main() -> None:
             raise RuntimeError(f"semantic roles without pushed delta: {missing}")
 
         structural_opened = tool(mcp, "tabs.open", {"url": args.structure_url, "active": True})
-        structural = tool(mcp, "truth.read", {"tab_id": str(structural_opened["tab_id"])})
-        observed = [frame for frame in structural.get("frames", []) if frame.get("status") == "observed"]
-        restricted = [frame for frame in structural.get("frames", []) if frame.get("status") != "observed"]
+        structural_tab_id = str(structural_opened["tab_id"])
+        structural_deadline = time.monotonic() + 10
+        observed: list[dict[str, Any]] = []
+        restricted: list[dict[str, Any]] = []
+        while time.monotonic() < structural_deadline:
+            structural = stable_observation(mcp, structural_tab_id)
+            observed = [frame for frame in structural.get("frames", []) if frame.get("status") == "observed"]
+            restricted = [frame for frame in structural.get("frames", []) if frame.get("status") != "observed"]
+            if len(observed) == 2 and len(restricted) == 1:
+                break
+            time.sleep(0.25)
         names = {item.get("name") for item in structural.get("objects", [])}
         if len(observed) != 2 or len(restricted) != 1:
             raise RuntimeError("frame metadata did not report root/same-origin/restricted coverage")
@@ -144,7 +170,7 @@ def main() -> None:
             "negative_roles": {"unknown": "not_emitted"},
         }
         serialized = json.dumps(evidence, indent=2, ensure_ascii=False) + "\n"
-        for forbidden in ("action_token", "locator", "coordinate"):
+        for forbidden in ("action_token", "locator"):
             if forbidden in serialized.casefold():
                 raise RuntimeError(f"semantic evidence contains forbidden field {forbidden}")
         args.output.parent.mkdir(parents=True, exist_ok=True)

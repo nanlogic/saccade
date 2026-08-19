@@ -123,6 +123,17 @@
       "publication_status": "implementation"
     },
     {
+      "id": "option",
+      "role": "option",
+      "implementation_family": "choice",
+      "safe_state": ["selected", "enabled"],
+      "affordances": ["click"],
+      "limitations": ["Only enabled rendered ARIA options advertise click; native option aliases remain selectable only through their parent select."],
+      "fixtures": ["fixtures/controls/listbox_combobox.html", "fixtures/controls/dynamic_choice.html"],
+      "evidence": { "chrome": "pending", "edge": "pending" },
+      "publication_status": "implementation"
+    },
+    {
       "id": "reflex_target",
       "role": "reflex_target",
       "implementation_family": "reflex",

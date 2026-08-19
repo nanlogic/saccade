@@ -75,6 +75,12 @@
       ]
     },
     {
+      "id": "option",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "selected_transition"
+    },
+    {
       "id": "reflex_target",
       "native_primitive": "primary_click",
       "input_policy": "software_preferred",

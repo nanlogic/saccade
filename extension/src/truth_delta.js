@@ -37,7 +37,35 @@
     return changes;
   }
 
-  const api = Object.freeze({ compileChanges, semanticObject });
+  // Native Messaging transports the first revision as a complete snapshot.
+  // Later revisions carry complete values only for changed identities, plus
+  // the opaque current authorities of unchanged actionable objects. The Host
+  // can therefore materialize current Truth without receiving the whole page
+  // again or treating authority rotation as semantic change.
+  function compactTransport(currentObjects, changes) {
+    const current = new Map(currentObjects.map((object) => [object.object_id, object]));
+    const changedIds = new Set();
+    const objects = [];
+    for (const change of changes) {
+      if (changedIds.has(change.object_id)) throw new Error('delta repeats an object identity');
+      changedIds.add(change.object_id);
+      if (change.kind === 'disappeared') {
+        if (current.has(change.object_id)) throw new Error('disappeared delta object is still current');
+        continue;
+      }
+      const object = current.get(change.object_id);
+      if (!object || object.object_revision !== change.object_revision) {
+        throw new Error('delta does not carry the changed current object');
+      }
+      objects.push(object);
+    }
+    const authorities = currentObjects
+      .filter((object) => !changedIds.has(object.object_id) && object.action_token)
+      .map((object) => ({ object_id: object.object_id, action_token: object.action_token }));
+    return { objects, authorities };
+  }
+
+  const api = Object.freeze({ compileChanges, compactTransport, semanticObject });
   globalThis.SaccadeTruthDelta = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

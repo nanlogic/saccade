@@ -9,6 +9,7 @@ const NATIVE_HOST = chrome.runtime.getManifest().name.includes('(Development)')
 const BROWSER_FAMILY = navigator.userAgent.includes('Edg/') ? 'edge' : 'chrome';
 const INSTANCE_KEY = 'saccade.browser_instance_id';
 const TAB_ACL_KEY = 'saccade.tab_acl';
+const BROWSER_SESSION_KEY = 'saccade.browser_session_initialized';
 const CLAIM_TTL_MS = 30_000;
 const agentOwnedTabs = new Set();
 const userSharedTabs = new Set();
@@ -52,10 +53,21 @@ async function persistAcl() {
 }
 
 async function initialize() {
-  const [identity, storedAcl] = await Promise.all([chrome.storage.local.get(INSTANCE_KEY), chrome.storage.local.get(TAB_ACL_KEY)]);
+  const [identity, storedAcl, browserSession] = await Promise.all([
+    chrome.storage.local.get(INSTANCE_KEY),
+    chrome.storage.local.get(TAB_ACL_KEY),
+    chrome.storage.session.get(BROWSER_SESSION_KEY),
+  ]);
   browserInstanceId = identity[INSTANCE_KEY] || randomToken('browser');
   if (!identity[INSTANCE_KEY]) await chrome.storage.local.set({ [INSTANCE_KEY]: browserInstanceId });
-  const acl = storedAcl[TAB_ACL_KEY] || {};
+  const freshBrowserSession = browserSession[BROWSER_SESSION_KEY] !== true;
+  if (freshBrowserSession) {
+    await Promise.all([
+      chrome.storage.local.remove(TAB_ACL_KEY),
+      chrome.storage.session.set({ [BROWSER_SESSION_KEY]: true }),
+    ]);
+  }
+  const acl = freshBrowserSession ? {} : (storedAcl[TAB_ACL_KEY] || {});
   for (const value of acl.agent || []) if (Number.isSafeInteger(value)) agentOwnedTabs.add(value);
   for (const value of acl.shared || []) if (Number.isSafeInteger(value)) userSharedTabs.add(value);
   for (const value of acl.claimed || []) if (Number.isSafeInteger(value) && agentOwnedTabs.has(value)) claimedAgentTabs.add(value);
@@ -71,16 +83,6 @@ function forgetTab(tabId) {
   claimedAgentTabs.delete(tabId);
   if (pendingClaim?.candidates) pendingClaim.candidates.delete(tabId);
   if (pendingClaim?.latchedTabId === tabId) pendingClaim = undefined;
-}
-
-async function resetAclForBrowserStartup() {
-  agentOwnedTabs.clear();
-  userSharedTabs.clear();
-  claimedAgentTabs.clear();
-  sessions.clear();
-  authorizationPromises.clear();
-  pendingClaim = undefined;
-  await chrome.storage.local.remove(TAB_ACL_KEY);
 }
 
 function activeClaim() {
@@ -99,7 +101,7 @@ async function tabStatus(tabId) {
     tab_id: String(tabId), supported, agent_owned: agentOwnedTabs.has(tabId),
     shared: userSharedTabs.has(tabId), authorized: isAuthorized(tabId),
     provenance: tabProvenance(tabId),
-    observation_ready: Boolean(session?.last), collector_error: session?.error,
+    observation_ready: Boolean(session?.observationReady), collector_error: session?.error,
     host_connected: Boolean(nativePort),
   };
 }
@@ -133,7 +135,8 @@ function post(kind, payload = {}, requestId) {
 const RECONNECT_ALARM = 'saccade.native-host-reconnect';
 const RECONNECT_ALARM_DELAY_MS = 30_000;
 
-function scheduleReconnect() {
+function scheduleReconnect(error) {
+  if (error) console.error(`Saccade reconnect scheduled: ${String(error.message || error)}`);
   if (reconnectTimer) {
     chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
     return;
@@ -191,7 +194,13 @@ async function connectHost() {
       wake_url: chrome.runtime.getURL('popup.html'),
     });
     setTimeout(() => { settleReconnect(port).catch(scheduleReconnect); }, 5000);
-    for (const tabId of new Set([...agentOwnedTabs, ...userSharedTabs])) authorizeTab(tabId).catch(reportAuthorizationFailure);
+    for (const tabId of new Set([...agentOwnedTabs, ...userSharedTabs])) {
+      const hadCurrentObservation = Boolean(sessions.get(tabId)?.observationReady);
+      try {
+        await authorizeTab(tabId);
+        if (hadCurrentObservation) await requestCollectorSnapshot(tabId);
+      } catch (error) { reportAuthorizationFailure(error); }
+    }
   })().finally(() => { connectPromise = undefined; });
   return connectPromise;
 }
@@ -333,7 +342,7 @@ async function authorizeTabInner(tabId, expectedUrl, recoverStale) {
   if (!isSupportedUrl(tab.url)) throw new Error('tab URL is not supported');
   const prior = sessions.get(tabId);
   if (prior?.url === tab.url && (prior.configuring || prior.configured)) return;
-  sessions.set(tabId, { last: null, url: tab.url, configuring: true });
+  sessions.set(tabId, { observationReady: false, url: tab.url, configuring: true });
   let ready = await waitForCurrentCollector(tabId, 40);
   if (!ready && recoverStale) {
     await chrome.tabs.reload(tabId);
@@ -349,7 +358,7 @@ async function authorizeTabInner(tabId, expectedUrl, recoverStale) {
     if (session?.url === tab.url) { session.configuring = false; session.configured = true; }
   } catch (error) {
     const detail = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 512);
-    sessions.set(tabId, { last: null, url: tab.url, error: detail });
+    sessions.set(tabId, { observationReady: false, url: tab.url, error: detail });
     throw error;
   }
 }
@@ -373,7 +382,7 @@ async function handleHostCommand(command) {
         const session = sessions.get(tabId);
         const item = {
           tab_id: String(tabId), title: tab.title || '', url: tab.url || '',
-          active: Boolean(tab.active), observation_ready: Boolean(session?.last),
+          active: Boolean(tab.active), observation_ready: Boolean(session?.observationReady),
           ownership: agentOwnedTabs.has(tabId) ? 'agent' : 'user_shared',
           provenance: tabProvenance(tabId),
         };
@@ -431,32 +440,54 @@ async function handleHostCommand(command) {
     if (!tab.active) { await chrome.tabs.update(tabId, { active: true }); focusChanged = true; }
     if (focusChanged) await new Promise((resolve) => setTimeout(resolve, 100));
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.prepare_action', request: payload }, { frameId: 0 });
-    if (!result?.ok) throw new Error(result?.error || 'action preparation failed');
+    if (!result?.ok) throw collectorActionError(result, 'action preparation failed');
     reply(command, result.prepared);
   } else if (command.kind === 'soft_click') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_click', request: payload }, { frameId: 0 });
-    if (!result?.ok) throw new Error(result?.error || 'soft click failed');
+    if (!result?.ok) throw collectorActionError(result, 'soft click failed');
     reply(command, result.result);
   } else if (command.kind === 'soft_action') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 });
-    if (!result?.ok) throw new Error(result?.error || 'software action failed');
+    if (!result?.ok) throw collectorActionError(result, 'software action failed');
     reply(command, result.result);
+  } else if (command.kind === 'observation.resync') {
+    const tabId = numericTabId(payload.tab_id);
+    if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    await requestCollectorSnapshot(tabId);
+    reply(command, { tab_id: String(tabId), resync_requested: true });
   } else {
     throw new Error(`unsupported host command: ${command.kind}`);
   }
+}
+
+function collectorActionError(result, fallback) {
+  const stage = String(result?.failure_stage || 'dispatch').replaceAll('|', '_');
+  const code = String(result?.failure_code || 'software_action_rejected').replaceAll('|', '_');
+  const retrySafe = result?.retry_safe === true ? 'true' : 'false';
+  const detail = String(result?.error || fallback).replaceAll('|', '/').slice(0, 320);
+  return new Error(`saccade_action_error|${stage}|${code}|${retrySafe}|${detail}`);
+}
+
+async function requestCollectorSnapshot(tabId) {
+  const result = await chrome.tabs.sendMessage(
+    tabId, { kind: 'collector.snapshot' }, { frameId: 0 },
+  );
+  if (!result?.ok) throw new Error(result?.error || 'collector snapshot failed');
 }
 
 function acceptCollectorObservation(message, sender) {
   const tabId = sender.tab?.id;
   const session = tabId === undefined ? null : sessions.get(tabId);
   if (!session || !isAuthorized(tabId) || message.payload?.browser_instance_id !== browserInstanceId || message.payload.tab_id !== String(tabId)) return false;
-  session.last = message.payload;
+  session.observationReady = true;
+  session.documentId = message.payload.document_id;
+  session.revision = message.payload.revision;
   delete session.error;
-  if (nativePort) post('observation', message.payload);
+  if (nativePort) post(message.kind === 'collector.observation_delta' ? 'observation.delta' : 'observation', message.payload);
   return true;
 }
 
@@ -465,7 +496,8 @@ chrome.runtime.onConnect.addListener((port) => {
   const tabId = port.sender.tab?.id;
   if (tabId === undefined) { port.disconnect(); return; }
   port.onMessage.addListener((message) => {
-    if (message?.kind !== 'collector.observation' || !acceptCollectorObservation(message, port.sender)) port.disconnect();
+    if (!['collector.observation', 'collector.observation_delta'].includes(message?.kind)
+      || !acceptCollectorObservation(message, port.sender)) port.disconnect();
   });
   port.onDisconnect.addListener(() => {
     const session = sessions.get(tabId);
@@ -506,8 +538,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 
 chrome.tabs.onCreated.addListener((tab) => {
   noteClaimCandidate(tab);
-  if (tab.id === undefined || tab.openerTabId === undefined || !agentOwnedTabs.has(tab.openerTabId)) return;
-  agentOwnedTabs.add(tab.id); persistAcl();
 });
 chrome.tabs.onRemoved.addListener((tabId) => { sessions.delete(tabId); forgetTab(tabId); persistAcl(); });
 chrome.windows.onRemoved.addListener(() => { reconnectAfterWindowRemoval(); });
@@ -529,7 +559,7 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   }
 });
 chrome.runtime.onStartup.addListener(() => {
-  resetAclForBrowserStartup().then(connectHost).catch(scheduleReconnect);
+  connectHost().catch(scheduleReconnect);
 });
 chrome.runtime.onInstalled.addListener(() => { connectHost().catch(scheduleReconnect); });
 connectHost().catch(scheduleReconnect);

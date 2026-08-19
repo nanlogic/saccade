@@ -1,15 +1,28 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Truth latency and completeness</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>Truth latency and completeness</title>
+  <style>
+    #single { position: absolute; top: 0; right: 0; width: 1px; pointer-events: none; }
+    #generic-dialog { position: fixed; inset: 1rem auto auto 1rem; }
+    #remove-slot { min-height: 1lh; }
+  </style>
+</head>
 <body>
   <h1>Truth latency and completeness</h1>
+  <button id="start" type="button" aria-pressed="false">Start latency run</button>
   <p role="status" id="initial">Latency initial pending</p>
-  <p role="status" id="single">Latency single idle</p>
+  <div id="single"></div>
   <div id="batch10"></div>
   <div id="batch100"></div>
-  <p role="status" id="remove-target">Remove target</p>
+  <div id="remove-slot"><p role="status" id="remove-target">Remove target</p></div>
   <p role="status" id="replace-target">Replace target old</p>
   <p role="status" id="lifecycle">Latency lifecycle idle</p>
+  <div id="generic-dialog" role="dialog" aria-label="Submission result" hidden>
+    <div><div style="display: contents"><span id="generic-dialog-message"></span></div></div>
+  </div>
+  <div id="live-result" aria-live="polite">Live result idle</div>
   <ol id="reorder"></ol>
   <canvas id="canvas" aria-label="Canvas semantic companion idle" width="120" height="60"></canvas>
   <canvas id="webgl" aria-label="WebGL semantic companion idle" data-saccade-context="webgl" width="120" height="60"></canvas>
@@ -39,7 +52,11 @@
     async function run() {
       await delay(1000);
       for (let sequence = 1; sequence <= 20; sequence += 1) {
-        document.getElementById('single').textContent = stamp('single', sequence);
+        const node = document.createElement('p');
+        node.id = `single-${sequence}`;
+        node.setAttribute('role', 'status');
+        node.textContent = stamp('single', sequence);
+        document.getElementById('single').appendChild(node);
         await delay(80);
       }
       const batch10At = performance.timeOrigin + performance.now();
@@ -63,7 +80,7 @@
       old.replaceWith(replacement);
       await delay(250);
       for (const item of Array.from(reorder.children).reverse()) reorder.appendChild(item);
-      document.getElementById('lifecycle').textContent = stamp('reorder', 'event');
+      reorder.firstElementChild.textContent = stamp('reorder', 'event');
       await delay(250);
       const canvas = document.getElementById('canvas');
       const context2d = canvas.getContext('2d');
@@ -79,9 +96,19 @@
       }
       webgl.setAttribute('aria-label', stamp('webgl', 'semantic'));
       await delay(250);
+      const dialog = document.getElementById('generic-dialog');
+      dialog.hidden = false;
+      document.getElementById('generic-dialog-message').textContent = stamp('dialog', 'text');
+      document.getElementById('live-result').textContent = stamp('live', 'status');
+      await delay(250);
       document.getElementById('done').textContent = stamp('done', '1');
     }
-    run();
+    document.getElementById('start').addEventListener('click', (event) => {
+      const start = event.currentTarget;
+      if (start.getAttribute('aria-pressed') === 'true') return;
+      start.setAttribute('aria-pressed', 'true');
+      run();
+    });
   </script>
 </body>
 </html>

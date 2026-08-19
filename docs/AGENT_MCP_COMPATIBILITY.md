@@ -3,8 +3,8 @@
 ## What is already portable
 
 `saccade-runtime mcp` is the small, vendor-neutral Saccade product adapter. It
-uses standard MCP over stdio and exposes only capabilities, tab list/open, and
-Truth read/resource updates. Codex, Claude, and any MCP client that supports
+uses standard MCP over stdio and exposes only capabilities, tab list/open/close,
+and Truth read/resource updates. Codex, Claude, and any MCP client that supports
 stdio tools can use the same executable and schemas.
 
 Example Claude Desktop entry (replace the executable with the installed
@@ -22,7 +22,19 @@ absolute path):
 ```
 
 The browser Extension and Native Host must already be installed and authorized.
-No Accessibility permission is required for this Truth-only route.
+The public target is the store Extension plus `npx -y @saccade/setup`, which
+installs the headless Runtime, user-level Native Messaging manifests, and local
+MCP entries. No Accessibility permission is required for this Truth-only route.
+`tabs.close` is limited to Agent-owned tabs; user-shared tabs are rejected.
+
+The repository's `Saccade Dev Runtime.app` wrapper is internal development
+tooling. It is not installed for users. Although the repository also contains
+an explicitly launched historical actuator subcommand, normal Runtime startup
+never launches it and never receives browser-control authority.
+
+Cloud-only clients cannot start the local STDIO MCP or reach the user's local
+Extension and Native Host. The first release reports this as incompatible and
+does not add a remote relay.
 
 ## Why a server cannot borrow the client's browser tool
 

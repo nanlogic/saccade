@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from dev_probe import Mcp, wait_for_mcp
+from dev_probe import Mcp, fold_truth_change, open_when_browser_ready, wait_for_mcp
 
 
 def raw_tool(mcp: Mcp, name: str, arguments: dict[str, Any], timeout: float = 35.0) -> dict[str, Any]:
@@ -31,7 +31,7 @@ def main() -> None:
 
     mcp = wait_for_mcp(args.runtime, args.runtime_dir)
     try:
-        opened = raw_tool(mcp, "tabs.open", {"url": args.url, "active": True})
+        opened = open_when_browser_ready(mcp, args.url)
         tab_id = str(opened["tab_id"])
         initial = raw_tool(mcp, "truth.read", {"tab_id": tab_id})
         if initial.get("mode") != "full":
@@ -39,6 +39,7 @@ def main() -> None:
 
         started = time.monotonic()
         revision = int(initial["revision"])
+        current = {item["object_id"]: item for item in initial.get("objects", [])}
         passive_views = []
         status_view = None
         modal_object_id = None
@@ -54,7 +55,9 @@ def main() -> None:
             revision = int(passive["revision"])
             passive_views.append(passive)
             for change in passive.get("changes", []):
-                observed = change.get("object", {})
+                observed = fold_truth_change(
+                    current, change, passive.get("object_defaults") or {}
+                ) or {}
                 if (
                     change.get("kind") == "appeared"
                     and observed.get("role") == "heading"
@@ -80,6 +83,23 @@ def main() -> None:
                 "aria-modal lifecycle did not arrive as appeared/disappeared semantic deltas: "
                 + json.dumps(passive_views, ensure_ascii=False)
             )
+        exact_tab_resync = raw_tool(
+            mcp,
+            "truth.read",
+            {"tab_id": tab_id, "resync": True},
+        )
+        if exact_tab_resync.get("mode") != "full":
+            raise RuntimeError("exact-tab Agent resync did not return current full Truth")
+        if str(exact_tab_resync.get("tab_id")) != tab_id:
+            raise RuntimeError("exact-tab Agent resync returned a different tab")
+        revision = int(exact_tab_resync["revision"])
+        gap_reset = raw_tool(
+            mcp,
+            "truth.read",
+            {"tab_id": tab_id, "after_revision": revision + 10_000, "timeout_ms": 1},
+        )
+        if gap_reset.get("mode") != "full" or gap_reset.get("gap") is not True:
+            raise RuntimeError("impossible future revision did not produce a truthful full gap reset")
 
         evidence = {
             "schema": "saccade.push-delta-evidence/1",
@@ -105,6 +125,18 @@ def main() -> None:
                 },
             },
             "execution_owner": "agent_client",
+            "stream_gap_reset": {
+                "mode": gap_reset.get("mode"),
+                "gap": gap_reset.get("gap"),
+                "revision": gap_reset.get("revision"),
+            },
+            "agent_exact_tab_resync": {
+                "requested_tab_id": tab_id,
+                "returned_tab_id": str(exact_tab_resync.get("tab_id")),
+                "mode": exact_tab_resync.get("mode"),
+                "revision": exact_tab_resync.get("revision"),
+                "all_tabs": False,
+            },
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(evidence, indent=2, ensure_ascii=False) + "\n")
