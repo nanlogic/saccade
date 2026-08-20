@@ -15,6 +15,24 @@ Agents receive semantic controls and opaque action tokens. They do not receive
 selectors, DOM paths, arbitrary coordinates, editable values, cookies, or
 browser storage.
 
+## Latest public comparison
+
+An audited, reversed-order comparison covered React and Angular forms, six
+public sites, a continuously moving MouseAccuracy target, and accessible video
+metadata. Both products completed their lane in all 16 final paired reports.
+Saccade averaged 24.66 seconds and 4.5 browser calls; Playwright averaged 32.82
+seconds and 5.5 calls. Playwright produced the smaller browser transcript.
+
+Saccade's public object-addressed action completed 88 verified MouseAccuracy
+actions in each 30-second order while Playwright's locator click timed out on
+the continuously moving target. On the Mythcast Era homepage, Saccade exposed
+the video's author-provided accessible description while marking the decoded
+video opaque.
+
+Read the [public comparison report](docs/reports/2026-08-20-saccade-playwright-public-results.md)
+for the complete table, method, failures, and limits. The report does not make
+a blanket superiority claim.
+
 ## Product north star
 
 > Saccade is a browser protocol that lets any Agent continuously understand a
