@@ -31,14 +31,22 @@ async function fixture() {
   return { root, home, runtime, release };
 }
 
-async function writeRuntime(target, marker, candidate = CANDIDATE, runtimeVersion = '1.0.0', contractHash = CONTRACT_HASH) {
+async function writeRuntime(
+  target,
+  marker,
+  candidate = CANDIDATE,
+  runtimeVersion = '1.0.0',
+  contractHash = CONTRACT_HASH,
+  ready = true,
+) {
   const doctor = JSON.stringify({
     schema: 'saccade.doctor/1',
     runtime_version: runtimeVersion,
     mcp_contract_hash: contractHash,
     observation_schema: 'saccade.observation/1',
     host_protocol: 'saccade-extension-host/1',
-    ready: true,
+    ready,
+    detail: ready ? undefined : 'Native Host is not connected',
     capabilities: {
       schema: 'saccade.capabilities/6',
       extension_candidate: candidate,
@@ -111,6 +119,37 @@ test('install, doctor, update, and uninstall preserve the Profile', async (t) =>
   assert.equal(fs.existsSync(runtime), false);
   assert.equal(fs.existsSync(profile), true);
   assert.match(removed.stdout, /Profile was preserved/);
+});
+
+test('a disconnected install prints exact Extension installation steps', async (t) => {
+  const values = await fixture();
+  t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
+  await writeRuntime(values.runtime, 'disconnected', CANDIDATE, '1.0.0', CONTRACT_HASH, false);
+  await writeRelease(values.release, values.runtime, '1.0.0');
+
+  const installed = run(['--release-manifest', values.release], values);
+  assert.equal(installed.status, 0, installed.stderr);
+  assert.match(installed.stderr, /Browser Extension connectivity is pending/);
+  assert.match(installed.stdout, /Saccade browser Extension setup/);
+  assert.match(installed.stdout, /https:\/\/chromewebstore\.google\.com\/detail\/saccade\/abcdefghijklmnopabcdefghijklmnop/);
+  assert.match(installed.stdout, /Add to Chrome/);
+  assert.match(installed.stdout, /allow extensions from other stores/);
+  assert.match(installed.stdout, /npx -y @nanlogic\/saccade doctor/);
+  assert.match(installed.stdout, /Restart Codex or Claude/);
+  assert.match(installed.stdout, /Expected Extension version: 0\.3\.22/);
+
+  const doctor = run(['doctor'], values);
+  assert.equal(doctor.status, 1);
+  assert.match(doctor.stdout, /Native Host is not connected/);
+  assert.match(doctor.stdout, /Saccade browser Extension setup/);
+});
+
+test('doctor without setup state tells the user how to install', async (t) => {
+  const values = await fixture();
+  t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
+  const result = run(['doctor'], values);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /Next: install Saccade with npx -y @nanlogic\/saccade/);
 });
 
 test('checksum failure leaves no installation behind', async (t) => {

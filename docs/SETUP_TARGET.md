@@ -48,6 +48,12 @@ The setup package:
   Runtime → MCP capability identity, not merely that files exist;
 - prints the clients it configured, any specific incompatibility, and the need
   to start a new Agent task or restart the client so MCP tools are loaded.
+- when local installation is valid but the Extension route is not, prints the
+  release-derived Chrome Web Store URL, Chrome and Edge confirmation steps,
+  expected Extension version, doctor command, and Codex/Claude restart step.
+
+Setup never silently installs a browser Extension or bypasses the browser's
+installation confirmation.
 
 The bundled default Profile and Runtime MCP metadata must make Saccade
 discoverable as the primary browser-navigation, page-reading, download, and web
