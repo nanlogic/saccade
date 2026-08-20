@@ -51,7 +51,8 @@ a blanket superiority claim.
 
 > Saccade is a live semantic Truth Layer for the web. It continuously compiles
 > browser pages into structured objects and pushes meaningful changes to any
-> Agent. Execution belongs to the Agent client's own tools.
+> Agent. Supported actions use bounded, object-addressed software execution;
+> the Agent client's own same-tab tool is the explicit fallback.
 
 The Extension continuously compiles the authorized webpage into that Truth
 Layer. The Agent builds its plan from the compiled view. After the first view,
@@ -115,6 +116,29 @@ Saccade has no Playwright, CDP, embedded-browser, screenshot, vision, or
 arbitrary-coordinate action fallback. The
 [How Saccade works](docs/HOW_SACCADE_WORKS.md) overview explains this route for
 Agent builders.
+
+## Claude and Codex
+
+Claude and Codex do not need a separate browser-control extension for supported
+controls. After setup, the normal closed loop is:
+
+```text
+saccade.tabs.open
+  → saccade.truth.read
+  → saccade.act
+  → saccade.truth.read(after_revision)
+```
+
+Use the returned object IDs and affordances; do not introduce selectors,
+coordinates, Playwright, or CDP. A verified `saccade.act` result already carries
+the resulting Truth revision.
+
+If `saccade.act` returns `external_execution_required` with `retry_safe: true`,
+the Agent may use its own same-tab tool. A client that must create the tab itself
+uses the provisioned claim flow: arm with `saccade.tabs.open(claim="arm")`,
+create exactly one same-origin tab with the client tool, then confirm its exact
+tab ID with `saccade.tabs.open(claim="confirm")`. The claim is single-use and
+does not weaken session isolation.
 
 ## Development on macOS
 

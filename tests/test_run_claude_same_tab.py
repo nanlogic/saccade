@@ -13,10 +13,10 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 
-def build_command(tab_id: str = "4242", url: str = "http://127.0.0.1/test") -> list[str]:
+def build_command(url: str = "http://127.0.0.1/test") -> list[str]:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        return MODULE.command(root / "claude", root / "runtime", root / "state", url, tab_id)
+        return MODULE.command(root / "claude", root / "runtime", root / "state", url)
 
 
 def assistant(*blocks: dict) -> dict:
@@ -33,19 +33,21 @@ class ClaudeSameTabTests(unittest.TestCase):
         joined = " ".join(command)
         self.assertIn("--chrome", command)
         self.assertIn("--strict-mcp-config", command)
-        self.assertIn("Bash,WebFetch,WebSearch", command)
+        disallowed = command[command.index("--disallowedTools") + 1]
+        self.assertIn("Bash,WebFetch,WebSearch", disallowed)
+        self.assertIn("mcp__saccade__saccade_act", disallowed)
         self.assertIn('"saccade"', joined)
         config = command[command.index("--mcp-config") + 1]
         self.assertNotIn("playwright", config.casefold())
 
-    def test_prompt_names_the_preopened_tab_and_forbids_a_duplicate(self) -> None:
-        prompt = build_command(tab_id="991155")[2]
-        self.assertIn("991155", prompt)
-        self.assertIn("ALREADY opened", prompt)
+    def test_prompt_uses_provisioned_claim_and_forbids_a_duplicate(self) -> None:
+        prompt = build_command(url="https://fixture.test/claim")[2]
+        self.assertIn("https://fixture.test/claim", prompt)
+        self.assertIn('claim="arm"', prompt)
+        self.assertIn('claim="confirm"', prompt)
         self.assertIn("tabs_context_mcp", prompt)
-        # A second tab on the same URL is the failure this probe exists to catch.
         self.assertIn("do not open a second copy", prompt.casefold())
-        self.assertNotIn("saccade.tabs.open", prompt.split("Do not call")[0])
+        self.assertIn("Claude in Chrome to create exactly one new tab", prompt)
 
     def test_execution_tab_ids_come_from_chrome_calls_only(self) -> None:
         events = [
@@ -66,9 +68,46 @@ class ClaudeSameTabTests(unittest.TestCase):
         ]
         self.assertEqual(MODULE.chrome_execution_tab_ids(events), [])
 
-    def test_prompt_does_not_reshuffle_tab_groups(self) -> None:
+    def test_prompt_requires_chrome_execution_and_saccade_verification(self) -> None:
         prompt = build_command()[2]
-        self.assertIn("Do not close, create, or reshuffle Chrome tab groups", prompt)
+        self.assertIn("Claude in Chrome tool, find and click", prompt)
+        self.assertIn("revision-bounded Saccade delta", prompt)
+
+    def test_claim_modes_come_from_saccade_tabs_open_calls(self) -> None:
+        events = [
+            assistant({"type": "tool_use", "name": "mcp__saccade__saccade_tabs_open",
+                       "input": {"url": "https://fixture.test", "claim": "arm"}}),
+            assistant({"type": "tool_use", "name": "mcp__claude-in-chrome__tabs_create_mcp",
+                       "input": {"url": "https://fixture.test"}}),
+            assistant({"type": "tool_use", "name": "mcp__saccade__saccade_tabs_open",
+                       "input": {"url": "https://fixture.test", "claim": "confirm",
+                                 "claim_id": "claim.abc", "tab_id": "7"}}),
+        ]
+        self.assertEqual(MODULE.saccade_claim_modes(events), ["arm", "confirm"])
+
+    def test_normal_tabs_open_is_not_claim_evidence(self) -> None:
+        events = [assistant({"type": "tool_use", "name": "mcp__saccade__saccade_tabs_open",
+                             "input": {"url": "https://fixture.test"}})]
+        self.assertEqual(MODULE.saccade_claim_modes(events), [])
+
+    def test_chrome_action_ids_exclude_find_only(self) -> None:
+        events = [
+            assistant({"type": "tool_use", "name": "mcp__claude-in-chrome__find",
+                       "input": {"tabId": 7}}),
+            assistant({"type": "tool_use", "name": "mcp__claude-in-chrome__computer",
+                       "input": {"action": "left_click", "tabId": 7}}),
+        ]
+        self.assertEqual(MODULE.chrome_action_tab_ids(events), ["7"])
+
+    def test_repeated_chrome_actions_can_stay_on_one_tab(self) -> None:
+        action_ids = ["7", "7"]
+        self.assertTrue(action_ids and all(tab == "7" for tab in action_ids))
+
+    def test_prefaced_fenced_result_json_is_parsed(self) -> None:
+        answer = MODULE.parse_result_answer(
+            'Loop complete.\n\n```json\n{"completed":true,"tab_id":"7"}\n```'
+        )
+        self.assertEqual(answer, {"completed": True, "tab_id": "7"})
 
     def test_chrome_tool_failures_are_kept_for_diagnosis(self) -> None:
         events = [
