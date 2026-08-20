@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Run one value-free Claude Chrome + Saccade same-tab fixture dogfood.
 
-The harness opens the target tab through the ordinary Saccade MCP stdio protocol
-*before* the `claude` subprocess starts, then names that exact `tab_id` in the
-prompt. Claude in Chrome must adopt the tab Saccade already owns; it may not
-navigate, and it may not open a second copy of the URL. Same-tab identity is a
-hard pass condition, and the harness always closes the tab it opened.
+Claude uses Saccade's provisioned claim so its Chrome tool can create the tab
+it acts on while the same MCP session observes and verifies the transition.
 """
 
 from __future__ import annotations
@@ -149,7 +146,6 @@ def command(
     runtime: Path,
     runtime_dir: Path,
     url: str,
-    tab_id: str,
     model: str | None = None,
     effort: str | None = None,
 ) -> list[str]:
@@ -164,24 +160,26 @@ def command(
     }, separators=(",", ":"))
     prompt = f"""Run one Saccade same-browser, same-tab closed loop on this harmless local fixture: {url}
 
-Saccade has ALREADY opened that URL and the tab is active. Its Saccade tab_id is exactly {tab_id}, and the same integer is the Chrome tab id. Do not call saccade.tabs.open, do not navigate, and do not open a second copy of this URL: a duplicate tab fails the run.
+Use only the Saccade MCP and your Claude in Chrome tools. Keep the entire loop in this one session. Use Saccade's provisioned claim exactly as described below; do not call the normal Saccade-created-tab form of tabs.open and do not open a second copy of the URL.
 
 Do this in order:
-1. Call your Claude in Chrome tabs_context_mcp first and report exactly what it returns.
-2. Read one full Saccade Truth view of tab {tab_id} and note the Toggle signal button's pressed state.
-3. Using your own Claude in Chrome tool with tabId {tab_id}, click the visible Toggle signal button in that exact tab.
-4. Read one revision-bounded Saccade delta of tab {tab_id} and verify the button's pressed state changed.
+1. Call saccade.system.capabilities.
+2. Arm a claim by calling saccade.tabs.open with url={url} and claim="arm". Record the returned claim_id. This must not create a tab.
+3. Call your Claude in Chrome tabs_context_mcp with createIfEmpty=true, then use Claude in Chrome to create exactly one new tab at {url}. Record the numeric Chrome tab id it returns.
+4. Confirm that exact tab by calling saccade.tabs.open with url={url}, claim="confirm", the claim_id, and tab_id set to the Chrome tab id. Do not continue unless it returns claim="confirmed" and the same tab_id.
+5. Read one full Saccade Truth view of that tab and record the revision and Toggle signal button's pressed state.
+6. Using your own Claude in Chrome tool, find and click the visible Toggle signal button in that exact tab.
+7. Read a revision-bounded Saccade delta from the initial revision and verify the button's pressed state changed.
+8. Call saccade.tabs.list and verify exactly one tab has the target URL, then close the claimed tab with saccade.tabs.close.
 
-Do not close, create, or reshuffle Chrome tab groups; the tab is already open and is the only tab you may act on.
+Do not use Bash, web search, screenshots, source inspection, DOM queries, JavaScript, selectors, coordinates, Playwright, or the Reference Actuator.
 
-Leave the tab open; the harness closes it. Do not use Bash, web search, screenshots, source inspection, DOM queries, JavaScript, selectors, coordinates, Playwright, or the Reference Actuator.
-
-Return only JSON with completed, browser_instance_id, tab_id, execution_tab_id, initial_revision, final_revision, tabs_context, and summary. Set completed true only if your Chrome action actually executed on tab {tab_id} and Saccade observed the change."""
+Return only JSON with completed, browser_instance_id, tab_id, execution_tab_id, claim_armed, claim_confirmed, initial_revision, final_revision, initial_pressed, final_pressed, target_url_tab_count, tab_closed, tabs_context, and summary. Set completed true only if the claim was armed and confirmed, your Chrome action actually executed on that same claimed tab, Saccade observed the pressed-state change, there was exactly one target URL tab, and you closed it."""
     result = [
         str(claude), "-p", prompt, "--output-format", "stream-json", "--verbose",
         "--no-session-persistence", "--chrome", "--strict-mcp-config",
         "--mcp-config", config, "--permission-mode", "auto",
-        "--disallowedTools", "Bash,WebFetch,WebSearch",
+        "--disallowedTools", "Bash,WebFetch,WebSearch,mcp__saccade__saccade_act",
     ]
     if model:
         result.extend(["--model", model])
@@ -198,6 +196,21 @@ def tool_names(events: list[dict[str, Any]]) -> list[str]:
             if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name"):
                 names.append(str(block["name"]))
     return names
+
+
+def parse_result_answer(value: object) -> dict[str, Any]:
+    """Parse Claude's JSON answer, including a short preface and JSON fence."""
+    result_text = str(value or "").strip()
+    fence = result_text.find("```json")
+    if fence >= 0:
+        fence_end = result_text.find("```", fence + 7)
+        if fence_end >= 0:
+            result_text = result_text[fence + 7:fence_end].strip()
+    try:
+        parsed = json.loads(result_text)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 # Tools that act on or read a page. Tab-management calls carry a tabId too, but
@@ -223,6 +236,41 @@ def chrome_execution_tab_ids(events: list[dict[str, Any]]) -> list[str]:
             if isinstance(arguments, dict) and arguments.get("tabId") is not None:
                 seen.append(str(arguments["tabId"]))
     return seen
+
+
+def chrome_action_tab_ids(events: list[dict[str, Any]]) -> list[str]:
+    """Tab ids for Chrome calls capable of changing the page."""
+    action_tools = ("computer", "form_input", "browser_batch")
+    seen = []
+    for event in events:
+        message = event.get("message") or {}
+        for block in message.get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            name = str(block.get("name") or "").casefold()
+            if "chrome" not in name or not any(tool in name for tool in action_tools):
+                continue
+            arguments = block.get("input")
+            if isinstance(arguments, dict) and arguments.get("tabId") is not None:
+                seen.append(str(arguments["tabId"]))
+    return seen
+
+
+def saccade_claim_modes(events: list[dict[str, Any]]) -> list[str]:
+    """Claim modes Claude actually sent through the public tabs.open tool."""
+    modes = []
+    for event in events:
+        message = event.get("message") or {}
+        for block in message.get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            name = str(block.get("name") or "").casefold()
+            arguments = block.get("input")
+            if "saccade" not in name or "tabs_open" not in name or not isinstance(arguments, dict):
+                continue
+            if arguments.get("claim") in {"arm", "confirm"}:
+                modes.append(str(arguments["claim"]))
+    return modes
 
 
 def chrome_tool_failures(events: list[dict[str, Any]]) -> list[str]:
@@ -255,44 +303,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
 
     try:
-        with SaccadeMcp(args.runtime, args.runtime_dir) as mcp:
-            opened = mcp.tool("saccade.tabs.open", {"url": args.url, "active": True})
-            opened_tab_id = str(opened.get("tab_id") or "")
-            if not opened_tab_id:
-                raise RuntimeError(f"Saccade did not return a tab_id: {opened}")
-            before = mcp.tool("saccade.truth.read", {"tab_id": opened_tab_id})
-            initial_revision = revision_of(before)
-            initial_pressed = pressed_state(before)
-
         completed = subprocess.run(
             command(
                 args.claude,
                 args.runtime,
                 args.runtime_dir,
                 args.url,
-                opened_tab_id,
                 args.model,
                 args.effort,
             ),
             capture_output=True, text=True, timeout=args.timeout, check=False,
         )
+    except subprocess.TimeoutExpired as error:
+        stdout = error.stdout or ""
+        stderr = error.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        completed = subprocess.CompletedProcess(error.cmd, 124, stdout, stderr)
+        setup_error = f"TimeoutExpired: Claude exceeded {args.timeout} seconds"
     except Exception as error:  # noqa: BLE001 - recorded as evidence, never swallowed
         setup_error = f"{type(error).__name__}: {error}"
     finally:
-        if opened_tab_id:
-            try:
-                with SaccadeMcp(args.runtime, args.runtime_dir) as mcp:
-                    duplicate_target_tabs = [t for t in tabs_with_url(mcp, args.url)
-                                             if t != opened_tab_id]
-                    try:
-                        after = mcp.tool("saccade.truth.read", {"tab_id": opened_tab_id})
-                        final_revision = revision_of(after)
-                        final_pressed = pressed_state(after)
-                    except RuntimeError:
-                        final_revision = None
-                    mcp.tool("saccade.tabs.close", {"tab_id": opened_tab_id})
-            except Exception as error:  # noqa: BLE001
-                setup_error = setup_error or f"cleanup failed: {type(error).__name__}: {error}"
+        pass
 
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
     events = []
@@ -305,18 +339,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             continue
     result_events = [event for event in events if event.get("type") == "result"]
     result = result_events[-1] if result_events else {}
-    answer: dict[str, Any] = {}
-    try:
-        parsed = json.loads(str(result.get("result") or ""))
-        if isinstance(parsed, dict):
-            answer = parsed
-    except json.JSONDecodeError:
-        pass
+    answer = parse_result_answer(result.get("result"))
+
+    opened_tab_id = str(answer.get("tab_id") or "") or None
+    initial_revision = answer.get("initial_revision") if isinstance(answer.get("initial_revision"), int) else None
+    final_revision = answer.get("final_revision") if isinstance(answer.get("final_revision"), int) else None
+    initial_pressed = str(answer["initial_pressed"]) if answer.get("initial_pressed") is not None else None
+    final_pressed = str(answer["final_pressed"]) if answer.get("final_pressed") is not None else None
+    target_url_tab_count = answer.get("target_url_tab_count")
 
     names = tool_names(events)
     used_saccade = any("saccade" in name.casefold() for name in names)
     used_chrome = any("chrome" in name.casefold() for name in names)
+    used_saccade_act = any("saccade_act" in name.casefold() for name in names)
     execution_tab_ids = chrome_execution_tab_ids(events)
+    action_tab_ids = chrome_action_tab_ids(events)
+    claim_modes = saccade_claim_modes(events)
+    chrome_failures = chrome_tool_failures(events)
     same_tab = bool(opened_tab_id) and bool(execution_tab_ids) and all(
         tab == opened_tab_id for tab in execution_tab_ids)
     # A revision bump is not evidence — the fixture pushes its own status updates.
@@ -336,11 +375,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "clock_source": "python.perf_counter",
             "elapsed_ms": elapsed_ms,
         },
-        "tab_preopened_before_claude_started": bool(opened_tab_id),
+        "tab_preopened_before_claude_started": False,
         "saccade_tab_id": opened_tab_id,
         "claude_execution_tab_ids": execution_tab_ids,
+        "claude_action_tab_ids": action_tab_ids,
         "same_tab": same_tab,
         "duplicate_target_tabs": duplicate_target_tabs,
+        "target_url_tab_count": target_url_tab_count,
+        "tab_closed": answer.get("tab_closed") is True,
+        "claim_modes": claim_modes,
+        "claim_armed": answer.get("claim_armed") is True,
+        "claim_confirmed": answer.get("claim_confirmed") is True,
         "initial_revision": initial_revision,
         "final_revision": final_revision,
         "initial_pressed": initial_pressed,
@@ -353,8 +398,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "result_is_error": result.get("is_error"),
         "result_text": str(result.get("result") or "")[:2000],
         "tool_names": names,
-        "chrome_tool_failures": chrome_tool_failures(events),
+        "chrome_tool_failures": chrome_failures,
         "saccade_observation_used": used_saccade,
+        "saccade_act_used": used_saccade_act,
         "claude_chrome_execution_used": used_chrome,
         "setup_error": setup_error,
         "answer": answer,
@@ -364,9 +410,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         setup_error is None
         and completed is not None and completed.returncode == 0
         and answer.get("completed") is True
+        and claim_modes == ["arm", "confirm"]
+        and answer.get("claim_armed") is True
+        and answer.get("claim_confirmed") is True
         and used_saccade and used_chrome
+        and not used_saccade_act
         and same_tab
-        and not duplicate_target_tabs
+        and bool(action_tab_ids)
+        and all(tab == opened_tab_id for tab in action_tab_ids)
+        and not chrome_failures
+        and target_url_tab_count == 1
+        and answer.get("tab_closed") is True
         and observed_change
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)

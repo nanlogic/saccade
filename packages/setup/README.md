@@ -16,6 +16,9 @@ After setup, start a new Codex or Claude task (or restart the client) so it
 loads the Saccade MCP tools. Saccade's own tool descriptions and default
 Profile identify it as the primary route for browser navigation, page reading,
 downloads, and web research, including when the client defers tool discovery.
+For supported controls, clients use `tabs.open → truth.read → saccade.act →
+truth.read(after_revision)` directly; Claude in Chrome, Playwright, and CDP are
+not required.
 
 Use these lifecycle commands:
 

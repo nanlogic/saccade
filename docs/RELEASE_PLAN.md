@@ -58,8 +58,10 @@ publication job, after the GitHub Release is public.
   site reading.
 - Intel macOS additionally passes install, checksum, Native Messaging, MCP
   start, doctor, browser restart, update, rollback, uninstall, and purge.
-- Codex and Claude each act with their own tool in the same authorized tab
-  while Saccade reports the semantic transition.
+- Codex and Claude each complete the public MCP loop through Truth,
+  object-addressed `saccade.act`, and a verified delta. The provisioned claim
+  flow separately proves same-tab handoff for clients that must create their
+  own tab; it is not required for supported `saccade.act` operations.
 - Fair Playwright comparisons retain identical URL/task/model/order controls
   and separate control-plane, discovery, steady-state, infrastructure, and
   model-usage accounting. Reference Actuator reports are not a release gate

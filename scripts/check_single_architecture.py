@@ -86,7 +86,7 @@ def main() -> None:
     )
     require(
         "docs/RELEASE_PLAN.md",
-        "Codex and Claude each act with their own tool",
+        "Codex and Claude each complete the public MCP loop",
     )
     require(
         "docs/RELEASE_PLAN.md",
