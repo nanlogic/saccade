@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Inferred actions</title>
+</head>
+<body>
+  <h1>Inferred actions</h1>
+  <button type="button" aria-pressed="false">Confirm choice</button>
+  <label>Email <input type="email"></label>
+  <label>Color
+    <select>
+      <option>Red</option>
+      <option>Blue</option>
+    </select>
+  </label>
+  <p role="status">Ready</p>
+  <script>
+    const button = document.querySelector('button');
+    button.addEventListener('click', () => {
+      button.setAttribute('aria-pressed', 'true');
+    });
+  </script>
+</body>
+</html>

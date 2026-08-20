@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from dev_probe import fold_truth_change
+
 
 def compact(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
@@ -61,11 +63,7 @@ class AgentViews:
         snapshot = dict(previous)
         objects = {item["object_id"]: dict(item) for item in previous.get("objects", [])}
         for change in view.get("changes", []):
-            if change["kind"] == "disappeared":
-                objects.pop(change["object_id"], None)
-            else:
-                item = dict(defaults, **change["object"])
-                objects[item["object_id"]] = item
+            fold_truth_change(objects, change, defaults)
         for authority in view.get("authorities", []):
             item = objects.get(authority["object_id"])
             if item is not None:
@@ -226,7 +224,7 @@ def run_saccade(
                             min(30_000, int((deadline - time.monotonic()) * 1000)),
                         ),
                     })
-                observed_response, _ = client.tool("saccade.web.observe", arguments)
+                observed_response, _ = client.tool("saccade.truth.read", arguments)
                 payloads.append(observed_response.get("result") or observed_response.get("error"))
                 if not observed_response.get("error"):
                     candidate = views.apply(result_value(observed_response))
@@ -299,7 +297,7 @@ def run_playwright(
     environment = os.environ.copy()
     client = Mcp(
         command
-        + ["--headless", "--browser", "chrome", "--isolated", "--snapshot-mode", "none", "--output-mode", "stdout", "--image-responses", "omit"],
+        + ["--headless", "--browser", "chrome", "--isolated", "--snapshot-mode", "none", "--image-responses", "omit"],
         environment,
     )
     try:

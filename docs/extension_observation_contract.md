@@ -1,579 +1,373 @@
-# Saccade Truth Layer contract
-
-This is the only production contract for browser authorization, observation,
-action preparation, native input, receipts, downloads, and MCP exposure.
-
-The current implementation covers fifteen Registry controls: button, link,
-text field, search field, textarea, contenteditable, spin button, checkbox,
-radio, ARIA switch, native select, ARIA listbox/combobox, tab, menu item,
-reflex target, and file input, plus option observation. ARIA choice controls
-have implementation tests and paired managed Chrome/Edge development evidence.
-Other roles in this contract define the intended
-Truth Layer surface. They are not
-implemented until the Catalog lists their module, fixtures, verifier, and
-evidence status.
-
-The normative wire schemas remain `saccade.observation/1` and
-`saccade-extension-host/1`. "Truth Layer" names the behavior defined here; it
-is not a third wire protocol.
-
-Profiles are described in `PROFILE_ARCHITECTURE.md`. The Native Host uses the
-active Profile to supply Agent behavior text and remove banned controls before
-MCP exposure. Profile data does not change these v1 schemas or reinterpret
-their fields.
-
-## Purpose
-
-The Truth Layer gives an Agent the smallest sufficient, revision-bound model
-of the page a person can currently use. It is not a DOM export, accessibility
-tree dump, screenshot interpretation, page database, or claim of complete
-browser compositor access.
-
-The Agent should be able to answer four questions without guessing:
-
-1. What user-visible content and controls exist?
-2. What can each control do now?
-3. What state is safe to disclose?
-4. What is missing, restricted, stale, or unverifiable?
-
-DOM and accessibility metadata may describe an object. Current layout,
-visibility, hit testing, focus, authorization, and revision state authorize an
-action. A semantic match alone never authorizes native input.
-
-## Topology and authority
-
-Chrome or Edge runs the MV3 Extension. The browser launches
-`com.nanlogic.saccade` through Native Messaging. The Host exposes a
-per-session, owner-only local endpoint to MCP. No other perception or action
-route is valid.
-
-MCP uses the single `saccade_host_client` interface. Platform IPC selection is
-internal to that client and cannot change tools, schemas, validation, or
-behavior. MCP validates and forwards; it does not collect page state, resolve
-targets, or dispatch input.
-
-Authority is split deliberately:
-
-- Extension: tab ACL, safe semantic projection, runtime object identity,
-  revisioning, action preparation, and current-page hit testing.
-- Host: session authority, request validation, token replay protection,
-  last-moment revision checks, native input, settled receipts, bounded loops,
-  audit metadata, and download verification.
-- MCP: compact public tool schemas, Agent-view alias/envelope hydration, strict
-  validation, and forwarding only. It does not resolve a page target or execute input.
-- Agent: chooses only from disclosed objects, affordances, and opaque tokens.
-
-Control-family modules own semantic interpretation, native execution,
-reobservation, and control-specific verification. They do not read Profile
-data. The Native Host applies Profile bans to the Agent projection and exposes
-the Profile behavior through capabilities. The current v1 authorization,
-token, revision, and protected-value behavior remains unchanged.
-
-A control module may declare more than one finite operation strategy. The
-current example is an ARIA select: a collapsed combobox may first advertise a
-verified click-to-expand strategy, then expose option objects through the next
-browser delta and accept the existing option-identity select strategy. Native
-`<select>` does not advertise click-to-expand. Each operation still performs
-its own complete closed loop with Catalog-declared primitives and verifiers.
-
-## Browser authorization
-
-The official Extension requests HTTP and HTTPS host access once in the
-browser-controlled installation prompt. Browser permission is a technical
-prerequisite, not the Agent disclosure boundary.
-
-The disclosure boundary is a session-scoped tab ACL in
-`chrome.storage.session`:
-
-- A tab created by `tabs.open` is Agent-owned.
-- A normal HTTP or HTTPS child tab opened by an Agent-owned tab inherits that
-  ownership.
-- Ownership survives navigation and redirects, and ends when the tab closes
-  or the browser session ends.
-- A pre-existing user tab is absent from `tabs.list` and cannot be observed
-  until the user shares that exact tab from the Extension UI.
-- User sharing survives navigation and ends on explicit revocation, tab close,
-  or browser-session end.
-- Sharing a user tab does not automatically share its child tabs.
-
-Broad host permission must never enumerate, observe, or act on any other tab.
-Internal browser pages, extension pages, unsupported schemes, and restricted
-surfaces remain unavailable. Page content cannot add itself to the ACL.
-
-## Observation envelope
-
-An authorized top-level document emits `saccade.observation/1`. Every snapshot
-binds:
-
-- `browser_instance_id`, `tab_id`, and `document_id`;
-- monotonically advancing `revision` and `viewport_revision`;
-- observed and restricted frames;
-- a compact list of disclosed objects;
-- coverage, limitations, stream-gap state, and optional changes.
-
-This complete snapshot is the Extension-to-Host evidence record. It is not
-re-serialized wholesale for every Agent turn. The MCP process derives a
-per-Agent `saccade.agent-view/1`: the first result for a document has
-`mode=full`; later results have `mode=delta` and contain only appeared,
-updated, and disappeared objects. Because v1 action tokens are refreshed with
-the evidence revision, a delta may also carry an `authorities` list for
-semantically unchanged actionable objects. Those opaque refreshes are not
-semantic page changes.
-
-`saccade.agent-view/1` may place common values in `object_defaults`. Matching
-objects omit `frame_id`, `visibility=visible`, `transition=none`, and
-`protected=false`; consumers apply the declared defaults while reconstructing
-their Agent Browser. Non-default values remain on the object. The evidence-only
-`kind` is omitted because the Agent `role` is the complete semantic type. This
-is lossless response compaction over the unchanged Extension-to-Host snapshot.
-Internal object identities are likewise projected as short, document-scoped
-Agent aliases. Delta changes and authority refreshes use the same aliases. For
-select, MCP resolves the chosen option alias to the internal identity before
-the unchanged Host request is validated; stale or unknown aliases fail closed.
-
-Navigation creates a new document identity and invalidates all earlier facts
-and tokens. Object identity is runtime-only and held with `WeakMap`; it is not
-a selector, stable locator, DOM path, or identifier the Agent can construct.
-
-For one tab, the Host retires the previous document identity when a new one is
-accepted. A delayed snapshot from a retired document cannot replace the current
-snapshot, even if its per-document revision is numerically higher.
-
-An observation is a claim about the Extension's current safe projection. It is
-not a claim that canvas, WebGL, video, closed shadow roots, restricted frames,
-or browser-owned documents have been semantically understood.
-
-Browser-owned alert, confirm, permission, download, and chooser dialogs do not
-become page objects. Capabilities mark browser-owned confirm dialogs as
-restricted and require human confirmation. A page click that opens one remains
-delivered/unverified until a later page observation proves the intended effect.
-
-## Agent-facing object model
-
-Every Host evidence object has:
-
-- runtime `object_id`, `object_revision`, and `frame_id`;
-- broad `kind` and a more specific `role`;
-- document bounds, optional viewport bounds, and visibility;
-- zero or one safe `name` and `description`;
-- zero or one visible-content `text` value;
-- an allowlisted safe-state map;
-- current affordances and transition hint;
-- optional opaque action token;
-- `protected`, indicating that a human-only value path is required.
-
-The derived Agent Browser object keeps `object_id`, `frame_id`, kind, role,
-visibility, safe name/description/text, safe state, affordances, transition,
-protection, and the current opaque action token. It omits `object_revision`,
-document/viewport bounds, and loop-class tokens. Those fields remain local
-revalidation evidence. The Agent acts through the opaque token and global view
-revision; it cannot turn geometry into a coordinate action route.
-
-The fields have distinct meanings:
-
-- `name`: short page-authored identity, such as "Create account", "Email",
-  or "Search". It is derived without reading a control value.
-- `description`: short page-authored help or constraint text. It is never a
-  substitute for a value.
-- `text`: visible document content only. Controls, links, images, and fields
-  use `name` instead of duplicating their label in `text`.
-- `role`: what the object is for Agent reasoning.
-- `affordances`: the only operations the Agent may request.
-- `action_token`: opaque, single-use, document-and-revision-bound authority to
-  request one advertised operation. It does not bypass Host revalidation.
-
-Duplicate actionable controls with the same role and name may receive the
-nearest bounded page-authored, non-control context as `description`. Context
-extraction removes nested controls first and is disabled for protected or
-non-actionable controls, so disambiguation cannot disclose their values.
-
-Action tokens carry at least 128 bits of browser randomness. Browser, document,
-and loop identities retain their independent longer entropy. Short Agent object
-aliases are not authorities and cannot replace an action token.
-
-The Agent never receives tag names, CSS selectors, XPath, DOM paths, event
-handlers, arbitrary attributes, raw accessibility trees, or page-supplied
-coordinates.
-
-## Inclusion and compaction rules
-
-The projection MUST include:
-
-1. current actionable controls and links, including meaningful offscreen
-   controls that can be scrolled into view;
-2. disabled or otherwise unavailable controls when their existence explains
-   the current workflow;
-3. visible headings, paragraphs, list items, table cells, alerts, status
-   messages, and other non-duplicated user-facing text;
-4. meaningful images with a safe page-authored name;
-5. frames, opaque surfaces, restricted documents, and matching limitations;
-6. current choices belonging to a select control, without exposing submitted
-   machine values.
-
-The projection MUST omit:
-
-- script, style, metadata, templates, hidden inputs, and browser bookkeeping;
-- layout-only wrappers and duplicate ancestor text;
-- unnamed decorative images and SVG containers;
-- hidden or zero-size content that a person cannot currently use;
-- control values, file paths, filenames from file inputs, selection ranges,
-  clipboard data, cookies, storage, network payloads, and form submissions;
-- page content outside the authorized tab.
-
-After building this projection, the Native Host applies the active Profile's
-`ban` list. It matches each rule's `control` against the full semantic name. A
-rule without `condition` removes the matching control. A rule with `condition`
-removes it only when the normalized semantic name and description contain the
-condition. Matching folds case and whitespace. The Host also removes the
-control's change entries, object limitations, and action token from the Agent
-surface.
-
-Offscreen is not hidden: an offscreen object may be disclosed and later
-scrolled into view. Hidden, zero-size, detached, or non-rendered objects receive
-no action token.
-
-The Extension caps objects, frames, and total disclosed text. Reaching a cap
-sets `coverage.truncated=true` and emits a `truncated` limitation. It never
-silently presents a partial snapshot as complete.
-
-## Safe semantic derivation
-
-For controls, links, and images, `name` is derived in this order from safe,
-page-authored sources:
-
-1. `aria-label`;
-2. visible text referenced by `aria-labelledby`;
-3. associated HTML label text;
-4. visible control text or image `alt`;
-5. `title` when no stronger name exists.
-
-`description` may use visible text referenced by `aria-describedby`, then a
-page-authored placeholder or title that was not already used as the name.
-When two or more buttons or links have the same generic name, `description`
-may instead contain a short, visible, non-editable label from the nearest
-bounded action group. This disambiguates repeated actions such as file-row
-management without exposing a locator or reading any input value. Local file
-input names and paths remain forbidden; a server-rendered public upload name is
-ordinary visible page content.
-
-Derivation MUST NOT read `value`, `defaultValue`, selected text from an editable
-control, password-manager state, or editable `textContent`. Accessible metadata
-is descriptive evidence, not proof of visibility or actionability.
-
-For a visible `role=dialog` or `aria-modal=true` container, its visible
-page-authored accessible name is projected as a heading. This does not export
-the dialog subtree, input values, or a new wire role. An unlabeled dialog does
-not receive a guessed title.
-
-For an explicit ARIA widget role, that role takes precedence over a native
-anchor fallback. Visible-text name fallback excludes descendants marked
-`aria-hidden=true`; state words hidden from accessibility remain state, not part
-of the control name.
-
-Names and descriptions are whitespace-normalized and length-bounded. A
-control may remain unnamed; the Agent must not invent a label from geometry or
-neighbor proximity.
-
-## Control truth surface
-
-The following table is the normative v1 Agent surface. "State" lists the only
-control-specific state that may be disclosed in addition to common geometry,
-visibility, transition, and authorization fields.
-
-| Page object | Agent `role` | Safe disclosure | State | Affordances |
-| --- | --- | --- | --- | --- |
-| Button, submit, reset, ARIA button | `button` | name, description | enabled, pressed, expanded | click, hover, focus |
-| Link | `link` | name, description; no destination secret or query data | current, expanded | click, hover, focus |
-| Text-like input | `text_field` or `search_field` | name, description; never contents | has_value, enabled, required, readonly, invalid | click, focus, type |
-| Password, OTP, payment-secret input | matching field role with `protected=true` | safe name only; never contents or dynamic description | has_value, enabled, required, readonly, invalid | editable token is accepted only by human-only protected fill; direct Agent type fails |
-| Textarea | `text_area` | name, description; never contents | has_value, enabled, required, readonly, invalid | click, focus, type |
-| Contenteditable | `content_editable` | safe external name; never editable contents | has_value, readonly | click, focus, type |
-| Checkbox | `checkbox` | name, description | checked, enabled, required, invalid | click, hover, focus |
-| Radio | `radio` | name, description | checked, enabled, required, invalid | click, hover, focus |
-| ARIA switch | `switch` | name, description | checked, enabled | click, hover, focus |
-| Select/combobox | `select` | name, description | has_value, enabled, required, invalid, expanded | click, focus, select |
-| Option | `option` | page-authored option name, never submitted `value` | selected, enabled | none; selected through its owning select token |
-| File input or unambiguous visible file-chooser trigger | `file_input` | name; never local path or filename | has_value, enabled, required | upload through the dedicated native chooser flow |
-| Range/slider | `slider` | name, description; no current numeric value in v1 | enabled, required | focus; unsupported manipulation is explicit |
-| Number/spin button | `spin_button` | name, description; never contents | has_value, enabled, required, readonly, invalid | click, focus, type |
-| Tab/menu item | `tab` or `menu_item` | name, description | selected or expanded, enabled | click, hover, focus |
-| Associated label | `label` | name | none | click only when bound to a current control |
-| Generic audited click target | `generic_control` | safe name when available | enabled | click, hover, focus |
-| Reflex target | `reflex_target` | safe name when available | reflex_target, reflex_occurrence | click, hover |
-| Heading | `heading` | visible text | level | none |
-| Paragraph/list item/table cell | matching structural role | visible text | none | none |
-| Alert/status | `alert` or `status` | visible text | busy when declared | none |
-| Image/SVG | `image` | page-authored name only; no pixels | none | none unless it is independently a control |
-| Same-origin frame | `frame` | frame name when safe | frame status | no direct frame click; descendants carry actions |
-| Cross-origin/restricted frame | `frame` | no contents | restricted status | none; emit limitation |
-| Canvas/WebGL/video | `opaque_surface` | safe external name only | none | none; emit matching limitation |
-| Built-in PDF | `restricted_document` | document presence and bounds only | restricted status | explicit confirmed download/open flow only |
-
-An affordance is omitted unless the current implementation can validate and
-execute it through the single registered-input route. Unsupported controls remain
-observable when useful, but are not made actionable by guessing.
-
-An image with a safe name may opt into the audited
-`data-saccade-image-identity` bridge. Saccade exposes the bounded page-authored
-identity as `description` prefixed by `Semantic identity:`. This proves the
-application's semantic declaration. It does not hash, inspect, describe, or
-compare pixels and does not expose `src` or `currentSrc`.
-
-## Safe state allowlist
-
-The v1 state map may contain only:
-
-`has_value`, `checked`, `enabled`, `selected`, `expanded`, `required`,
-`readonly`, `pressed`, `current`, `invalid`, `busy`, `modal`, `level`,
-`reflex_target`, and `reflex_occurrence`.
-
-Boolean state uses the strings `true` and `false`. Enumerated ARIA states use
-their normalized public token. `level` is a bounded positive integer string.
-No extension or adapter may introduce an unreviewed state key. Keys containing
-`value`, `text`, `raw`, `password`, `otp`, `secret`, or `content` are forbidden,
-except the boolean key `has_value`.
-
-`has_value` reveals only whether a field is empty. It never reveals length,
-format, prefix, suffix, validation message containing the value, or source.
-
-## Protected values
-
-Editable controls never expose their contents in observations, changes,
-receipts, logs, diagnostics, or artifacts. Values intentionally supplied by an
-Agent may exist only in the immediate fixed action payload required to type
-them. A file-selection path follows the same immediate-payload boundary: it is
-validated as an absolute accessible regular non-symlink file, consumed by the
-finite native chooser primitive, and omitted from Extension messages,
-observations, receipts, logs, diagnostics, and evidence.
-
-Passwords, one-time codes, payment secrets, and other locally protected values
-must use the Extension's human-only protected-value UI. The value travels
-directly to the Host input path and never enters MCP, an observation, a receipt,
-or an audit record. The Agent sees only a safe field name, `protected=true`, and
-allowlisted boolean state such as `has_value`; dynamic descriptions are omitted.
-
-## Action transaction
-
-MCP supplies a current action token and fixed operation fields. The adapter may
-resolve that token only inside the current views already emitted to that Agent,
-then locally restores the complete browser, tab, document, and basis-revision
-envelope. It cannot invent or refresh authority. An absent, ambiguous, stale,
-or cross-document token set fails before Host forwarding. The Host independently
-validates the complete hydrated request. The
-transaction is:
-
-```text
-authorized observation
-  -> Agent action request
-  -> Extension prepared action
-  -> Host identity/revision/token/affordance revalidation
-  -> Registry-selected input backend
-  -> settled fresh observation
-  -> action receipt
-```
-
-The Extension scrolls the target into view and prepares current screen geometry,
-visibility, topmost hit-test state, and focus state. The Host rejects arbitrary
-coordinates and unrestricted key sequences, rechecks the current browser
-instance, tab, document, revision, token, and affordance, rejects replay, then
-dispatches input. The Catalog marks each control `software_preferred` or
-`native_required`. The `native` backend uses OS input. The `soft` backend is
-available only to finite Registry click and option-selection roles; click computes the current target
-center inside the Extension and never accepts or discloses an Agent coordinate
-or locator. Selection revalidates the owning control and opaque option identity,
-then uses a bounded native-select or ARIA key sequence. The page collector, not the service worker's observation cache, is
-the authority for the final document, revision, token, and target revalidation.
-Normal MCP clients receive only `web.act`, and the Registry selects the backend;
-backend choice is not an Agent planning decision. Explicit soft/native action
-tools and the reflex-loop backend selector are available only under the local
-development diagnostic flag and otherwise fail before Host dispatch.
-
-A Host receipt binds before, prepared, and post-action revisions and includes
-the complete post-action observation for verification and local evidence. The
-MCP `saccade.agent-receipt/1` exposes the receipt status and the derived
-Agent-view delta instead of repeating that snapshot. `AcceptedByOs` means the operating system accepted the
-input request. `AcceptedBySoftware` means the audited Extension software
-dispatch was accepted. Neither status by itself proves the user's intended
-business result.
-A postcondition is verified only to the level explicitly represented by the
-fresh observation.
-For a button whose observation declares `deferred_content_possible`, a newly
-appeared visible heading, alert, or status is a verified semantic effect. Form
-submit buttons, `aria-haspopup=dialog`, and `aria-controls` may declare this
-transition. Unrelated object churn, new table cells alone, or input acceptance
-does not verify the button.
-
-Profiles cannot change those meanings. The Host checks that an action token
-still occurs in its current Profile-filtered observation before asking the
-Extension to prepare the action.
-
-The Runtime also maintains a separate user-local `saccade.input-policy/1` log.
-Rules are keyed by normalized page path, semantic role, and safe control name.
-A verified software receipt records that software worked; an unverified or
-visibly unchanged software receipt records that a future fresh action should
-use native input. There is no same-action fallback or token reuse. A user or
-Agent can remember native input for a current software-preferred control. The
-log stores no query, fragment, credentials, editable value, protected value,
-locator, or coordinate. It cannot weaken `native_required`, and a diagnostic
-software override cannot bypass a learned native rule.
-
-Under the v1 contract, browser-session end, tab ACL revocation,
-browser-instance mismatch, cross-tab use, navigation, token replay, stale
-revision, detached identity, unsupported affordance, hidden or covered target,
-lost focus, uncertain geometry, stream gap, or ambiguous frame composition
-fails closed. Profiles do not alter these closed-loop checks.
-
-## Changes and waiting
-
-Full Extension-to-Host snapshots are always valid. MCP retains the last full
-snapshot for each tab in that Agent process and computes semantic changes after
-Profile filtering. It ignores action-token, loop-token, object-revision, and
-geometry-only rotation when deciding whether a human-visible object changed.
-Visibility and semantic responsive-layout changes remain observable. After any gap,
-navigation, MCP restart, missed base, or a sufficiently large change set, the
-next Agent response is `mode=full`. Otherwise it is `mode=delta`. A client can
-reconstruct the current Agent Browser by applying `changes` and then opaque
-`authorities` to its previous view.
-
-`tabs.open` does not return success until the collector has produced the first
-authorized observation. Dynamic content may legitimately arrive after that
-first snapshot. `web.observe` therefore accepts `after_revision` plus a bounded
-`timeout_ms`: the Runtime waits on the browser-pushed observation stream and
-returns only after a newer revision exists. Agents and clients must use this
-local wait instead of polling unchanged truth through repeated model tool
-calls.
-When `after_revision` is absent, observe returns the current Agent view
-immediately; a supplied `timeout_ms` is ignored by the MCP adapter rather than
-turning a harmless read into a failed tool call.
-
-The Extension injects and configures the collector once an authorized HTTP(S)
-document has committed and is loading. It MUST NOT require browser
-`status=complete`, because third-party resources may remain pending indefinitely.
-Concurrent load/update notifications are deduplicated; navigation still clears
-the old session before the new document is authorized. `collect()` withholds
-the first actionable observation while `readyState=loading` and publishes it at
-`DOMContentLoaded`; later resources arrive through ordinary deltas.
-
-DOM insertion, removal, safe attribute changes, visible text changes, scroll,
-resize, focus, and form state changes schedule observation refresh. Content not
-yet created is never invented. A trigger may declare
-`deferred_content_possible`.
-CSS `transitionend` and `animationend` also schedule refresh. An inserted dialog
-at opacity zero remains hidden evidence; only the post-transition observation
-may disclose its now-visible title. Deferred-content action settlement is
-bounded to 750 ms and still requires the ordinary semantic verifier.
-
-## Local form plan
-
-`saccade.web.form.fill` accepts between one and 32 current control-token
-operations. MCP proves that every token occurs in one current Agent-view
-document revision and hydrates that envelope as described above. The allowed plan surface is
-text-like editable `type`, select-by-option-object identity, and the explicit
-`check` intent. `check` maps to the existing click transaction only after the
-Runtime proves the target is a checkbox, radio, or switch. Protected controls,
-file inputs, submit buttons,
-navigation, repeated targets, and arbitrary operations are rejected before the
-first side effect.
-
-The Host resolves all initial tokens to runtime object identities, then runs
-each control through the ordinary Registry-selected closed loop. After each
-verified step it obtains the next fresh observation and refreshes the remaining
-target by the same document-local object identity, role, and safe name. A
-disappeared, renamed, retyped, protected, unverified, navigated, or otherwise
-invalid target stops the plan. There is no rollback and no same-action backend
-fallback. The MCP result contains value-free step summaries and one final
-Agent-view update; immediate editable payloads do not enter receipts or views.
-Step order, role, dispatch status, postcondition, and settlement remain visible;
-the result does not echo the request's control name or operation.
-
-## Local reflex loop
-
-The one audited local-loop exception begins from a current reflex-target action
-token. It is fixed to one browser instance, tab, document, operation, and
-audited target class. `saccade.web.reflex.run` keeps repeated observation and
-action transactions local after one MCP request. Each occurrence still receives
-a fresh token and is prepared and revalidated before either registered backend
-dispatches it.
-
-The Host rejects repeated occurrences, stale revisions, changed identities,
-hidden targets, uncertain geometry, or permission loss. A stale target is
-reobserved; it is never replayed. The loop is bounded by the MCP schema (currently
-60 seconds and 10,000 requested actions). Reports contain count, failures,
-stale retries, backend, causal occurrence transitions, and p50/p95/max
-observation-to-receipt latency.
-
-MouseAccuracy supplies an audited DOM semantic bridge over its canvas game.
-Only `.target:not(.hit)` is actionable. Its safe `reflex_occurrence` is the
-visible score, and verification requires that score to advance within the same
-loop class. A non-actionable loop-status object carries that score so a receipt
-does not wait for the next target to spawn. Target geometry, disappearance,
-animation, or a revision change alone cannot verify a hit. Arbitrary
-Canvas/WebGL remains opaque.
-
-This loop is a bounded implementation feature, not a general page-script,
-selector, coordinate, or detector protocol.
-
-## Frames and opaque surfaces
-
-Safely composable same-origin frames contribute normal descendants with frame
-identity. Frames that cannot be safely composed report `restricted_frame` or
-`ambiguous_frame_transform`. Open shadow roots contribute normal descendants.
-A closed shadow root is never traversed; until an early browser-side hook can
-reliably establish its presence, current coverage must not claim that it always
-emits `closed_shadow_root`. Canvas, WebGL, and video report opaque surfaces. The
-built-in PDF viewer reports a restricted document.
-
-Missing access is a limitation, never silent completeness. The Agent must not
-infer controls inside an opaque or restricted surface from surrounding text.
-
-## Downloads and PDF
-
-Downloads are bound to an authorized tab and current object token and use the
-browser download manager. A top-level PDF requires explicit local confirmation.
-The Host accepts completed files only inside the owner Downloads directory,
-records size and SHA-256, and may ask the operating system to open the file.
-File contents are not exposed to MCP. PDF parsing and filling are outside v1.
-
-File selection is not a download route. A cataloged `file_input` may accept one
-Agent-supplied local file through the native operating-system chooser. A
-verified `has_file` postcondition means a real file-input change accepted a
-non-empty selection. It does not by itself claim that a remote server finished
-receiving or persisting the file; that requires a separate current page effect
-such as a new file row surviving a fresh server-loaded document. Visible
-buttons that create an ephemeral file input are eligible only when their safe
-name unambiguously describes choosing or uploading a file, and verification
-still requires the real input change event.
-
-## Conformance and release gate
-
-Rust types and canonical fixtures in `crates/saccade_protocol` and
-`tests/protocol` are the wire-format source of truth. The Extension, Host, MCP,
-and fixtures must agree on every required field, enum, limit, and rejection.
-
-Conformance must prove at least:
-
-- compact control roles and safe names are emitted without control values;
-- hidden, zero-size, stale, covered, detached, or unauthorized targets cannot
-  produce successful native actions;
-- protected values never cross the MCP or observation boundary;
-- navigation and revision changes invalidate earlier tokens;
-- tokens are single-use and cross-tab/browser reuse fails;
-- frame, opaque-surface, truncation, and stream gaps are explicit;
-- receipts contain the settled post-action observation;
-- the ordinary native mouse gate verifies zero misses across standard target
-  sizes and horizontal positions in a controlled unobstructed browser window;
-- unknown fields, roles, states, operations, and protocol versions fail closed.
-
-Extension `elementFromPoint` establishes DOM-level topmost state. The v1 wire
-format does not carry OS-window ownership, so an always-on-top desktop overlay
-cannot be preflighted by the Extension. If one intercepts native input, the
-required semantic postcondition remains unverified; it is never reported as a
-successful action.
-
-The development manifest carries a fixed public key. Official Host manifests
-allow only approved development/store Extension identities. Consumer macOS is
-a signed, notarized, stapled DMG containing `Saccade.app`; PKG is enterprise
-only. Windows Setup and binaries require Authenticode signing and native-host
-registration. Source commit, SBOM, release manifest, and artifact hashes
-accompany a release. A platform is not supported until its native integration
-and clean-machine installation matrices pass.
+# Extension Truth Layer contract
+
+Status: normative for `saccade.observation/1`.
+
+## Boundary
+
+The authorized Extension is the only webpage compiler. It continuously reads
+browser-visible semantic state and sends complete current evidence plus
+source-computed changes through the single Native Messaging route. The Host
+stores and forwards that truth; MCP compacts and aliases it. Neither Host nor
+Agent reparses HTML or diffs snapshots to discover meaning.
+
+The collector stays dormant until the tab ACL authorizes the document. A
+long-lived Extension Port carries observations. Navigation, reconnect,
+document replacement, or a revision gap resets the stream and requires a new
+full view.
+
+The Native Messaging `hello` carries the live Extension's content-addressed
+candidate identity and a bounded lifecycle wake description: `chrome` or
+`edge`, a development boolean, and that Extension's own `popup.html` URL. The
+Host rejects any other browser family, scheme, Extension-ID form, or internal
+path before persisting it owner-only. When the Host has an installer-pinned expected identity,
+it rejects a missing or different identity and remains unready. The Service
+Worker likewise rejects an authorized page Collector whose loaded candidate
+does not match its own. Replacing files on disk is therefore not activation
+evidence, and ordinary browser restart is not accepted as unpacked-Extension
+activation evidence. A pre-handshake development Worker requires one explicit
+Chrome Extensions Reload; later candidates self-reload on reconnect. This adds
+bounded identity fields without changing
+`saccade-extension-host/1` or the observation schema.
+
+An already-open page can retain a static Collector from the previous candidate
+after the Worker updates. Background reconnect reports that stale state without
+refreshing user pages. When the user explicitly shares that exact tab, the
+Extension may perform one ordinary tab reload, wait boundedly for the current
+Collector, and then finish authorization automatically. It does not inject a
+script, bypass the candidate check, or create another browser route.
+
+## Object projection
+
+A projected object may expose:
+
+- stable document-local object identity;
+- role and accessible name;
+- safe role-specific state;
+- semantic affordances;
+- for a current link, an optional resolved HTTP(S) `navigation_target`;
+- current document- and viewport-relative geometry;
+- frame and semantic provenance;
+- truthful limitations.
+
+Every emitted object includes `document_bounds`; rendered objects also include
+`viewport_bounds`. Both are CSS-pixel rectangles in the object's own frame:
+the former is relative to that frame document and the latter to that frame's
+current viewport. Stable identity never depends on either rectangle. The
+Extension emits an `updated` change when a current object's position or size
+changes, including scroll-, resize-, layout-, transition-, and
+animation-driven movement.
+
+It must not expose locators, DOM paths, editable contents, protected values,
+cookies, browser storage, or arbitrary-coordinate action authority. The
+Extension's protected content set is deliberately narrow: password, SSN, and
+EIN fields, plus SSN/EIN-shaped text values masked before emission. Protected
+objects retain geometry and value-free state. Default MCP additionally removes
+optional action tokens and internal authorities, but preserves geometry.
+Profile bans are applied before projection and cannot alter recognition
+semantics. A filtered control and its action authority are both absent from the
+Agent projection. Profile behavior and filtering cannot reveal editable or
+protected values or change canonical control recognition.
+
+`navigation_target` is semantic page state, not a locator or execution token.
+The Collector resolves it against the document base URL, emits only HTTP(S),
+rejects embedded URL credentials, and bounds it to the same 8192-byte
+navigation limit as `tabs.open`. It is
+legal only on `role: link` with `transition: navigation_possible`. A changed
+link target updates the same stable object. Unsupported schemes remain absent.
+
+Control modules are indivisible semantic modules: each recognizes one control
+family and consistently projects its role, name, safe state, affordances, and
+limitations across supported native HTML, ARIA, and framework lifecycles. A
+finite affordance may be consumed by `saccade.act`, but selectors, coordinates,
+editable values, and protected values never enter Truth. Runtime binds the
+action to current object, document, and revision identity; Extension accepts
+only the registered software primitive.
+MCP normally compiles a sole current `click`, `type`, or `select` affordance
+directly from that object. A supplied text payload implies `type`, and an
+`option_object_id` implies `select`; only a genuinely ambiguous object needs an
+explicit operation. This is a Runtime projection rule and does not add fields,
+authority, or bytes to the Extension observation.
+
+## Full and delta views
+
+Authorization/configuration eagerly schedules collection. The first
+Extension→Host message for a document is a complete Snapshot. Later Native
+Messaging messages carry only Extension-compiled `appeared`, `updated`, and
+`disappeared` identities, complete current values for appeared/updated objects,
+and refreshed opaque authorities for unchanged actionable objects, together
+with document, viewport, and semantic revisions. The Service Worker retains
+only readiness/document/revision metadata, not a second full page copy. Stable
+aliases remain stable within one
+document. Dynamic replacement receives new internal identity and is reported
+as disappearance plus appearance; it is never silently treated as the old
+object.
+
+The Host keeps one current full observation and at most 256 compact journal
+entries containing revision metadata and source-declared changed identities;
+it does not retain 256 full pages. `truth.read(after_revision)` waits locally
+and folds only source-declared changes after that revision. If history cannot
+prove continuity, the Host discards that tab's materialized state and requests
+one complete Snapshot from the Collector for that exact tab. Deltas for that
+tab are ignored until the reset arrives. Other tabs are unaffected. Resource subscribers receive only an
+updated URI notification and then read the same full/delta stream; notifications
+do not repeat the page.
+
+The Agent may choose `live` or `economy` delivery on each MCP Truth read. This
+choice is downstream of the Extension and never changes collection semantics:
+`live` exposes the next push immediately, while `economy` lets MCP coalesce a
+bounded 150 ms burst and return the latest folded delta. Both preserve the same
+objects, safe state, current geometry, identities, gaps, and source revisions.
+The product does not force a mode or encode model/vendor policy into either one.
+
+Downstream MCP exposes one automatic cursor rather than model-selected views.
+An initial read may include a bounded semantic query over labels, roles,
+affordances, visibility, and root/all frame scope. Runtime returns a
+`working_set` of at most 32 stable objects plus frame summaries and keeps the
+complete observation locally. The Extension still emits the same complete
+Snapshot and deltas; it does not run the query or filter collection.
+Runtime may wait through a bounded hydration interval for `min_objects` and may
+acknowledge older queued ambient pages when a new working set is projected from
+the latest canonical observation. `visible_only: false` includes rendered
+offscreen objects but excludes hidden and unknown objects. None of these rules
+changes Extension collection or either wire schema.
+For a dynamic follow-up, the query may include the preceding action receipt's
+`after_revision`. MCP treats that revision as a lower bound on canonical Truth:
+it projects immediately if its exact-tab cursor already holds that revision or
+newer, and otherwise performs one local blocking wait before projection. This
+keeps the query revision-bound without transferring an intermediate delta or
+forcing a second unbounded query.
+Text query words are conjunctive over safe projected name, text, and
+description fields. For a control, MCP may also match the bounded nearest
+preceding headings already present in canonical Truth. This association is
+computed locally from stable frame identity and document geometry; no
+page-side query or selector is introduced.
+An MCP-only `text_any` query may provide several such phrases. Each phrase is
+conjunctive and phrases are alternatives. Runtime returns immediately after the
+declared `min_objects` match count is reached, so unrelated continuing page
+churn does not turn hydration into a page-idle wait. The complete Extension and
+Host Truth remains unchanged and local.
+If the count is not met before the bounded hydration timeout, Runtime returns
+`settled:false`; a slowly hydrated control is not discarded merely because the
+page had a short quiet interval.
+ASCII query words use word boundaries (`Male` does not match `Female`), while
+punctuation-bearing and non-ASCII terms retain substring matching.
+The first read of a bounded document is full. If that full projection exceeds
+the response budget, Runtime automatically returns a compact catalog covering
+every projected semantic object by stable `object_id`, role, bounded label
+preview, affordances, and visibility. The Agent may dereference up to 64
+relevant identities against that exact `document_id` and `basis_revision`;
+details do not advance the cursor. This is an MCP delivery projection only:
+the Extension and Host retain canonical complete Truth. Subsequent ordinary
+reads are deltas from the last view delivered to that Agent session. Document
+replacement, a stream gap, or an unavailable base forces a new full-or-catalog
+reset. An Agent whose own cache is wrong may call
+`truth.read({tab_id, resync:true})`; this resets only that Agent/tab delivery
+cursor. The API always requires `tab_id` and has no all-tabs Truth or resync
+operation.
+Browser-lifetime ACL cleanup is completed before the first Native Host hello,
+using session-scoped Extension storage to distinguish a browser restart from a
+Service Worker reload. A delayed browser `onStartup` notification therefore
+cannot revoke authority granted after Host readiness.
+`saccade.act` folds its post-action observation through the same cursor. Its
+inline transition is action-scoped: target verification is compact, same-frame
+structural appearance/disappearance is returned, and unrelated updates or
+frame metadata are queued for the ordinary Truth cursor. The Extension
+continues to compile complete current Truth;
+Before dispatch, Runtime may rebase an object-addressed request across
+same-document revisions only when the retained source journal proves neither
+the target nor selected option changed. Missing history, document replacement,
+or any target change remains stale and fails closed. The Extension independently
+requires the opaque action token to remain current; it reuses that token across
+geometry-only or unrelated page changes only when the target's non-geometry
+semantic contract is identical.
+after the initial Snapshot it transports only the compiled delta. This delivery
+rule changes neither Profile filtering, object identity,
+geometry, nor canonical observation semantics.
+
+MCP compacts each `updated` Agent change as a recursive JSON merge patch over
+the prior Agent object. A `null` patch value removes a field. `appeared` still
+carries the complete projected object and `disappeared` carries its stable ID.
+This downstream compaction does not change the Extension's source delta or the
+Host's canonical materialized observation.
+
+The client-owned MCP adapter may start while the Native Host is temporarily
+absent. It keeps its process alive, rereads the owner grant for each bounded
+Host call, and reconnects after socket or capability rotation. Only unavailable
+transport is retried; authorization and protocol failures fail closed. This
+lifecycle recovery does not create a second browser route or cached page truth.
+On macOS, `tabs.open` may wake a disconnected zero-window browser by opening
+only the validated Extension `popup.html` in the recorded Chrome/Edge family.
+The wake surface accepts no target URL or page action; after reconnect, the
+HTTP(S) request is still sent through Extension → Native Host → owner-only IPC.
+MCP tool metadata and initialization instructions identify Saccade as the
+primary navigation and page-reading route, including for clients with deferred
+tool discovery. If the registered route stays unavailable after bounded retry,
+the Agent reports the blocker rather than substituting another browser.
+
+## Tab ownership and cleanup
+
+The Extension is authoritative for tab ownership. `tabs.list` marks authorized
+tabs as `agent` when they were created by `tabs.open` or claimed by an Agent
+client, or `user_shared` when the user explicitly shared an existing tab. The
+`provenance` field distinguishes `saccade_tabs_open`, `agent_client`, and
+`user_shared`. `tabs.close` accepts only an
+Agent-owned tab identity. A request targeting a user-shared, user-owned,
+unknown, or already-closed tab fails without closing anything.
+
+Each MCP adapter additionally projects only Agent-owned tabs created or claimed
+by that MCP process plus current `user_shared` tabs. Other concurrent MCP
+sessions' Agent tabs are omitted and cannot be read, acted on, or closed through
+that adapter. This is downstream task isolation; it does not alter the
+Extension's browser-session ACL or either wire schema.
+
+Authorization never propagates through `openerTabId`. A user- or page-created
+child of an Agent-owned tab remains Agent Off until that exact child tab is
+created through `tabs.open`, confirmed by a provisioned claim, or explicitly
+shared by the user.
+
+### Provisioned Agent-client tab claim
+
+Some Agent clients can act only in tabs they created themselves. For those,
+`tabs.open` accepts `claim: "arm"` and `claim: "confirm"` as modes of the same
+tool; the claim adds no additional public tool and no protocol version change.
+
+`claim: "arm"` takes only the target URL. The Extension stores one session-only
+intent in Service Worker memory holding a fresh single-use `claim_id`, the
+normalized origin, a 30 second expiry, and no tab identity. It is never
+persisted, so a replaced worker or an ended Native Host session forces a re-arm.
+Arming creates no tab, queries no tab, reads no tab, and authorizes no tab.
+
+While a claim is armed, the Extension inspects only the `tabs.onCreated` and
+`tabs.onUpdated` event payloads for tabs created after arming. A tab that is
+already authorized is never a candidate, and a pre-existing tab can never be
+latched. The first candidate whose settled URL is an HTTP(S) URL on the armed
+origin is latched; a candidate that settles on any other origin is decided once
+and dropped permanently. Latching authorizes nothing — it only records which
+single tab a later confirm may name. Once one tab is latched, no second
+candidate is considered.
+
+`claim: "confirm"` carries the `claim_id`, the target URL, and the exact
+`tab_id` the Agent client obtained from its own tooling. The claim is consumed
+on every confirm attempt. Authorization requires all of: an unexpired claim, a
+latched tab, a matching `claim_id`, a `tab_id` equal to the latched identity, a
+requested origin equal to the armed origin, and a live tab still on that origin
+and not user-shared. Any failure returns the single message `tab claim could not
+be confirmed`, so a caller cannot use confirm as a tab-identity oracle or probe
+claim state. On success the tab is recorded Agent-owned with
+`provenance: agent_client`, the Collector is configured exactly as for any
+authorized tab, and Truth flows normally.
+
+A claimed tab is revoked on Stop sharing in the popup, `tabs.close`, tab
+removal, Native Host session disconnect, and browser startup. Only claimed tabs
+are revoked on Host disconnect; `user_shared` and `saccade_tabs_open` ownership
+is unchanged by the claim in every respect. The claim adds no click, type, or
+execute capability, and uses one generic Chrome/Edge codepath.
+
+`tabs.open` does not depend on Chromium's implicit "current window" state. It
+opens in an explicitly selected ordinary window, preferring the focused one.
+When the connected browser has no ordinary window, the Extension creates one,
+opens the requested URL, and records the resulting tab as Agent-owned before
+replying. Browser-without-window is recoverable lifecycle state, not a reason
+to request a restart or use another browser route. Chromium on macOS may
+terminate the Native Host after the final normal window closes; a subsequent
+`tabs.open` uses the fixed Extension wake surface described above, waits for
+the same route to reconnect, and then creates the requested tab. If cleanup closes the only
+tab in that recovered window, revocation and the close response are committed
+before Chromium tears down the window. A named MV3 alarm supports transient
+reconnects while the worker remains schedulable, but is not treated as a cold
+zero-window wake guarantee.
+
+The ACL survives Service Worker replacement, development Reload, and Extension
+update so ownership cannot disappear while the browser session and its tabs
+continue. It is stored locally only as tab identities and provenance, then
+cleared on the next browser startup before collection reconnects. Thus access
+remains browser-session-scoped without treating a worker lifecycle as the
+browser-session boundary.
+
+Closing an Agent-owned tab removes its ACL entry and observation session; the
+Host also discards its retained current view and history. This is bounded
+session cleanup, not permission to execute inside a webpage or to close
+arbitrary browser tabs. Agents should close temporary research tabs at task
+completion while retaining user-facing results, unfinished work, and any tab
+the user asked to keep.
+
+## Structure and visibility
+
+The top collector composes accessible same-origin iframe documents and open
+shadow roots. Descendants retain frame or shadow provenance. Cross-origin or
+otherwise inaccessible frames and closed shadow roots are reported as limited
+or opaque rather than guessed.
+
+Visibility follows rendered semantic availability, including lifecycle events
+that finish transitions or animations. Mutation, relevant attribute, viewport,
+focus, frame, and registered semantic-bridge changes schedule compilation.
+DOM/ARIA semantic signals are microtask-batched and do not wait for a rendering
+frame; scroll, resize, layout, transition, and animation geometry is
+frame-bounded. Resize observation and active rendered-motion tracking keep the
+Host's current object bounds fresh. The Agent client folds geometry deltas into
+its cached view; omitted objects are unchanged.
+Visible leaf text in generic layout containers is projected as bounded `text`
+objects when it is not inside an editable control, named image, existing
+structural object, or dialog projection. This covers rendered scorecards and
+result metrics without adding site-specific selectors or exposing editable
+contents. High-frequency reflex bridges may frame-bound their mutation batches
+while preserving each semantic target or score transition.
+Canvas/WebGL surfaces remain opaque unless an approved bridge supplies stable,
+revalidatable semantic objects and changes.
+
+## Software-first execution and external handoff
+
+`saccade.act` is the preferred path for Registry-approved click, select, and
+type. Preparation and dispatch are document-, revision-, token-, and
+affordance-bound. Software preparation may defer scrolling until the
+dispatch pass so its own geometry observation cannot stale the action.
+Immediately actionable controls keep the zero-wait fast path. When a target is
+animating, briefly covered, disabled, or not yet focused, the Collector waits
+locally up to the existing action timeout, requires two consecutive stable
+animation-frame geometries, then rechecks visible, topmost, focus, enabled,
+document, identity, semantic authority, and token before dispatch. Any identity
+or authority change fails stale; no replacement object is silently rebound.
+Failures report `failure_stage`, `failure_code`, and `retry_safe`.
+The default call supplies `object_id` plus any required payload and omits
+`operation`. Runtime uses the current canonical object's advertised affordance
+to compile the action, fails on zero applicable affordances, and requests an
+explicit operation only when several applicable affordances remain.
+For a known compatible role that is temporarily disabled, the caller may pass
+the explicit operation to enter the same bounded local wait. During that wait
+only the one-way enablement transition from false to true may preserve the
+action basis; every other semantic or authority change fails stale.
+
+An Agent may send already-planned independent form edits as one `saccade.act`
+batch. The Runtime preflights the full object-ID plan, rejects protected or
+unsupported roles before dispatch, refreshes each private action token and
+revision locally, and returns value-free per-step verification plus one final
+transition. Batches exclude submit/navigation buttons, links, uploads, and
+arbitrary controls; they do not expand Extension authority.
+
+If Truth verifies the target transition, the action is complete. If software
+input leaves a bounded target state provably unchanged, the result may return
+`external_execution_required` with `retry_safe: true`. Codex, Claude, or
+another Agent then acts with its own tool in the same authorized browser tab
+and uses Saccade Truth to verify the transition. A result that may already have
+an unobservable side effect is never marked safe to repeat. If the Agent's tool
+cannot control the same browser instance, the integration is incompatible.
+
+The optional `reference-actuator-mcp` may consume internal revision-bound
+authority for regression and compatibility testing. That interface is
+`saccade.reference.*`, loads native permissions lazily, and marks every receipt
+with `reference_actuator` provenance. It is outside the default Truth API.
+
+## Required tests
+
+Extension tests cover all catalogued role/name/state/affordance projections,
+Profile bans, full→delta, dynamic replacement, same-origin iframe, open Shadow
+DOM, delayed render, and stream gaps. MCP tests prove the default six-tool
+surface, bounded object-addressed action authority, blocking revision reads,
+and unsolicited resource updates. Lifecycle tests prove ownership labeling, Agent-owned close,
+user-shared close rejection, and Host Truth disposal. Default installation
+must pass without Accessibility.
+
+The local Chrome and Edge gate covers the machine inventory but is not public
+web compatibility evidence. Source-diverse public cases must retain truthful
+limitations and failures; they may not be made to pass with site-specific
+selectors or an execution fallback.

@@ -1,0 +1,38 @@
+{
+  "schema": "saccade.external-cases/1",
+  "cases": [
+    {
+      "id": "angular-material-select",
+      "control": "select",
+      "source": "Angular Material",
+      "implementation": "angular",
+      "url": "https://material.angular.dev/components/select/examples",
+      "goal": "Choose Dog in Favorite animal.",
+      "target": { "role": "select", "name": "Favorite animal" },
+      "action": { "operation": "select", "option": "Dog", "open": true },
+      "postcondition": { "role": "option", "name": "Dog", "state": "selected", "equals": "true" }
+    },
+    {
+      "id": "primevue-select",
+      "control": "select",
+      "source": "PrimeVue",
+      "implementation": "vue",
+      "url": "https://primevue.org/select/",
+      "goal": "Choose Japan in Select a Country.",
+      "target": { "role": "select", "name": "Select a Country" },
+      "action": { "operation": "select", "option": "Japan", "open": true },
+      "postcondition": { "role": "option", "name": "Japan", "state": "selected", "equals": "true" }
+    },
+    {
+      "id": "shoelace-tab",
+      "control": "tab",
+      "source": "Shoelace",
+      "implementation": "web_component",
+      "url": "https://shoelace.style/components/select",
+      "goal": "Select the Script tab.",
+      "target": { "role": "tab", "name": "Script" },
+      "action": { "operation": "click" },
+      "postcondition": { "state": "selected", "equals": "true" }
+    }
+  ]
+}

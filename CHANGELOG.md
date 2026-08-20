@@ -1,88 +1,21 @@
 # Changelog
 
-Saccade has no stable release yet. This file records user-visible changes from
-the clean public repository.
+## 0.1.0 Developer Preview
 
-## Unreleased
+- Ship one Chrome/Edge Extension that compiles authorized pages into stable
+  semantic objects and pushes full-to-delta Truth updates.
+- Add bounded, object-addressed `saccade.act` click, type, and select operations
+  with semantic transition receipts and explicit handoff on unsupported paths.
+- Keep passwords, SSNs, EINs, editable values, cookies, browser storage,
+  selectors, and arbitrary coordinates outside Agent Truth.
+- Add the headless macOS Runtime and `@saccade/setup` installer for Apple
+  Silicon and Intel clients.
+- Configure the Extension → Native Host → owner-only local IPC → MCP route for
+  local Codex and Claude clients.
+- Add signed Runtime, notarization, GitHub Release, npm trusted-publishing, and
+  Chrome Web Store packaging workflows.
+- Publish the reversed-order Saccade and Playwright comparison with the full
+  ordinary-task table, MouseAccuracy result, video-metadata boundary, and
+  measured disadvantages.
 
-### Changed
-
-- compact repeated Agent Browser defaults without changing the v1 Host wire
-  schemas or semantic truth;
-- replace native select's redundant post-action sleep with fresh
-  selected-option verification and shorten the measured macOS popup handoff;
-- bind macOS keyboard delivery to the exact browser process that launched the
-  Native Host, after the real click and bounded focus handoff;
-- start authorized collection when an HTTP(S) document is loading instead of
-  waiting indefinitely for every third-party resource to complete;
-- project long internal object identities as short document-scoped Agent
-  aliases and retain 128-bit opaque action-token authority.
-- let `web.observe` wait locally for a revision newer than `after_revision`, so
-  an Agent does not spend tool calls or context polling unchanged truth.
-- let collapsed ARIA choices complete a verified expand loop before their
-  dynamically created option identities enter the existing select loop;
-- disambiguate duplicate actionable controls across control families with
-  bounded value-free page-authored context.
-
-### Added
-
-- one Catalog-backed Registry for button, link, text field, search field,
-  textarea, contenteditable, spin button, checkbox, radio, ARIA switch, select,
-  tab, menu item, reflex target, and file input;
-- the Extension → Native Host → Runtime → MCP production route;
-- native macOS and Windows input adapters;
-- managed macOS Chrome for Testing development and evidence commands;
-- managed macOS Edge development with isolated profiles and evidence;
-- an ordinary 24-target native mouse-accuracy gate for managed Chrome and Edge;
-- an audited MouseAccuracy reflex target, bounded local MCP loop, and explicit
-  native/soft input receipts with causal score verification;
-- exact-PID managed-window move and resize phases for native accuracy evidence;
-- three-field Profiles with Agent behavior and named-control bans;
-- stale, replay, focus, coverage, postcondition, and value-leak checks;
-- stale-preparation observation resynchronization without weakening rejection;
-- observation refresh filtering so unrelated page mutations do not churn
-  otherwise-current control tokens;
-- native link navigation and file selection, including transient chooser
-  buttons, path-free receipts, and bounded macOS/Windows chooser plans;
-- bounded visible action-group context for repeated generic controls, plus
-  deduplicated file/image chooser triggers for cover and screenshot uploads;
-- versioned unpacked-Extension directories and browser-profile generations so
-  MV3 worker updates do not require reading or copying login cookies;
-- human-only managed Profile selection with the bundled smart-barbarian-eco
-  Profile;
-- explicit restricted reporting for browser-owned confirmation dialogs;
-- non-actionable, application-declared semantic image identity;
-- public W3C WAI-ARIA dogfood for radio, switch, tab, and menu item, with an
-  isolated Playwright comparison oracle and screenshots;
-- accessible fallback names that omit `aria-hidden` descendants and explicit
-  ARIA menu-item precedence over native link projection;
-- bounded non-actionable structural reading for headings, paragraphs, list
-  items, table cells, alerts, and status messages;
-- native select, ARIA listbox, and ARIA combobox selection through enabled
-  option-object identity, including duplicate visible names;
-- session-only Extension popup controls for sharing and revoking existing tabs;
-- monotonic per-tab document handling so delayed retired-document observations
-  cannot replace current state or contaminate action receipts;
-- Catalog-declared automatic software/native input selection for finite click
-  controls versus controls that require operating-system input;
-- a value-free user-local input-policy log that learns verified page/control
-  behavior, upgrades future actions to native after an unverified software
-  receipt, and never retries the same token;
-- MCP tools to inspect the learned log and remember a native-input exception
-  for a current control;
-- per-Agent Browser views that return one full Truth Layer followed by semantic
-  deltas, while complete Host snapshots remain local verification evidence;
-- one bounded form-fill MCP plan that locally orchestrates fresh independent
-  control loops and returns value-free step summaries;
-- collector-ready `tabs.open` results and compact structured MCP receipts
-  without duplicating full JSON as text;
-- verifier-aware action settlement and bounded pre-dispatch stale refreshes for
-  locally orchestrated form steps;
-- declarative cross-site evidence, isolated unknown-page Saccade/Playwright
-  comparisons, stable failure taxonomy, timeout evidence, and artifact redaction;
-
-### Pending
-
-- same-candidate Chrome and Edge release evidence;
-- signed consumer packaging and browser-store Extension builds;
-- the remaining control batches listed in `docs/CONTROL_ROADMAP.md`.
+Saccade had no stable public release before `0.1.0`.

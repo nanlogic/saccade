@@ -15,6 +15,9 @@
     ['spin_button', require('./spin_button.js')],
     ['reflex_target', require('./reflex_target.js')],
     ['file_input', require('./file_input.js')],
+    ['slider', require('./slider.js')],
+    ['label', require('./label.js')],
+    ['generic_control', require('./generic_control.js')],
   ]) : new Map();
 
   function moduleFor(role) {
@@ -31,8 +34,8 @@
     return Object.freeze(controlModule.observe(Object.freeze({ ...signals })));
   }
 
-  function option(name, selected, enabled = true) {
-    return Object.freeze(moduleFor('select').option(name, selected, enabled));
+  function option(name, selected, enabled = true, clickable = false) {
+    return Object.freeze(moduleFor('select').option(name, selected, enabled, clickable));
   }
 
   const api = Object.freeze({ observe, option });

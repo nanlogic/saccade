@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Protected redaction</title></head>
+<body>
+  <h1>Protected redaction</h1>
+  <p id="ordinary">Contact email ordinary@example.test and phone 312-555-0199.</p>
+  <p id="identifiers">SSN 123-45-6789 and EIN 12-3456789.</p>
+  <label>Password <input id="password" type="password" value="not-observable"></label>
+  <label>Social Security Number <input id="ssn" type="text" value="123-45-6789"></label>
+  <label>Employer Identification Number <input id="ein" type="text" value="12-3456789"></label>
+  <label>One-time code <input id="otp" type="text" autocomplete="one-time-code" value="123456"></label>
+  <label>Card number <input id="card" type="text" autocomplete="cc-number" value="4111111111111111"></label>
+</body>
+</html>

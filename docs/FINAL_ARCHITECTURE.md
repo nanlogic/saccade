@@ -1,469 +1,452 @@
 # Saccade final architecture
 
-Status: accepted direction, 2026-07-27.
+Status: accepted direction, 2026-08-02.
 
-## Product objective
+## Permanent product objective
 
-> Saccade is a browser protocol that lets any Agent continuously understand a
-> web page, receive browser-pushed changes, and operate it through verified
-> closed loops.
+> Saccade is a live semantic Truth Layer for the web. The Extension continuously
+> compiles an authorized page, publishes a full semantic view, pushes meaningful
+> deltas, and offers bounded object-addressed software input. The Agent client
+> owns execution whenever that software route cannot prove a safe result.
 
-This is the permanent product north star. Implementations, transports,
-Profiles, and control coverage may evolve, but they MUST continue to serve all
-five properties below:
+Every core change preserves fast interaction, low model-token cost, easy
+maintenance and extension, trustworthy observation, and model independence.
+Saccade is not a browser-testing framework, coordinate clicker, input backend,
+or model-specific plugin.
 
-1. **Fast:** the browser pushes changes and bounded local loops avoid needless
-   model round trips.
-2. **Token-efficient:** one semantic Truth Layer is followed by deltas rather
-   than repeated HTML, screenshots, or full-page analysis.
-3. **Maintainable and extensible:** the Catalog, Registry, finite primitives,
-   and focused fixtures make each new control family an independent reviewed
-   closed loop.
-4. **Trustworthy:** current identity and revision authorize preparation; fresh
-   browser evidence and control-specific postconditions—not optimistic input
-   dispatch—decide the receipt. Disclosure boundaries remain explicit, while
-   user behavior policy remains declarative Profile data.
-5. **Model-independent:** no protocol meaning depends on a particular LLM,
-   vendor, prompt, or Agent framework. MCP is the current adapter, not the
-   product definition.
+## Product responsibility boundary
 
-Saccade is therefore not another browser-testing framework, coordinate
-clicker, or model-specific browser plugin. Control modules are the protocol's
-execution vocabulary; iframe, Shadow DOM, framework lifecycle, and overlay
-work expand the Truth Layer's coverage. A proposal that does not improve Agent
-understanding, delta efficiency, verified execution, or extensibility is
-outside the core architecture.
+Core Saccade owns page semantics, stable document-local identity, full→delta
+compilation, iframe and open Shadow DOM composition, Profile filtering, honest
+opaque/restricted boundaries, and observation of the page transition after an
+external action.
+
+Core Saccade may dispatch only Registry-approved, object-addressed software
+click, select, and type operations through `saccade.act`. It accepts no
+selector or coordinate and never escalates this route to native input,
+Accessibility, Playwright, CDP, or screenshots. A bounded software attempt that
+provably leaves its target unchanged may hand execution to the Agent client.
+If an action's page revision advanced only because other same-document objects
+changed, Runtime may rebind the untouched target to the latest opaque authority
+using the retained source journal. Any target/option change, missing base, or
+document replacement still rejects the stale request.
+The normal public call does not require the Agent to restate a control's
+already-projected semantics. Runtime compiles a sole current `click`, `type`,
+or `select` affordance into the operation; a text payload implies `type`, and
+`option_object_id` implies `select`. An explicit operation remains available
+only for compatibility or a genuinely multi-affordance object. Inference never
+widens the Registry or substitutes a missing affordance.
+The same tool may accept one preplanned batch of independent editable, select,
+checkbox, radio, and switch operations. Runtime validates the complete plan,
+rebases every step to current Truth, verifies every transition, and returns one
+final delta. Submit, navigation, upload, and other material actions cannot be
+hidden inside that batch.
+The optional Reference Actuator retains its separate native-input policy.
 
 ## The single route
 
 ```text
-Agent
-  → MCP mode
+authorized Chrome/Edge tab
+  → Extension compiler
+  → Native Messaging Host
   → owner-only local IPC
-  → Native Host mode
-  → Native Messaging
-  → Chrome/Edge Extension
-  → agent-owned or explicitly shared tab
+  → MCP adapter
+  → Agent
 ```
 
-There is no production CEF/Servo shell and no Playwright, CDP, screenshot,
-vision, or page-script fallback. The Runtime executes only strategies compiled
-into its Registry. The current v1 Registry contains no Agent-provided
-direct-coordinate strategy.
+The default route transports Truth and finite `saccade.act` software commands.
+It does not request Accessibility or expose a native-input backend, selector,
+locator, screenshot, or arbitrary-coordinate action surface. There is no
+Playwright, CDP, embedded-browser, vision, or hidden execution fallback.
 
-## Product layers
+The development tree may wrap the Native Host, Truth state, and MCP adapter in
+`Saccade Dev Runtime.app` for signing and Native Messaging tests. This wrapper
+is internal tooling, not a public component or distribution format. The public
+Runtime is headless and has no webpage-control responsibility. On the macOS
+Preview, a disconnected `tabs.open` may invoke one fixed-purpose lifecycle
+wake: the MCP adapter opens only the validated Saccade Extension
+`popup.html` URL in the last connected Chrome/Edge family. It cannot accept a
+page URL, selector, coordinate, or script. After the Extension reconnects, the
+requested HTTP(S) URL still travels through the normal Native Host command and
+is created by the Extension.
 
-### Runtime
+`tabs.open` creates and authorizes a tab in the managed Chrome/Edge instance.
+It selects a focused ordinary browser window explicitly. If the connected
+browser instance is alive without any ordinary window, the Extension creates
+one and opens the Agent-owned tab there; this routine lifecycle state never
+requires an Agent to switch browser routes or ask the user to restart.
+If Chromium terminated Native Messaging after the last window closed, the
+bounded lifecycle wake above starts the same Extension route before retrying
+the request. It is not a second navigation or execution route.
+`tabs.open` also carries a provisioned claim for Agent clients whose own
+web-act or computer-use tool can act only in tabs that client created itself.
+`claim: "arm"` records one session-only intent bound to the requested origin and
+creates, reads, and authorizes nothing. The Agent client then creates the tab
+with its own tooling, and `claim: "confirm"` names the returned `claim_id`
+together with the exact `tab_id` the client received. Saccade never hands that
+identity back or infers it. Only the first new tab that appears on the armed
+origin inside the claim window can be confirmed; the Extension enumerates no
+other tab, and any mismatched token, identity, origin, or expiry fails with one
+uniform message and consumes the claim. A confirmed tab is Agent On for that
+Native Host session with `provenance: agent_client`, and is revoked on Stop
+sharing, tab close or removal, Host disconnect, and browser startup. Ordinary
+user tabs remain Agent Off; the claim can never authorize more than the single
+tab it latched.
+Tabs created by a user or webpage never inherit Agent On from an Agent-owned
+`openerTabId`; every new context requires its own `tabs.open`, exact claim, or
+explicit user share.
 
-One cross-platform executable supplies separate modes:
+`tabs.close` is the matching lifecycle cleanup operation. It can close only a
+tab recorded by the Extension as Agent-owned; it cannot close a user-shared or
+otherwise user-owned tab. Tab closure revokes collection and discards retained
+Host Truth for that tab. This bounded cleanup authority is not webpage input
+or general browser execution.
+An Agent may act with its own web-act or computer-use tool only if that tool
+controls the same browser instance and tab. A separate embedded browser cannot
+be mixed with Saccade truth; clients must report that combination as
+incompatible rather than add a fallback route.
+
+Link Truth may include a resolved, bounded HTTP(S) `navigation_target` without
+embedded URL credentials.
+This is current semantic state, not a DOM locator or coordinate authority. The
+Agent may use the link object with `saccade.act` for same-context navigation,
+or pass its target to `tabs.open` to inspect a separate source. Navigation that
+opens a new context or downloads is handed to the Agent client explicitly.
+Search snippets remain discovery evidence only. A recommendation or verified
+claim requires opening and reading its relevant source page. Temporary search
+tabs are closed after use, while useful supporting result pages are retained
+for user inspection unless the user asks otherwise.
+
+## Truth compiler and state
+
+The Extension—not the model or MCP adapter—interprets DOM, ARIA, registered
+control semantics, current rendered geometry, visibility, relationships, open
+Shadow DOM, and accessible same-origin frames. It emits:
+
+- one full document view;
+- `appeared`, `updated`, and `disappeared` semantic objects;
+- document, viewport, and semantic revisions;
+- explicit stream gaps and resets;
+- observed transition evidence.
+
+Runtime identifies the root frame from the protocol relationship
+`parent_frame_id: null`, not from the total frame count. A page with one or
+more same-origin child frames therefore keeps one truthful root scope; a
+`frame_scope: root` working-set query cannot accidentally filter out the whole
+top document merely because child frames exist.
+
+Rendered semantic evidence includes bounded visible leaf text from generic
+layout containers when that text is outside editable controls, images, and
+already-projected structural objects. This keeps scorecards and result metrics
+observable without creating page-specific result schemas.
+
+Each public object may contain role, accessible name, safe state, affordances,
+stable document-local identity, current geometry, provenance, and limitations.
+`document_bounds` and `viewport_bounds` are CSS-pixel rectangles in the
+object's frame document and frame viewport coordinate spaces. Movement,
+resizing, scrolling, and rendered animation update geometry on the same object
+identity and produce pushed Truth changes. Geometry is observation, not action
+authority: the API still contains no locator, DOM path, arbitrary-coordinate
+action, editable value, protected value, cookie, browser storage, or default
+execution authority. Profiles are strict Runtime inputs with Agent-facing
+behavior and bounded filtering policy. Profile `ban` filtering happens after
+canonical control recognition and before the Agent projection. A filtered
+control and its action authority are both absent. Profile policy cannot change
+recognition or reveal editable values, protected values, cookies, browser
+storage, locators, or arbitrary execution authority.
+
+The Extension is the only product safety/redaction gate. It protects password,
+SSN, and EIN fields and masks SSN/EIN-shaped text before emission. MCP adds no
+data taxonomy, confirmation policy, or action gate; the Agent client and its
+LLM own all decisions beyond that Extension boundary.
+
+For each authorized document, the Extension sends one eager complete Snapshot
+as soon as its Collector is ready. Later revisions cross Native Messaging as
+source-compiled deltas only: complete values for appeared/updated identities,
+disappearances, and refreshed opaque authorities for unchanged actionable
+objects. The Host materializes those messages into one complete current
+observation plus a bounded compact revision journal for recovery; neither side
+retains one full page per revision.
+MCP applies document-scoped aliases and response compaction while
+preserving current geometry; it does not infer page meaning by comparing
+snapshots. High-frequency geometry is frame-bounded and clients fold deltas to
+the latest object state instead of replaying every intermediate animation
+position through the model. A missing base revision or a stream discontinuity
+produces a full reset rather than a fabricated delta. Canvas and WebGL remain
+bounded opaque surfaces unless an approved application semantic bridge
+publishes revalidatable objects.
+
+## Public MCP API
+
+Default MCP exposes exactly:
+
+- `saccade.system.capabilities`
+- `saccade.tabs.list`
+- `saccade.tabs.open`
+- `saccade.tabs.close`
+- `saccade.truth.read`
+- `saccade.act`
+
+The public tool descriptions deliberately identify capabilities, tab open,
+and Truth read as the discovery, browser-navigation, and page-reading route for
+web research. Clients that defer or lazily index MCP tools must discover
+Saccade before choosing another web tool. A registered timeout is an unhealthy
+route, not an absent one; after bounded retry/reconnect, the browser task stops
+instead of silently falling back.
+
+`tabs.list` labels each authorized tab as `agent` or `user_shared`, and reports
+`provenance` as `saccade_tabs_open`, `agent_client`, or `user_shared`. Agents
+receive an MCP-session projection: a session sees Agent-owned tabs it opened or
+claimed itself plus every explicitly `user_shared` tab, but never Agent-owned
+tabs belonging to another concurrent MCP process. Truth read, action, and close
+are restricted to that same projection. The Extension ACL remains the
+browser-session authority; this downstream scope prevents independent tasks on
+one machine from selecting or closing each other's temporary tabs. Agents
+close Agent-owned tabs opened only for temporary research when the task ends.
+They retain result pages the user may inspect or continue, pages with unsaved
+or in-progress work, and tabs the user explicitly asks to keep. They never
+close `user_shared` tabs through Saccade.
+
+Tab ownership survives Service Worker replacement, development Reload, and
+Extension update, because those events do not end the browser session or close
+its tabs. The Extension clears the value-free tab-identity ACL on browser
+startup before its first Host hello, using session-scoped storage to distinguish
+a browser restart from a Service Worker reload. A delayed `onStartup` event
+therefore cannot revoke a tab granted after Host readiness.
+
+Capabilities use `saccade.capabilities/6`, declare `product: truth_layer`,
+push/resource support, and retain `execution_owner: agent_client` for final
+decision and external-action ownership. The machine-readable
+`execution_contract` declares `saccade.act` as the preferred bounded software
+route and its safe-handoff condition. Capabilities do not expose native input
+or Accessibility state. They also report the live Extension
+candidate identity and, when a development installer has pinned one, the
+expected candidate identity. A mismatch is disconnected/unready state, never
+accepted candidate evidence.
+
+Fair benchmark processes may explicitly ignore user-local learned input policy
+so a remembered native preference cannot contaminate an engine comparison.
+That override is driver-only, is declared in capabilities evidence, and never
+modifies or deletes the user's policy file.
+
+`truth.read` requires one exact `tab_id` and is an automatic per-Agent cursor.
+When a task already identifies useful labels, roles, or affordances, the first
+read may carry a bounded semantic `query`. Runtime selects at most 32 matching
+objects and returns a `working_set` with frame summaries while retaining the
+complete canonical observation locally. This is an indexed Truth projection,
+not a selector, DOM query, execution route, or discarded page region.
+The query can wait for a declared minimum match count during bounded page
+hydration. Its default visibility policy includes rendered offscreen controls
+but excludes hidden and unknown objects. A later exact-label query may carry
+`after_revision` from the preceding action receipt. Runtime treats it as a
+canonical lower bound: when that revision is already current it projects
+immediately, otherwise it waits locally for a newer revision. The bounded
+working set folds any older queued ambient pages, so the Agent never needs a
+failing revision read followed by an unbounded retry.
+Text matching requires every whitespace-separated query word across the safe
+name, text, and description fields. For controls, Runtime also searches the
+bounded nearest preceding heading context already present in canonical Truth,
+allowing an Agent to ask for a named section/example without transferring every
+same-role control or introducing a selector.
+For a task that names several controls, `text_any` accepts one bounded label or
+placeholder phrase per target. Words remain conjunctive within each phrase and
+the phrases are alternatives. Before filling the remaining response budget in
+document order, Runtime reserves one distinct match for each phrase that has a
+match. A noisy early phrase therefore cannot consume `max_objects` and hide a
+later named target that is already present in canonical Truth. The response
+also reports one match count per phrase. ASCII words use semantic word boundaries, so a
+query for `Male` cannot match `Female`; punctuation-bearing and non-ASCII terms
+retain bounded substring matching. Runtime can therefore return named controls without
+also transferring every unrelated object that shares their roles. `min_objects`
+is the explicit hydration boundary: once that many matches exist, unrelated
+animation, advertisement, or iframe churn cannot delay the working set. If no
+matching revision arrives before the bounded timeout, Runtime returns the
+partial set with `settled:false`; slowly hydrated controls therefore retain the
+declared opportunity to appear.
+Its first read of a document is either one bounded full view or, when that full
+view would exceed the MCP response budget, one automatic compact catalog. The
+catalog covers every projected semantic object and carries its stable
+`object_id`, role, bounded label preview, affordances, and visibility. It is
+not a partial region and does not discard the canonical full observation. The
+Agent dereferences only relevant identities by passing `object_ids`, the exact
+`document_id`, and `basis_revision`; Runtime returns their current full object
+records without advancing the delivery cursor. Every later ordinary read
+returns only the revision-bounded delta since that MCP session's last delivered
+revision. A document transition, stream gap, or lost base automatically returns
+a new full-or-catalog reset. If an Agent loses or corrupts its own folded cache,
+it may pass `resync: true` once with that exact `tab_id`; this resets only that
+Agent session's cursor for that tab. There is no all-tabs Truth read or resync.
+With `after_revision`, the Runtime waits locally for a newer revision; when it
+is combined with a semantic query, an already-current equal or newer canonical
+revision is sufficient. The model does not poll the page. Truth resources use
+`saccade://tabs/{tab_id}/truth`; subscribe/unsubscribe and unsolicited
+`notifications/resources/updated` carry the same Extension-produced stream.
+
+Within an Agent delta, `appeared` carries one complete new object,
+`disappeared` carries its stable `object_id`, and `updated` carries that ID plus
+a recursive JSON merge patch. The patch contains only changed fields; `null`
+removes a prior field. Geometry-only churn therefore sends changed coordinates
+instead of retransmitting names, roles, state, and affordances for every object.
+
+Each `truth.read` call may select `delivery_mode: live` or
+`delivery_mode: economy`; omission preserves the compatible `live` default.
+`live` returns the next pushed revision immediately for latency-sensitive work.
+`economy` adds a bounded 150 ms MCP-local coalescing window and returns the
+latest folded truthful delta for routine low-token work. Neither mode filters
+objects, removes current geometry, changes Profile behavior, or constrains the
+Agent's next choice. Capabilities advertise both modes so any LLM may select
+per call without product policy deciding for it.
+
+The public tool has no model-selected `view_mode`, `full`, `index`, or `region`
+override. Full-versus-catalog selection is a deterministic Runtime size rule,
+not an LLM guess. Object detail dereference addresses stable identities within
+one exact document revision; it is not a page view mode. `resync` is recovery
+for one named tab, not a selectable routine view mode.
+Public MCP tool input schemas avoid top-level `oneOf`, `allOf`, and `anyOf`
+composition because supported Agent registries do not accept it uniformly.
+Cross-field constraints such as the mutually exclusive single-action and batch
+forms of `saccade.act` remain strict Runtime validation and are described on the
+tool itself. This compatibility shape does not weaken object, document,
+revision, operation, or protected-value validation.
+Canonical current Truth still exists inside the Extension and Host for
+verification and automatic reset, but it is not repeatedly transferred to the
+model during a continuous document session. `saccade.act` advances the same
+Agent cursor. A verified single action or `all_verified` batch returns only its
+compact semantic proof; unrelated structural, geometry, and frame churn stays
+silently queued on the ordinary cursor. An unverified action may return
+same-frame appeared/disappeared objects when they are its only useful evidence.
+No canonical change is discarded.
+An action batch returns the final `document_id`, `revision`, and
+`next_basis_revision`; a later separate submit or navigation action can use
+that basis without an intermediate Truth read.
+MCP initialize carries only the compact route and full→delta invariant.
+The first `system.capabilities` call returns Profile name and behavior once,
+plus `profile_digest`, `runtime_version`, and `mcp_contract_hash`; the ban list
+remains private. Agent sessions must restart after a contract hash change.
+
+The wire protocols remain `saccade.observation/1` and
+`saccade-extension-host/1`. Optional action-authority fields remain legal on
+the internal wire for the Reference Actuator, but the default Agent projection
+omits them.
+
+The Extension `hello` includes a content-addressed candidate identity plus a
+bounded browser-family lifecycle route (`chrome` or `edge`, development flag,
+and its own `popup.html` URL). The Host validates and persists that route in
+the owner-only Runtime directory. The
+Service Worker accepts a page Collector only when both loaded the same
+candidate. Development installation stamps the unpacked directory and pins the
+same identity for the Native Host; `attach` succeeds only after the live
+Service Worker reports it. A newly bootstrapped Worker checks the installed
+candidate on reconnect and self-reloads when it changes. Chrome restart is the
+not an activation proof for an unpacked Extension. A pre-handshake Worker that
+cannot execute code it does not yet contain requires one explicit Reload from
+Chrome's Extensions page; the Agent client may perform that development setup
+operation with its own browser-settings tool.
+
+Worker activation does not rewrite a static Collector already loaded in an
+open page. Saccade never reloads such pages merely because an update occurred.
+If the user later explicitly shares one of those tabs, the Extension recovers
+the stale Collector with one ordinary tab reload, waits boundedly for the
+current candidate, and completes authorization. This recovery adds no dynamic
+script-injection permission or fallback compiler.
+
+## Truth Catalog and Registry
+
+`catalog/truth_inventory.json` is the canonical public Truth inventory. It
+accounts for every protocol role, reusable control variant, structural
+boundary, and its conformance gate. `catalog/controls.json` is the narrower
+Reference Actuator module catalog; its 15 rows must never be presented as the
+total Truth Layer surface. The core Registry owns semantic recognition and
+projection consistency. Adding a role or variant must not add site-specific
+selectors or execution policy.
+
+The current machine inventory contains 34 protocol roles, 12 reusable
+variants, and 6 structural/push boundaries. The 34 roles consist of 15
+interactive roles, 17 additional semantic roles, `frame`, and reserved
+`unknown`, which is forbidden from Agent output. Date/time/color inputs,
+listbox/combobox implementations, and drag/drop reuse existing roles rather
+than creating one protocol role per HTML element.
+
+Common controls require same-candidate Chrome and Edge truth evidence before
+becoming `publishable`. Fixtures are regression evidence, not proof of public
+web compatibility.
+
+## Evidence and comparison boundary
+
+The complete local Chrome and Edge gate proves that the Extension → Host →
+Runtime → MCP projection and pushed-delta framework works for the current
+inventory. It does not prove universal compatibility with modern websites.
+
+A fair Playwright engine comparison starts both lanes from the same generated
+unknown URL and natural-language task. The Saccade lane uses Truth plus
+`saccade.act`; the Playwright lane uses official Playwright MCP observation and
+execution. Agent-client fallback compatibility is reported separately because
+it introduces a client-specific executor. Record completion, discovery time,
+initial bytes/tokens, delta latency, re-observation count, stale/replacement
+recovery, tool calls, total time, and failures. Click latency alone is not a
+product comparison.
+
+## Reference Actuator
+
+Historical execution code is retained as an optional development adapter:
 
 ```text
-saccade-runtime native-host
-saccade-runtime mcp
-saccade-runtime doctor
-saccade-runtime repair
+saccade-runtime reference-actuator-mcp
 ```
 
-The modes share protocol, session, control-registry, verifier, audit, download,
-and packaging libraries. They do not share stdin/stdout: Chrome owns the Native
-Messaging channel and each Agent owns its MCP channel.
+It exposes only `saccade.reference.*` tools and is never written into default
+Codex or Claude MCP configuration. Its separate catalog owns native primitives,
+backend policy, verifier rules, form fill, reflex loops, stale/replay checks,
+and receipts. Native permissions and local input policy are loaded lazily only
+after an explicit reference action request. Every returned execution artifact
+has `reference_actuator` provenance and cannot establish default product
+execution capability.
 
-`saccade.system.capabilities` lists browser-owned confirmation dialogs as a
-restricted surface. Chrome and Edge do not expose those dialogs to the page
-Extension as revalidatable objects. Saccade requires human confirmation and
-does not intercept `window.confirm`, synthesize an Enter key, or add a browser
-chrome fallback.
+Sharing a source tree or executable with this explicitly selected diagnostic
+subcommand does not make it part of the internal development wrapper, default
+MCP, or the release architecture. Its permission failures are test-harness
+failures, not Saccade product blockers.
 
-The Runtime validates identity, revision, focus, topmost state, and geometry,
-selects a registered input backend, waits for fresh observations, and records receipts.
-It also loads the three-field Profile described in `PROFILE_ARCHITECTURE.md`.
-The Profile supplies behavior text to the Agent and bans named controls from
-the Agent surface. A separate user-local input-policy log records verified
-per-page control experience; it is not Profile data and is never committed.
+The Reference Actuator's reflex loop treats dynamic preparation invalidation as
+recoverable stale work. It waits for a newer browser-pushed revision and retries
+within a 45 ms bounded recovery budget; exhaustion remains an explicit failure.
+For Extension-dispatched semantic reflex clicks, current identity, token,
+affordance, visibility, and occurrence advancement remain mandatory, while
+physical screen-focus, topmost, and viewport-coordinate checks remain exclusive
+to native OS input.
+This diagnostic SLA and recovery behavior do not add execution to default MCP.
 
-### Truth Layer
+## Installation and verification
 
-The Truth Layer is the evidence boundary. It defines semantic objects, runtime
-identity, revision, provenance, affordances, target representations,
-limitations, disclosure, and receipts. The current v1 schema uses opaque action
-tokens and withholds locators, coordinates, editable values, and protected
-values. The active Profile may remove named controls from this projection.
+The first public release has two user-facing components: the Saccade browser
+Extension and `npx -y @saccade/setup`. The explicit setup command installs the
+headless local Runtime, user-level Native Messaging manifests, and local MCP
+entries for supported Codex and Claude clients. It does not install a visible
+application, use an npm `postinstall` hook, or request Accessibility. The
+normative lifecycle and compatibility rules are in `SETUP_TARGET.md`.
 
-The Extension-to-Host evidence stream remains a complete
-`saccade.observation/1` snapshot. MCP maintains a per-Agent Browser view over
-that evidence: the first view for a document is complete, while later views
-contain only appeared, updated, and disappeared semantic objects plus refreshed
-opaque authorities. Navigation, a stream gap, or a sufficiently large layout or
-topology change resets the view with one new complete projection. Full internal
-snapshots remain available to verification and local evidence; they are not
-repeated in Agent tool results. Exact document/viewport bounds, per-object
-evidence revisions, and loop-class tokens stay inside that evidence boundary;
-the Agent view retains semantic visibility and opaque object/action identity.
-The Agent view declares common object defaults once per response and omits
-those repeated fields from matching objects. An omitted default is not missing
-evidence: non-default visibility, transition, protection, and frame identity
-remain explicit.
-Long internal object identities are replaced at MCP with document-scoped Agent
-aliases such as `o1`. The alias remains stable for that Agent Browser document;
-MCP translates a selected option alias back to Host identity before validation.
-Aliases never become selectors or bypass revision-bound action tokens.
-The MCP adapter also removes redundant envelope copying from the Agent action
-surface. An action carries a current opaque token and operation fields. MCP may
-resolve that token only inside the current views already emitted to that Agent,
-then hydrates the complete browser, tab, document, and basis-revision envelope.
-An absent, ambiguous, stale, or cross-document token set fails before
-forwarding, and the Host still performs the complete independent identity,
-revision, token, replay, role, and affordance validation.
+Cloud-only Agent sessions cannot access the user's local Extension and Native
+Host. They are incompatible with the first release; no remote relay or page
+upload fallback is part of this architecture.
 
-Collector authorization begins after the HTTP(S) document commits and enters
-loading; it does not wait for every image, advertisement, or long-lived resource
-to reach browser `complete`. Authorization attempts are deduplicated per tab and
-document URL. The first actionable observation waits for `DOMContentLoaded`
-(`interactive`), preventing input into a half-initialized document. Mutations
-continue incrementally as remaining resources finish.
+`dev.sh up`, `status`, `test`, and `down` exercise the Truth Layer without
+Accessibility. `dev.sh test-actuator` explicitly exercises the optional
+Reference Actuator and may require native-input permission.
 
-The authorized top-document collector composes safely accessible same-origin
-iframe documents and open shadow roots into that same snapshot. It does not
-create another Extension-to-Host route or wait for a browser frame-topology
-service before producing root truth. Descendant objects retain frame identity;
-native preparation composes the same-origin frame-element chain and revalidates
-the target and every ancestor frame at the click point. Inaccessible frames are
-reported as restricted. Closed shadow roots remain opaque and are never claimed
-as reliably detected.
+The default Runtime has no generic `repair` command that requests
+Accessibility. The only permission helper is explicitly named
+`reference-actuator-repair` and is outside installation, status, MCP, and
+product recovery flows.
 
-### Control SDK
-
-The SDK contains:
-
-- a machine-readable Control Catalog;
-- control-family module contracts and registry;
-- allowlisted native-input primitives;
-- declarative postcondition verifiers;
-- fixtures and Chrome/Edge conformance runners;
-- evidence and public-matrix generators.
-
-End users do not install the SDK. Initially, new modules enter releases only
-through reviewed source contributions. Runtime-downloaded arbitrary code is
-out of scope.
-
-## Closed-loop contract
-
-Every actionable control instance follows:
+The default dogfood loop is:
 
 ```text
-discover
-  → observe
-  → prepare
-  → revalidate
-  → execute a registered input backend
-  → reobserve
-  → verify a control-specific postcondition
-  → receipt | failed | limited
+tabs.open → truth.read/subscribe → saccade.act(object_id)
+→ Extension software input → revision-bound semantic verification
+→ explicit Agent-client handoff only when retry_safe is true
+→ tabs.close when the Agent-owned tab was temporary
 ```
 
-Each Catalog entry declares either `software_preferred` or `native_required`.
-Software-preferred click controls use a token-bound Extension pointer sequence.
-Select uses a finite option-identity software primitive for native `<select>`
-and registered ARIA choices; editable and file-input controls require real OS input. A user-local
-receipt-backed rule may strengthen one page/control from software to native.
-The normal Agent tool surface exposes only Registry-selected `web.act`; it does
-not ask the model to choose a backend. Explicit soft/native overrides and the
-reflex-loop backend selector exist only when the local development diagnostic
-flag is enabled and are absent from normal MCP discovery and calls.
-An accepted input event is not automatically a successful control action.
-For example, checkbox success requires a checked-state transition; link success
-may require a document transition or an agent-owned new tab. If the semantic
-postcondition cannot be proved, the receipt says delivered/unverified rather
-than successful.
-Buttons that are semantically declared to reveal deferred content (including a
-form submit or `aria-haspopup=dialog`) may verify when a fresh observation adds
-a visible heading, alert, or status object. A visible dialog's page-authored
-accessible name is projected as a heading even when its labelled title uses a
-non-heading wrapper. Unrelated object churn and table rows alone do not prove
-the button effect.
-CSS `transitionend` and `animationend` schedule a fresh observation so content
-that begins at opacity zero is disclosed only after it becomes visible. Deferred
-content buttons use a bounded 750 ms settlement window for that lifecycle.
-
-An Agent may submit a bounded form plan once using `type`, `select`, and the
-role-specific `check` intent. The adapter maps `check` only to the existing
-checkbox/radio/switch click transaction; the Runtime rejects any other role
-before the first side effect. The Runtime resolves every
-initial token to runtime object identity before the first side effect, then
-executes the plan locally. Every item still performs its own prepare,
-revalidate, registered input, reobserve, verifier, and receipt transaction
-against a fresh revision. Later items are refreshed by the same document-local
-object identity; the Agent does not re-read or re-plan the page between fields.
-The result contains value-free step summaries and one final Agent-view delta.
-Submit buttons and navigation remain separate actions.
-
-Software choice input resolves the requested opaque option identity again at
-dispatch. Native `<select>` receives `input` and `change`; registered ARIA
-listbox/combobox controls receive a finite Home/ArrowDown/Enter sequence derived
-from the prepared enabled-option index. Fresh selected-option observation, not
-event delivery, decides the receipt. A learned local rule may strengthen the
-same control to the existing native choice primitive.
-
-A collapsed ARIA combobox may create its option objects only after expansion.
-When it explicitly exposes `aria-expanded=false`, the select module advertises
-a separate click affordance backed by `primary_click` and
-`expanded_transition`. A verified expand receipt pushes the newly appeared
-option objects; the Agent then uses their opaque identities in the unchanged
-select loop. Native `<select>` never advertises this expand action. The Catalog
-supports audited secondary operation strategies inside one control module
-instead of splitting a closed-loop control or adding framework-specific code.
-
-When multiple actionable controls share the same role and semantic name, the
-Truth Layer may add nearby value-free page-authored context as description.
-This applies across control families, removes nested controls before reading
-context, and never reads editable or protected values.
-
-Native editable input uses an Extension-side, token-bound focus handoff after
-prepare/revalidation; it does not expose or accept a coordinate. On macOS,
-keyboard events are then delivered to the exact
-browser PID that launched the Native Messaging Host. A different application
-becoming frontmost between prepare and dispatch therefore cannot receive
-editable text. Native popup and file-dialog keys remain system HID events for
-the real OS surface opened by the preceding click. Saccade does not retry an uncertain text dispatch;
-`has_value` still decides the receipt without revealing contents.
-
-## Control-module boundary
-
-Each cataloged control declares its safe state, affordances, implementation
-family, input policy, primitive, verifier, limitations, fixtures, and browser evidence.
-Similar controls share code. Agents continue to use generic observe/act tools;
-the Registry dispatches the correct module from the opaque token.
-
-Modules cannot send arbitrary code to the Host. The Host exposes a finite set of
-primitives such as pointer movement, allowed buttons, wheel, allowlisted key
-chords, Unicode text, selection, and bounded drag. The `native` backend uses OS
-input. The `soft` backend is restricted to the Registry's finite click and option-selection roles
-and dispatches from the Extension only after the same token and revision
-revalidation. It accepts no Agent coordinate or locator. The current v1 route
-uses opaque action tokens.
-
-Modules own semantic interpretation and the control-specific closed loop. They
-execute through registered primitives and report what occurred. Profile
-filtering happens outside the modules and cannot change their native action or
-verification logic.
-
-### User-local input policy
-
-The Catalog is the portable default; the user's runtime history is the local
-exception layer. For a normalized HTTP(S) page path plus semantic role and safe
-control name, the Runtime may record `software` after a verified software
-receipt or `native` after an unverified/unchanged software receipt. Query,
-fragment, credentials, editable values, locators, coordinates, and protected
-values are never stored. The user or Agent may explicitly remember the stronger
-native choice for a current token and may inspect the log through MCP.
-An explicit software diagnostic cannot bypass a learned native rule.
-
-Learning changes only the next fresh action. Saccade never turns an unverified
-software dispatch into an immediate native retry because that could activate a
-control twice. `TargetInvalidated` does not teach a backend preference. A
-Catalog `native_required` entry cannot be weakened by local history. Managed
-tests isolate and restore the user's log.
-
-The Profile contains `name`, Agent-facing `behavior`, and a `ban` list. The
-Runtime filters banned controls before MCP exposure and rejects action tokens
-that are absent from the filtered current observation. The current
-`saccade.observation/1` and `saccade-extension-host/1` meanings remain unchanged.
-
-## Coverage target
-
-- Common controls: full semantic observation, registered action,
-  control-specific verification, fail-closed and redaction evidence, and
-  current Chrome/Edge proof.
-- Uncommon controls: at least truthful recognition, safe state/bounds, and an
-  explicit limitation for every unverified action or semantic.
-- Outside the 95% core: browser/OS chrome, arbitrary closed-shadow internals,
-  PDF form internals, and arbitrary Canvas/WebGL/custom widgets without audited
-  semantics remain opaque or restricted.
-
-Canvas/WebGL support prioritizes application-provided semantic bridges. Pixel
-or visual detectors, if later approved, produce short-lived candidates with
-explicit provenance; a changed image is not a semantic success receipt.
-
-A canvas remains opaque unless an audited semantic bridge supplies current DOM
-objects with revalidatable identity. MouseAccuracy is one such narrow bridge:
-only its current `.target:not(.hit)` object is actionable. Historical hit
-effects remain non-actionable and score advancement, not canvas motion, proves
-success.
-
-Named images may carry the audited `data-saccade-image-identity` bridge. The
-Extension projects that bounded page-authored identity as description on a
-non-actionable image object. A fresh document can prove semantic image identity
-without exposing a source URL, screenshot, or pixels. Pages without the bridge
-receive no pixel-identity claim.
-
-## Platform delivery
-
-- macOS: signed and notarized DMG containing `Saccade.app`; CoreGraphics input;
-  one Accessibility confirmation; automatic Native Messaging and MCP repair.
-- Windows: signed Setup; `SendInput`; automatic Native Messaging registration,
-  MCP configuration, diagnostics, and repair.
-- Browser: one shared Extension source; store identifiers may differ between
-  Chrome Web Store and Edge Add-ons.
-
-Both platform assets, the Extension, Catalog, public matrix, source commit,
-SBOM, SHA-256 values, and machine-readable release manifest share one release
-version.
-
-## First proof slice
-
-The first Catalog + Registry + Runtime slice contains button, text field,
-checkbox, and select. The SDK v1 module contract froze after all four passed
-stale, permission, focus, topmost, redaction, native-input, postcondition,
-receipt, Chrome, and Edge development gates on the same source candidate.
-Catalog publication still requires signed-product and release evidence.
-
-The next Catalog extension adds search field, textarea, contenteditable, and
-spin button. These modules reuse the finite Unicode-text primitive and
-`has_value` verifier but keep role-specific safe projections. Paired managed
-Chrome and Edge development run `20260729T043308Z` verified all eight current
-actionable controls. This extension changes neither Profile fields nor the two
-v1 wire schemas; its Catalog rows remain `implementation` pending release
-evidence.
-
-The 2026-07-29 toggle and command extension adds radio, ARIA switch, tab, and
-menu item without changing the native primitive boundary. Radio and switch
-verify checked transitions, tab verifies becoming selected, and menu item v1
-verifies an expanded transition. Managed Chrome run `20260729T192723Z` and
-Edge run `20260729T192757Z` each produced 12 native verified receipts on the
-same source candidate. These are development artifacts; Catalog release
-evidence remains pending.
-
-The select family also covers native select, ARIA listbox, and ARIA combobox
-through enabled option-object identity and bounded indexed keyboard input.
-Paired managed run `20260729T225249Z` produced 14 native verified receipts in
-both Chrome and Edge and covered bounded structural reading, Profile behavior,
-Profile bans, and stale-token rejection. This remains development evidence.
-
-The automatic input-policy extension adds a Catalog default for all 15 controls
-and a user-local exception log without changing either v1 wire schema. Paired
-managed run `20260730T002519Z` produced seven software-verified click receipts
-and eight native-verified receipts in each browser, including
-link navigation. Each also proved that an unverified software dispatch teaches
-native only for the next fresh token, rejects a diagnostic software bypass,
-and then verifies the fresh token through OS input.
-These are local development artifacts; Catalog status remains `implementation`.
-
-Observation order is monotonic per tab. Revisions advance within a document;
-when a new document identity is accepted, the Host retires the prior identity
-and rejects any delayed snapshot from it. This prevents a late pre-navigation
-message from replacing the current observation or contaminating a receipt.
-
-Public-page compatibility is a separate development gate. Saccade must first
-produce its own verified receipts through the Registry-selected backend. A
-Playwright harness may then run in
-fresh contexts as an out-of-band reference oracle for accessible name, state,
-and screenshot comparison. It is absent from the production route and cannot
-create or upgrade a Saccade receipt. Run `20260729T211221Z` matched radio,
-switch, tab, and menu item on public W3C examples in Chrome and Edge.
-
-The 2026-07-30 Selenium official `web-form.html` gate exercised the incremental
-Agent Browser and local form plan on a public QA fixture. Three clean Chrome
-runs completed one five-control plan plus a separate Submit with 18/18 verified
-receipts and no editable-value disclosure. Median Saccade task time was 2.391
-seconds and median model-facing output was 4,863 tokens, down from the preceding
-six-call debug-shaped gate's 4.869 seconds and 63,093 tokens. The official
-Playwright MCP reference received predeclared CSS selectors with snapshots
-disabled and measured 1.327 seconds and 421 tokens. This proves the corrected
-Saccade architecture and a large regression improvement; it does not claim
-universal performance superiority. Evidence is local development evidence and
-does not change Catalog publication status.
-
-The 2026-07-30 optimization candidate kept the same matched task at 3/3 for
-both products. Saccade measured 2.475 seconds and 2,779 model-facing tokens at
-the median; Playwright measured 1.325 seconds and 421 tokens. The shorter Agent
-object identities and value-free form summaries materially reduce Saccade
-context, but Playwright remains faster and smaller on this selector-best-case
-form task. On the public ScrapingCourse Anti-Bot Challenge, Saccade returned the
-required truth in both runs (505 ms cold, 233 ms warm, about 414 tokens), while
-the matched Playwright MCP lane did not return the required challenge text.
-This is one reproducible site result, not a claim to bypass CAPTCHA or defeat
-anti-bot systems generally. The same candidate passed three consecutive fresh
-Chrome control/Profile gates and one Edge control/Profile gate; all evidence
-remains local development evidence and the Catalog stays `implementation`.
-
-The 2026-08-01 zero-knowledge modern-page gate used the same Agent and natural-
-language task on DemoQA's public React form. Two order-reversed post-fix runs
-passed in both Saccade and Playwright lanes. Saccade averaged 28.631 seconds,
-6.0 calls, and 120,399 input tokens; Playwright averaged 30.708 seconds, 6.0
-calls, and 106,883 tokens. The external run exposed and fixed CSS-faded dialog
-observation: opacity-zero content remains hidden, transition/animation completion
-pushes fresh truth, and a deferred Submit verifies from the newly visible dialog
-title. The bounded result and retained failures are recorded in
-`docs/reports/2026-08-01-modern-react-agent-comparison.md`; it is not a universal
-superiority or publication claim.
-
-The managed ordinary native-mouse gate uses the same semantic button token,
-preparation, CoreGraphics input, reobservation, and button-effect verifier. It
-does not expose or accept Agent coordinates. Run `20260729T053405Z` verified
-24/24 static targets in Chrome and 24/24 in Edge at 32, 40, and 48 CSS pixels.
-The macOS adapter's HID event source and move/down/up timing were migrated from
-the reviewed legacy human-input gate, not from its retired CEF/Servo execution
-route.
-
-DOM hit testing proves page-level topmost state. An unrelated always-on-top OS
-window can still intercept an event after preparation; v1 reports the missing
-semantic effect as unverified rather than claiming success. Release evidence
-must therefore use a controlled unobstructed browser window. OS-window
-occlusion preflight remains a separate platform gate. Development evidence also
-moves and resizes the exact managed browser PID between phases so screen bounds
-are recomputed rather than assumed from launch geometry.
-Managed Chrome run `20260729T064702Z` passed 24/24 native targets with zero
-misses across all three phases.
-
-The audited reflex extension adds a `reflex_target` Catalog module and one
-bounded local MCP loop. One MCP request keeps observe → act → verify local to
-the Runtime hot path. `native` receipts require `AcceptedByOs`; `soft` receipts
-require `AcceptedBySoftware`. Both require the same loop-class occurrence or
-score to advance. Profile remains `name / behavior / ban` and cannot select or
-weaken an input backend. This is additive development behavior under the v1
-wire names; its Catalog row remains `implementation`.
-
-Managed Chrome development run `20260729T064526Z` drove MouseAccuracy to
-`Insane + Tiny` and produced 31 score-verified software hits with zero failures.
-Observation-to-receipt latency was 14.72 ms p50 and 15.76 ms p95. This is local
-development evidence, not publication evidence.
-
-The next audited slice adds link navigation and single-file selection without
-changing the Profile or v1 wire names. Link verification requires a new
-document identity. File selection accepts an absolute accessible regular
-non-symlink path only in the immediate MCP action payload, keeps that path out
-of the Extension and every receipt/evidence surface, and drives the operating
-system chooser through a finite primitive. A real file-input change verifies
-chooser selection; server upload persistence remains a separate page-level
-fact.
-
-The 2026-07-29 authenticated itch.io dogfood selected a 37.8 MB Gear Up PDF
-through the real macOS chooser with `AcceptedByOs + Verified` and produced no
-path in the receipt. The collector then used bounded visible action-group text
-to distinguish four repeated file rows. Saccade made the v2 PDF public, checked
-the required confirmation for `gear_up_cards.pdf`, deleted that old file, and
-loaded a fresh document containing only the rules PDF, LICENSE, and v2 PDF.
-The same document preserved `Graphics=true` in the project's generative-AI
-disclosure.
-
-The same run routed `Replace Cover Image` and `Add screenshots` through the
-file-input loop. Three screenshot selections returned `AcceptedByOs + Verified`;
-a fresh document contained three screenshot rows. The cover upload invalidated
-and replaced its chooser target, but the current Truth Layer withholds image
-pixels and cannot prove the new cover's pixel identity. Screenshot deletion
-also exposed an itch.io browser-owned confirmation dialog, which required a
-human confirmation because browser chrome remains outside the v1 route.
-
-The preceding Link click was accepted by the OS but its document transition
-arrived after the receipt settlement window, so that receipt stayed
-unverified. These are local Chrome development findings; both new Catalog rows
-remain `implementation` pending same-candidate Chrome/Edge release evidence.
-
-## Non-goals
-
-- A second embedded browser product.
-- One MCP tool per control.
-- Arbitrary downloaded Host modules.
-- Silent or unregistered execution strategies.
-- Restoring retired engines to the default workspace.
-- Calling a revision change alone a verified semantic action.
+The public result distinguishes verified software input from an explicit safe
+external handoff without exposing native backend receipts. Detailed OS/backend
+receipts remain exclusive to Reference Actuator tests.

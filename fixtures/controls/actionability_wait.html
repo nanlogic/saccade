@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Software actionability wait</title>
+  <style>
+    body { font: 16px system-ui; margin: 40px; }
+    button { min-width: 180px; min-height: 48px; font: inherit; }
+    #target.moving { animation: settle 600ms ease-out both; }
+    #target.moving-forever { animation: orbit 160ms linear infinite alternate; }
+    #cover { position: fixed; inset: 0; z-index: 9999; background: rgba(20, 20, 20, .08); }
+    @keyframes settle { from { transform: translateX(120px); } to { transform: translateX(0); } }
+    @keyframes orbit { from { transform: translateX(-80px); } to { transform: translateX(80px); } }
+  </style>
+</head>
+<body>
+  <h1>Software actionability wait</h1>
+  <button id="target" type="button" aria-label="Target action" aria-pressed="false">Target action</button>
+  <p id="status" role="status">pending</p>
+  <script>
+    const scenario = new URL(location.href).searchParams.get('scenario') || 'fast';
+    const status = document.getElementById('status');
+    function bind(target) {
+      target.addEventListener('click', () => {
+        target.setAttribute('aria-pressed', 'true');
+        if (target.hasAttribute('data-saccade-reflex-target')) {
+          target.dataset.saccadeReflexOccurrence = String(
+            Number(target.dataset.saccadeReflexOccurrence || '0') + 1,
+          );
+        }
+        status.textContent = `ACTIONABILITY-PASS-${scenario}`;
+      });
+    }
+    function cover(removeAfter) {
+      const overlay = document.createElement('div');
+      overlay.id = 'cover';
+      overlay.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(overlay);
+      setTimeout(() => overlay.remove(), removeAfter);
+    }
+    let target = document.getElementById('target');
+    bind(target);
+    if (scenario === 'animation') target.classList.add('moving');
+    if (scenario === 'continuous_reflex') {
+      target.setAttribute('data-saccade-reflex-target', '');
+      target.dataset.saccadeReflexOccurrence = '0';
+      target.classList.add('moving-forever');
+    }
+    if (scenario === 'overlay') cover(600);
+    if (scenario === 'delayed_enable') {
+      target.disabled = true;
+      setTimeout(() => { target.disabled = false; }, 600);
+    }
+    if (scenario === 'replacement') {
+      cover(800);
+      setTimeout(() => {
+        const replacement = target.cloneNode(true);
+        replacement.classList.remove('moving');
+        target.replaceWith(replacement);
+        target = replacement;
+        bind(target);
+      }, 400);
+    }
+  </script>
+</body>
+</html>

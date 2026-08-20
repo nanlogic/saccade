@@ -1,103 +1,77 @@
-# Developer Preview release plan
+# Saccade 0.1.0 Developer Preview release plan
 
-## Release target
+Status: release preparation only. No public artifact has been published.
 
-The first public build targets macOS with current Chrome and Edge. A tester
-installs one signed app, confirms one browser Extension, selects a Profile, and
-runs a public-page proof without building the repository.
+## Ownership and release surface
 
-The preview will ship the 15 current Catalog controls. Bounded page reading and
-ARIA listbox/combobox source are implemented and passed paired managed-browser
-development proof in run `20260729T225249Z`. Frozen release-candidate and public
-page evidence remain release blockers. Slider, date/time variants, color, and
-drag and drop can follow after the preview if the coverage table names those
-gaps.
+Saccade is a Nanlogic product. `nanlogic/saccade` is the sole active source
+repository, GitHub Actions publisher, and Runtime Release owner. The npm name
+remains `@saccade/setup`, but the npm organization, trusted publisher,
+recovery methods, and at least two administrators must be controlled by
+Nanlogic. Wayne operates the Chrome Web Store submission through a
+Nanlogic-controlled publisher identity.
 
-Windows follows as a separate signed candidate. The macOS preview must not
-imply Windows support.
+The public product contains one browser-store Extension and the explicit
+`npx -y @saccade/setup` command. The Extension package is shared across CPU
+architectures. Setup selects one signed and notarized headless Runtime for
+`darwin-arm64` or `darwin-x64`. Windows follows only after its setup and
+lifecycle evidence exists. There is no GUI installer, Accessibility request,
+Reference Actuator, Playwright/CDP route, selector, screenshot, or arbitrary
+coordinate fallback in this release.
 
-## Product gates
+## Automated publication
 
-- Prove bounded heading, paragraph, list-item, table-cell, alert, and status
-  projection in managed Chrome and Edge. Report frame and opaque-surface limits.
-- Prove listbox and combobox option identity, popup settling, disabled choices,
-  duplicate names, and dynamic options in managed Chrome and Edge.
-- Prove the Extension popup share/revoke flow in Chrome and Edge, including
-  unsupported pages, browser restart, and immediate token invalidation.
-- Produce a signed and notarized macOS app, Native Messaging manifests, and
-  Chrome Web Store and Edge Add-ons builds.
-- Prove clean install, upgrade, repair, browser restart, Host restart, and
-  uninstall on a test account. Upgrade and repair must preserve the user's
-  Profile and local input-policy log; uninstall must state whether that log is
-  retained or removed.
-- Prove automatic Registry selection, user-remembered native exceptions, and
-  receipt-backed software-to-native learning in both browsers. Confirm that an
-  unverified software dispatch never triggers a same-token native retry and
-  that the log contains no values, locators, coordinates, or URL query data.
-- Publish a five-minute quickstart and one command that produces a redacted
-  diagnostic bundle.
+1. Freeze an existing `v0.1.0` tag after the complete local and browser gates.
+2. Manually dispatch `Prepare signed Runtime release` with that tag and the
+   final store Extension ID. The workflow reruns repository gates, requires a
+   production-named exact Extension candidate, builds on GitHub's arm64 and
+   Intel macOS runners, signs and notarizes both Runtime artifacts, and creates
+   one draft GitHub Release without overwriting an existing release.
+3. The workflow assembles `release.json` only when both architecture drafts
+   share the exact version, MCP contract, Extension candidate, signing status,
+   and Nanlogic Release URL. It attaches the manifest, checksums, Runtime
+   binaries, and Extension ZIP to the draft.
+4. Wayne reviews and publishes the GitHub Release. That publication event is
+   the only trigger for `Publish setup package`.
+5. The npm workflow downloads the attached manifest, verifies the tag,
+   company ownership, candidate, store origin, both signed artifacts and
+   checksums, then publishes with GitHub OIDC trusted publishing and npm
+   provenance. It has no long-lived npm token.
+6. Wayne submits the exact attached Extension ZIP to the Nanlogic Chrome Web
+   Store publisher. After approval, a clean user runs setup, doctor, open,
+   Truth, action, browser restart, uninstall, and Profile-preservation smoke.
 
-## Release-candidate data
+The tracked `packages/setup/release.json` remains an unpublished template.
+Final URLs and checksums are injected into the package only inside the npm
+publication job, after the GitHub Release is public.
 
-Freeze one source commit, Runtime version, Extension version, Chrome version,
-and Edge version before measurement. Store that identity beside each artifact.
+## Product and evidence gates
 
-Run the following gates again from clean browser profiles:
+- The same candidate and frozen commit pass Chrome and Edge full→delta,
+  common controls, dynamic replacement, continuous movement, Profile,
+  protected fields, frames/shadow boundaries, lifecycle recovery, and public
+  site reading.
+- Intel macOS additionally passes install, checksum, Native Messaging, MCP
+  start, doctor, browser restart, update, rollback, uninstall, and purge.
+- Codex and Claude each act with their own tool in the same authorized tab
+  while Saccade reports the semantic transition.
+- Fair Playwright comparisons retain identical URL/task/model/order controls
+  and separate control-plane, discovery, steady-state, infrastructure, and
+  model-usage accounting. Reference Actuator reports are not a release gate
+  and cannot support a public `saccade.act` superiority claim.
+- A failure after publication pauses the store rollout, marks the GitHub
+  Release prerelease when appropriate, and ships a new npm patch version.
+  Published npm version numbers are never reused.
 
-- every Catalog fixture in Chrome and Edge;
-- at least two independent public implementations for each common control;
-- authenticated dogfood for link and file input, plus the MouseAccuracy reflex
-  run;
-- stale, replay, focus, covered, navigation, Profile-ban, and value-leak tests;
-- action latency p50, p95, and p99 with success and failure counts;
-- the Playwright semantic oracle after Saccade passes independently.
+## Current blockers
 
-Publish the full denominator. Failed sites stay in the report with a reason.
-Do not combine results from different commits or select the best run.
-
-## Tester package
-
-- signed DMG and checksums;
-- store Extension links and supported browser versions;
-- `README` quickstart, architecture, Profile example, and coverage table;
-- a public fixture command and a public-site comparison command;
-- limitations for protected values, browser-owned dialogs, frames, PDF,
-  Canvas/WebGL, and unsupported controls;
-- GitHub issue templates for install failures, incorrect observations, and
-  action receipts.
-
-## Launch material
-
-Prepare a short screen recording that shows installation, observation, native
-input, a verified receipt, and one truthful rejection. Publish the raw evidence
-table and the Playwright comparison method beside the video.
-
-The launch post should explain the problem, the single execution route, the
-closed-loop receipt, measured results, and known limits. Avoid claims about
-arbitrary websites or safety guarantees beyond the published gates.
-
-## Distribution
-
-Primary launch:
-
-- GitHub Release with source, artifacts, checksums, and evidence;
-- Show HN with a technical demo and direct repository link.
-
-Follow-up posts:
-
-- Lobsters, if an existing member submits it under the site's rules;
-- relevant Reddit communities such as LocalLLaMA and opensource after checking
-  each community's self-promotion rules;
-- a technical article on the project site or DEV Community;
-- X and LinkedIn posts pointing to the evidence and demo;
-- Product Hunt after the install flow works for non-repository testers.
-
-Check each site's current posting and self-promotion rules from its official
-pages before scheduling. Space posts across several days so maintainers can
-answer issues and repair onboarding failures.
-
-## Release decision
-
-Wayne approves the candidate after reviewing the installer, demo, evidence,
-limitations, and launch copy. Publishable Catalog rows require signed-candidate
-Chrome and Edge evidence. Local development runs cannot promote them.
+- Production candidate `0.3.24` has a store-safe `Saccade` manifest. Local
+  development installs derive a separately identified development candidate
+  so they continue to use `com.nanlogic.saccade.dev`. The production candidate
+  still requires exact Chrome and Edge browser evidence before store upload.
+- Nanlogic's Apple signing/notarization credentials, final store Extension ID,
+  npm trusted-publisher binding, company recovery channels, and second npm
+  administrator must exist before the workflows can publish.
+- The x64 Runtime and setup lifecycle still need real Intel macOS evidence.
+- The owner-approved repository archival is complete and recorded in the
+  repository archive report.

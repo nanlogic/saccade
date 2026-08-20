@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 EXTENSION_VERSION=$(sed -n 's/^[[:space:]]*"version": "\([0-9][0-9.]*\)",*$/\1/p' "$ROOT/extension/manifest.json" | sed -n '1p')
 : "${EXTENSION_VERSION:?development Extension manifest has no version}"
-BROWSER_PROFILE_GENERATION=10
+BROWSER_PROFILE_GENERATION=17
 DEV_ROOT="$HOME/Library/Application Support/Saccade Dev"
 BIN_DIR="$DEV_ROOT/bin"
 RUNTIME_APP="$HOME/Applications/Saccade Dev Runtime.app"
@@ -28,7 +28,11 @@ SYSTEM_HOST_DIR="/Library/Google/ChromeForTesting/NativeMessagingHosts"
 SYSTEM_HOST_MANIFEST="$SYSTEM_HOST_DIR/com.nanlogic.saccade.dev.json"
 RUNTIME="$RUNTIME_MACOS/saccade-runtime"
 FIXTURE_URL="http://127.0.0.1:8765/fixtures/controls/all.html"
+EXTENSION_BOOTSTRAP_URL="chrome-extension://bobfbgjplflcigednmccmbhlgclomgod/popup.html"
 STRUCTURAL_FIXTURE_URL="http://127.0.0.1:8765/fixtures/structural/frames_and_shadow.html"
+PUSHED_DELTA_URL="http://127.0.0.1:8765/fixtures/structural/pushed_delta.html"
+TRUTH_LATENCY_URL="http://127.0.0.1:8765/fixtures/structural/truth_latency.html"
+LIFECYCLE_URL="http://127.0.0.1:8765/fixtures/structural/lifecycle_gauntlet.html"
 MOUSE_ACCURACY_URL="http://127.0.0.1:8765/fixtures/conformance/mouse_accuracy.html"
 MOUSE_ACCURACY_LAYOUT="${SACCADE_MOUSE_ACCURACY_LAYOUT:-buttons}"
 MOUSE_ACCURACY_DIFFICULTY="${SACCADE_MOUSE_ACCURACY_DIFFICULTY:-ordinary}"
@@ -36,6 +40,8 @@ MOUSE_ACCURACY_BACKEND="${SACCADE_MOUSE_ACCURACY_BACKEND:-native}"
 REFLEX_URL="${SACCADE_REFLEX_URL:-https://mouseaccuracy.com/game}"
 REFLEX_MAX_ACTIONS="${SACCADE_REFLEX_MAX_ACTIONS:-500}"
 REFLEX_TIMEOUT_MS="${SACCADE_REFLEX_TIMEOUT_MS:-30000}"
+FAIR_MODEL="${SACCADE_FAIR_MODEL:-}"
+FAIR_EFFORT="${SACCADE_FAIR_EFFORT:-low}"
 CODEX_BACKUP="$STATE_DIR/codex-saccade-backup.json"
 PROFILE_BACKUP="$STATE_DIR/profile-before-test.json"
 PROFILE_MISSING="$STATE_DIR/profile-was-missing"
@@ -182,6 +188,10 @@ data = json.loads(preferences.read_text(encoding="utf-8"))
 profile = data.setdefault("profile", {})
 profile["exit_type"] = "Normal"
 profile["exited_cleanly"] = True
+data.setdefault("extensions", {}).setdefault("ui", {})["developer_mode"] = True
+safebrowsing = data.setdefault("safebrowsing", {})
+safebrowsing["enabled"] = True
+safebrowsing["enhanced"] = False
 temporary = preferences.with_name(f"{preferences.name}.saccade-tmp")
 temporary.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
 os.chmod(temporary, preferences.stat().st_mode)
@@ -215,18 +225,22 @@ find_codex() {
 }
 
 install_runtime() {
-  signing_identity=${SACCADE_DEV_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development:[^"]*\)"/\1/p' | sed -n '1p')}
-  if [ -z "$signing_identity" ]; then
-    printf '%s\n' "Saccade Dev requires an Apple Development signing identity for stable Accessibility permission." >&2
-    exit 1
-  fi
-  signing_version="3:$signing_identity"
+  signing_identity=${SACCADE_DEV_SIGNING_IDENTITY:--}
+  signing_version="4:truth-layer:$signing_identity"
   cargo build --release --manifest-path "$ROOT/Cargo.toml" -p saccade-runtime
   source_hash=$(shasum -a 256 "$ROOT/target/release/saccade-runtime" | awk '{print $1}')
   installed_source_hash=$(sed -n '1p' "$STATE_DIR/runtime-source.sha256" 2>/dev/null || true)
+  recorded_runtime_hash=$(sed -n '1p' "$STATE_DIR/runtime-installed.sha256" 2>/dev/null || true)
+  actual_runtime_hash=
+  if [ -x "$RUNTIME" ]; then
+    actual_runtime_hash=$(shasum -a 256 "$RUNTIME" | awk '{print $1}')
+  fi
   installed_signing_version=$(sed -n '1p' "$STATE_DIR/runtime-signing.version" 2>/dev/null || true)
   runtime_changed=false
-  if [ ! -x "$RUNTIME" ] || [ "$source_hash" != "$installed_source_hash" ]; then
+  if [ ! -x "$RUNTIME" ] \
+    || [ "$source_hash" != "$installed_source_hash" ] \
+    || [ -z "$recorded_runtime_hash" ] \
+    || [ "$actual_runtime_hash" != "$recorded_runtime_hash" ]; then
     runtime_installing="$RUNTIME_MACOS/saccade-runtime.installing"
     cp "$ROOT/target/release/saccade-runtime" "$runtime_installing"
     chmod 700 "$runtime_installing"
@@ -250,6 +264,7 @@ install_runtime() {
     codesign --verify --deep --strict "$RUNTIME_APP"
     printf '%s\n' "$source_hash" > "$STATE_DIR/runtime-source.sha256"
     printf '%s\n' "$signing_version" > "$STATE_DIR/runtime-signing.version"
+    shasum -a 256 "$RUNTIME" | awk '{print $1}' > "$STATE_DIR/runtime-installed.sha256"
   fi
   if [ ! -f "$RUNTIME_DIR/profile.json" ]; then
     cp "$ROOT/profiles/default.json" "$RUNTIME_DIR/profile.json"
@@ -327,7 +342,7 @@ start_fixture() {
     -l "$(fixture_job_label)" \
     -o "$LOG_DIR/fixture.stdout.log" \
     -e "$LOG_DIR/fixture.log" \
-    -- /usr/bin/python3 -m http.server 8765 --bind 127.0.0.1 --directory "$FIXTURE_ROOT"
+    -- /usr/bin/python3 "$FIXTURE_ROOT/fixture_server.py" --port 8765 --bind 127.0.0.1 --directory "$FIXTURE_ROOT"
   fixture_count=0
   fixture_pid=
   while [ "$fixture_count" -lt 50 ]; do
@@ -357,12 +372,44 @@ start_fixture() {
 install_fixtures() {
   mkdir -p "$FIXTURE_ROOT/fixtures"
   cp -R "$ROOT/fixtures/." "$FIXTURE_ROOT/fixtures/"
+  cp "$ROOT/scripts/fixture_server.py" "$FIXTURE_ROOT/fixture_server.py"
   chmod -R u=rwX,go= "$FIXTURE_ROOT/fixtures"
+  chmod 700 "$FIXTURE_ROOT/fixture_server.py"
 }
 
 install_extension() {
+  source_expected="$STATE_DIR/source-extension-candidate.json"
+  python3 "$ROOT/scripts/write_extension_candidate.py" \
+    --extension-root "$ROOT/extension" \
+    --expected "$source_expected"
   cp -R "$ROOT/extension/." "$EXTENSION_ROOT/"
+  python3 - "$EXTENSION_ROOT/manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+if manifest.get("name") != "Saccade":
+    raise SystemExit("source Extension manifest must use the production name Saccade")
+manifest["name"] = "Saccade Extension (Development)"
+manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+PY
+  python3 "$ROOT/scripts/write_extension_candidate.py" \
+    --extension-root "$EXTENSION_ROOT" \
+    --expected "$RUNTIME_DIR/expected-extension-candidate.json"
+  if cmp -s "$source_expected" "$RUNTIME_DIR/expected-extension-candidate.json"; then
+    printf '%s\n' 'development Extension candidate did not diverge from production' >&2
+    exit 1
+  fi
   chmod -R u=rwX,go= "$EXTENSION_ROOT"
+}
+
+verify_attached_extension_candidate() {
+  python3 "$ROOT/scripts/verify_extension_candidate.py" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --expected "$RUNTIME_DIR/expected-extension-candidate.json"
 }
 
 stop_fixture() {
@@ -397,7 +444,7 @@ start_browser() {
     */Contents/MacOS/*) start_browser_app=${start_browser_executable%/Contents/MacOS/*} ;;
     *) printf '%s\n' "browser executable is not inside a macOS app: $start_browser_executable" >&2; exit 1 ;;
   esac
-  /usr/bin/open -na "$start_browser_app" about:blank --args \
+  /usr/bin/open -na "$start_browser_app" "$EXTENSION_BOOTSTRAP_URL" --args \
     --user-data-dir="$start_browser_profile" \
     --load-extension="$EXTENSION_ROOT" \
     --disable-extensions-except="$EXTENSION_ROOT" \
@@ -436,6 +483,44 @@ install_codex_mcp() {
     --runtime-dir "$RUNTIME_DIR"
 }
 
+refresh_attached_native_hosts() {
+  pgrep -f "$RUNTIME chrome-extension://" 2>/dev/null | while IFS= read -r attached_host_pid; do
+    case "$attached_host_pid" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    attached_host_command=$(ps -p "$attached_host_pid" -o command= 2>/dev/null || true)
+    case "$attached_host_command" in
+      "$RUNTIME chrome-extension://"*) kill "$attached_host_pid" 2>/dev/null || true ;;
+    esac
+  done
+}
+
+suspend_ordinary_chrome_native_host() {
+  suspended_manifest="$STATE_DIR/com.nanlogic.saccade.dev.chrome.suspended.json"
+  chrome_manifest="$HOST_DIR_CHROME/com.nanlogic.saccade.dev.json"
+  if [ -f "$chrome_manifest" ]; then
+    if [ -f "$suspended_manifest" ]; then
+      # install_native_manifest recreates every browser manifest on each up.
+      # A prior suspension must remain effective across repeat test/up calls,
+      # otherwise ordinary Chrome can reconnect and steal the single Host.
+      rm -f "$chrome_manifest"
+    else
+      mv "$chrome_manifest" "$suspended_manifest"
+    fi
+  fi
+  refresh_attached_native_hosts
+}
+
+restore_ordinary_chrome_native_host() {
+  suspended_manifest="$STATE_DIR/com.nanlogic.saccade.dev.chrome.suspended.json"
+  chrome_manifest="$HOST_DIR_CHROME/com.nanlogic.saccade.dev.json"
+  if [ -f "$suspended_manifest" ]; then
+    mkdir -p "$HOST_DIR_CHROME"
+    mv "$suspended_manifest" "$chrome_manifest"
+    chmod 600 "$chrome_manifest"
+  fi
+}
+
 up() {
   up_browser=${1:-chrome}
   require_browser "$up_browser"
@@ -444,20 +529,32 @@ up() {
   migrate_browser_profiles
   install_runtime
   install_native_manifest
-  install_codex_mcp
+  if [ "${SACCADE_SUSPEND_ORDINARY_CHROME_HOST:-0}" = 1 ] \
+    || [ -f "$STATE_DIR/com.nanlogic.saccade.dev.chrome.suspended.json" ]; then
+    suspend_ordinary_chrome_native_host
+  fi
   install_fixtures
   install_extension
   ensure_browser "$up_browser"
   start_fixture
   stop_browser "$up_browser"
   start_browser "$up_browser"
-  runtime_hash=$(shasum -a 256 "$RUNTIME" | awk '{print $1}')
-  requested_hash=$(sed -n '1p' "$STATE_DIR/accessibility-requested" 2>/dev/null || true)
-  if [ "$requested_hash" != "$runtime_hash" ]; then
-    SACCADE_RUNTIME_DIR="$RUNTIME_DIR" "$RUNTIME" repair
-    printf '%s\n' "$runtime_hash" > "$STATE_DIR/accessibility-requested"
-  fi
   printf '%s\n' "Saccade Dev $up_browser is starting. Run ./scripts/dev.sh status, then ./scripts/dev.sh test $up_browser."
+}
+
+attach_existing_chrome() {
+  mkdirs
+  install_runtime
+  install_native_manifest
+  install_fixtures
+  install_extension
+  start_fixture
+  refresh_attached_native_hosts
+  verify_attached_extension_candidate
+  printf '%s\n' "Saccade host is prepared for ordinary Chrome."
+  printf '%s\n' "Agents should use saccade.tabs.open for known URLs; the new tab is Agent On automatically."
+  printf '%s\n' "Existing Agent-Off tabs remain private unless the user explicitly shares that exact tab."
+  printf '%s\n' "Do not start ./scripts/dev.sh up while testing Codex same-tab execution; it launches a separate managed browser instance."
 }
 
 restore_profile() {
@@ -521,6 +618,7 @@ test_route() {
   isolate_input_policy
   trap 'stop_browser "$test_browser"; restore_profile; restore_input_policy; start_browser "$test_browser"' EXIT
   up "$test_browser"
+  SACCADE_RUNTIME_DIR="$RUNTIME_DIR" "$RUNTIME" reference-actuator-repair
   test_run_dir="$EVIDENCE_DIR/$test_stamp/$test_browser"
   mkdir -p "$test_run_dir"
   chmod 700 "$test_run_dir"
@@ -546,6 +644,125 @@ test_route() {
   start_browser "$test_browser"
   trap - EXIT HUP INT TERM
   printf '%s\n' "Cataloged-control $test_browser evidence: $test_run_dir"
+}
+
+truth_test_route() {
+  truth_browser=$1
+  truth_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$truth_browser"
+  mkdirs
+  trap 'stop_browser "$truth_browser"; restore_ordinary_chrome_native_host' EXIT
+  SACCADE_SUSPEND_ORDINARY_CHROME_HOST=1 up "$truth_browser"
+  truth_run_dir="$EVIDENCE_DIR/$truth_stamp/$truth_browser/truth"
+  mkdir -p "$truth_run_dir"
+  chmod 700 "$truth_run_dir"
+  python3 "$ROOT/scripts/probe_pushed_delta.py" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --url "$PUSHED_DELTA_URL" --output "$truth_run_dir/pushed-delta.json"
+  python3 "$ROOT/scripts/probe_resource_subscription.py" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --url "$PUSHED_DELTA_URL" --output "$truth_run_dir/resource-subscription.json"
+  python3 "$ROOT/scripts/probe_truth_latency.py" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --url "$TRUTH_LATENCY_URL" --single-p95-limit-ms 150 \
+    --output "$truth_run_dir/latency.json"
+  python3 "$ROOT/scripts/probe_control_truth.py" \
+    --browser "$truth_browser" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --catalog "$ROOT/catalog/controls.json" \
+    --url "$FIXTURE_URL" --output "$truth_run_dir/controls.json"
+  python3 "$ROOT/scripts/probe_semantic_truth.py" \
+    --browser "$truth_browser" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --inventory "$ROOT/catalog/truth_inventory.json" \
+    --url "$FIXTURE_URL" --structure-url "$STRUCTURAL_FIXTURE_URL" \
+    --output "$truth_run_dir/semantics.json"
+  restore_ordinary_chrome_native_host
+  trap - EXIT HUP INT TERM
+  printf '%s\n' "Truth Layer $truth_browser evidence: $truth_run_dir"
+}
+
+truth_test_all() {
+  truth_all_stamp=${1:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  truth_all_tmp=$(mktemp -d "${TMPDIR:-/tmp}/saccade-truth-all.XXXXXX")
+  truth_all_cleanup() {
+    down
+    case "$truth_all_tmp" in "${TMPDIR:-/tmp}"/saccade-truth-all.*) rm -rf "$truth_all_tmp" ;; esac
+  }
+  trap truth_all_cleanup EXIT HUP INT TERM
+  down
+  mkdirs
+  ensure_browser chrome
+  ensure_browser edge
+  python3 "$ROOT/scripts/write_candidate_manifest.py" \
+    --chrome "$(sed -n '1p' "$(browser_path_file chrome)")" \
+    --edge "$(sed -n '1p' "$(browser_path_file edge)")" \
+    --output "$EVIDENCE_DIR/$truth_all_stamp/candidate.json"
+  CHROME_PROFILE="$truth_all_tmp/chrome"
+  EDGE_PROFILE="$truth_all_tmp/edge"
+  mkdir -p "$CHROME_PROFILE" "$EDGE_PROFILE"
+  truth_test_route chrome "$truth_all_stamp"
+  truth_test_route edge "$truth_all_stamp"
+  trap - EXIT HUP INT TERM
+  truth_all_cleanup
+  printf '%s\n' "Chrome and Edge clean-profile Truth evidence: $EVIDENCE_DIR/$truth_all_stamp"
+}
+
+latency_matrix() {
+  latency_iterations=${1:-10}
+  case "$latency_iterations" in
+    ''|*[!0-9]*) printf '%s\n' 'latency matrix iterations must be an integer from 1 to 20' >&2; exit 2 ;;
+  esac
+  if [ "$latency_iterations" -lt 1 ] || [ "$latency_iterations" -gt 20 ]; then
+    printf '%s\n' 'latency matrix iterations must be from 1 to 20' >&2
+    exit 2
+  fi
+  latency_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  latency_run_dir="$EVIDENCE_DIR/$latency_stamp/latency-matrix"
+  latency_tmp=$(mktemp -d "${TMPDIR:-/tmp}/saccade-latency-matrix.XXXXXX")
+  latency_cleanup() {
+    down
+    case "$latency_tmp" in "${TMPDIR:-/tmp}"/saccade-latency-matrix.*) rm -rf "$latency_tmp" ;; esac
+  }
+  trap latency_cleanup EXIT HUP INT TERM
+  mkdirs
+  mkdir -p "$latency_run_dir"
+  install_runtime
+  install_native_manifest
+  install_codex_mcp
+  install_fixtures
+  install_extension
+  ensure_browser chrome
+  ensure_browser edge
+  start_fixture
+  latency_round=1
+  while [ "$latency_round" -le "$latency_iterations" ]; do
+    if [ $((latency_round % 2)) -eq 1 ]; then latency_first=chrome; latency_second=edge
+    else latency_first=edge; latency_second=chrome
+    fi
+    latency_position=first
+    for latency_browser in "$latency_first" "$latency_second"; do
+      latency_profile="$latency_tmp/round-$latency_round-$latency_browser"
+      mkdir -p "$latency_profile"
+      case "$latency_browser" in
+        chrome) CHROME_PROFILE=$latency_profile ;;
+        edge) EDGE_PROFILE=$latency_profile ;;
+      esac
+      start_browser "$latency_browser"
+      python3 "$ROOT/scripts/wait_for_mcp.py" --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" --timeout 30
+      python3 "$ROOT/scripts/probe_truth_latency.py" \
+        --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" --url "$TRUTH_LATENCY_URL" \
+        --output "$latency_run_dir/round-$(printf '%02d' "$latency_round")-$latency_position-$latency_browser.json"
+      stop_browser "$latency_browser"
+      latency_position=second
+    done
+    latency_round=$((latency_round + 1))
+  done
+  python3 "$ROOT/scripts/summarize_truth_latency_matrix.py" \
+    --input "$latency_run_dir" --output "$latency_run_dir/report.json" --iterations "$latency_iterations"
+  trap - EXIT HUP INT TERM
+  latency_cleanup
+  printf '%s\n' "Truth latency matrix evidence: $latency_run_dir/report.json"
 }
 
 test_all() {
@@ -577,6 +794,47 @@ frames_all() {
   frames_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
   frames_route chrome "$frames_stamp"
   frames_route edge "$frames_stamp"
+}
+
+lifecycle_route() {
+  lifecycle_browser=$1
+  lifecycle_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$lifecycle_browser"
+  mkdirs
+  trap 'stop_browser "$lifecycle_browser"; restore_ordinary_chrome_native_host' EXIT
+  SACCADE_SUSPEND_ORDINARY_CHROME_HOST=1 up "$lifecycle_browser"
+  lifecycle_run_dir="$EVIDENCE_DIR/$lifecycle_stamp/$lifecycle_browser/truth"
+  mkdir -p "$lifecycle_run_dir"
+  chmod 700 "$lifecycle_run_dir"
+  python3 "$ROOT/scripts/probe_lifecycle_truth.py" \
+    --browser "$lifecycle_browser" \
+    --runtime "$RUNTIME" --runtime-dir "$RUNTIME_DIR" \
+    --url "$LIFECYCLE_URL" --output "$lifecycle_run_dir/lifecycle.json"
+  restore_ordinary_chrome_native_host
+  trap - EXIT HUP INT TERM
+  printf '%s\n' "Lifecycle Truth $lifecycle_browser evidence: $lifecycle_run_dir/lifecycle.json"
+}
+
+lifecycle_all() {
+  lifecycle_stamp=${1:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  trap down EXIT HUP INT TERM
+  lifecycle_route chrome "$lifecycle_stamp"
+  lifecycle_route edge "$lifecycle_stamp"
+  trap - EXIT HUP INT TERM
+  down
+  printf '%s\n' "Chrome and Edge lifecycle evidence: $EVIDENCE_DIR/$lifecycle_stamp"
+}
+
+denominator_all() {
+  denominator_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  truth_test_all "$denominator_stamp"
+  lifecycle_all "$denominator_stamp"
+  python3 "$ROOT/scripts/summarize_denominator_evidence.py" \
+    --denominator "$ROOT/catalog/public_truth_cases.json" \
+    --truth-root "$EVIDENCE_DIR/$denominator_stamp" \
+    --lifecycle-root "$EVIDENCE_DIR/$denominator_stamp" \
+    --output "$EVIDENCE_DIR/$denominator_stamp/denominator-63.json"
+  printf '%s\n' "Chrome and Edge 63-row denominator evidence: $EVIDENCE_DIR/$denominator_stamp/denominator-63.json"
 }
 
 compare_route() {
@@ -652,6 +910,41 @@ external_all() {
   printf '%s\n' "Chrome and Edge public cross-site evidence: $EVIDENCE_DIR/$external_all_stamp"
 }
 
+public_truth_route() {
+  public_truth_browser=$1
+  public_truth_stamp=${2:-$(date -u '+%Y%m%dT%H%M%SZ')}
+  require_browser "$public_truth_browser"
+  mkdirs
+  restore_input_policy
+  isolate_input_policy
+  trap 'stop_browser "$public_truth_browser"; restore_input_policy; restore_ordinary_chrome_native_host; start_browser "$public_truth_browser"' EXIT
+  SACCADE_SUSPEND_ORDINARY_CHROME_HOST=1 up "$public_truth_browser"
+  public_truth_run_dir="$EVIDENCE_DIR/$public_truth_stamp/$public_truth_browser/public-truth"
+  mkdir -p "$public_truth_run_dir"
+  chmod 700 "$public_truth_run_dir"
+  python3 "$ROOT/scripts/probe_public_truth.py" \
+    --browser "$public_truth_browser" \
+    --browser-version "$("$(sed -n '1p' "$(browser_path_file "$public_truth_browser")")" --version)" \
+    --runtime "$RUNTIME" \
+    --runtime-dir "$RUNTIME_DIR" \
+    --cases "$ROOT/catalog/external_cases.json" \
+    --extra-cases "$ROOT/catalog/public_truth_extra_cases.json" \
+    --output "$public_truth_run_dir/saccade.json"
+  stop_browser "$public_truth_browser"
+  restore_input_policy
+  restore_ordinary_chrome_native_host
+  start_browser "$public_truth_browser"
+  trap - EXIT HUP INT TERM
+  printf '%s\n' "Default public Truth $public_truth_browser evidence: $public_truth_run_dir/saccade.json"
+}
+
+public_truth_all() {
+  public_truth_all_stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  public_truth_route chrome "$public_truth_all_stamp"
+  public_truth_route edge "$public_truth_all_stamp"
+  printf '%s\n' "Chrome and Edge default public Truth evidence: $EVIDENCE_DIR/$public_truth_all_stamp"
+}
+
 fair_task_path() {
   case "$1" in
     selenium) printf '%s\n' "$ROOT/benchmarks/tasks/selenium_web_form.json" ;;
@@ -681,20 +974,20 @@ fair_route() {
   mkdir -p "$fair_run_dir"
   chmod 700 "$fair_run_dir"
   fair_status=0
-  if ! python3 "$ROOT/scripts/benchmark_agent_fair.py" \
+  set -- python3 "$ROOT/scripts/benchmark_agent_fair.py" \
       --task "$fair_task_file" \
       --runtime "$RUNTIME" \
       --runtime-dir "$RUNTIME_DIR" \
+      --effort "$FAIR_EFFORT" \
       --output "$fair_run_dir" \
-      --order "$fair_order"; then
-    fair_status=$?
-    [ "$fair_status" -ne 0 ] || fair_status=1
-  fi
+      --order "$fair_order"
+  [ -z "$FAIR_MODEL" ] || set -- "$@" --model "$FAIR_MODEL"
+  "$@" || fair_status=$?
   stop_browser chrome
   restore_input_policy
   start_browser chrome
   trap - EXIT HUP INT TERM
-  printf '%s\n' "Fair unknown-page $fair_task/$fair_order evidence: $fair_run_dir/report.json"
+  printf '%s\n' "Same-Codex fair $fair_task/$fair_order (${FAIR_MODEL:-default}/$FAIR_EFFORT) evidence: $fair_run_dir/report.json"
   return "$fair_status"
 }
 
@@ -805,16 +1098,26 @@ down() {
   stop_browser chrome
   stop_browser edge
   stop_fixture
+  restore_ordinary_chrome_native_host
   rm -f "$STATE_DIR/active-browser"
   restore_profile
   restore_input_policy
-  if [ -f "$STATE_DIR/codex-path" ]; then
-    codex=$(sed -n '1p' "$STATE_DIR/codex-path")
-    python3 "$ROOT/scripts/dev_codex_config.py" restore \
-      --codex "$codex" \
-      --backup "$CODEX_BACKUP"
-  fi
-  printf '%s\n' "Saccade Dev processes stopped and the prior Codex MCP entry restored."
+  printf '%s\n' "Saccade Dev processes stopped. Codex MCP configuration was left unchanged."
+}
+
+mcp_command() {
+  mcp_action=${2:-install}
+  case "$mcp_action" in
+    install) mkdirs; install_runtime; install_codex_mcp ;;
+    restore)
+      [ -f "$STATE_DIR/codex-path" ] || { printf '%s\n' 'no recorded Codex MCP installation to restore' >&2; exit 2; }
+      codex=$(sed -n '1p' "$STATE_DIR/codex-path")
+      python3 "$ROOT/scripts/dev_codex_config.py" restore \
+        --codex "$codex" \
+        --backup "$CODEX_BACKUP"
+      ;;
+    *) printf '%s\n' 'mcp action must be install or restore' >&2; exit 2 ;;
+  esac
 }
 
 profile_command() {
@@ -840,7 +1143,15 @@ profile_command() {
 
 case "${1:-}" in
   up) up "${2:-chrome}" ;;
+  attach) attach_existing_chrome ;;
   test)
+    case "${2:-chrome}" in
+      all) truth_test_all ;;
+      chrome|edge) truth_test_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
+  test-actuator)
     case "${2:-chrome}" in
       all) test_all ;;
       chrome|edge) test_route "${2:-chrome}" ;;
@@ -868,6 +1179,21 @@ case "${1:-}" in
       *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
     esac
     ;;
+  public-truth)
+    case "${2:-chrome}" in
+      all) public_truth_all ;;
+      chrome|edge) public_truth_route "${2:-chrome}" ;;
+      *) printf '%s\n' "browser must be chrome, edge, or all" >&2; exit 2 ;;
+    esac
+    ;;
+  lifecycle)
+    case "${2:-all}" in
+      chrome|edge) lifecycle_route "$2" ;;
+      all) lifecycle_all ;;
+      *) printf '%s\n' 'lifecycle browser must be chrome, edge, or all' >&2; exit 2 ;;
+    esac
+    ;;
+  denominator) denominator_all ;;
   fair)
     case "${3:-both}" in
       both) fair_both "${2:-selenium}" ;;
@@ -875,6 +1201,7 @@ case "${1:-}" in
       *) printf '%s\n' "fair order must be both, saccade-first, or playwright-first" >&2; exit 2 ;;
     esac
     ;;
+  latency-matrix) latency_matrix "${2:-10}" ;;
   accuracy)
     case "${2:-chrome}" in
       all) accuracy_all ;;
@@ -883,8 +1210,9 @@ case "${1:-}" in
     esac
     ;;
   reflex) reflex_route "${2:-chrome}" "${3:-soft}" ;;
+  mcp) mcp_command "$@" ;;
   profile) profile_command "$@" ;;
   status) status ;;
   down) down ;;
-  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|test [chrome|edge|all]|frames [chrome|edge|all]|external [chrome|edge|all]|compare [chrome|edge|all]|fair [selenium|demoqa|angular] [both|saccade-first|playwright-first]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
+  *) printf '%s\n' "usage: ./scripts/dev.sh <up [chrome|edge]|attach|mcp <install|restore>|test [chrome|edge|all]|lifecycle [chrome|edge|all]|latency-matrix [1-20]|test-actuator [chrome|edge|all]|frames [chrome|edge|all]|external [chrome|edge|all]|public-truth [chrome|edge|all]|compare [chrome|edge|all]|fair [selenium|demoqa|angular] [both|saccade-first|playwright-first]|accuracy [chrome|edge|all]|reflex [chrome|edge] [native|soft]|profile <show|set NAME_OR_PATH|reset>|status|down>" >&2; exit 2 ;;
 esac

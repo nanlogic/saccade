@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Opener isolation</title>
+</head>
+<body>
+  <h1>Opener isolation</h1>
+  <form action="/fixtures/structural/opener_isolation_child.html"
+        method="get"
+        target="saccade-opener-isolation-child">
+    <button id="open-child" type="submit" aria-pressed="false">Open child tab</button>
+  </form>
+  <button id="close-child" type="button" aria-pressed="false" hidden>Close child tab</button>
+  <p id="status" role="status">Child tab closed</p>
+  <script>
+    const channel = new BroadcastChannel('saccade-opener-isolation');
+    document.getElementById('open-child').addEventListener('click', (event) => {
+      event.currentTarget.setAttribute('aria-pressed', 'true');
+      document.getElementById('status').textContent = 'Opening child tab';
+    });
+    channel.addEventListener('message', (event) => {
+      if (event.data !== 'child-loaded') return;
+      document.getElementById('close-child').hidden = false;
+      document.getElementById('status').textContent = 'Child tab opened';
+    });
+    document.getElementById('close-child').addEventListener('click', (event) => {
+      channel.postMessage('close-child');
+      event.currentTarget.setAttribute('aria-pressed', 'true');
+      event.currentTarget.hidden = true;
+      document.getElementById('status').textContent = 'Child tab closed';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "schema": "saccade-agent-benchmark-task/1",
+  "name": "github_public_repository_navigation",
+  "url": "https://github.com/openai/openai-python",
+  "task": "Read the public openai-python repository page and verify the repository identity and that an Issues navigation item is exposed.",
+  "success": {
+    "tool_output_contains": ["openai-python", "Issues"]
+  },
+  "redact": [],
+  "timeout_seconds": 300
+}

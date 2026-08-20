@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Opener isolation child</title>
+</head>
+<body>
+  <h1>Opener isolation child</h1>
+  <script>
+    const channel = new BroadcastChannel('saccade-opener-isolation');
+    channel.addEventListener('message', (event) => {
+      if (event.data === 'close-child') window.close();
+    });
+    channel.postMessage('child-loaded');
+  </script>
+</body>
+</html>

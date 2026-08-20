@@ -91,10 +91,9 @@ fn event_plan(
                 anyhow::bail!("select preparation has no visible option name");
             }
             let mut steps = vec![NativeStep::ChoicePopupDelay, NativeStep::ChoiceHome];
-            steps.extend(
-                std::iter::repeat(NativeStep::ChoiceNext)
-                    .take(prepared.selection_index.unwrap() as usize),
-            );
+            for _ in 0..prepared.selection_index.unwrap() {
+                steps.push(NativeStep::ChoiceNext);
+            }
             // The closed loop waits for the selected-option verifier after Return.
             // A fixed post-action sleep only duplicates that evidence-driven wait.
             steps.push(NativeStep::ChoiceReturn);

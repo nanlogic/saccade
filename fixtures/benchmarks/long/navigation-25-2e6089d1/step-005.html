@@ -1,0 +1,9 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Generated review queue</title><style>body{font:16px system-ui;margin:32px}main{max-width:640px;display:grid;gap:16px}article{border:1px solid #bbb;padding:20px;border-radius:12px}button{font:inherit;min-height:42px;margin-right:10px}[role=status]{min-height:24px}</style></head>
+<body><main><h1>One-time review queue</h1><article id="card"><h2>Record 5 of 25</h2>
+<p>Record ID: <strong id="record-id">INDIGO-4241-5</strong></p>
+<p>Risk score: <strong id="risk">57</strong></p><p>Evidence: <strong id="evidence">missing</strong></p>
+<button id="approve" type="button" aria-pressed="false">Approve record</button>
+<button id="reject" type="button" aria-pressed="false">Reject record</button></article><div id="status" role="status"></div></main><script>const C={"record":{"id":"INDIGO-4241-5","risk":57,"evidence":false,"expected":"reject"},"marker":"QUEUE-PROOF-2E6089D13B-NAVIGATION-25","next":"http://127.0.0.1:8765/fixtures/benchmarks/long/navigation-25-2e6089d1/step-006.html"};function choose(choice,event){if(choice!==C.record.expected){document.getElementById('status').textContent='Incorrect choice';return;}
+event.currentTarget.setAttribute('aria-pressed','true');if(C.next)location.href=C.next;else{document.getElementById('card').remove();document.getElementById('status').textContent=C.marker;}}
+document.getElementById('approve').onclick=(e)=>choose('approve',e);document.getElementById('reject').onclick=(e)=>choose('reject',e);</script></body></html>

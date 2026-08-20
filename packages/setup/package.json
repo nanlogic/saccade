@@ -1,0 +1,30 @@
+{
+  "name": "@saccade/setup",
+  "version": "0.1.0",
+  "description": "Install the local Saccade Truth Layer Runtime and MCP configuration.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nanlogic/saccade.git"
+  },
+  "bin": {
+    "saccade-setup": "bin/saccade-setup.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "default-profile.json",
+    "release.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

@@ -29,7 +29,7 @@ class ExternalDogfoodTests(unittest.TestCase):
         self.assertEqual(MODULE.classify_error(RuntimeError("stale action basis"), True), "prepare_rejected")
         self.assertEqual(MODULE.classify_error(RuntimeError("native dispatch failed"), True), "dispatch_failed")
 
-    def test_compact_view_does_not_persist_authority_or_geometry(self) -> None:
+    def test_compact_view_preserves_geometry_but_not_authority(self) -> None:
         view = {
             "document_id": "d",
             "revision": 3,
@@ -37,12 +37,16 @@ class ExternalDogfoodTests(unittest.TestCase):
             "limitations": [],
             "objects": [{
                 "object_id": "o1", "role": "text_field", "name": "Email",
-                "action_token": "secret", "bounds": {"x": 1}, "state": {"has_value": "false"},
+                "action_token": "secret",
+                "document_bounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+                "viewport_bounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+                "state": {"has_value": "false"},
             }],
         }
         serialized = json.dumps(MODULE.compact_view(view))
         self.assertNotIn("action_token", serialized)
-        self.assertNotIn("bounds", serialized)
+        self.assertIn("document_bounds", serialized)
+        self.assertIn("viewport_bounds", serialized)
 
 
 if __name__ == "__main__":

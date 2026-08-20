@@ -1,0 +1,16 @@
+{
+  "schema": "saccade.setup-release/1",
+  "published": false,
+  "version": "0.1.0",
+  "mcp_contract_hash": "ceec0b059a7215aa94669f77d94e846b54baa7bab9cf9eb481844bd263c01c20",
+  "extension_candidate": {
+    "schema": "saccade.extension-candidate/1",
+    "id": "ea3bd272a9df8e4332a4c6759bed30d66f348faf7d5f4399a138ca1ea8c44ee3",
+    "version": "0.3.24"
+  },
+  "native_host": {
+    "name": "com.nanlogic.saccade",
+    "allowed_origins": []
+  },
+  "artifacts": {}
+}

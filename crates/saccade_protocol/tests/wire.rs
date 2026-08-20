@@ -10,10 +10,21 @@ fn snapshot() -> ObservationSnapshot {
         document_id: "document-1".into(),
         revision: 1,
         viewport_revision: 1,
+        geometry: Some(ObservationGeometry {
+            unit: "css_px".into(),
+            coordinate_space: "content_viewport".into(),
+            viewport_width: 1200.0,
+            viewport_height: 665.0,
+            scroll_x: 0.0,
+            scroll_y: 412.0,
+            device_pixel_ratio: 2.0,
+            viewport_revision: 18,
+        }),
         frames: vec![FrameObservation {
             frame_id: "frame-1".into(),
             parent_frame_id: None,
             document_id: "document-1".into(),
+            document_url: Some("https://example.test/page?q=1#section".into()),
             origin: "https://example.test".into(),
             status: FrameStatus::Observed,
         }],
@@ -34,6 +45,8 @@ fn snapshot() -> ObservationSnapshot {
             name: Some("Email".into()),
             description: None,
             text: None,
+            navigation_target: None,
+            navigation_disposition: None,
             state: BTreeMap::from([("has_value".into(), "false".into())]),
             affordances: BTreeSet::from([Affordance::Type]),
             transition: Transition::None,
@@ -88,8 +101,192 @@ fn structural_text_is_non_actionable() {
 }
 
 #[test]
+fn link_navigation_target_is_http_semantic_truth_only() {
+    let mut value = snapshot();
+    let object = &mut value.objects[0];
+    object.kind = ObjectKind::Link;
+    object.role = SemanticRole::Link;
+    object.affordances = BTreeSet::from([Affordance::Click]);
+    object.transition = Transition::NavigationPossible;
+    object.navigation_target = Some("https://example.test/source?q=darkwood".into());
+    value.validate().unwrap();
+
+    value.objects[0].navigation_target = Some("javascript:alert(1)".into());
+    assert_eq!(
+        value.validate(),
+        Err(ObservationError::InvalidNavigationTarget)
+    );
+
+    value.objects[0].navigation_target = Some("https://user:secret@example.test/".into());
+    assert_eq!(
+        value.validate(),
+        Err(ObservationError::InvalidNavigationTarget)
+    );
+
+    value.objects[0].navigation_target = Some("https://example.test/source".into());
+    value.objects[0].role = SemanticRole::Button;
+    value.objects[0].kind = ObjectKind::Control;
+    assert_eq!(
+        value.validate(),
+        Err(ObservationError::InvalidNavigationTarget)
+    );
+}
+
+#[test]
+fn source_delta_must_reference_consistent_current_truth() {
+    let mut value = snapshot();
+    value.changes.push(ObservationChange {
+        kind: ChangeKind::Updated,
+        object_id: "missing-object".into(),
+        object_revision: 1,
+    });
+    assert_eq!(value.validate(), Err(ObservationError::InvalidChanges));
+
+    let mut value = snapshot();
+    value.changes.push(ObservationChange {
+        kind: ChangeKind::Disappeared,
+        object_id: "object-1".into(),
+        object_revision: 1,
+    });
+    assert_eq!(value.validate(), Err(ObservationError::InvalidChanges));
+}
+
+#[test]
 fn migrated_canonical_fixture_is_valid() {
     let fixture = include_str!("../../../tests/protocol/canonical_observation.json");
     let observation: ObservationSnapshot = serde_json::from_str(fixture).unwrap();
     observation.validate().unwrap();
+}
+
+#[test]
+fn document_url_round_trips_with_path_query_and_fragment() {
+    // Anchor verification compares the full URL, so the fragment must survive
+    // the wire exactly. A dropped fragment would silently break same-document
+    // link verification.
+    let encoded = serde_json::json!({
+        "frame_id": "frame-1",
+        "document_id": "document-1",
+        "document_url": "https://example.test/docs/page?q=1&r=2#section-3",
+        "origin": "https://example.test",
+        "status": "observed"
+    });
+    let frame: FrameObservation = serde_json::from_value(encoded.clone()).expect("decodes");
+    assert_eq!(
+        frame.document_url.as_deref(),
+        Some("https://example.test/docs/page?q=1&r=2#section-3")
+    );
+    assert_eq!(serde_json::to_value(&frame).expect("encodes"), encoded);
+}
+
+#[test]
+fn document_url_is_additive_and_may_be_absent() {
+    // saccade.observation/1 is unchanged: a frame without the field still
+    // decodes, and a restricted frame has no observable URL.
+    let frame: FrameObservation = serde_json::from_value(serde_json::json!({
+        "frame_id": "restricted.frame-2",
+        "document_id": "restricted.frame-2",
+        "origin": "",
+        "status": "restricted_permission"
+    }))
+    .expect("decodes without document_url");
+    assert_eq!(frame.document_url, None);
+    let reencoded = serde_json::to_value(&frame).expect("encodes");
+    assert!(
+        reencoded.get("document_url").is_none(),
+        "absent field must not be emitted"
+    );
+}
+
+#[test]
+fn geometry_is_additive_and_reports_the_css_viewport_directly() {
+    // An Agent must never have to infer the viewport from a full-width element.
+    let encoded = serde_json::json!({
+        "unit": "css_px",
+        "coordinate_space": "content_viewport",
+        "viewport_width": 1200.0,
+        "viewport_height": 665.0,
+        "scroll_x": 0.0,
+        "scroll_y": 412.0,
+        "device_pixel_ratio": 2.0,
+        "viewport_revision": 18
+    });
+    let geometry: ObservationGeometry = serde_json::from_value(encoded.clone()).expect("decodes");
+    assert_eq!(geometry.unit, "css_px");
+    assert_eq!(geometry.coordinate_space, "content_viewport");
+    assert_eq!(geometry.viewport_width, 1200.0);
+    assert_eq!(serde_json::to_value(&geometry).expect("encodes"), encoded);
+}
+
+#[test]
+fn a_snapshot_without_geometry_still_decodes() {
+    // saccade.observation/1 is unchanged; geometry is additive.
+    let mut value = serde_json::to_value(snapshot()).expect("encodes");
+    value.as_object_mut().expect("object").remove("geometry");
+    let snapshot: ObservationSnapshot = serde_json::from_value(value).expect("decodes");
+    assert!(snapshot.geometry.is_none());
+}
+
+#[test]
+fn internal_delta_is_strict_and_revision_bounded_without_a_second_public_schema() {
+    let mut current = snapshot();
+    current.revision = 2;
+    current.objects[0].object_revision = 2;
+    current.objects[0]
+        .state
+        .insert("has_value".into(), "true".into());
+    let delta = ObservationDelta {
+        browser_instance_id: current.browser_instance_id.clone(),
+        tab_id: current.tab_id.clone(),
+        document_id: current.document_id.clone(),
+        base_revision: 1,
+        revision: 2,
+        viewport_revision: current.viewport_revision,
+        geometry: current.geometry.clone(),
+        frames: current.frames.clone(),
+        objects: current.objects.clone(),
+        changes: vec![ObservationChange {
+            kind: ChangeKind::Updated,
+            object_id: current.objects[0].object_id.clone(),
+            object_revision: 2,
+        }],
+        authorities: vec![],
+        coverage: current.coverage.clone(),
+        limitations: current.limitations.clone(),
+    };
+    delta.validate().unwrap();
+    let mut encoded = serde_json::to_value(&delta).unwrap();
+    assert!(encoded.get("schema").is_none());
+    encoded["locator"] = serde_json::json!("#secret");
+    assert!(serde_json::from_value::<ObservationDelta>(encoded).is_err());
+
+    let mut skipped = delta;
+    skipped.base_revision = 0;
+    assert_eq!(skipped.validate(), Err(ObservationError::InvalidRevision));
+}
+
+#[test]
+fn navigation_disposition_is_additive_and_only_present_when_unverifiable() {
+    // Absent means an ordinary same-context navigation Saccade can verify.
+    let mut plain = snapshot();
+    plain.objects[0].navigation_disposition = None;
+    let encoded = serde_json::to_value(&plain.objects[0]).expect("encodes");
+    assert!(encoded.get("navigation_disposition").is_none());
+    for disposition in ["download", "new_context"] {
+        let decoded: ObservedObject = serde_json::from_value(serde_json::json!({
+            "object_id": "o1",
+            "frame_id": "frame-1",
+            "object_revision": 1,
+            "kind": "control",
+            "role": "link",
+            "document_bounds": {"x":0.0,"y":0.0,"width":10.0,"height":10.0},
+            "visibility": "visible",
+            "navigation_target": "https://example.test/file",
+            "navigation_disposition": disposition,
+            "affordances": ["click"],
+            "transition": "navigation_possible",
+            "protected": false
+        }))
+        .expect("decodes");
+        assert_eq!(decoded.navigation_disposition.as_deref(), Some(disposition));
+    }
 }

@@ -7,14 +7,42 @@
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
-    <main>
-      <header>
-        <span class="mark" aria-hidden="true"></span>
-        <div><h1>Saccade</h1><p id="state">Checking this tab…</p></div>
+    <main class="shell">
+      <header class="brand">
+        <img class="brand-icon" src="icons/icon-48.png" alt="">
+        <div class="brand-copy">
+          <div class="title-row">
+            <h1>Saccade</h1>
+            <span id="dev-badge" class="dev-badge" hidden>DEV</span>
+          </div>
+          <p>Browser truth layer</p>
+        </div>
       </header>
-      <p id="detail">Only the tab you share can be observed and controlled.</p>
-      <button id="toggle" type="button" disabled>Share this tab</button>
-      <p class="meta"><span id="host">Runtime: checking</span><span>Session-only access</span></p>
+
+      <section class="status-card" aria-live="polite">
+        <div class="status-line">
+          <span id="status-dot" class="status-dot pending" aria-hidden="true"></span>
+          <strong id="state">Checking</strong>
+          <span class="separator" aria-hidden="true"></span>
+          <span id="phase">This tab…</span>
+        </div>
+        <p id="detail">Checking whether this tab is available to your Agent.</p>
+      </section>
+
+      <button id="toggle" type="button" disabled>
+        <span id="toggle-label">Share this tab</span>
+      </button>
+
+      <footer class="meta">
+        <span class="meta-item">
+          <span id="host-dot" class="meta-dot" aria-hidden="true"></span>
+          <span id="host">Runtime checking</span>
+        </span>
+        <span class="meta-item">
+          <span class="shield" aria-hidden="true"></span>
+          Session only
+        </span>
+      </footer>
     </main>
     <script src="popup.js"></script>
   </body>

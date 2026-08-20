@@ -1,0 +1,11 @@
+{
+  "schema": "saccade-agent-benchmark-task/1",
+  "name": "nanlogic_homepage_product",
+  "url": "https://nanlogic.com/",
+  "task": "Read the Nanlogic homepage and verify that it presents NaNDesk and exposes the Try NaNDesk free call to action.",
+  "success": {
+    "tool_output_contains": ["NaNDesk", "Try NaNDesk free"]
+  },
+  "redact": [],
+  "timeout_seconds": 300
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Generated unknown semantic task</title>
+<style>body{font:16px system-ui;margin:32px}main{display:grid;gap:18px;max-width:620px}
+label{display:grid;gap:6px}input,select,button{font:inherit;min-height:38px}</style></head>
+<body><main><h1>One-time generated task</h1>
+<label>Marble Orbit<input id="first" type="text"></label>
+<label><input id="gate" type="checkbox"> Ember Orbit</label>
+<section id="dynamic" style="">
+  <label>Kepler Quartz<input id="second" type="text"></label>
+  <label>Nectar Willow<select id="choice">
+    <option value="">Choose</option>
+    <option>Indigo Glacier</option><option>Zephyr Prairie</option><option>Juniper Harbor</option>
+  </select></label>
+</section>
+<button id="submit" type="button">Validate generated task</button><div id="result" role="status"></div>
+</main><script>
+const C={"kind": "native", "firstLabel": "Marble Orbit", "secondLabel": "Kepler Quartz", "firstValue": "Zephyr Velvet Juniper", "secondValue": "Cedar Velvet Ember", "selectLabel": "Nectar Willow", "checkLabel": "Ember Orbit", "options": ["Indigo Glacier", "Zephyr Prairie", "Juniper Harbor"], "selected": "Indigo Glacier", "marker": "PROOF-JUNIPER-YARROW-LUMEN"};
+const gate=document.getElementById('gate'); const dynamic=document.getElementById('dynamic');
+gate.addEventListener('change',()=>{
+  if(C.kind==='reveal') dynamic.style.display=gate.checked?'':'none';
+  if(C.kind==='replace' && gate.checked){
+    const old=document.getElementById('second'); const fresh=old.cloneNode(true);
+    fresh.value=''; old.replaceWith(fresh);
+  }
+});
+document.getElementById('submit').addEventListener('click',()=>{
+  const ok=document.getElementById('first').value===C.firstValue && gate.checked &&
+    document.getElementById('second').value===C.secondValue &&
+    document.getElementById('choice').selectedOptions[0]?.textContent===C.selected;
+  document.getElementById('result').textContent=ok?C.marker:'NOT VERIFIED';
+});
+</script></body></html>
