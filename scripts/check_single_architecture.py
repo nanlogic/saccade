@@ -25,9 +25,8 @@ def forbid(path: str, needle: str) -> None:
 def main() -> None:
     require("crates/saccade_protocol/src/lib.rs", '"saccade.observation/1"')
     require("crates/saccade_protocol/src/lib.rs", '"saccade-extension-host/1"')
-    require("AGENTS.md", "docs/PROFILE_ARCHITECTURE.md")
-    require("README.md", "docs/PROFILE_ARCHITECTURE.md")
-    require("docs/FINAL_ARCHITECTURE.md", "`PROFILE_ARCHITECTURE.md`")
+    require("AGENTS.md", "docs/current/profile-boundary.md")
+    require("README.md", "docs/current/profile-boundary.md")
     require("docs/FINAL_ARCHITECTURE.md", "`npx -y @saccade/setup`")
     require("docs/SETUP_TARGET.md", "Status: normative for the first public release.")
     require("docs/SETUP_TARGET.md", "`postinstall`")
@@ -53,7 +52,15 @@ def main() -> None:
         raise SystemExit("setup release does not name the exact Extension candidate")
     require("packages/setup/src/setup.js", "exact Extension → Native Host → Runtime → MCP candidate")
     require("packages/setup/src/setup.js", "saccade.capabilities/6")
-    require("docs/extension_observation_contract.md", "`PROFILE_ARCHITECTURE.md`")
+    require(".github/workflows/prepare-release.yml", "macos-15-intel")
+    require(".github/workflows/prepare-release.yml", "sign_notarize_runtime.sh")
+    require(".github/workflows/prepare-release.yml", "--draft")
+    require(".github/workflows/publish-npm.yml", "id-token: write")
+    require(".github/workflows/publish-npm.yml", "npm publish --access public --provenance")
+    require("scripts/assemble_setup_release.py", "https://github.com/nanlogic/saccade/releases/download/")
+    require("scripts/verify_published_setup_release.py", '"darwin-arm64", "darwin-x64"')
+    require("scripts/package_extension_release.py", "store Extension manifest still has a development name")
+    require("PROJECT_AUTHORITY.md", "docs/current/profile-boundary.md")
     require(
         "docs/HOW_SACCADE_WORKS.md",
         "A closed-loop Saccade test must include the Agent-owned action",
@@ -99,15 +106,13 @@ def main() -> None:
         "Profiles provide behavior and ban named controls",
     )
     for needle in (
-        '"name"',
-        '"behavior"',
-        '"ban"',
-        '"control"',
-        '"condition"',
-        "saccade.observation/1",
-        "saccade-extension-host/1",
+        "Agent-facing behavior",
+        "bounded filtering policy",
+        "canonical control recognition",
+        "action authority",
+        "protected values",
     ):
-        require("docs/PROFILE_ARCHITECTURE.md", needle)
+        require("docs/current/profile-boundary.md", needle)
     profile_schema = json.loads(
         (ROOT / "catalog/profile.schema.json").read_text(encoding="utf-8")
     )

@@ -11,5 +11,15 @@
     "publishedAt": "2026-08-19T21:56:01.982Z",
     "publishedRevision": 1,
     "archivePath": ".authority/archive/proposals/1787176561951-product-execution-boundary.md"
+  },
+  {
+    "id": "1787191553742-actionability-follows-the-execution-primitive",
+    "path": "docs/proposals/actionability-by-execution-primitive.md",
+    "title": "Actionability follows the execution primitive",
+    "topic": "product-execution-boundary",
+    "baseRevision": null,
+    "status": "pending",
+    "sha256": "4aa130ff3e62e76e2d15fa22c4eacdcc18d93b17d5da5e2f7447d68c188b6978",
+    "createdAt": "2026-08-20T02:05:53.743Z"
   }
 ]

@@ -29,7 +29,9 @@ Updates and ordinary uninstall preserve your Saccade Profile. Run
 `npx -y @saccade/setup uninstall --purge` to remove the Profile and Runtime
 data.
 
-The first release supports local macOS clients that can start a STDIO MCP and
-control the same Chrome or Edge tab. Cloud-only sessions cannot connect to the
-local Extension and Native Host. Setup does not request Accessibility or
-install the optional Reference Actuator.
+The first release supports Apple Silicon and Intel macOS clients that can start
+a STDIO MCP and control the same Chrome or Edge tab. The same store Extension
+is used on both architectures; setup selects the matching signed Runtime.
+Cloud-only sessions cannot connect to the local Extension and Native Host.
+Setup does not request Accessibility or install the optional Reference
+Actuator.

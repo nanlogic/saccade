@@ -41,7 +41,13 @@ def runtime_contract_hash(runtime: Path) -> str:
     return contract_hash
 
 
-def build(runtime: Path, platform: str, output_dir: Path) -> dict[str, object]:
+def build(
+    runtime: Path,
+    platform: str,
+    output_dir: Path,
+    *,
+    signed: bool = False,
+) -> dict[str, object]:
     if platform not in {"darwin-arm64", "darwin-x64"}:
         raise ValueError("setup preview artifacts support darwin-arm64 or darwin-x64")
     if not runtime.is_file():
@@ -64,7 +70,7 @@ def build(runtime: Path, platform: str, output_dir: Path) -> dict[str, object]:
                 "local_file": artifact.name,
                 "sha256": digest(artifact),
                 "url": None,
-                "signed": False,
+                "signed": signed,
             }
         },
         "external_blockers": [
@@ -88,8 +94,14 @@ def main() -> None:
     parser.add_argument("--runtime", required=True, type=Path)
     parser.add_argument("--platform", required=True, choices=("darwin-arm64", "darwin-x64"))
     parser.add_argument("--output", default=ROOT / "dist/setup-preview", type=Path)
+    parser.add_argument("--signed", action="store_true")
     args = parser.parse_args()
-    result = build(args.runtime.resolve(), args.platform, args.output.resolve())
+    result = build(
+        args.runtime.resolve(),
+        args.platform,
+        args.output.resolve(),
+        signed=args.signed,
+    )
     print(json.dumps({key: str(value) for key, value in result.items()}))
 
 

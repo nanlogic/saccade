@@ -407,7 +407,7 @@ state projection, or delta semantics.
 }
 ```
 
-Read [Profile architecture](docs/PROFILE_ARCHITECTURE.md) and the
+Read [Profile architecture](docs/current/profile-boundary.md) and the
 [Profile schema](catalog/profile.schema.json) before adding Profile behavior.
 
 ## Repository map
@@ -443,7 +443,7 @@ python3 -m unittest tests/test_benchmark_agent_fair.py
 python3 -m unittest tests/test_operation_inference_ab.py
 python3 -m unittest tests/test_external_dogfood.py
 python3 -m unittest tests/test_public_truth_cases.py
-python3 -m unittest tests/test_dev_lifecycle.py tests/test_lifecycle_truth.py tests/test_summarize_fair_matrix.py tests/test_build_setup_release.py tests/test_audit_public_evidence.py
+python3 -m unittest tests/test_dev_lifecycle.py tests/test_lifecycle_truth.py tests/test_summarize_fair_matrix.py tests/test_build_setup_release.py tests/test_package_extension_release.py tests/test_audit_public_evidence.py
 python3 -m unittest tests/test_truth_latency.py tests/test_denominator_evidence.py
 python3 -m unittest tests/test_benchmark_same_model_fair.py
 python3 -m unittest tests/test_run_same_model_matrix.py

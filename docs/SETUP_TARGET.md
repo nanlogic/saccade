@@ -17,20 +17,23 @@ The command installs the local MCP and Native Host without adding a visible
 application. Saccade does not use a DMG, macOS application, Windows Setup, or
 system input permission in the first release.
 
-The `@saccade` npm scope must belong to the project before publication. Until
-then, the command above defines the product target rather than an available
-package.
+The `@saccade` npm organization, trusted publisher, recovery methods, and at
+least two administrators must be controlled by Nanlogic before publication.
+Until then, the command above defines the product target rather than an
+available package.
 
 The package source lives in `packages/setup`. Its bundled `release.json` stays
 explicitly unpublished until signed Runtime artifacts, checksums, and final
 store Extension origins are available. Development tests provide their own
 isolated release manifest and never install into the real user home.
 
-`scripts/build_setup_release.py` packages a real local macOS Runtime and writes
-its SHA-256, `SHA256SUMS`, exact Extension candidate, and an unpublished release
-draft under ignored `dist/`. The draft deliberately records null download URL,
-unsigned state, empty store origins, and the remaining external blockers. It
-cannot be consumed as a published release or used to turn `published` on.
+`scripts/build_setup_release.py` packages one real local macOS Runtime and
+writes its SHA-256, `SHA256SUMS`, exact Extension candidate, and an unpublished
+architecture draft under ignored `dist/`. The draft deliberately records a
+null download URL and empty store origins. Only the protected GitHub release
+workflow may combine signed `darwin-arm64` and `darwin-x64` drafts, attach the
+final Nanlogic Release URLs, and produce the published manifest consumed by
+the npm trusted-publishing workflow.
 
 ## Setup responsibilities
 
@@ -66,8 +69,8 @@ the user passes an explicit purge option.
 
 ## Client boundary
 
-The first release supports local Agent clients that can start a STDIO MCP and
-control the same Chrome or Edge tab:
+The first release supports Apple Silicon and Intel macOS Agent clients that can
+start a STDIO MCP and control the same Chrome or Edge tab:
 
 - Codex desktop, CLI, and IDE clients;
 - Claude Code;

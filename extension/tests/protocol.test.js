@@ -606,9 +606,14 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   assert.match(prepare, /request\.defer_scroll === true/);
   assert.match(prepare, /scrollIntoView/);
   assert.match(prepare, /function waitForSoftwarePreparation/);
-  assert.match(prepare, /!preparationIssue\(prepared, target\) && !targetGeometryIsAnimating/);
+  assert.match(prepare, /function softwarePreparationPolicy/);
+  assert.match(prepare, /request\.operation === 'click' && target\.role === 'reflex_target'/);
+  assert.match(prepare, /require_topmost: !reflexClick/);
+  assert.match(prepare, /require_focus: !reflexClick/);
+  assert.match(prepare, /require_stable_geometry: !reflexClick/);
+  assert.match(prepare, /!policy\.require_stable_geometry \|\| !targetGeometryIsAnimating/);
   assert.match(prepare, /await new Promise\(\(resolve\) => requestAnimationFrame\(resolve\)\)/);
-  assert.match(prepare, /stableFrames >= 2/);
+  assert.match(prepare, /!policy\.require_stable_geometry \|\| stableFrames >= 2/);
   assert.match(prepare, /collect\(\);\s+prepared = prepare\(\{ \.\.\.request, basis_revision: revision \}\)/);
   assert.match(prepare, /actionability_timeout_/);
   assert.match(prepare, /request\.timeout_ms/);

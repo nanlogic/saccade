@@ -13,7 +13,7 @@ from typing import Any
 from dev_probe import wait_for_mcp
 
 
-SCENARIOS = ("animation", "overlay", "delayed_enable", "replacement")
+SCENARIOS = ("animation", "overlay", "delayed_enable", "replacement", "continuous_reflex")
 
 
 def tool(mcp: Any, name: str, arguments: dict[str, Any], timeout: float = 35.0) -> dict[str, Any]:
@@ -25,22 +25,26 @@ def tool(mcp: Any, name: str, arguments: dict[str, Any], timeout: float = 35.0) 
     return response["structuredContent"]
 
 
-def target_view(mcp: Any, tab_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def target_view(mcp: Any, tab_id: str, scenario: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    role = "reflex_target" if scenario == "continuous_reflex" else "button"
     view = tool(mcp, "truth.read", {
         "tab_id": tab_id,
         "timeout_ms": 5_000,
         "query": {
             "text": "Target action",
-            "roles": ["button"],
+            "roles": [role],
             "frame_scope": "root",
             "min_objects": 1,
             "max_objects": 4,
         },
     })
     matches = [item for item in view.get("objects", [])
-               if item.get("role") == "button" and item.get("name") == "Target action"]
+               if item.get("role") == role and item.get("name") == "Target action"]
     if len(matches) != 1:
-        raise RuntimeError(f"expected one target button, got {len(matches)}")
+        observed = [(item.get("role"), item.get("name")) for item in view.get("objects", [])]
+        raise RuntimeError(
+            f"{scenario}: expected one {role} target, got {len(matches)}; observed={observed}"
+        )
     return view, matches[0]
 
 
@@ -61,6 +65,7 @@ def main() -> None:
     parser.add_argument("--runtime-dir", required=True, type=Path)
     parser.add_argument("--url", required=True)
     parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument("--scenario", action="append", choices=SCENARIOS)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if not 1 <= args.iterations <= 1000:
@@ -70,6 +75,7 @@ def main() -> None:
     report: dict[str, Any] = {
         "schema": "saccade.actionability-wait/1",
         "iterations_per_scenario": args.iterations,
+        "selected_scenarios": args.scenario or list(SCENARIOS),
         "scenarios": {},
     }
     started = time.monotonic()
@@ -77,7 +83,7 @@ def main() -> None:
         capabilities = tool(mcp, "system.capabilities", {})
         report["browser"] = capabilities.get("attached_browser")
         report["extension_candidate"] = capabilities.get("extension_candidate")
-        for scenario in SCENARIOS:
+        for scenario in args.scenario or SCENARIOS:
             waits: list[int] = []
             stale = 0
             recovered = 0
@@ -87,7 +93,7 @@ def main() -> None:
                 tab_id: str | None = None
                 try:
                     tab_id = str(tool(mcp, "tabs.open", {"url": url, "active": True})["tab_id"])
-                    view, target = target_view(mcp, tab_id)
+                    view, target = target_view(mcp, tab_id, scenario)
                     try:
                         result = act(mcp, tab_id, view, target)
                     except Exception as error:
@@ -99,7 +105,7 @@ def main() -> None:
                         if "stale" not in code and result.get("retry_safe") is not True:
                             raise RuntimeError(f"replacement did not fail stale: {result}")
                         stale += 1
-                        fresh_view, fresh_target = target_view(mcp, tab_id)
+                        fresh_view, fresh_target = target_view(mcp, tab_id, scenario)
                         result = act(mcp, tab_id, fresh_view, fresh_target)
                         recovered += 1
                     if result.get("verified") is not True:
@@ -108,7 +114,7 @@ def main() -> None:
                 finally:
                     if tab_id is not None:
                         tool(mcp, "tabs.close", {"tab_id": tab_id})
-            if scenario != "replacement" and any(wait <= 0 for wait in waits):
+            if scenario not in {"replacement", "continuous_reflex"} and any(wait <= 0 for wait in waits):
                 raise RuntimeError(f"{scenario} did not prove a local wait on every run")
             report["scenarios"][scenario] = {
                 "passed": len(waits),

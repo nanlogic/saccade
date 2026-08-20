@@ -2,10 +2,10 @@
   "schema": "saccade.setup-release/1",
   "published": false,
   "version": "0.1.0",
-  "mcp_contract_hash": "6b5eb2ab18b9ab0948d12701ad177e9c34f1efb0edf67463c3bfa83b969a2ca5",
+  "mcp_contract_hash": "ceec0b059a7215aa94669f77d94e846b54baa7bab9cf9eb481844bd263c01c20",
   "extension_candidate": {
     "schema": "saccade.extension-candidate/1",
-    "id": "8be096270574424581c54296b8226e92024e2865a7a2af14b14565c416b7d9e8",
+    "id": "2d8a877e3dc1b5c9a003aa3662ea9ddad506a7033aba286e1c48e21fe8af2612",
     "version": "0.3.23"
   },
   "native_host": {

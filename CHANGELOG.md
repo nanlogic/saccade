@@ -1,5 +1,15 @@
 # Changelog
 
+- Added Nanlogic-owned release automation for signed and notarized Apple
+  Silicon and Intel macOS Runtime artifacts, a draft GitHub Release, and
+  tokenless npm trusted publishing with provenance. The workflow fails closed
+  until the Extension has a production manifest identity and all external
+  company credentials and store identifiers exist.
+- Corrected software actionability so continuously moving `reflex_target`
+  objects use the immediate object-addressed path instead of waiting forever
+  for stable geometry. Ordinary controls retain bounded stability, coverage,
+  focus, and enablement waits; identity/authority replacement still fails stale
+  and reflex success still requires semantic occurrence proof.
 - Reduced the Truth MCP fixed control plane to a compact initialize contract
   and per-tool descriptions; Profile behavior now arrives once from
   `system.capabilities`, with deterministic Runtime, Profile, and contract

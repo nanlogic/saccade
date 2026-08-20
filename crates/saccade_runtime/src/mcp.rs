@@ -1441,6 +1441,16 @@ fn tools(mode: McpMode, diagnostics: bool) -> Vec<Value> {
         json!({"name":"saccade.truth.read","description":"Read canonical Truth for one tab. Query keys are text/text_any plus roles (plural array) or affordances. One query returns a bounded working set with nearby decision context; do not query adjacent labels separately. Otherwise the first view is full/catalog and later views are deltas. after_revision waits locally. resync resets only this tab.","inputSchema":{"type":"object","properties":{"tab_id":{"type":"string","minLength":1},"after_revision":{"type":"integer","minimum":0,"description":"Canonical lower bound; keep beside query."},"timeout_ms":{"type":"integer","minimum":1,"maximum":30000},"delivery_mode":{"type":"string","enum":["live","economy"],"default":"live"},"resync":{"type":"boolean","default":false},"object_ids":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1},"uniqueItems":true},"document_id":{"type":"string","minLength":1},"basis_revision":{"type":"integer","minimum":1},"query":{"type":"object","description":"Bounded semantic projection over current canonical Truth.","properties":{"text":{"type":"string","minLength":1,"maxLength":256},"text_any":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":256}},"roles":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","minLength":1},"uniqueItems":true},"affordances":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","minLength":1},"uniqueItems":true},"visible_only":{"type":"boolean","default":false},"frame_scope":{"type":"string","enum":["root","all"],"default":"all"},"min_objects":{"type":"integer","minimum":1,"maximum":32,"default":1},"max_objects":{"type":"integer","minimum":1,"maximum":32,"default":20}},"anyOf":[{"required":["text"]},{"required":["text_any"]},{"required":["roles"]},{"required":["affordances"]}],"additionalProperties":false}},"required":["tab_id"],"additionalProperties":false}}),
         json!({"name":"saccade.act","description":"Act on current Truth object IDs with registered software input. Omit operation when the current affordance or payload is unambiguous; pass it explicitly for a recognized control that may become enabled during the bounded local wait. Batch independent form edits. verified/all_verified is semantic proof; otherwise obey retry_safe and external_execution_required.","inputSchema":public_act_schema}),
     ];
+    tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "saccade.truth.read")
+        .and_then(|tool| tool.pointer_mut("/inputSchema/properties/query/properties/roles"))
+        .and_then(Value::as_object_mut)
+        .expect("truth.read roles schema must be an object")
+        .insert(
+            "description".into(),
+            json!("Canonical Truth roles. HTML/ARIA combobox and listbox controls project as select; both are accepted as input aliases."),
+        );
     if mode == McpMode::Reference {
         tools.extend([
             json!({"name":"saccade.reference.act","description":"Reference-only closed-loop actuator using a current action token.","inputSchema":action_request_schema(&["click","type","select","upload"])}),
@@ -1775,6 +1785,7 @@ impl AgentViewState {
             values
                 .iter()
                 .filter_map(Value::as_str)
+                .map(canonical_query_role)
                 .collect::<BTreeSet<_>>()
         });
         let affordances = query
@@ -2841,6 +2852,13 @@ fn query_search_text(
     parts.join(" ")
 }
 
+fn canonical_query_role(role: &str) -> &str {
+    match role {
+        "combobox" | "listbox" => "select",
+        role => role,
+    }
+}
+
 fn query_object_text(object: &saccade_protocol::ObservedObject) -> String {
     [
         object.name.as_deref(),
@@ -3516,6 +3534,12 @@ mod tests {
             truth_read["inputSchema"]["properties"]["query"]["properties"]["visible_only"]
                 ["default"],
             false
+        );
+        assert!(
+            truth_read["inputSchema"]["properties"]["query"]["properties"]["roles"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("both are accepted as input aliases")
         );
         assert!(truth_read["description"]
             .as_str()
@@ -4492,7 +4516,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_query_uses_nearby_heading_context_for_controls() {
+    fn semantic_query_accepts_aria_aliases_for_select_controls() {
         let fixture = include_str!("../../../tests/protocol/canonical_observation.json");
         let mut observation: ObservationSnapshot = serde_json::from_str(fixture).unwrap();
         let mut heading = observation.objects[0].clone();
@@ -4515,10 +4539,10 @@ mod tests {
         let mut views = AgentViewState::new(false);
         let view = views
             .project_query(
-                observation,
+                observation.clone(),
                 &json!({
                     "text":"Basic select",
-                    "roles":["select"],
+                    "roles":["combobox"],
                     "frame_scope":"root",
                     "min_objects":1,
                     "max_objects":8
@@ -4527,6 +4551,21 @@ mod tests {
             .unwrap();
         assert_eq!(view["match_count"], 1);
         assert_eq!(view["objects"][0]["name"], "Favorite food");
+
+        let alias_view = views
+            .project_query(
+                observation,
+                &json!({
+                    "text":"Basic select",
+                    "roles":["listbox"],
+                    "frame_scope":"root",
+                    "min_objects":1,
+                    "max_objects":8
+                }),
+            )
+            .unwrap();
+        assert_eq!(alias_view["match_count"], 1);
+        assert_eq!(alias_view["objects"][0]["name"], "Favorite food");
     }
 
     #[test]

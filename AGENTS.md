@@ -3,7 +3,7 @@
 Read `docs/FINAL_ARCHITECTURE.md` and
 `docs/extension_observation_contract.md` before changing browser, Host,
 protocol, MCP, control-module, input, download, or packaging behavior. Read
-`docs/PROFILE_ARCHITECTURE.md` before changing Profile loading or filtering.
+`docs/current/profile-boundary.md` before changing Profile loading or filtering.
 
 ## Permanent product north star
 
@@ -83,7 +83,7 @@ and path. Do not copy the old tree or its monolithic classifiers.
 
 - Keep the Control Catalog machine-readable and regenerate the public coverage
   table after each Catalog change.
-- Treat `docs/PROFILE_ARCHITECTURE.md` as normative. A Profile boundary change
+- Treat `docs/current/profile-boundary.md` as normative. A Profile boundary change
   must update `docs/FINAL_ARCHITECTURE.md`,
   `docs/extension_observation_contract.md`, and `docs/decisions.md` in the same
   review.

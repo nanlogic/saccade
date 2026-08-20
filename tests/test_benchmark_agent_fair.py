@@ -168,6 +168,61 @@ class FairBenchmarkTests(unittest.TestCase):
         self.assertEqual(summary["returncode"], 124)
         self.assertEqual(summary["infrastructure"]["failure"], "timeout")
 
+    def test_echoed_success_text_cannot_override_failed_model_verdict(self) -> None:
+        needle = "TARGET-WAS-NOT-FOUND"
+        task = {"success": {"tool_output_contains": [needle]}}
+        events = [
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "mcp_tool_call",
+                    "name": "browser.find",
+                    "arguments": {"text": needle},
+                    "result": {"content": [{"type": "text", "text": f'No matches found for "{needle}".'}]},
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "agent_message",
+                    "text": json.dumps({"completed": False, "summary": "Target was not found."}),
+                },
+            },
+        ]
+        summary = MODULE.lane_summary("playwright", 10, 0, events, "", task)
+        self.assertFalse(summary["passed"])
+        self.assertTrue(summary["model_report_consistent"])
+        self.assertFalse(summary["success_evidence"][needle])
+
+    def test_structured_query_echo_is_not_positive_evidence(self) -> None:
+        needle = "Pizza"
+        task = {"success": {"tool_output_contains": [needle]}}
+        events = [
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "mcp_tool_call",
+                    "name": "saccade.truth.read",
+                    "result": {
+                        "structured_content": {
+                            "query": {"text_any": [needle]},
+                            "objects": [{"role": "heading", "text": "Basic select"}],
+                        }
+                    },
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "agent_message",
+                    "text": json.dumps({"completed": False, "summary": "Option absent."}),
+                },
+            },
+        ]
+        summary = MODULE.lane_summary("saccade", 10, 0, events, "", task)
+        self.assertFalse(summary["success_evidence"][needle])
+        self.assertFalse(summary["passed"])
+
     def test_model_usage_separates_cached_and_non_cached_input(self) -> None:
         self.assertEqual(
             MODULE.normalized_model_usage({
@@ -197,7 +252,7 @@ class FairBenchmarkTests(unittest.TestCase):
         self.assertFalse(summary["contract_hash_valid"])
         self.assertEqual(summary["failure_reason"], "stale_mcp_contract_or_registry")
 
-    def test_independent_oracle_evidence_overrides_a_contradictory_model_report(self) -> None:
+    def test_positive_oracle_does_not_override_failed_agent_completion(self) -> None:
         marker = "QUEUE-PROOF-INDEPENDENT-ORACLE"
         task = {"success": {"tool_output_contains": [marker]}}
         events = [
@@ -211,7 +266,7 @@ class FairBenchmarkTests(unittest.TestCase):
             }},
         ]
         summary = MODULE.lane_summary("playwright", 1, 0, events, "", task)
-        self.assertTrue(summary["passed"])
+        self.assertFalse(summary["passed"])
         self.assertFalse(summary["model_report_consistent"])
 
     def test_run_lane_executes_saccade_with_codex(self) -> None:

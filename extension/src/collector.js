@@ -1087,10 +1087,22 @@
     return false;
   }
 
-  function preparationIssue(prepared, target) {
+  function softwarePreparationPolicy(request, target) {
+    const reflexClick = request.operation === 'click' && target.role === 'reflex_target';
+    return {
+      // Software reflex input targets this exact authorized DOM object. It
+      // does not aim a physical pointer, so continuous movement, browser
+      // focus, and coordinate hit testing are not preparation gates.
+      require_topmost: !reflexClick,
+      require_focus: !reflexClick,
+      require_stable_geometry: !reflexClick,
+    };
+  }
+
+  function preparationIssue(prepared, target, policy) {
     if (!prepared.visible) return 'not_visible';
-    if (!prepared.topmost) return 'not_topmost';
-    if (!prepared.focus_verified) return 'focus_not_verified';
+    if (policy.require_topmost && !prepared.topmost) return 'not_topmost';
+    if (policy.require_focus && !prepared.focus_verified) return 'focus_not_verified';
     if (!targetEnabled(target)) return 'not_enabled';
     return null;
   }
@@ -1105,7 +1117,9 @@
     const startedAt = performance.now();
     let prepared = prepare(request);
     let target = tokenTargets.get(request.action_token);
-    if (!preparationIssue(prepared, target) && !targetGeometryIsAnimating(target.element)) {
+    const policy = softwarePreparationPolicy(request, target);
+    if (!preparationIssue(prepared, target, policy)
+      && (!policy.require_stable_geometry || !targetGeometryIsAnimating(target.element))) {
       prepared.local_wait_ms = 0;
       return prepared;
     }
@@ -1113,7 +1127,8 @@
     const deadline = performance.now() + timeoutMs;
     let previousBox = null;
     let stableFrames = 0;
-    let lastIssue = preparationIssue(prepared, target) || 'geometry_unstable';
+    let lastIssue = preparationIssue(prepared, target, policy)
+      || (policy.require_stable_geometry ? 'geometry_unstable' : null);
     while (performance.now() < deadline) {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       // Recompile locally before revalidation. If identity, semantic authority,
@@ -1124,11 +1139,11 @@
       collect();
       prepared = prepare({ ...request, basis_revision: revision });
       target = tokenTargets.get(request.action_token);
-      lastIssue = preparationIssue(prepared, target);
+      lastIssue = preparationIssue(prepared, target, policy);
       const box = prepared.screen_bounds;
       stableFrames = sameBox(previousBox, box) ? stableFrames + 1 : 1;
       previousBox = box;
-      if (!lastIssue && stableFrames >= 2) {
+      if (!lastIssue && (!policy.require_stable_geometry || stableFrames >= 2)) {
         prepared.local_wait_ms = Math.max(0, performance.now() - startedAt);
         return prepared;
       }

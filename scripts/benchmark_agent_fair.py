@@ -291,6 +291,30 @@ def normalized_model_usage(usage: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def without_echoed_query(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: without_echoed_query(item)
+            for key, item in value.items()
+            if key != "query"
+        }
+    if isinstance(value, list):
+        return [without_echoed_query(item) for item in value]
+    return value
+
+
+def positive_tool_evidence(tool_items: list[dict[str, Any]], needle: str) -> bool:
+    folded_needle = needle.casefold()
+    for item in tool_items:
+        result_text = compact(without_echoed_query(item.get("result"))).casefold()
+        if folded_needle not in result_text:
+            continue
+        if "no matches found for" in result_text:
+            continue
+        return True
+    return False
+
+
 def infrastructure_failure(returncode: int, timed_out: bool, tool_items: list[dict[str, Any]], text: str) -> str | None:
     folded = text.casefold()
     if timed_out:
@@ -324,14 +348,21 @@ def lane_summary(lane: str, elapsed_ms: float, returncode: int, events: list[dic
         final_value = {"completed": False}
     tool_text = compact(tool_items)
     required_evidence = task["success"]["tool_output_contains"]
-    evidence = {needle: needle.casefold() in tool_text.casefold() for needle in required_evidence}
+    evidence = {needle: positive_tool_evidence(tool_items, needle) for needle in required_evidence}
     usage_events = [event.get("usage") for event in events if event.get("type") == "turn.completed"]
     usage = usage_events[-1] if usage_events and isinstance(usage_events[-1], dict) else {}
     contract_hash_valid = lane != "saccade" or expected_contract_hash is None or expected_contract_hash in tool_text
     infrastructure = infrastructure_failure(returncode, timed_out, tool_items, f"{stderr}\n{compact(final_value)}")
     oracle_complete = all(evidence.values())
-    passed = infrastructure is None and returncode == 0 and contract_hash_valid and oracle_complete
-    model_report_consistent = final_value.get("completed") is True or not oracle_complete
+    model_completed = final_value.get("completed") is True
+    passed = (
+        infrastructure is None
+        and returncode == 0
+        and contract_hash_valid
+        and oracle_complete
+        and model_completed
+    )
+    model_report_consistent = model_completed or not oracle_complete
     # A lane that never reached its browser MCP is broken harness plumbing, not a
     # lost comparison. Name it explicitly so the other lane is never credited.
     failure_reason = final_value.get("failure_reason")
@@ -630,6 +661,7 @@ def main() -> int:
     parser.add_argument("--effort", choices=("low", "medium", "high", "xhigh"), default="low")
     parser.add_argument("--playwright-package")
     parser.add_argument("--order", choices=("saccade-first", "playwright-first"), default="saccade-first")
+    parser.add_argument("--operation-mode", choices=("inferred", "explicit"), default="inferred")
     args = parser.parse_args()
     playwright_lock = load_playwright_lock()
     locked_playwright_package = f"{playwright_lock['package']}@{playwright_lock['version']}"
@@ -656,7 +688,7 @@ def main() -> int:
     }
     for lane in ("saccade", "playwright"):
         control_plane[lane]["task_prompt_bytes"] = len(
-            prompt_for(task, lane).encode()
+            prompt_for(task, lane, args.operation_mode).encode()
         )
     output_dir = args.output.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -668,6 +700,7 @@ def main() -> int:
             lane, task, args.model, args.effort, runtime, runtime_dir,
             playwright_package, output_dir,
             expected_contract_hash=identity["mcp_contract_hash"] if lane == "saccade" else None,
+            operation_mode=args.operation_mode,
         )
     validate_lane_order(lanes["saccade"], lanes["playwright"], args.order)
     evidence_errors = {name: lane_evidence_errors(lane) for name, lane in lanes.items()}
@@ -679,7 +712,12 @@ def main() -> int:
     report = {
         "schema": "saccade-agent-benchmark/1",
         "task": {key: task[key] for key in ("name", "url", "success")},
-        "agent": {"driver": "codex exec", "model": args.model or "codex-default-recommended", "effort": args.effort},
+        "agent": {
+            "driver": "codex exec",
+            "model": args.model or "codex-default-recommended",
+            "effort": args.effort,
+            "operation_mode": args.operation_mode,
+        },
         "order": order,
         "playwright_mcp": playwright_lock,
         "saccade_contract": identity,

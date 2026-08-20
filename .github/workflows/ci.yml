@@ -46,6 +46,7 @@ jobs:
             tests/test_lifecycle_truth.py \
             tests/test_summarize_fair_matrix.py \
             tests/test_build_setup_release.py \
+            tests/test_package_extension_release.py \
             tests/test_audit_public_evidence.py
           python3 -m unittest \
             tests/test_truth_latency.py \
