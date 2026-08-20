@@ -12,6 +12,8 @@
   Silicon and Intel clients.
 - Configure the Extension → Native Host → owner-only local IPC → MCP route for
   local Codex and Claude clients.
+- Give users an exact Chrome Web Store link and browser-specific recovery steps
+  when setup or MCP finds the required Extension missing or outdated.
 - Add signed Runtime, notarization, GitHub Release, npm trusted-publishing, and
   Chrome Web Store packaging workflows.
 - Publish the reversed-order Saccade and Playwright comparison with the full

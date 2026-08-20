@@ -20,6 +20,12 @@ For supported controls, clients use `tabs.open → truth.read → saccade.act �
 truth.read(after_revision)` directly; Claude in Chrome, Playwright, and CDP are
 not required.
 
+If the local Runtime and MCP are installed but the browser Extension is absent,
+stopped, or outdated, setup and `doctor` print the exact Chrome Web Store URL,
+Chrome and Edge installation steps, the expected Extension version, the doctor
+command to rerun, and the client restart step. Setup never attempts to bypass
+the browser's installation confirmation.
+
 Use these lifecycle commands:
 
 ```sh
