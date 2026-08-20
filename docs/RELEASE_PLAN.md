@@ -35,8 +35,13 @@ coordinate fallback in this release.
    the only trigger for `Publish setup package`.
 5. The npm workflow downloads the attached manifest, verifies the tag,
    company ownership, candidate, store origin, both signed artifacts and
-   checksums, then publishes with GitHub OIDC trusted publishing and npm
-   provenance. It has no long-lived npm token.
+   checksums, then publishes with npm provenance. Because npm cannot configure
+   trusted publishing or staged publishing for a brand-new package, `0.1.0`
+   uses a one-day organization-scoped `NPM_BOOTSTRAP_TOKEN`. Immediately after
+   that first publish, bind `@nanlogic/saccade` to repository
+   `nanlogic/saccade`, workflow `publish-npm.yml`, environment `npm-release`,
+   delete the GitHub secret, and revoke the token. Every later version uses
+   GitHub OIDC trusted publishing with no npm token.
 6. Wayne submits the exact attached Extension ZIP to the Nanlogic Chrome Web
    Store publisher. After approval, a clean user runs setup, doctor, open,
    Truth, action, browser restart, uninstall, and Profile-preservation smoke.
@@ -70,8 +75,10 @@ publication job, after the GitHub Release is public.
   so they continue to use `com.nanlogic.saccade.dev`. The production candidate
   still requires exact Chrome and Edge browser evidence before store upload.
 - Nanlogic's Apple signing/notarization credentials, final store Extension ID,
-  npm trusted-publisher binding, company recovery channels, and second npm
-  administrator must exist before the workflows can publish.
+  one-day npm bootstrap token, company recovery channels, and second npm
+  administrator must exist before the workflows can publish. The trusted
+  publisher is bound and the bootstrap token is deleted immediately after the
+  first package publish.
 - The x64 Runtime and setup lifecycle still need real Intel macOS evidence.
 - The owner-approved repository archival is complete and recorded in the
   repository archive report.
