@@ -5,14 +5,14 @@ Status: release preparation only. No public artifact has been published.
 ## Ownership and release surface
 
 Saccade is a Nanlogic product. `nanlogic/saccade` is the sole active source
-repository, GitHub Actions publisher, and Runtime Release owner. The npm name
-remains `@saccade/setup`, but the npm organization, trusted publisher,
-recovery methods, and at least two administrators must be controlled by
-Nanlogic. Wayne operates the Chrome Web Store submission through a
+repository, GitHub Actions publisher, and Runtime Release owner. The npm package
+is `@nanlogic/saccade`; its organization, trusted publisher, recovery methods,
+and at least two administrators must be controlled by Nanlogic. Wayne operates
+the Chrome Web Store submission through a
 Nanlogic-controlled publisher identity.
 
 The public product contains one browser-store Extension and the explicit
-`npx -y @saccade/setup` command. The Extension package is shared across CPU
+`npx -y @nanlogic/saccade` command. The Extension package is shared across CPU
 architectures. Setup selects one signed and notarized headless Runtime for
 `darwin-arm64` or `darwin-x64`. Windows follows only after its setup and
 lifecycle evidence exists. There is no GUI installer, Accessibility request,

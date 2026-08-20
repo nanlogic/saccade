@@ -127,7 +127,7 @@ function validateRelease(release, key) {
 function fetchHttps(url, redirects = 0) {
   if (redirects > 5) return Promise.reject(new Error('too many Runtime download redirects'));
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { 'User-Agent': '@saccade/setup' } }, (response) => {
+    const request = https.get(url, { headers: { 'User-Agent': '@nanlogic/saccade' } }, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         response.resume();
         const next = new URL(response.headers.location, url).toString();

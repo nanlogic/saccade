@@ -10,14 +10,14 @@ The first release has two user-facing components:
 2. one setup command:
 
 ```sh
-npx -y @saccade/setup
+npx -y @nanlogic/saccade
 ```
 
 The command installs the local MCP and Native Host without adding a visible
 application. Saccade does not use a DMG, macOS application, Windows Setup, or
 system input permission in the first release.
 
-The `@saccade` npm organization, trusted publisher, recovery methods, and at
+The `@nanlogic` npm organization, trusted publisher, recovery methods, and at
 least two administrators must be controlled by Nanlogic before publication.
 Until then, the command above defines the product target rather than an
 available package.
@@ -57,10 +57,10 @@ install repository-specific Agent instructions or a model-specific plugin.
 Setup must expose these commands:
 
 ```sh
-npx -y @saccade/setup
-npx -y @saccade/setup doctor
-npx -y @saccade/setup update
-npx -y @saccade/setup uninstall
+npx -y @nanlogic/saccade
+npx -y @nanlogic/saccade doctor
+npx -y @nanlogic/saccade update
+npx -y @nanlogic/saccade uninstall
 ```
 
 `update` preserves the Profile. `uninstall` removes the Runtime, Native

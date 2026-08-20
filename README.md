@@ -395,7 +395,7 @@ actionable, and every successful receipt requires the score to advance.
 The first release uses the browser-store Extension plus one explicit command:
 
 ```sh
-npx -y @saccade/setup
+npx -y @nanlogic/saccade
 ```
 
 The command installs the headless local Runtime, user-level Native
