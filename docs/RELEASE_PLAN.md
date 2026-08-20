@@ -65,15 +65,13 @@ publication job, after the GitHub Release is public.
 
 ## Current blockers
 
-- Candidate `0.3.23`
-  (`2d8a877e3dc1b5c9a003aa3662ea9ddad506a7033aba286e1c48e21fe8af2612`)
-  is the verified development candidate, but its manifest name is still
-  `Saccade Extension (Development)`. The release workflow intentionally
-  refuses to package it for the store. A production name changes the candidate
-  content and therefore requires a new version/identity and browser evidence.
+- Production candidate `0.3.24` has a store-safe `Saccade` manifest. Local
+  development installs derive a separately identified development candidate
+  so they continue to use `com.nanlogic.saccade.dev`. The production candidate
+  still requires exact Chrome and Edge browser evidence before store upload.
 - Nanlogic's Apple signing/notarization credentials, final store Extension ID,
   npm trusted-publisher binding, company recovery channels, and second npm
   administrator must exist before the workflows can publish.
 - The x64 Runtime and setup lifecycle still need real Intel macOS evidence.
-- GitHub repository archival is a separate owner-approved mutation; its
-  read-only audit is recorded in the repository archive report.
+- The owner-approved repository archival is complete and recorded in the
+  repository archive report.

@@ -1,5 +1,9 @@
 # Changelog
 
+- Promoted the store Extension source to the production `Saccade` name and
+  version `0.3.24`; local development installs now derive a separately
+  content-addressed development candidate so they cannot silently switch from
+  the development Native Host to the production Host.
 - Added Nanlogic-owned release automation for signed and notarized Apple
   Silicon and Intel macOS Runtime artifacts, a draft GitHub Release, and
   tokenless npm trusted publishing with provenance. The workflow fails closed

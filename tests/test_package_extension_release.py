@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,8 +17,21 @@ SPEC.loader.exec_module(MODULE)
 
 class PackageExtensionReleaseTests(unittest.TestCase):
     def test_development_manifest_cannot_be_packaged_for_store(self) -> None:
-        with self.assertRaisesRegex(ValueError, "development name"):
-            MODULE.package(ROOT / "extension", Path(tempfile.mkdtemp()))
+        with tempfile.TemporaryDirectory() as directory:
+            extension = Path(directory) / "extension"
+            shutil.copytree(ROOT / "extension", extension)
+            manifest_path = extension / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["name"] = "Saccade Extension (Development)"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "development name"):
+                MODULE.package(extension, Path(directory) / "out")
+
+    def test_checked_in_production_candidate_can_be_packaged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            archive = MODULE.package(ROOT / "extension", Path(directory))
+            self.assertTrue(archive.is_file())
+            self.assertEqual(archive.name, "saccade-extension-0.3.24.zip")
 
     def test_exact_production_candidate_is_packaged(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

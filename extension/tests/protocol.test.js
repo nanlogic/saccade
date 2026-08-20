@@ -36,11 +36,13 @@ test('consent helpers enforce only password, SSN, and EIN redaction', () => {
   assert.equal(redactProtectedText('SSN 123-45-6789; EIN 12-3456789'), 'SSN [REDACTED SSN]; EIN [REDACTED EIN]');
 });
 
-test('development manifest preserves identity and excludes out-of-scope capabilities', () => {
+test('production manifest preserves identity and excludes out-of-scope capabilities', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '../manifest.json'), 'utf8'));
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.name, 'Saccade');
+  assert.equal(manifest.version, '0.3.24');
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');

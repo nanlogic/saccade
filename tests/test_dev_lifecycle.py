@@ -72,6 +72,19 @@ class DevelopmentLifecycleTests(unittest.TestCase):
             )
             self.assertIn(candidate["id"], identity)
 
+    def test_dev_install_derives_a_separate_development_candidate(self) -> None:
+        script = (Path(__file__).parents[1] / "scripts" / "dev.sh").read_text(
+            encoding="utf-8"
+        )
+        body = script.split("install_extension() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn('manifest.get("name") != "Saccade"', body)
+        self.assertIn('manifest["name"] = "Saccade Extension (Development)"', body)
+        self.assertIn(
+            'if cmp -s "$source_expected" "$RUNTIME_DIR/expected-extension-candidate.json"',
+            body,
+        )
+        self.assertNotIn("source and installed Extension candidates diverged", body)
+
     def test_attach_refreshes_only_saccade_native_host_processes(self) -> None:
         script = (Path(__file__).parents[1] / "scripts" / "dev.sh").read_text(
             encoding="utf-8"

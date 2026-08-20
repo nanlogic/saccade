@@ -181,7 +181,9 @@ def main() -> None:
         (ROOT / "extension/manifest.json").read_text(encoding="utf-8")
     )
     if extension_manifest.get("manifest_version") != 3 or not extension_manifest.get("key"):
-        raise SystemExit("development Extension lost its fixed Manifest V3 identity")
+        raise SystemExit("production Extension lost its fixed Manifest V3 identity")
+    if extension_manifest.get("name") != "Saccade":
+        raise SystemExit("production Extension manifest must use the Saccade name")
     if "scripting" in extension_manifest.get("permissions", []):
         raise SystemExit("production Extension must not programmatically inject the compiler")
     content_scripts = extension_manifest.get("content_scripts", [])

@@ -383,11 +383,23 @@ install_extension() {
     --extension-root "$ROOT/extension" \
     --expected "$source_expected"
   cp -R "$ROOT/extension/." "$EXTENSION_ROOT/"
+  python3 - "$EXTENSION_ROOT/manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+if manifest.get("name") != "Saccade":
+    raise SystemExit("source Extension manifest must use the production name Saccade")
+manifest["name"] = "Saccade Extension (Development)"
+manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+PY
   python3 "$ROOT/scripts/write_extension_candidate.py" \
     --extension-root "$EXTENSION_ROOT" \
     --expected "$RUNTIME_DIR/expected-extension-candidate.json"
-  if ! cmp -s "$source_expected" "$RUNTIME_DIR/expected-extension-candidate.json"; then
-    printf '%s\n' 'source and installed Extension candidates diverged' >&2
+  if cmp -s "$source_expected" "$RUNTIME_DIR/expected-extension-candidate.json"; then
+    printf '%s\n' 'development Extension candidate did not diverge from production' >&2
     exit 1
   fi
   chmod -R u=rwX,go= "$EXTENSION_ROOT"
