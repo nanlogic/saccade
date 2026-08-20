@@ -143,7 +143,7 @@ the smaller browser transcript.
 ## Try the source build
 
 Saccade remains a developer preview. The Chrome Web Store package and
-`@saccade/setup` release are not public yet. Developers can clone this
+`@nanlogic/saccade` release is not public yet. Developers can clone this
 repository and follow the managed setup commands in the main README. Please
 open a GitHub issue with the URL, task, browser version, and the first truthful
 failure you observe. Do not include passwords, protected identifiers, cookies,

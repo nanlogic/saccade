@@ -8,7 +8,7 @@
   with semantic transition receipts and explicit handoff on unsupported paths.
 - Keep passwords, SSNs, EINs, editable values, cookies, browser storage,
   selectors, and arbitrary coordinates outside Agent Truth.
-- Add the headless macOS Runtime and `@saccade/setup` installer for Apple
+- Add the headless macOS Runtime and `@nanlogic/saccade` installer for Apple
   Silicon and Intel clients.
 - Configure the Extension → Native Host → owner-only local IPC → MCP route for
   local Codex and Claude clients.

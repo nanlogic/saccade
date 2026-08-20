@@ -129,7 +129,7 @@ must use an Agent-owned tool that can act in the same authorized browser tab.
 Installing or running Saccade does not require macOS Accessibility permission.
 
 The public setup target is the store Extension plus
-`npx -y @saccade/setup`. The command installs the local headless route for
+`npx -y @nanlogic/saccade`. The command installs the local headless route for
 supported Codex and Claude clients. Cloud-only sessions cannot reach that local
 route and are incompatible with the first release.
 

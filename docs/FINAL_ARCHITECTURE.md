@@ -419,7 +419,7 @@ This diagnostic SLA and recovery behavior do not add execution to default MCP.
 ## Installation and verification
 
 The first public release has two user-facing components: the Saccade browser
-Extension and `npx -y @saccade/setup`. The explicit setup command installs the
+Extension and `npx -y @nanlogic/saccade`. The explicit setup command installs the
 headless local Runtime, user-level Native Messaging manifests, and local MCP
 entries for supported Codex and Claude clients. It does not install a visible
 application, use an npm `postinstall` hook, or request Accessibility. The
