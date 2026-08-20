@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Saccade software-type fixture</title>
+    <style>
+      body { font: 16px system-ui; margin: 32px; }
+      main { display: grid; gap: 20px; max-width: 560px; }
+      label { display: grid; gap: 6px; }
+      input, textarea, [contenteditable] { font: inherit; min-height: 36px; }
+      [contenteditable] { border: 1px solid #777; padding: 8px; }
+      #log { white-space: pre; font: 13px ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Software type</h1>
+      <p>Every control here is edited through one generic path. No control is
+         special-cased and no framework is named.</p>
+
+      <label>Plain text<input id="plain" type="text"></label>
+      <label>Email<input id="email" type="email"></label>
+      <label>Telephone<input id="tel" type="tel"></label>
+      <label>Search<input id="search" type="search"></label>
+      <label>Quantity<input id="number" type="number"></label>
+      <label>Notes<textarea id="notes"></textarea></label>
+      <label>Rich note<div id="rich" contenteditable="true"></div></label>
+
+      <!-- A value tracked by an owner that installs its own accessor on the
+           element, the way a controlled component does. Assigning the property
+           directly is swallowed; only the prototype setter reaches it. -->
+      <label>Controlled (own accessor)<input id="controlled" type="text"></label>
+
+      <!-- A value mirrored by an owner that listens for the generic input
+           event, the way a two-way binding does. -->
+      <label>Bound (input listener)<input id="bound" type="text"></label>
+      <output id="bound-mirror"></output>
+
+      <!-- A page that refuses the edit outright. -->
+      <label>Refuses edits<input id="canceling" type="text"></label>
+
+      <!-- Protected values: these must never receive a type affordance. -->
+      <label>Password<input id="password" type="password"></label>
+      <label>Social Security Number<input id="ssn" type="text" name="ssn"></label>
+      <label>Employer Identification Number<input id="ein" type="text" name="ein"></label>
+
+    </main>
+
+    <script>
+      // Records the order a page actually observes, which is the only thing
+      // that distinguishes a real edit from a value assignment.
+      //
+      // This is deliberately kept out of the DOM. Writing the log into the page
+      // would make the recorder itself part of observed Truth: the focus that
+      // prepare() performs would mutate the document, advance the revision, and
+      // invalidate the very basis the action was prepared against. The record
+      // belongs to the harness, not to the page under test.
+      const seen = [];
+      function watch(element) {
+        for (const type of ['focus', 'beforeinput', 'input', 'change']) {
+          element.addEventListener(type, (event) => {
+            seen.push(`${element.id}:${type}${event.inputType ? `(${event.inputType})` : ''}`);
+          });
+        }
+      }
+      for (const element of document.querySelectorAll('input,textarea,[contenteditable]')) watch(element);
+      window.saccadeSeen = seen;
+      window.saccadeReset = () => { seen.length = 0; };
+
+      // An owner that tracks the value by installing its own accessor which
+      // delegates to the prototype descriptor, and remembers the last value it
+      // saw set through itself. This is how a controlled component detects a
+      // change: on input it compares the live value against the remembered one.
+      // Assigning the property directly updates both, so the owner concludes
+      // nothing changed and never re-renders; only writing through the
+      // prototype setter leaves the remembered value stale, which is what makes
+      // the change visible. That is why softType uses the prototype setter.
+      const controlled = document.getElementById('controlled');
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      let tracked = '';
+      window.saccadeControlledRenders = 0;
+      Object.defineProperty(controlled, 'value', {
+        configurable: true,
+        get() { return descriptor.get.call(this); },
+        set(next) { tracked = String(next); descriptor.set.call(this, next); },
+      });
+      controlled.addEventListener('input', () => {
+        // The owner only re-renders when it observes a value it did not set.
+        if (descriptor.get.call(controlled) !== tracked) {
+          tracked = descriptor.get.call(controlled);
+          window.saccadeControlledRenders += 1;
+        }
+      });
+
+      // An owner that mirrors through the generic input event.
+      const bound = document.getElementById('bound');
+      bound.addEventListener('input', () => {
+        document.getElementById('bound-mirror').textContent = bound.value;
+      });
+
+      // A page that refuses the edit at beforeinput.
+      document.getElementById('canceling')
+        .addEventListener('beforeinput', (event) => event.preventDefault());
+    </script>
+      <pre id="saccade-result"></pre>
+    <script>
+      function applyEdit(element, text) {
+        element.focus({ preventScroll: true });
+        const proceed = element.dispatchEvent(new InputEvent('beforeinput', {
+          bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: text,
+        }));
+        if (!proceed) throw new Error('software type was canceled by the page');
+        if (element.isContentEditable) {
+          element.textContent = text;
+        } else {
+          const prototype = element instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+          if (setter) setter.call(element, text); else element.value = text;
+        }
+        element.dispatchEvent(new InputEvent('input', {
+          bubbles: true, composed: true, inputType: 'insertText', data: text,
+        }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const out = {}; const fail = [];
+      const expected = ['beforeinput(insertText)', 'input(insertText)', 'change'];
+      for (const [id, text] of [['plain','hello'],['email','a@b.test'],['tel','+1-555-0100'],
+        ['search','saccade'],['number','42'],['notes','note'],['rich','rich'],
+        ['controlled','ctl'],['bound','bnd']]) {
+        window.saccadeReset();
+        const el = document.getElementById(id);
+        applyEdit(el, text);
+        const order = window.saccadeSeen.map((e) => e.split(':')[1]).filter((e) => e !== 'focus');
+        const value = el.isContentEditable ? el.textContent : el.value;
+        out[id] = { order, value };
+        if (JSON.stringify(order) !== JSON.stringify(expected)) fail.push(id + ' order');
+        if (value !== text) fail.push(id + ' value');
+      }
+      out.controlledRenders = window.saccadeControlledRenders;
+      if (out.controlledRenders !== 1) fail.push('controlled did not re-render');
+      out.boundMirror = document.getElementById('bound-mirror').textContent;
+      if (out.boundMirror !== 'bnd') fail.push('bound mirror');
+      // Cancellation.
+      window.saccadeReset();
+      const cancel = document.getElementById('canceling');
+      let err = null;
+      try { applyEdit(cancel, 'must not apply'); } catch (e) { err = e.message; }
+      out.canceled = { error: err, value: cancel.value, order: window.saccadeSeen.map((e) => e.split(':')[1]).filter((e) => e !== 'focus') };
+      if (!err) fail.push('cancel did not fail');
+      if (cancel.value !== '') fail.push('cancel mutated value');
+      if (JSON.stringify(out.canceled.order) !== JSON.stringify(['beforeinput(insertText)'])) fail.push('cancel emitted extra events');
+      out.PASS = fail.length === 0; out.failures = fail;
+      document.getElementById('saccade-result').textContent = 'SACCADE_RESULT ' + JSON.stringify(out);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "schema": "saccade-playwright-mcp-lock/1",
+  "package": "@playwright/mcp",
+  "version": "0.0.79",
+  "source": "npmjs.com package page read through the Saccade Truth route",
+  "resolved_at": "2026-08-17T00:00:00Z",
+  "online_latest_verified": true,
+  "verification": {
+    "route": "saccade.tabs.open -> saccade.truth.read -> saccade.tabs.close",
+    "url": "https://www.npmjs.com/package/@playwright/mcp",
+    "evidence": "status object text \"Viewing @playwright/mcp version 0.0.79\"",
+    "semantic_revision": 8,
+    "tab_ownership": "agent",
+    "temporary_tab_closed": true
+  },
+  "previous_version": "0.0.78",
+  "note": "The official baseline was re-resolved through the authorized Saccade route and moved from 0.0.78 to the current published 0.0.79. No comparison run has consumed either version yet, so this is a baseline correction rather than a re-benchmark. Re-resolve again at final freeze."
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Truth Layer push delta</title></head>
+<body>
+  <h1>Truth Layer push delta</h1>
+  <button id="toggle" type="button" aria-pressed="false">Toggle signal</button>
+  <p role="status" id="clock">Browser cycle 0</p>
+  <section id="passive-dialog" role="dialog" aria-modal="true" aria-label="Passive modal" hidden>
+    <button type="button">Dismiss passive modal</button>
+  </section>
+  <script>
+    const button = document.getElementById('toggle');
+    button.addEventListener('click', () => {
+      button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
+    });
+    setTimeout(() => button.focus(), 200);
+    setTimeout(() => button.blur(), 400);
+    setTimeout(() => { document.getElementById('passive-dialog').hidden = false; }, 600);
+    setTimeout(() => { document.getElementById('passive-dialog').hidden = true; }, 1000);
+    let cycle = 0;
+    setInterval(() => {
+      cycle += 1;
+      document.getElementById('clock').textContent = `Browser cycle ${cycle}`;
+    }, 1500);
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Generated review queue</title><style>body{font:16px system-ui;margin:32px}main{max-width:640px;display:grid;gap:16px}article{border:1px solid #bbb;padding:20px;border-radius:12px}button{font:inherit;min-height:42px;margin-right:10px}[role=status]{min-height:24px}</style></head>
+<body><main><h1>One-time review queue</h1><article id="card"><h2>Record 1 of 5</h2>
+<p>Record ID: <strong id="record-id">HARBOR-2224-1</strong></p>
+<p>Risk score: <strong id="risk">68</strong></p><p>Evidence: <strong id="evidence">missing</strong></p>
+<button id="approve" type="button" aria-pressed="false">Approve record</button>
+<button id="reject" type="button" aria-pressed="false">Reject record</button></article><div id="status" role="status"></div></main><script>const C={"records":[{"id":"HARBOR-2224-1","risk":68,"evidence":false,"expected":"reject"},{"id":"MARBLE-7965-2","risk":10,"evidence":false,"expected":"reject"},{"id":"EMBER-5309-3","risk":89,"evidence":false,"expected":"reject"},{"id":"AMBER-1199-4","risk":31,"evidence":true,"expected":"approve"},{"id":"INDIGO-3460-5","risk":71,"evidence":false,"expected":"reject"}],"marker":"QUEUE-PROOF-C7CA78E009-REPLACEMENT-5","mode":"replacement"};let i=0,errors=0;
+function render(){const r=C.records[i];if(!r){document.getElementById('card')?.remove();document.getElementById('status').textContent=C.marker;return;}
+const markup="<article id=\"card\"><h2>Record 1 of 5</h2>\n<p>Record ID: <strong id=\"record-id\">HARBOR-2224-1</strong></p>\n<p>Risk score: <strong id=\"risk\">68</strong></p><p>Evidence: <strong id=\"evidence\">missing</strong></p>\n<button id=\"approve\" type=\"button\" aria-pressed=\"false\">Approve record</button>\n<button id=\"reject\" type=\"button\" aria-pressed=\"false\">Reject record</button></article>";
+if(C.mode==='replacement'&&i>0){const holder=document.createElement('div');holder.innerHTML=markup;document.getElementById('card').replaceWith(holder.firstElementChild);bind();}
+document.querySelector('#card h2').textContent=`Record ${i+1} of ${C.records.length}`;document.getElementById('record-id').textContent=r.id;document.getElementById('risk').textContent=r.risk;document.getElementById('evidence').textContent=r.evidence?'present':'missing';}
+function choose(choice,event){const r=C.records[i];if(choice!==r.expected){errors++;document.getElementById('status').textContent=`Incorrect choice; errors ${errors}`;return;}
+event.currentTarget.setAttribute('aria-pressed',event.currentTarget.getAttribute('aria-pressed')==='true'?'false':'true');document.getElementById('status').textContent=`Accepted ${r.id}`;i++;render();}
+function bind(){document.getElementById('approve').onclick=(e)=>choose('approve',e);document.getElementById('reject').onclick=(e)=>choose('reject',e);}bind();render();</script></body></html>

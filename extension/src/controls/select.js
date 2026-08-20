@@ -12,8 +12,12 @@
     });
   }
 
-  function option(name, selected, enabled = true) {
-    return { kind: 'control', role: 'option', name: String(name), state: { selected: bool(selected), enabled: bool(enabled) }, affordances: [], protected: false };
+  function option(name, selected, enabled = true, clickable = false) {
+    return {
+      kind: 'control', role: 'option', name: String(name),
+      state: { selected: bool(selected), enabled: bool(enabled) },
+      affordances: enabled && clickable ? ['click'] : [], protected: false,
+    };
   }
 
   const api = Object.freeze({ observe, option });

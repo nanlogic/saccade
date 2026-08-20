@@ -9,13 +9,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "catalog" / "controls.json"
+TRUTH_INVENTORY = ROOT / "catalog" / "truth_inventory.json"
 DEVELOPMENT_EVIDENCE = ROOT / "catalog" / "development_evidence.json"
 EXTERNAL_CASES = ROOT / "catalog" / "external_cases.json"
 OUTPUT = ROOT / "docs" / "generated" / "control_coverage.md"
 
 ALLOWED_ROLES = {
     "button", "text_field", "search_field", "text_area", "content_editable",
-    "spin_button", "checkbox", "radio", "switch", "select", "tab", "menu_item",
+    "spin_button", "checkbox", "radio", "switch", "select", "option", "tab", "menu_item",
     "reflex_target", "link", "file_input",
 }
 ALLOWED_STATES = {
@@ -41,8 +42,6 @@ def load_and_validate() -> tuple[dict, dict, dict]:
             raise SystemExit(f"unapproved Catalog role: {control['role']}")
         if not set(control["safe_state"]) <= ALLOWED_STATES:
             raise SystemExit(f"unapproved state in {control['id']}")
-        if control["input_policy"] == "software_preferred" and control["native_primitive"] not in {"primary_click", "select_option"}:
-            raise SystemExit(f"software_preferred requires a registered software primitive in {control['id']}")
         evidence = control["evidence"]
         if control["publication_status"] == "publishable" and evidence != {"chrome": "passed", "edge": "passed"}:
             raise SystemExit(f"{control['id']} cannot be publishable without Chrome and Edge evidence")
@@ -102,6 +101,7 @@ def paired(evidence: dict) -> str:
 
 
 def render(data: dict, development: dict, external_cases: dict) -> str:
+    truth = json.loads(TRUTH_INVENTORY.read_text(encoding="utf-8"))
     fixture_both = sum(
         all(status == "passed" for status in evidence["fixture"].values())
         for evidence in development["controls"].values()
@@ -114,9 +114,28 @@ def render(data: dict, development: dict, external_cases: dict) -> str:
     lines = [
         "# Generated Control Coverage",
         "",
-        "> Generated from `catalog/controls.json` and `catalog/development_evidence.json`; do not edit by hand.",
+        "> Generated from `catalog/truth_inventory.json`, `catalog/controls.json`, and `catalog/development_evidence.json`; do not edit by hand.",
         "",
-        "## Evidence summary",
+        "## Complete Truth inventory",
+        "",
+        f"Protocol roles: {len(truth['roles'])}. Reusable variants: {len(truth['variants'])}. Structural/push boundaries: {len(truth['structural_boundaries'])}.",
+        "",
+        "| Kind | ID | Protocol role | Status | Gate |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for item in truth["roles"]:
+        lines.append(f"| role | {item['role']} | {item['role']} | {item['status']} | {item['gate']} |")
+    for item in truth["variants"]:
+        lines.append(f"| variant | {item['id']} | {item['role']} | {item['status']} | {item['gate']} |")
+    for item in truth["structural_boundaries"]:
+        lines.append(f"| boundary | {item['id']} | — | {item['status']} | {item['gate']} |")
+    lines.extend([
+        "",
+        "## Reference-capable control modules",
+        "",
+        "These 15 rows are the optional Reference Actuator subset, not the complete Truth Layer.",
+        "",
+        "## Reference Actuator evidence summary",
         "",
         f"Implemented: {len(data['controls'])}. Chrome + Edge fixture: {fixture_both}. Chrome + Edge external: {external_both}. Publishable: {publishable}.",
         "",
@@ -125,7 +144,7 @@ def render(data: dict, development: dict, external_cases: dict) -> str:
         "",
         "| Control | Implemented | Fixture C / E | External C / E | Release C / E |",
         "| --- | --- | --- | --- | --- |",
-    ]
+    ])
     for control in data["controls"]:
         evidence = development["controls"][control["role"]]
         lines.append(
@@ -153,19 +172,17 @@ def render(data: dict, development: dict, external_cases: dict) -> str:
         "",
         "## Module details",
         "",
-        "| Control | Family | Affordance | Input policy | Primitive | Verifier | Chrome | Edge | Status |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Control | Family | Safe state | Affordance | Chrome | Edge | Status |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ])
     for control in data["controls"]:
         lines.append(
-            "| {id} | {implementation_family} | {affordances} | {input_policy} | {native_primitive} | "
-            "{verifier} | {chrome} | {edge} | {publication_status} |".format(
+            "| {id} | {implementation_family} | {safe_state} | {affordances} | "
+            "{chrome} | {edge} | {publication_status} |".format(
                 id=control["id"],
                 implementation_family=control["implementation_family"],
                 affordances=", ".join(control["affordances"]),
-                input_policy=control["input_policy"],
-                native_primitive=control["native_primitive"],
-                verifier=control["verifier"],
+                safe_state=", ".join(control["safe_state"]),
                 chrome=control["evidence"]["chrome"],
                 edge=control["evidence"]["edge"],
                 publication_status=control["publication_status"],

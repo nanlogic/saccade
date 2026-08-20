@@ -163,6 +163,14 @@ pub struct ActionReceipt {
     pub action_token: String,
     pub operation: ActionOperation,
     pub dispatch_status: DispatchStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_safe: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_wait_ms: Option<u64>,
     pub postcondition: PostconditionStatus,
     pub settled: bool,
     pub post_action_observation: ObservationSnapshot,

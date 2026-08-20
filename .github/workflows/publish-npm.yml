@@ -1,0 +1,54 @@
+name: Publish setup package
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: npm-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    environment: npm-release
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Use an OIDC-capable npm CLI
+        run: npm install --global npm@11.5.1
+      - name: Test the unpublished source package
+        run: |
+          node --test packages/setup/test/*.test.js
+          npm pack ./packages/setup --dry-run
+      - name: Download and verify the GitHub Release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p dist/npm-release
+          gh release download "$RELEASE_TAG" \
+            --repo nanlogic/saccade \
+            --pattern release.json \
+            --pattern SHA256SUMS \
+            --pattern 'saccade-runtime-*' \
+            --dir dist/npm-release
+          python3 scripts/verify_published_setup_release.py \
+            --release dist/npm-release/release.json \
+            --tag "$RELEASE_TAG" \
+            --artifact-dir dist/npm-release
+          (cd dist/npm-release && sha256sum --check SHA256SUMS)
+          cp dist/npm-release/release.json packages/setup/release.json
+      - name: Publish with npm trusted publishing and provenance
+        working-directory: packages/setup
+        run: npm publish --access public --provenance

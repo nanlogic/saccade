@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,29 +8,44 @@ use anyhow::{bail, Result};
 use saccade_runtime::session::NativeHostSession;
 
 fn main() -> Result<()> {
-    match std::env::args().nth(1).as_deref() {
+    let mode = std::env::args().nth(1);
+    match mode.as_deref() {
         Some("native-host") => native_host(default_runtime_dir()),
         Some("chrome-extension://bobfbgjplflcigednmccmbhlgclomgod/") => {
             native_host(dev_runtime_dir())
         }
+        Some(origin) if is_extension_origin(origin) => native_host(default_runtime_dir()),
         Some("mcp") => saccade_runtime::mcp::serve(default_grant_path()),
+        Some("reference-actuator-mcp") => {
+            saccade_runtime::mcp::serve_reference_actuator(default_grant_path())
+        }
         Some("doctor") => doctor(),
-        Some("repair") => repair(),
-        _ => bail!("usage: saccade-runtime <native-host|mcp|doctor|repair>"),
+        Some("reference-actuator-repair") => reference_actuator_repair(),
+        _ => bail!("usage: saccade-runtime <native-host|mcp|doctor|reference-actuator-mcp|reference-actuator-repair>"),
     }
 }
 
-fn repair() -> Result<()> {
+fn is_extension_origin(value: &str) -> bool {
+    let Some(id) = value
+        .strip_prefix("chrome-extension://")
+        .and_then(|value| value.strip_suffix('/'))
+    else {
+        return false;
+    };
+    id.len() == 32 && id.bytes().all(|byte| matches!(byte, b'a'..=b'p'))
+}
+
+fn reference_actuator_repair() -> Result<()> {
     let accessibility_trusted = saccade_runtime::platform_input::request_accessibility();
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
-            "schema":"saccade.repair/1",
+            "schema":"saccade.reference-actuator-repair/1",
             "accessibility_trusted":accessibility_trusted,
             "detail":if accessibility_trusted {
                 "Accessibility is ready."
             } else {
-                "Approve the installed Saccade Dev Runtime in Privacy & Security > Accessibility, then rerun dev.sh status."
+                "Approve the optional Reference Actuator in Privacy & Security > Accessibility, then rerun the explicit actuator test."
             }
         }))?
     );
@@ -36,9 +53,6 @@ fn repair() -> Result<()> {
 }
 
 fn native_host(runtime_dir: PathBuf) -> Result<()> {
-    if !saccade_runtime::platform_input::accessibility_trusted() {
-        let _ = saccade_runtime::platform_input::request_accessibility();
-    }
     let session = Arc::new(NativeHostSession::new(runtime_dir)?);
     let server = saccade_runtime::owner_ipc::OwnerIpcServer::bind(session.runtime_dir())?;
     session.install_endpoint(server.address())?;
@@ -61,8 +75,29 @@ fn native_host(runtime_dir: PathBuf) -> Result<()> {
         };
         if let Err(error) = session.handle_native(message) {
             eprintln!("saccade native-host ignored invalid extension event: {error}");
+            record_dev_native_error(session.runtime_dir(), &error.to_string());
         }
     }
+}
+
+fn record_dev_native_error(runtime_dir: &Path, error: &str) {
+    if runtime_dir
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        != Some("Saccade Dev")
+    {
+        return;
+    }
+    let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(runtime_dir.join("last-native-error.log"))
+    else {
+        return;
+    };
+    let _ = writeln!(file, "{}", error.chars().take(512).collect::<String>());
 }
 
 fn doctor() -> Result<()> {
@@ -92,7 +127,8 @@ fn doctor() -> Result<()> {
             "schema":"saccade.doctor/1",
             "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
             "host_protocol":saccade_protocol::HOST_PROTOCOL,
-            "accessibility_trusted":saccade_runtime::platform_input::accessibility_trusted(),
+            "runtime_version":env!("CARGO_PKG_VERSION"),
+            "mcp_contract_hash":saccade_runtime::mcp::truth_contract_hash(),
             "grant_path":grant_path,
             "ready":ready,
             "capabilities":capabilities,
@@ -123,4 +159,23 @@ fn dev_runtime_dir() -> PathBuf {
 
 fn default_grant_path() -> PathBuf {
     default_runtime_dir().join("host-grant.json")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_extension_origin;
+
+    #[test]
+    fn accepts_chromium_extension_origins_only() {
+        assert!(is_extension_origin(
+            "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
+        ));
+        assert!(!is_extension_origin("chrome-extension://too-short/"));
+        assert!(!is_extension_origin(
+            "chrome-extension://abcdefghijklmnopabcdefghijklmnoq/"
+        ));
+        assert!(!is_extension_origin(
+            "https://abcdefghijklmnopabcdefghijklmnop/"
+        ));
+    }
 }

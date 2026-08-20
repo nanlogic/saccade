@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Any
 
 
+PROFILE_MIGRATIONS = {
+    "smart-barbarian-eco": "smart-barbarian-ceo",
+}
+
+
 def validate(profile: Any) -> dict[str, Any]:
     if not isinstance(profile, dict) or set(profile) != {"name", "behavior", "ban"}:
         raise ValueError("Profile must contain exactly name, behavior, and ban")
@@ -45,6 +50,15 @@ def install(source: Path, destination: Path) -> dict[str, Any]:
     return profile
 
 
+def resolve_profile_source(requested: str, profiles_dir: Path) -> Path:
+    path = Path(requested)
+    if path.is_absolute() or path.parent != Path("."):
+        return path
+    name = path.name.removesuffix(".json")
+    name = PROFILE_MIGRATIONS.get(name, name)
+    return profiles_dir / f"{name}.json"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("set", "show", "reset"))
@@ -62,8 +76,7 @@ def main() -> None:
         else:
             if not args.profile:
                 parser.error("set requires --profile")
-            requested = Path(args.profile)
-            source = requested if requested.is_absolute() or requested.parent != Path(".") else args.profiles_dir / f"{requested.name.removesuffix('.json')}.json"
+            source = resolve_profile_source(args.profile, args.profiles_dir)
         profile = install(source, destination)
     print(json.dumps(profile, ensure_ascii=False, indent=2))
 

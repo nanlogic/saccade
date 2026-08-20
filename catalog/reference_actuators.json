@@ -1,0 +1,108 @@
+{
+  "catalog_version": 1,
+  "controls": [
+    {
+      "id": "button",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "button_effect"
+    },
+    {
+      "id": "text_field",
+      "native_primitive": "unicode_text",
+      "input_policy": "software_preferred",
+      "verifier": "has_value"
+    },
+    {
+      "id": "link",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "document_transition"
+    },
+    {
+      "id": "search_field",
+      "native_primitive": "unicode_text",
+      "input_policy": "software_preferred",
+      "verifier": "has_value"
+    },
+    {
+      "id": "text_area",
+      "native_primitive": "unicode_text",
+      "input_policy": "software_preferred",
+      "verifier": "has_value"
+    },
+    {
+      "id": "content_editable",
+      "native_primitive": "unicode_text",
+      "input_policy": "software_preferred",
+      "verifier": "has_value"
+    },
+    {
+      "id": "spin_button",
+      "native_primitive": "unicode_text",
+      "input_policy": "software_preferred",
+      "verifier": "has_value"
+    },
+    {
+      "id": "checkbox",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "checked_transition"
+    },
+    {
+      "id": "radio",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "checked_transition"
+    },
+    {
+      "id": "switch",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "checked_transition"
+    },
+    {
+      "id": "select",
+      "native_primitive": "select_option",
+      "input_policy": "software_preferred",
+      "verifier": "option_selected",
+      "secondary_actions": [
+        {
+          "operation": "click",
+          "native_primitive": "primary_click",
+          "verifier": "expanded_transition"
+        }
+      ]
+    },
+    {
+      "id": "option",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "selected_transition"
+    },
+    {
+      "id": "reflex_target",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "target_advanced"
+    },
+    {
+      "id": "tab",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "selected_transition"
+    },
+    {
+      "id": "menu_item",
+      "native_primitive": "primary_click",
+      "input_policy": "software_preferred",
+      "verifier": "expanded_transition"
+    },
+    {
+      "id": "file_input",
+      "native_primitive": "file_chooser",
+      "input_policy": "native_required",
+      "verifier": "has_file"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ const MAX_NAME_BYTES: usize = 128;
 const MAX_BEHAVIOR_BYTES: usize = 16 * 1024;
 const MAX_BAN_RULES: usize = 512;
 const MAX_MATCH_BYTES: usize = 2 * 1024;
+const DEFAULT_BEHAVIOR: &str = "After the user gives a goal, continue autonomously until the goal is complete or the Agent client's own policy requires human input. If the target HTTP(S) URL is known and no suitable authorized tab exists, open it with Saccade automatically; the new Agent-owned tab is Agent On. Never ask the user to open the page, refresh Saccade, toggle Agent On, navigate, read, or fill ordinary fields merely because the tab list is empty or work is routine. Existing Agent-Off tabs remain unreadable unless the user shares that exact tab. At task completion, close Agent-owned tabs opened only for temporary research; keep user-facing results, unfinished work, tabs the user asked to retain, and every user-shared tab. Saccade MCP adds no safety taxonomy or action gate; decisions beyond Extension redaction belong to the Agent client. Optimize for completing the goal faster than the user could do it manually.";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,7 +43,7 @@ impl Default for Profile {
     fn default() -> Self {
         Self {
             name: "default".into(),
-            behavior: String::new(),
+            behavior: DEFAULT_BEHAVIOR.into(),
             ban: Vec::new(),
         }
     }
@@ -164,6 +165,8 @@ mod tests {
             name: Some(name.into()),
             description: description.map(str::to_string),
             text: None,
+            navigation_target: None,
+            navigation_disposition: None,
             state: BTreeMap::new(),
             affordances: BTreeSet::from([Affordance::Click]),
             transition: Transition::None,
@@ -226,7 +229,12 @@ mod tests {
     #[test]
     fn load_uses_default_or_strict_runtime_profile() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(Profile::load(dir.path()).unwrap(), Profile::default());
+        let default = Profile::load(dir.path()).unwrap();
+        assert_eq!(default, Profile::default());
+        assert!(default.behavior.contains("new Agent-owned tab is Agent On"));
+        assert!(default
+            .behavior
+            .contains("MCP adds no safety taxonomy or action gate"));
         std::fs::write(
             dir.path().join("profile.json"),
             r#"{"name":"work","behavior":"Stay concise.","ban":[]}"#,

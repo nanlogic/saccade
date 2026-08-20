@@ -1,0 +1,27 @@
+{
+  "schema": "saccade.control-denominator-sources/1",
+  "policy": "Standards-derived replacement for the unavailable historical mainstream/uncommon document. Merge any later recovered document as an additional source; never silently remove a row.",
+  "sources": [
+    {"id": "whatwg_html_forms", "name": "WHATWG HTML — Forms", "url": "https://html.spec.whatwg.org/multipage/forms.html", "authority": "primary_standard"},
+    {"id": "wai_aria_roles", "name": "W3C WAI-ARIA 1.2 — Role definitions", "url": "https://www.w3.org/TR/wai-aria-1.2/#role_definitions", "authority": "primary_standard"},
+    {"id": "aria_apg_patterns", "name": "W3C ARIA Authoring Practices Guide — Patterns", "url": "https://www.w3.org/WAI/ARIA/apg/patterns/", "authority": "official_implementation_guidance"}
+  ],
+  "classifications": {
+    "mainstream_control": [
+      "role:button", "role:link", "role:text_field", "role:search_field", "role:text_area", "role:content_editable",
+      "role:checkbox", "role:radio", "role:switch", "role:select", "role:option", "role:file_input", "role:spin_button",
+      "role:tab", "role:menu_item", "role:slider", "variant:date", "variant:time", "variant:month", "variant:week",
+      "variant:datetime_local", "variant:color", "variant:native_listbox", "variant:aria_listbox", "variant:aria_combobox"
+    ],
+    "uncommon_control": ["role:reflex_target", "variant:drag_source", "variant:drop_target"],
+    "semantic_object": [
+      "role:heading", "role:paragraph", "role:text", "role:list", "role:list_item", "role:table", "role:row", "role:cell",
+      "role:alert", "role:status", "role:image", "role:label", "role:generic_control", "role:frame"
+    ],
+    "truthful_boundary": [
+      "role:opaque_surface", "role:restricted_document", "role:unknown", "variant:built_in_pdf", "boundary:same_origin_frame",
+      "boundary:restricted_frame", "boundary:open_shadow_root", "boundary:closed_shadow_root", "boundary:stream_gap_reset",
+      "boundary:resource_notification"
+    ]
+  }
+}
