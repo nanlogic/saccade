@@ -278,7 +278,12 @@ impl NativeHostSession {
 
     pub fn install_endpoint(&self, address: LocalAddress) -> Result<()> {
         *self.endpoint.lock().map_err(lock_error)? = Some(address);
-        self.write_grant()
+        // Do not publish an endpoint before the Extension proves that this
+        // Native Host instance owns a valid live connection. Chromium may
+        // start a short-lived replacement while another Host is still healthy;
+        // publishing here would strand every MCP client on the replacement's
+        // dead socket. A validated hello publishes the endpoint below.
+        Ok(())
     }
 
     pub fn handle_native(&self, message: NativeEnvelope) -> Result<()> {
@@ -3039,6 +3044,46 @@ mod tests {
             self.0.send(primitive).unwrap();
             DispatchStatus::AcceptedByOs
         }
+    }
+
+    #[test]
+    fn endpoint_is_published_only_after_a_valid_extension_hello() {
+        let (out_tx, _out_rx) = mpsc::channel();
+        let (native_tx, _native_rx) = mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let session = NativeHostSession::with_adapters(
+            dir.path().to_path_buf(),
+            Arc::new(CapturingOutbound(out_tx)),
+            Box::new(FakeNative(native_tx)),
+        )
+        .unwrap();
+
+        session
+            .install_endpoint(LocalAddress::Unix {
+                path: dir.path().join("host-test.sock"),
+            })
+            .unwrap();
+        assert!(!dir.path().join("host-grant.json").exists());
+
+        session
+            .handle_native(NativeEnvelope {
+                protocol: HOST_PROTOCOL.into(),
+                kind: "hello".into(),
+                request_id: None,
+                payload: json!({"browser_instance_id":"browser-1"}),
+            })
+            .unwrap();
+
+        let grant: HostGrant = serde_json::from_slice(
+            &fs::read(dir.path().join("host-grant.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            grant.address,
+            LocalAddress::Unix {
+                path: dir.path().join("host-test.sock")
+            }
+        );
     }
 
     #[test]
