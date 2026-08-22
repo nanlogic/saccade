@@ -64,9 +64,7 @@ EIN fields, plus SSN/EIN-shaped text values masked before emission. Protected
 objects retain geometry and value-free state. Default MCP additionally removes
 optional action tokens and internal authorities, but preserves geometry.
 Profile bans are applied before projection and cannot alter recognition
-semantics. A filtered control and its action authority are both absent from the
-Agent projection. Profile behavior and filtering cannot reveal editable or
-protected values or change canonical control recognition.
+semantics; `PROFILE_ARCHITECTURE.md` remains normative for that boundary.
 
 `navigation_target` is semantic page state, not a locator or execution token.
 The Collector resolves it against the document base URL, emits only HTTP(S),

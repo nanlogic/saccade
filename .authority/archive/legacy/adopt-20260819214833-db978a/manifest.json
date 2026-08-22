@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "runId": "adopt-20260819214833-db978a",
+  "entries": [
+    {
+      "sourceId": "S-004",
+      "originalPath": "docs/PROFILE_ARCHITECTURE.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/PROFILE_ARCHITECTURE.md",
+      "sha256": "3d4dbaaaec2a2e023b38c1554d892224e70222b91edc7fb456aa52c6b558e506",
+      "decisionId": "profile-boundary",
+      "decisionIds": [
+        "profile-boundary"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-003",
+      "originalPath": "docs/MIGRATION_MANIFEST.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/MIGRATION_MANIFEST.md",
+      "sha256": "639cc0116650c61196d3853c78706e5bb3b0d4f91b37cfad6509e4b7e57c3939",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-007",
+      "originalPath": "docs/migrations/0002_runtime_route.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0002_runtime_route.md",
+      "sha256": "dedc90049977271223dbbee04bdc027233076760841f09162c74aab9d8566caf",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-008",
+      "originalPath": "docs/migrations/0003_extension_managed_chrome.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0003_extension_managed_chrome.md",
+      "sha256": "0d24526366c75178e3decc95d72163fb2245987e2e3741a02c91d30a5f0e44e2",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-009",
+      "originalPath": "docs/migrations/0005_editable_controls.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0005_editable_controls.md",
+      "sha256": "e968efcd38c1ac45078d2f26cb6b0de238b15ae5b3cefde8ef3e2efc1f7ae1eb",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-010",
+      "originalPath": "docs/migrations/0006_native_mouse_accuracy.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0006_native_mouse_accuracy.md",
+      "sha256": "57bb153b12c5f8fcd7c2f3f4aac6d0134d1b2cfce6697677b443de4df96b956d",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-011",
+      "originalPath": "docs/migrations/0007_reflex_target_soft_mouse.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0007_reflex_target_soft_mouse.md",
+      "sha256": "27e6d374b98e50545de5983398e4f6b2d58c4b550e318db01e3647d2b060f913",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-012",
+      "originalPath": "docs/migrations/0008_link_file_input.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0008_link_file_input.md",
+      "sha256": "c6f9875fea9a1697f72472513caec6df746532ffe4df5cbf1054a9f23bf0a8c3",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-013",
+      "originalPath": "docs/migrations/0009_toggle_command_controls.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0009_toggle_command_controls.md",
+      "sha256": "aabee4410af8b0f1d98c0c2bea7e521a1ebe36974e9c2845c14f4b7b7472c0fc",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-014",
+      "originalPath": "docs/migrations/0010_structural_page_reading.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0010_structural_page_reading.md",
+      "sha256": "9a9a83c786ee990745db8bcf843afd504e5ac541692db0e617f42f9b1eab8616",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-015",
+      "originalPath": "docs/migrations/0011_aria_choice_controls.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0011_aria_choice_controls.md",
+      "sha256": "42763d37b26cce6496da0260c0686160d0b18cdb47ab0c100d50757341c6f0d7",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-016",
+      "originalPath": "docs/migrations/0012_shared_tab_ui.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0012_shared_tab_ui.md",
+      "sha256": "5d10f9da13107dd145de1a22468b42aa2ad5fd68b48e8eb5be3906c247f12a30",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    },
+    {
+      "sourceId": "S-017",
+      "originalPath": "docs/migrations/0013_frame_shadow_composition.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0013_frame_shadow_composition.md",
+      "sha256": "186936a25fc959ad70fd1d3bac7b2fae60ed7bb86e6c88df5092d349a337b618",
+      "decisionId": "legacy-migration-policy",
+      "decisionIds": [
+        "legacy-migration-policy"
+      ],
+      "replacementSha256": null,
+      "restoredAt": null,
+      "publishedRevision": 1
+    }
+  ]
+}

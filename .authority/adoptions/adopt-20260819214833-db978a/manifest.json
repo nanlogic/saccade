@@ -1,0 +1,1071 @@
+{
+  "schemaVersion": 2,
+  "adoptionProtocolVersion": 2,
+  "reviewSchemaVersion": 2,
+  "skillProtocolVersion": 2,
+  "cliVersion": "0.6.2",
+  "runId": "adopt-20260819214833-db978a",
+  "project": "SACCADE-CONTROL-RUNTIME",
+  "registryRevisionAtDiscovery": 0,
+  "interactionBudget": {
+    "limit": 10,
+    "used": 0
+  },
+  "status": "complete",
+  "createdAt": "2026-08-19T21:48:33.895Z",
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "AGENTS.md",
+      "title": "Saccade contributor instructions",
+      "topicHint": "saccade-contributor-instructions",
+      "scopeHint": ".",
+      "sha256": "868b16feb06e06dc6ba7e3b40ddc9ed81acb60d5279fbde4c71dc8864db37cd7",
+      "bytes": 4970,
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00",
+      "classification": "authority-candidate",
+      "classificationReason": "Agent-facing entrypoint or rule/handoff filename",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-002",
+      "path": "docs/FINAL_ARCHITECTURE.md",
+      "title": "Saccade final architecture",
+      "topicHint": "saccade-final-architecture",
+      "scopeHint": "docs",
+      "sha256": "55eb62b9b78f4030e45195d7c26d16c6ccedd235c8ed7990604e2e98b01c05fd",
+      "bytes": 26261,
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by AGENTS.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-003",
+      "path": "docs/MIGRATION_MANIFEST.md",
+      "title": "Migration manifest",
+      "topicHint": "migration-manifest",
+      "scopeHint": "docs",
+      "sha256": "639cc0116650c61196d3853c78706e5bb3b0d4f91b37cfad6509e4b7e57c3939",
+      "bytes": 6338,
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by AGENTS.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-004",
+      "path": "docs/PROFILE_ARCHITECTURE.md",
+      "title": "Profile architecture",
+      "topicHint": "profile-architecture",
+      "scopeHint": "docs",
+      "sha256": "3d4dbaaaec2a2e023b38c1554d892224e70222b91edc7fb456aa52c6b558e506",
+      "bytes": 6383,
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by AGENTS.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-005",
+      "path": "docs/decisions.md",
+      "title": "Architecture decisions",
+      "topicHint": "architecture-decisions",
+      "scopeHint": "docs",
+      "sha256": "ae5d105f3353a7510789723aa0aa2659844ed555173da769672d0b9a9987a503",
+      "bytes": 80213,
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by AGENTS.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-006",
+      "path": "docs/extension_observation_contract.md",
+      "title": "Extension Truth Layer contract",
+      "topicHint": "extension-truth-layer-contract",
+      "scopeHint": "docs",
+      "sha256": "a64bb0b241e8807516b43bbc17cf9668a41ec1682c1f11d7f9fbf994b620ea70",
+      "bytes": 22804,
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by AGENTS.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-007",
+      "path": "docs/migrations/0002_runtime_route.md",
+      "title": "Migration 0002 — Runtime transport and Host route",
+      "topicHint": "migration-0002-runtime-transport-and-host-route",
+      "scopeHint": "docs/migrations",
+      "sha256": "dedc90049977271223dbbee04bdc027233076760841f09162c74aab9d8566caf",
+      "bytes": 2164,
+      "git": "9f2b9c55a23851abe798c46edeb9b0d3e2d2bbdf|Wayne Ma|2026-07-28T15:20:12-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-008",
+      "path": "docs/migrations/0003_extension_managed_chrome.md",
+      "title": "Migration 0003: Extension and managed Chrome route",
+      "topicHint": "migration-0003-extension-and-managed-chrome-route",
+      "scopeHint": "docs/migrations",
+      "sha256": "0d24526366c75178e3decc95d72163fb2245987e2e3741a02c91d30a5f0e44e2",
+      "bytes": 2967,
+      "git": "d77b3976c4908a459912f300c52da4bc44befe9c|Wayne Ma|2026-07-28T17:48:31-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-009",
+      "path": "docs/migrations/0005_editable_controls.md",
+      "title": "Migration 0005: first editable control family",
+      "topicHint": "migration-0005-first-editable-control-family",
+      "scopeHint": "docs/migrations",
+      "sha256": "e968efcd38c1ac45078d2f26cb6b0de238b15ae5b3cefde8ef3e2efc1f7ae1eb",
+      "bytes": 2043,
+      "git": "7dfceec3b8d1c0b8393a90b864c9809894f7a59c|Wayne Ma|2026-07-28T23:37:51-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-010",
+      "path": "docs/migrations/0006_native_mouse_accuracy.md",
+      "title": "Migration 0006: native mouse accuracy gate",
+      "topicHint": "migration-0006-native-mouse-accuracy-gate",
+      "scopeHint": "docs/migrations",
+      "sha256": "57bb153b12c5f8fcd7c2f3f4aac6d0134d1b2cfce6697677b443de4df96b956d",
+      "bytes": 2101,
+      "git": "bac8a5d94fa600e8b522f338ddbc0ad94f0231e5|Wayne Ma|2026-07-29T01:49:25-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-011",
+      "path": "docs/migrations/0007_reflex_target_soft_mouse.md",
+      "title": "Migration 0007: reflex target and soft mouse",
+      "topicHint": "migration-0007-reflex-target-and-soft-mouse",
+      "scopeHint": "docs/migrations",
+      "sha256": "27e6d374b98e50545de5983398e4f6b2d58c4b550e318db01e3647d2b060f913",
+      "bytes": 1911,
+      "git": "bac8a5d94fa600e8b522f338ddbc0ad94f0231e5|Wayne Ma|2026-07-29T01:49:25-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-012",
+      "path": "docs/migrations/0008_link_file_input.md",
+      "title": "Migration 0008: link and file input",
+      "topicHint": "migration-0008-link-and-file-input",
+      "scopeHint": "docs/migrations",
+      "sha256": "c6f9875fea9a1697f72472513caec6df746532ffe4df5cbf1054a9f23bf0a8c3",
+      "bytes": 3451,
+      "git": "05fda396d07ecb851417b6bf43c93144046c8be9|Wayne Ma|2026-07-29T13:53:24-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-013",
+      "path": "docs/migrations/0009_toggle_command_controls.md",
+      "title": "Toggle and command controls",
+      "topicHint": "toggle-and-command-controls",
+      "scopeHint": "docs/migrations",
+      "sha256": "aabee4410af8b0f1d98c0c2bea7e521a1ebe36974e9c2845c14f4b7b7472c0fc",
+      "bytes": 1878,
+      "git": "7cc1baeac07a48faf463ddb2b1cb5b71c4c11093|Wayne Ma|2026-07-29T16:17:40-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-014",
+      "path": "docs/migrations/0010_structural_page_reading.md",
+      "title": "Structural page reading",
+      "topicHint": "structural-page-reading",
+      "scopeHint": "docs/migrations",
+      "sha256": "9a9a83c786ee990745db8bcf843afd504e5ac541692db0e617f42f9b1eab8616",
+      "bytes": 1362,
+      "git": "0e5cf207f1da0d374f290911ce077828bd5473e3|Wayne Ma|2026-07-29T16:44:58-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-015",
+      "path": "docs/migrations/0011_aria_choice_controls.md",
+      "title": "ARIA listbox and combobox choices",
+      "topicHint": "aria-listbox-and-combobox-choices",
+      "scopeHint": "docs/migrations",
+      "sha256": "42763d37b26cce6496da0260c0686160d0b18cdb47ab0c100d50757341c6f0d7",
+      "bytes": 1488,
+      "git": "0e5cf207f1da0d374f290911ce077828bd5473e3|Wayne Ma|2026-07-29T16:44:58-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-016",
+      "path": "docs/migrations/0012_shared_tab_ui.md",
+      "title": "Shared-tab Extension UI",
+      "topicHint": "shared-tab-extension-ui",
+      "scopeHint": "docs/migrations",
+      "sha256": "5d10f9da13107dd145de1a22468b42aa2ad5fd68b48e8eb5be3906c247f12a30",
+      "bytes": 1397,
+      "git": "0600193f5dfe1477060c7cac2974b2c8be6b3e6d|Wayne Ma|2026-07-29T16:48:14-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-017",
+      "path": "docs/migrations/0013_frame_shadow_composition.md",
+      "title": "Frame and open-shadow composition",
+      "topicHint": "frame-and-open-shadow-composition",
+      "scopeHint": "docs/migrations",
+      "sha256": "186936a25fc959ad70fd1d3bac7b2fae60ed7bb86e6c88df5092d349a337b618",
+      "bytes": 1713,
+      "git": "95d05c707ea9d459cc1fa7afbecddef1d70a5d8d|Wayne Ma|2026-07-31T00:12:46-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-018",
+      "path": "docs/reports/2026-07-31-fair-agent-playwright-comparison.md",
+      "title": "Fair Agent comparison: Saccade and Playwright",
+      "topicHint": "fair-agent-comparison-saccade-and-playwright",
+      "scopeHint": "docs/reports",
+      "sha256": "97dbf1ce43a73895bf099b946970a8b612515533b800fdb1d1991291995d4cda",
+      "bytes": 3391,
+      "git": "9b2968d026e88979cebcd4279d3585be1ec688c1|Wayne Ma|2026-07-31T07:27:27-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/decisions.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-019",
+      "path": "docs/reports/2026-08-01-cross-site-stability-and-fair-agent.md",
+      "title": "Cross-site stability and fair Agent report",
+      "topicHint": "cross-site-stability-and-fair-agent-report",
+      "scopeHint": "docs/reports",
+      "sha256": "d7862522224b6ccee3b877e2951a26bf452eba3098889b63dd68687fab8b95b3",
+      "bytes": 4226,
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/decisions.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-020",
+      "path": "docs/reports/2026-08-01-modern-react-agent-comparison.md",
+      "title": "Modern React zero-knowledge Agent comparison",
+      "topicHint": "modern-react-zero-knowledge-agent-comparison",
+      "scopeHint": "docs/reports",
+      "sha256": "846518e506f25308dea6cfa415bc71da25b2ed2b37862b9a4dc59778a61295a0",
+      "bytes": 4181,
+      "git": "dd96da189c03f9135afe98ea39be69a69fa04f86|Wayne Ma|2026-08-01T03:21:01-05:00",
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/decisions.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-021",
+      "path": "docs/reports/2026-08-17-claude-same-tab-closed-loop.md",
+      "title": "Claude same-tab closed loop",
+      "topicHint": "claude-same-tab-closed-loop",
+      "scopeHint": "docs/reports",
+      "sha256": "43494d78030e49cb123b0b7c928ee3f05f884573b2107e410673a22773ca5702",
+      "bytes": 2790,
+      "git": null,
+      "classification": "supporting-reference",
+      "classificationReason": "explicitly referenced by docs/reports/2026-08-17-same-tab-handoff-blocker.md",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    },
+    {
+      "id": "S-022",
+      "path": "docs/reports/2026-08-17-same-tab-handoff-blocker.md",
+      "title": "Same-tab handoff blocker: `claude -p --chrome` cannot adopt a foreign tab",
+      "topicHint": "same-tab-handoff-blocker-claude-p-chrome-cannot-adopt-a-foreign-tab",
+      "scopeHint": "docs/reports",
+      "sha256": "4e56bb505059fcb144d0c9f95165703672d0de76b61e2cc1cc5cf435b2a30574",
+      "bytes": 7311,
+      "git": null,
+      "classification": "authority-candidate",
+      "classificationReason": "Agent-facing entrypoint or rule/handoff filename",
+      "duplicateOf": null,
+      "nearDuplicateOf": null
+    }
+  ],
+  "discovery": [
+    {
+      "path": ".github/pull_request_template.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "AGENTS.md",
+      "classification": "authority-candidate",
+      "reason": "Agent-facing entrypoint or rule/handoff filename",
+      "referencedBy": []
+    },
+    {
+      "path": "CHANGELOG.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "CLAUDE.md",
+      "classification": "excluded-noise",
+      "reason": "generated Gatekeeper adapter",
+      "referencedBy": []
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "MEMORY.md",
+      "classification": "ordinary-document",
+      "reason": "memory requires explicit inclusion to avoid cross-project leakage",
+      "referencedBy": []
+    },
+    {
+      "path": "PROJECT_AUTHORITY.md",
+      "classification": "excluded-noise",
+      "reason": "Gatekeeper-managed document",
+      "referencedBy": []
+    },
+    {
+      "path": "README.md",
+      "classification": "ordinary-document",
+      "reason": "ordinary README",
+      "referencedBy": []
+    },
+    {
+      "path": "SECURITY.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "TRADEMARKS.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/AGENT_MCP_COMPATIBILITY.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/CONTROL_ROADMAP.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/FINAL_ARCHITECTURE.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by AGENTS.md",
+      "referencedBy": [
+        "AGENTS.md"
+      ]
+    },
+    {
+      "path": "docs/HOW_SACCADE_WORKS.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/MIGRATION_MANIFEST.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by AGENTS.md",
+      "referencedBy": [
+        "AGENTS.md"
+      ]
+    },
+    {
+      "path": "docs/PROFILE_ARCHITECTURE.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by AGENTS.md",
+      "referencedBy": [
+        "AGENTS.md"
+      ]
+    },
+    {
+      "path": "docs/RELEASE_PLAN.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/SETUP_TARGET.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/decisions.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by AGENTS.md",
+      "referencedBy": [
+        "AGENTS.md"
+      ]
+    },
+    {
+      "path": "docs/extension_observation_contract.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by AGENTS.md",
+      "referencedBy": [
+        "AGENTS.md",
+        "docs/migrations/0010_structural_page_reading.md",
+        "docs/migrations/0013_frame_shadow_composition.md"
+      ]
+    },
+    {
+      "path": "docs/generated/control_coverage.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/migrations/0001_protocol_control_slice.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/migrations/0002_runtime_route.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0003_extension_managed_chrome.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0004_managed_edge.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/migrations/0005_editable_controls.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0006_native_mouse_accuracy.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0007_reflex_target_soft_mouse.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0008_link_file_input.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0009_toggle_command_controls.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0010_structural_page_reading.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0011_aria_choice_controls.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0012_shared_tab_ui.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/migrations/0013_frame_shadow_composition.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/MIGRATION_MANIFEST.md",
+      "referencedBy": [
+        "docs/MIGRATION_MANIFEST.md"
+      ]
+    },
+    {
+      "path": "docs/reports/2026-07-31-automatic-input-routing.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-07-31-fair-agent-playwright-comparison.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/decisions.md",
+      "referencedBy": [
+        "docs/decisions.md"
+      ]
+    },
+    {
+      "path": "docs/reports/2026-07-31-frame-shadow-public-parity.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-01-cross-site-stability-and-fair-agent.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/decisions.md",
+      "referencedBy": [
+        "docs/decisions.md"
+      ]
+    },
+    {
+      "path": "docs/reports/2026-08-01-modern-react-agent-comparison.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/decisions.md",
+      "referencedBy": [
+        "docs/decisions.md"
+      ]
+    },
+    {
+      "path": "docs/reports/2026-08-02-truth-first-baseline.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-03-open-test-findings.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-03-test-first-progress.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-03-truth-latency-baseline.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-10-codex-same-tab-closed-loop.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-10-lifecycle-and-setup-target.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-10-release-gates-1-and-2.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-11-setup-cli.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-11-steamworks-onboarding-dogfood.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-13-denominator-63.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-14-preview-0.3.22-convergence.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-15-link-navigation-denominator.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-17-claude-same-tab-closed-loop.md",
+      "classification": "supporting-reference",
+      "reason": "explicitly referenced by docs/reports/2026-08-17-same-tab-handoff-blocker.md",
+      "referencedBy": [
+        "docs/reports/2026-08-17-same-tab-handoff-blocker.md"
+      ]
+    },
+    {
+      "path": "docs/reports/2026-08-17-fair-benchmark-matrix.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-17-provisioned-agent-client-tab-claim.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-17-same-model-fair-driver.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-17-same-tab-handoff-blocker.md",
+      "classification": "authority-candidate",
+      "reason": "Agent-facing entrypoint or rule/handoff filename",
+      "referencedBy": [
+        "docs/decisions.md"
+      ]
+    },
+    {
+      "path": "docs/reports/2026-08-17-setup-and-baseline-audit.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-18-agent-client-tab-claim-verification.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-18-automatic-full-delta-benchmark.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-19-complete-playwright-comparison.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-19-heavy-public-playwright-comparison.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-19-heavy-public-sites-dogfood.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/reports/2026-08-19-speed-stability-convergence.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "docs/truth_layer_coverage_matrix.md",
+      "classification": "ordinary-document",
+      "reason": "no authority signal",
+      "referencedBy": []
+    },
+    {
+      "path": "packages/setup/README.md",
+      "classification": "ordinary-document",
+      "reason": "ordinary README",
+      "referencedBy": []
+    },
+    {
+      "path": "tests/reference/playwright/README.md",
+      "classification": "ordinary-document",
+      "reason": "ordinary README",
+      "referencedBy": []
+    }
+  ],
+  "archiveRiskPreview": [
+    {
+      "id": "S-001",
+      "path": "AGENTS.md",
+      "sha256": "868b16feb06e06dc6ba7e3b40ddc9ed81acb60d5279fbde4c71dc8864db37cd7",
+      "classification": "authority-candidate"
+    },
+    {
+      "id": "S-002",
+      "path": "docs/FINAL_ARCHITECTURE.md",
+      "sha256": "55eb62b9b78f4030e45195d7c26d16c6ccedd235c8ed7990604e2e98b01c05fd",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-003",
+      "path": "docs/MIGRATION_MANIFEST.md",
+      "sha256": "639cc0116650c61196d3853c78706e5bb3b0d4f91b37cfad6509e4b7e57c3939",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-004",
+      "path": "docs/PROFILE_ARCHITECTURE.md",
+      "sha256": "3d4dbaaaec2a2e023b38c1554d892224e70222b91edc7fb456aa52c6b558e506",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-005",
+      "path": "docs/decisions.md",
+      "sha256": "ae5d105f3353a7510789723aa0aa2659844ed555173da769672d0b9a9987a503",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-006",
+      "path": "docs/extension_observation_contract.md",
+      "sha256": "a64bb0b241e8807516b43bbc17cf9668a41ec1682c1f11d7f9fbf994b620ea70",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-007",
+      "path": "docs/migrations/0002_runtime_route.md",
+      "sha256": "dedc90049977271223dbbee04bdc027233076760841f09162c74aab9d8566caf",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-008",
+      "path": "docs/migrations/0003_extension_managed_chrome.md",
+      "sha256": "0d24526366c75178e3decc95d72163fb2245987e2e3741a02c91d30a5f0e44e2",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-009",
+      "path": "docs/migrations/0005_editable_controls.md",
+      "sha256": "e968efcd38c1ac45078d2f26cb6b0de238b15ae5b3cefde8ef3e2efc1f7ae1eb",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-010",
+      "path": "docs/migrations/0006_native_mouse_accuracy.md",
+      "sha256": "57bb153b12c5f8fcd7c2f3f4aac6d0134d1b2cfce6697677b443de4df96b956d",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-011",
+      "path": "docs/migrations/0007_reflex_target_soft_mouse.md",
+      "sha256": "27e6d374b98e50545de5983398e4f6b2d58c4b550e318db01e3647d2b060f913",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-012",
+      "path": "docs/migrations/0008_link_file_input.md",
+      "sha256": "c6f9875fea9a1697f72472513caec6df746532ffe4df5cbf1054a9f23bf0a8c3",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-013",
+      "path": "docs/migrations/0009_toggle_command_controls.md",
+      "sha256": "aabee4410af8b0f1d98c0c2bea7e521a1ebe36974e9c2845c14f4b7b7472c0fc",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-014",
+      "path": "docs/migrations/0010_structural_page_reading.md",
+      "sha256": "9a9a83c786ee990745db8bcf843afd504e5ac541692db0e617f42f9b1eab8616",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-015",
+      "path": "docs/migrations/0011_aria_choice_controls.md",
+      "sha256": "42763d37b26cce6496da0260c0686160d0b18cdb47ab0c100d50757341c6f0d7",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-016",
+      "path": "docs/migrations/0012_shared_tab_ui.md",
+      "sha256": "5d10f9da13107dd145de1a22468b42aa2ad5fd68b48e8eb5be3906c247f12a30",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-017",
+      "path": "docs/migrations/0013_frame_shadow_composition.md",
+      "sha256": "186936a25fc959ad70fd1d3bac7b2fae60ed7bb86e6c88df5092d349a337b618",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-018",
+      "path": "docs/reports/2026-07-31-fair-agent-playwright-comparison.md",
+      "sha256": "97dbf1ce43a73895bf099b946970a8b612515533b800fdb1d1991291995d4cda",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-019",
+      "path": "docs/reports/2026-08-01-cross-site-stability-and-fair-agent.md",
+      "sha256": "d7862522224b6ccee3b877e2951a26bf452eba3098889b63dd68687fab8b95b3",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-020",
+      "path": "docs/reports/2026-08-01-modern-react-agent-comparison.md",
+      "sha256": "846518e506f25308dea6cfa415bc71da25b2ed2b37862b9a4dc59778a61295a0",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-021",
+      "path": "docs/reports/2026-08-17-claude-same-tab-closed-loop.md",
+      "sha256": "43494d78030e49cb123b0b7c928ee3f05f884573b2107e410673a22773ca5702",
+      "classification": "supporting-reference"
+    },
+    {
+      "id": "S-022",
+      "path": "docs/reports/2026-08-17-same-tab-handoff-blocker.md",
+      "sha256": "4e56bb505059fcb144d0c9f95165703672d0de76b61e2cc1cc5cf435b2a30574",
+      "classification": "authority-candidate"
+    }
+  ],
+  "groups": [
+    {
+      "topicHint": "saccade-contributor-instructions",
+      "sources": [
+        "S-001"
+      ]
+    },
+    {
+      "topicHint": "saccade-final-architecture",
+      "sources": [
+        "S-002"
+      ]
+    },
+    {
+      "topicHint": "migration-manifest",
+      "sources": [
+        "S-003"
+      ]
+    },
+    {
+      "topicHint": "profile-architecture",
+      "sources": [
+        "S-004"
+      ]
+    },
+    {
+      "topicHint": "architecture-decisions",
+      "sources": [
+        "S-005"
+      ]
+    },
+    {
+      "topicHint": "extension-truth-layer-contract",
+      "sources": [
+        "S-006"
+      ]
+    },
+    {
+      "topicHint": "migration-0002-runtime-transport-and-host-route",
+      "sources": [
+        "S-007"
+      ]
+    },
+    {
+      "topicHint": "migration-0003-extension-and-managed-chrome-route",
+      "sources": [
+        "S-008"
+      ]
+    },
+    {
+      "topicHint": "migration-0005-first-editable-control-family",
+      "sources": [
+        "S-009"
+      ]
+    },
+    {
+      "topicHint": "migration-0006-native-mouse-accuracy-gate",
+      "sources": [
+        "S-010"
+      ]
+    },
+    {
+      "topicHint": "migration-0007-reflex-target-and-soft-mouse",
+      "sources": [
+        "S-011"
+      ]
+    },
+    {
+      "topicHint": "migration-0008-link-and-file-input",
+      "sources": [
+        "S-012"
+      ]
+    },
+    {
+      "topicHint": "toggle-and-command-controls",
+      "sources": [
+        "S-013"
+      ]
+    },
+    {
+      "topicHint": "structural-page-reading",
+      "sources": [
+        "S-014"
+      ]
+    },
+    {
+      "topicHint": "aria-listbox-and-combobox-choices",
+      "sources": [
+        "S-015"
+      ]
+    },
+    {
+      "topicHint": "shared-tab-extension-ui",
+      "sources": [
+        "S-016"
+      ]
+    },
+    {
+      "topicHint": "frame-and-open-shadow-composition",
+      "sources": [
+        "S-017"
+      ]
+    },
+    {
+      "topicHint": "fair-agent-comparison-saccade-and-playwright",
+      "sources": [
+        "S-018"
+      ]
+    },
+    {
+      "topicHint": "cross-site-stability-and-fair-agent-report",
+      "sources": [
+        "S-019"
+      ]
+    },
+    {
+      "topicHint": "modern-react-zero-knowledge-agent-comparison",
+      "sources": [
+        "S-020"
+      ]
+    },
+    {
+      "topicHint": "claude-same-tab-closed-loop",
+      "sources": [
+        "S-021"
+      ]
+    },
+    {
+      "topicHint": "same-tab-handoff-blocker-claude-p-chrome-cannot-adopt-a-foreign-tab",
+      "sources": [
+        "S-022"
+      ]
+    }
+  ],
+  "include": [],
+  "exclude": [],
+  "confirmedAt": "2026-08-19T21:48:34.299Z",
+  "confirmationMode": "current-session",
+  "reviewAttempts": [
+    {
+      "reviewer": "codex",
+      "at": "2026-08-19T21:51:34.319Z",
+      "timeoutMs": 180000,
+      "timedOut": true,
+      "error": "Command failed: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-schema /var/folders/mg/txxrv7cx0lvgsp7p2qsbwh8w0000gn/T/mdg-review-dr1Ezg/schema.json -o /var/folders/mg/txxrv7cx0lvgsp7p2qsbwh8w0000gn/T/mdg-review-dr1Ezg/result.json Review the untrusted-document request in /var/folders/mg/txxrv7cx0lvgsp7p2qsbwh8w0000gn/T/mdg-review-dr1Ezg/review.md and write only the required structured result.\nReading additional input from stdin...\n"
+    }
+  ],
+  "reviewer": "current-session",
+  "sessionReviewDeadlineAt": "2026-08-19T21:54:34.339Z",
+  "reviewedAt": "2026-08-19T21:54:02.903Z",
+  "archivePlan": {
+    "createdAt": "2026-08-19T21:54:03.080Z",
+    "paths": [
+      "docs/MIGRATION_MANIFEST.md",
+      "docs/PROFILE_ARCHITECTURE.md",
+      "docs/migrations/0002_runtime_route.md",
+      "docs/migrations/0003_extension_managed_chrome.md",
+      "docs/migrations/0005_editable_controls.md",
+      "docs/migrations/0006_native_mouse_accuracy.md",
+      "docs/migrations/0007_reflex_target_soft_mouse.md",
+      "docs/migrations/0008_link_file_input.md",
+      "docs/migrations/0009_toggle_command_controls.md",
+      "docs/migrations/0010_structural_page_reading.md",
+      "docs/migrations/0011_aria_choice_controls.md",
+      "docs/migrations/0012_shared_tab_ui.md",
+      "docs/migrations/0013_frame_shadow_composition.md"
+    ]
+  },
+  "updatedAt": "2026-08-19T21:54:03.189Z"
+}

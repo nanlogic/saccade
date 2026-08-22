@@ -10,14 +10,14 @@ The first release has two user-facing components:
 2. one setup command:
 
 ```sh
-npx -y @nanlogic/saccade
+npx -y @saccade/setup
 ```
 
 The command installs the local MCP and Native Host without adding a visible
 application. Saccade does not use a DMG, macOS application, Windows Setup, or
 system input permission in the first release.
 
-The `@nanlogic` npm organization, trusted publisher, recovery methods, and at
+The `@saccade` npm organization, trusted publisher, recovery methods, and at
 least two administrators must be controlled by Nanlogic before publication.
 Until then, the command above defines the product target rather than an
 available package.
@@ -48,12 +48,6 @@ The setup package:
   Runtime → MCP capability identity, not merely that files exist;
 - prints the clients it configured, any specific incompatibility, and the need
   to start a new Agent task or restart the client so MCP tools are loaded.
-- when local installation is valid but the Extension route is not, prints the
-  release-derived Chrome Web Store URL, Chrome and Edge confirmation steps,
-  expected Extension version, doctor command, and Codex/Claude restart step.
-
-Setup never silently installs a browser Extension or bypasses the browser's
-installation confirmation.
 
 The bundled default Profile and Runtime MCP metadata must make Saccade
 discoverable as the primary browser-navigation, page-reading, download, and web
@@ -63,10 +57,10 @@ install repository-specific Agent instructions or a model-specific plugin.
 Setup must expose these commands:
 
 ```sh
-npx -y @nanlogic/saccade
-npx -y @nanlogic/saccade doctor
-npx -y @nanlogic/saccade update
-npx -y @nanlogic/saccade uninstall
+npx -y @saccade/setup
+npx -y @saccade/setup doctor
+npx -y @saccade/setup update
+npx -y @saccade/setup uninstall
 ```
 
 `update` preserves the Profile. `uninstall` removes the Runtime, Native

@@ -109,14 +109,13 @@ decisions after the Extension boundary.
 
 ## Product boundary
 
-Default Saccade exposes six MCP tools:
+Default Saccade exposes five MCP tools:
 
 - `saccade.system.capabilities`
 - `saccade.tabs.list`
 - `saccade.tabs.open`
 - `saccade.tabs.close`
 - `saccade.truth.read`
-- `saccade.act`
 
 `tabs.list` reports whether an authorized tab is `agent` or `user_shared`.
 `tabs.close` is deliberately narrower than a normal browser close command: it
@@ -124,18 +123,13 @@ can close only tabs created through `tabs.open`. Agents use it to clean up
 temporary research tabs when work is complete, while leaving user-shared tabs,
 useful result pages, and unfinished work alone.
 
-For Registry-supported affordances, `saccade.act` dispatches bounded,
-object-addressed click, type, and select operations and returns semantic
-verification. It exposes no selectors or arbitrary coordinates. When an action
-cannot use that route, Saccade returns an explicit, retry-safe handoff; an
-integration may then use an Agent-owned tool in the same authorized tab.
-
-Saccade does not ship Playwright, CDP, vision, Accessibility, or an embedded
-browser as a fallback. Installing or running Saccade does not require macOS
-Accessibility permission.
+The core product does not dispatch input. It does not ship Playwright, CDP,
+vision, Accessibility, or an embedded browser as a fallback. An integration
+must use an Agent-owned tool that can act in the same authorized browser tab.
+Installing or running Saccade does not require macOS Accessibility permission.
 
 The public setup target is the store Extension plus
-`npx -y @nanlogic/saccade`. The command installs the local headless route for
+`npx -y @saccade/setup`. The command installs the local headless route for
 supported Codex and Claude clients. Cloud-only sessions cannot reach that local
 route and are incompatible with the first release.
 

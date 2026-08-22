@@ -7,6 +7,17 @@ from pathlib import Path
 
 
 class DevelopmentLifecycleTests(unittest.TestCase):
+    def test_agent_routing_discovers_deferred_saccade_tools_before_web_fallback(self) -> None:
+        instructions = (Path(__file__).parents[1] / "AGENTS.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("deferred/lazy tool registry", instructions)
+        self.assertIn("Absence from the initially expanded tool list", instructions)
+        self.assertIn("call `saccade.system.capabilities`", instructions)
+        self.assertIn("present but unhealthy", instructions)
+        self.assertIn("Never silently fall back to generic web search", instructions)
+        self.assertIn("Saccade dogfood", instructions)
+
     def test_attach_installs_candidate_extension_for_ordinary_chrome(self) -> None:
         script = (Path(__file__).parents[1] / "scripts" / "dev.sh").read_text(
             encoding="utf-8"

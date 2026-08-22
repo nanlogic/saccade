@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "baseline",
+  "topic": "truth-observation-contract",
+  "scope": ".",
+  "title": "Browser Truth observation contract",
+  "revision": 1,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "accept-draft",
+  "reviewer": "current-session",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": "adopt-20260819214833-db978a",
+  "decisionId": "truth-observation-contract",
+  "currentSha256": "52230f279566fb26d2769a557708281e8eb9f48b69ef2e0e6701382ecdaffec2",
+  "baseCurrentSha256": null,
+  "previousEvidencePath": null,
+  "previousEvidenceSha256": null,
+  "previousEvidenceDataPath": null,
+  "previousEvidenceDataSha256": null,
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The architecture, decisions, and Extension contract consistently define one full semantic document view followed by pushed revision-bounded deltas, stable document-local object identity, current CSS-pixel geometry, protected-value redaction, and explicit opaque or restricted boundaries.",
+      "confidence": "high",
+      "text": "The Extension compiles each authorized tab into one canonical full semantic view and then pushes meaningful revision-bounded deltas."
+    },
+    {
+      "item": "R-002",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The architecture, decisions, and Extension contract consistently define one full semantic document view followed by pushed revision-bounded deltas, stable document-local object identity, current CSS-pixel geometry, protected-value redaction, and explicit opaque or restricted boundaries.",
+      "confidence": "high",
+      "text": "Objects have stable document-local identity, bounded semantic state, affordances, current document- and viewport-relative CSS-pixel geometry, and explicit limitations."
+    },
+    {
+      "item": "R-003",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The architecture, decisions, and Extension contract consistently define one full semantic document view followed by pushed revision-bounded deltas, stable document-local object identity, current CSS-pixel geometry, protected-value redaction, and explicit opaque or restricted boundaries.",
+      "confidence": "high",
+      "text": "Geometry changes update the same object identity; document replacement creates a new document boundary and invalidates stale authority."
+    },
+    {
+      "item": "R-004",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The architecture, decisions, and Extension contract consistently define one full semantic document view followed by pushed revision-bounded deltas, stable document-local object identity, current CSS-pixel geometry, protected-value redaction, and explicit opaque or restricted boundaries.",
+      "confidence": "high",
+      "text": "Editable values, protected values, cookies, storage, DOM paths, and locators are never exposed as Truth."
+    },
+    {
+      "item": "R-005",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The architecture, decisions, and Extension contract consistently define one full semantic document view followed by pushed revision-bounded deltas, stable document-local object identity, current CSS-pixel geometry, protected-value redaction, and explicit opaque or restricted boundaries.",
+      "confidence": "high",
+      "text": "Same-origin frames and open Shadow DOM may be composed; restricted frames and arbitrary Canvas or WebGL remain explicitly opaque unless an approved semantic bridge supplies revalidatable objects."
+    },
+    {
+      "item": "R-006",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The architecture, decisions, and Extension contract consistently define one full semantic document view followed by pushed revision-bounded deltas, stable document-local object identity, current CSS-pixel geometry, protected-value redaction, and explicit opaque or restricted boundaries.",
+      "confidence": "high",
+      "text": "Stream gaps and impossible revisions force an exact-tab reset rather than guessed state."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-002",
+      "path": "docs/FINAL_ARCHITECTURE.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/FINAL_ARCHITECTURE.md",
+      "sha256": "55eb62b9b78f4030e45195d7c26d16c6ccedd235c8ed7990604e2e98b01c05fd",
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00"
+    },
+    {
+      "id": "S-005",
+      "path": "docs/decisions.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/decisions.md",
+      "sha256": "ae5d105f3353a7510789723aa0aa2659844ed555173da769672d0b9a9987a503",
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00"
+    },
+    {
+      "id": "S-006",
+      "path": "docs/extension_observation_contract.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/extension_observation_contract.md",
+      "sha256": "a64bb0b241e8807516b43bbc17cf9668a41ec1682c1f11d7f9fbf994b620ea70",
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-19T21:54:03.108Z"
+}

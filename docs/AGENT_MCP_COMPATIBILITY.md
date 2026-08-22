@@ -22,7 +22,7 @@ absolute path):
 ```
 
 The browser Extension and Native Host must already be installed and authorized.
-The public target is the store Extension plus `npx -y @nanlogic/saccade`, which
+The public target is the store Extension plus `npx -y @saccade/setup`, which
 installs the headless Runtime, user-level Native Messaging manifests, and local
 MCP entries. No Accessibility permission is required for this Truth-only route.
 `tabs.close` is limited to Agent-owned tabs; user-shared tabs are rejected.

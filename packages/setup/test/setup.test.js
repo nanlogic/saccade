@@ -134,7 +134,7 @@ test('a disconnected install prints exact Extension installation steps', async (
   assert.match(installed.stdout, /https:\/\/chromewebstore\.google\.com\/detail\/saccade\/abcdefghijklmnopabcdefghijklmnop/);
   assert.match(installed.stdout, /Add to Chrome/);
   assert.match(installed.stdout, /allow extensions from other stores/);
-  assert.match(installed.stdout, /npx -y @nanlogic\/saccade doctor/);
+  assert.match(installed.stdout, /npx -y @saccade\/setup doctor/);
   assert.match(installed.stdout, /Restart Codex or Claude/);
   assert.match(installed.stdout, /Expected Extension version: 0\.3\.22/);
 
@@ -149,7 +149,7 @@ test('doctor without setup state tells the user how to install', async (t) => {
   t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
   const result = run(['doctor'], values);
   assert.equal(result.status, 1);
-  assert.match(result.stdout, /Next: install Saccade with npx -y @nanlogic\/saccade/);
+  assert.match(result.stdout, /Next: install Saccade with npx -y @saccade\/setup/);
 });
 
 test('checksum failure leaves no installation behind', async (t) => {
@@ -380,7 +380,7 @@ if (args[1] === 'get') {
 
 test('package has an explicit CLI and no install-time hook', async () => {
   const packageJson = JSON.parse(await fsp.readFile(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'));
-  assert.equal(packageJson.name, '@nanlogic/saccade');
+  assert.equal(packageJson.name, '@saccade/setup');
   assert.equal(packageJson.bin['saccade-setup'], 'bin/saccade-setup.js');
   assert.equal(packageJson.scripts.postinstall, undefined);
   const release = JSON.parse(await fsp.readFile(path.join(PACKAGE_ROOT, 'release.json'), 'utf8'));

@@ -25,36 +25,16 @@ def forbid(path: str, needle: str) -> None:
 def main() -> None:
     require("crates/saccade_protocol/src/lib.rs", '"saccade.observation/1"')
     require("crates/saccade_protocol/src/lib.rs", '"saccade-extension-host/1"')
-    for private_path in (
-        ".authority",
-        ".claude",
-        ".codex",
-        "AGENTS.md",
-        "CLAUDE.md",
-        "MEMORY.md",
-        "PROJECT_AUTHORITY.md",
-        "docs/current",
-        "docs/migrations",
-        "docs/proposals",
-    ):
-        if (ROOT / private_path).exists():
-            raise SystemExit(f"public source tree retained local or historical path: {private_path}")
-    public_reports = sorted(
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "docs/reports").glob("*.md")
-    )
-    if public_reports != [
-        "docs/reports/2026-08-20-saccade-playwright-public-results.md"
-    ]:
-        raise SystemExit(f"public source tree retained stale reports: {public_reports}")
-    require("docs/FINAL_ARCHITECTURE.md", "`npx -y @nanlogic/saccade`")
+    require("AGENTS.md", "docs/current/profile-boundary.md")
+    require("README.md", "docs/current/profile-boundary.md")
+    require("docs/FINAL_ARCHITECTURE.md", "`npx -y @saccade/setup`")
     require("docs/SETUP_TARGET.md", "Status: normative for the first public release.")
     require("docs/SETUP_TARGET.md", "`postinstall`")
     require("docs/SETUP_TARGET.md", "Cloud-only Agent sessions cannot reach")
     setup_package = json.loads(
         (ROOT / "packages/setup/package.json").read_text(encoding="utf-8")
     )
-    if setup_package.get("name") != "@nanlogic/saccade":
+    if setup_package.get("name") != "@saccade/setup":
         raise SystemExit("setup package lost its public npm name")
     if "postinstall" in setup_package.get("scripts", {}):
         raise SystemExit("setup package must not mutate the system from postinstall")
@@ -80,13 +60,14 @@ def main() -> None:
     require("scripts/assemble_setup_release.py", "https://github.com/nanlogic/saccade/releases/download/")
     require("scripts/verify_published_setup_release.py", '"darwin-arm64", "darwin-x64"')
     require("scripts/package_extension_release.py", "store Extension manifest still has a development name")
+    require("PROJECT_AUTHORITY.md", "docs/current/profile-boundary.md")
     require(
         "docs/HOW_SACCADE_WORKS.md",
         "A closed-loop Saccade test must include the Agent-owned action",
     )
     require(
         "docs/RELEASE_PLAN.md",
-        "Codex and Claude each complete the public MCP loop",
+        "Codex and Claude each act with their own tool",
     )
     require(
         "docs/RELEASE_PLAN.md",
@@ -94,21 +75,44 @@ def main() -> None:
     )
     require("scripts/audit_public_evidence.py", "Reference Actuator reports are rejected")
     require("scripts/summarize_fair_matrix.py", "public_comparison_claims_authorized")
+    dogfood_path = "docs/reports/2026-08-11-steamworks-onboarding-dogfood.md"
+    for needle in (
+        "Saccade-observe / Agent-act / Saccade-verify",
+        "same-tab tool owns",
+        "Restricted frames, CAPTCHA, login/account mismatch",
+        "does not promote any Control Catalog row",
+    ):
+        require(dogfood_path, needle)
+    dogfood = (ROOT / dogfood_path).read_text(encoding="utf-8").lower()
+    for forbidden in (
+        "token=",
+        "4044414380",
+        "8840 mason",
+        "quentin.ma@gmail.com",
+    ):
+        if forbidden in dogfood:
+            raise SystemExit(f"authenticated dogfood report retained private material: {forbidden!r}")
     for path, needle in (
         ("README.md", "scripts/package_preview_macos.py"),
         ("README.md", "unsigned DMG"),
         ("docs/RELEASE_PLAN.md", "signed DMG"),
         ("docs/RELEASE_PLAN.md", "Windows Setup"),
+        ("docs/CONTROL_ROADMAP.md", "unsigned DMG"),
+        ("docs/CONTROL_ROADMAP.md", "package the store Extension, signed macOS DMG"),
     ):
         forbid(path, needle)
+    require(
+        "docs/decisions.md",
+        "Profiles provide behavior and ban named controls",
+    )
     for needle in (
-        "Agent-facing",
+        "Agent-facing behavior",
         "bounded filtering policy",
         "canonical control recognition",
         "action authority",
         "protected values",
     ):
-        require("docs/FINAL_ARCHITECTURE.md", needle)
+        require("docs/current/profile-boundary.md", needle)
     profile_schema = json.loads(
         (ROOT / "catalog/profile.schema.json").read_text(encoding="utf-8")
     )

@@ -6,15 +6,16 @@ family.
 
 ## Before opening a pull request
 
-1. Read `docs/FINAL_ARCHITECTURE.md` and
+1. Read `AGENTS.md`, `docs/FINAL_ARCHITECTURE.md`, and
    `docs/extension_observation_contract.md`.
-2. Reproduce the behavior with the smallest local fixture possible.
-3. Preserve explicit per-tab grants, protected-value
+2. Check `docs/CONTROL_ROADMAP.md` and work within one listed batch.
+3. Reproduce the behavior with the smallest local fixture possible.
+4. Preserve explicit per-tab grants, protected-value
    isolation, browser-instance provenance, page-revision checks, native input
    receipts, and fail-closed errors.
-4. Add the Catalog entry, Registry module, Extension projection, verifier,
+5. Add the Catalog entry, Registry module, Extension projection, verifier,
    fixture, leak check, and stale/focus/covered rejection tests together.
-5. Run focused checks for the changed component. Run the full README check list
+6. Run focused checks for the changed component. Run the full README check list
    before opening a pull request that changes a contract or control family.
 
 One pull request should contain one control family or one runtime boundary.

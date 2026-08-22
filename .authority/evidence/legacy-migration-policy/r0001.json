@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "baseline",
+  "topic": "legacy-migration-policy",
+  "scope": ".",
+  "title": "Legacy migration policy",
+  "revision": 1,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "accept-draft",
+  "reviewer": "current-session",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": "adopt-20260819214833-db978a",
+  "decisionId": "legacy-migration-policy",
+  "currentSha256": "8eea6dfcc6a19da688f73b3adb3b1cc220bd18e308eb53bcd8c773f0b8b81b86",
+  "baseCurrentSha256": null,
+  "previousEvidencePath": null,
+  "previousEvidenceSha256": null,
+  "previousEvidenceDataPath": null,
+  "previousEvidenceDataSha256": null,
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The migration manifest and component records consistently require reviewed, component-by-component migration from the private legacy archive with provenance, tests, and explicit release limitations. Component migration notes are evidence of bounded imports, not independent product authority.",
+      "confidence": "high",
+      "text": "Use the private `nanlogic/saccade-legacy` archive only as a reviewed source."
+    },
+    {
+      "item": "R-002",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The migration manifest and component records consistently require reviewed, component-by-component migration from the private legacy archive with provenance, tests, and explicit release limitations. Component migration notes are evidence of bounded imports, not independent product authority.",
+      "confidence": "high",
+      "text": "Migrate one approved component at a time; never copy the legacy tree or revive monolithic classifiers."
+    },
+    {
+      "item": "R-003",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The migration manifest and component records consistently require reviewed, component-by-component migration from the private legacy archive with provenance, tests, and explicit release limitations. Component migration notes are evidence of bounded imports, not independent product authority.",
+      "confidence": "high",
+      "text": "Every migrated component records its source commit and path, preserves or replaces its focused tests, and retains truthful limitations."
+    },
+    {
+      "item": "R-004",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The migration manifest and component records consistently require reviewed, component-by-component migration from the private legacy archive with provenance, tests, and explicit release limitations. Component migration notes are evidence of bounded imports, not independent product authority.",
+      "confidence": "high",
+      "text": "A migration record proves the bounded provenance of that component; it does not independently promote Catalog or public release status."
+    },
+    {
+      "item": "R-005",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "The migration manifest and component records consistently require reviewed, component-by-component migration from the private legacy archive with provenance, tests, and explicit release limitations. Component migration notes are evidence of bounded imports, not independent product authority.",
+      "confidence": "high",
+      "text": "Public status still requires the current release candidate's browser and evidence gates."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-003",
+      "path": "docs/MIGRATION_MANIFEST.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/MIGRATION_MANIFEST.md",
+      "sha256": "639cc0116650c61196d3853c78706e5bb3b0d4f91b37cfad6509e4b7e57c3939",
+      "git": "20c170058c0c563432baad21f5489ded7c5c497b|Wayne Ma|2026-08-04T22:55:33-05:00"
+    },
+    {
+      "id": "S-007",
+      "path": "docs/migrations/0002_runtime_route.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0002_runtime_route.md",
+      "sha256": "dedc90049977271223dbbee04bdc027233076760841f09162c74aab9d8566caf",
+      "git": "9f2b9c55a23851abe798c46edeb9b0d3e2d2bbdf|Wayne Ma|2026-07-28T15:20:12-05:00"
+    },
+    {
+      "id": "S-008",
+      "path": "docs/migrations/0003_extension_managed_chrome.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0003_extension_managed_chrome.md",
+      "sha256": "0d24526366c75178e3decc95d72163fb2245987e2e3741a02c91d30a5f0e44e2",
+      "git": "d77b3976c4908a459912f300c52da4bc44befe9c|Wayne Ma|2026-07-28T17:48:31-05:00"
+    },
+    {
+      "id": "S-009",
+      "path": "docs/migrations/0005_editable_controls.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0005_editable_controls.md",
+      "sha256": "e968efcd38c1ac45078d2f26cb6b0de238b15ae5b3cefde8ef3e2efc1f7ae1eb",
+      "git": "7dfceec3b8d1c0b8393a90b864c9809894f7a59c|Wayne Ma|2026-07-28T23:37:51-05:00"
+    },
+    {
+      "id": "S-010",
+      "path": "docs/migrations/0006_native_mouse_accuracy.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0006_native_mouse_accuracy.md",
+      "sha256": "57bb153b12c5f8fcd7c2f3f4aac6d0134d1b2cfce6697677b443de4df96b956d",
+      "git": "bac8a5d94fa600e8b522f338ddbc0ad94f0231e5|Wayne Ma|2026-07-29T01:49:25-05:00"
+    },
+    {
+      "id": "S-011",
+      "path": "docs/migrations/0007_reflex_target_soft_mouse.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0007_reflex_target_soft_mouse.md",
+      "sha256": "27e6d374b98e50545de5983398e4f6b2d58c4b550e318db01e3647d2b060f913",
+      "git": "bac8a5d94fa600e8b522f338ddbc0ad94f0231e5|Wayne Ma|2026-07-29T01:49:25-05:00"
+    },
+    {
+      "id": "S-012",
+      "path": "docs/migrations/0008_link_file_input.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0008_link_file_input.md",
+      "sha256": "c6f9875fea9a1697f72472513caec6df746532ffe4df5cbf1054a9f23bf0a8c3",
+      "git": "05fda396d07ecb851417b6bf43c93144046c8be9|Wayne Ma|2026-07-29T13:53:24-05:00"
+    },
+    {
+      "id": "S-013",
+      "path": "docs/migrations/0009_toggle_command_controls.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0009_toggle_command_controls.md",
+      "sha256": "aabee4410af8b0f1d98c0c2bea7e521a1ebe36974e9c2845c14f4b7b7472c0fc",
+      "git": "7cc1baeac07a48faf463ddb2b1cb5b71c4c11093|Wayne Ma|2026-07-29T16:17:40-05:00"
+    },
+    {
+      "id": "S-014",
+      "path": "docs/migrations/0010_structural_page_reading.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0010_structural_page_reading.md",
+      "sha256": "9a9a83c786ee990745db8bcf843afd504e5ac541692db0e617f42f9b1eab8616",
+      "git": "0e5cf207f1da0d374f290911ce077828bd5473e3|Wayne Ma|2026-07-29T16:44:58-05:00"
+    },
+    {
+      "id": "S-015",
+      "path": "docs/migrations/0011_aria_choice_controls.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0011_aria_choice_controls.md",
+      "sha256": "42763d37b26cce6496da0260c0686160d0b18cdb47ab0c100d50757341c6f0d7",
+      "git": "0e5cf207f1da0d374f290911ce077828bd5473e3|Wayne Ma|2026-07-29T16:44:58-05:00"
+    },
+    {
+      "id": "S-016",
+      "path": "docs/migrations/0012_shared_tab_ui.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0012_shared_tab_ui.md",
+      "sha256": "5d10f9da13107dd145de1a22468b42aa2ad5fd68b48e8eb5be3906c247f12a30",
+      "git": "0600193f5dfe1477060c7cac2974b2c8be6b3e6d|Wayne Ma|2026-07-29T16:48:14-05:00"
+    },
+    {
+      "id": "S-017",
+      "path": "docs/migrations/0013_frame_shadow_composition.md",
+      "archivePath": ".authority/archive/legacy/adopt-20260819214833-db978a/docs/migrations/0013_frame_shadow_composition.md",
+      "sha256": "186936a25fc959ad70fd1d3bac7b2fae60ed7bb86e6c88df5092d349a337b618",
+      "git": "95d05c707ea9d459cc1fa7afbecddef1d70a5d8d|Wayne Ma|2026-07-31T00:12:46-05:00"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-19T21:54:03.182Z"
+}

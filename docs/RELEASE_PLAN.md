@@ -5,14 +5,14 @@ Status: release preparation only. No public artifact has been published.
 ## Ownership and release surface
 
 Saccade is a Nanlogic product. `nanlogic/saccade` is the sole active source
-repository, GitHub Actions publisher, and Runtime Release owner. The npm package
-is `@nanlogic/saccade`; its organization, trusted publisher, recovery methods,
-and at least two administrators must be controlled by Nanlogic. Wayne operates
-the Chrome Web Store submission through a
+repository, GitHub Actions publisher, and Runtime Release owner. The npm name
+remains `@saccade/setup`, but the npm organization, trusted publisher,
+recovery methods, and at least two administrators must be controlled by
+Nanlogic. Wayne operates the Chrome Web Store submission through a
 Nanlogic-controlled publisher identity.
 
 The public product contains one browser-store Extension and the explicit
-`npx -y @nanlogic/saccade` command. The Extension package is shared across CPU
+`npx -y @saccade/setup` command. The Extension package is shared across CPU
 architectures. Setup selects one signed and notarized headless Runtime for
 `darwin-arm64` or `darwin-x64`. Windows follows only after its setup and
 lifecycle evidence exists. There is no GUI installer, Accessibility request,
@@ -35,13 +35,8 @@ coordinate fallback in this release.
    the only trigger for `Publish setup package`.
 5. The npm workflow downloads the attached manifest, verifies the tag,
    company ownership, candidate, store origin, both signed artifacts and
-   checksums, then publishes with npm provenance. Because npm cannot configure
-   trusted publishing or staged publishing for a brand-new package, `0.1.0`
-   uses a one-day organization-scoped `NPM_BOOTSTRAP_TOKEN`. Immediately after
-   that first publish, bind `@nanlogic/saccade` to repository
-   `nanlogic/saccade`, workflow `publish-npm.yml`, environment `npm-release`,
-   delete the GitHub secret, and revoke the token. Every later version uses
-   GitHub OIDC trusted publishing with no npm token.
+   checksums, then publishes with GitHub OIDC trusted publishing and npm
+   provenance. It has no long-lived npm token.
 6. Wayne submits the exact attached Extension ZIP to the Nanlogic Chrome Web
    Store publisher. After approval, a clean user runs setup, doctor, open,
    Truth, action, browser restart, uninstall, and Profile-preservation smoke.
@@ -58,10 +53,8 @@ publication job, after the GitHub Release is public.
   site reading.
 - Intel macOS additionally passes install, checksum, Native Messaging, MCP
   start, doctor, browser restart, update, rollback, uninstall, and purge.
-- Codex and Claude each complete the public MCP loop through Truth,
-  object-addressed `saccade.act`, and a verified delta. The provisioned claim
-  flow separately proves same-tab handoff for clients that must create their
-  own tab; it is not required for supported `saccade.act` operations.
+- Codex and Claude each act with their own tool in the same authorized tab
+  while Saccade reports the semantic transition.
 - Fair Playwright comparisons retain identical URL/task/model/order controls
   and separate control-plane, discovery, steady-state, infrastructure, and
   model-usage accounting. Reference Actuator reports are not a release gate
@@ -77,10 +70,8 @@ publication job, after the GitHub Release is public.
   so they continue to use `com.nanlogic.saccade.dev`. The production candidate
   still requires exact Chrome and Edge browser evidence before store upload.
 - Nanlogic's Apple signing/notarization credentials, final store Extension ID,
-  one-day npm bootstrap token, company recovery channels, and second npm
-  administrator must exist before the workflows can publish. The trusted
-  publisher is bound and the bootstrap token is deleted immediately after the
-  first package publish.
+  npm trusted-publisher binding, company recovery channels, and second npm
+  administrator must exist before the workflows can publish.
 - The x64 Runtime and setup lifecycle still need real Intel macOS evidence.
 - The owner-approved repository archival is complete and recorded in the
   repository archive report.

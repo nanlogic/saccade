@@ -1,0 +1,25 @@
+[
+  {
+    "id": "1787176558625-saccade-product-and-execution-boundary",
+    "path": "docs/proposals/product-execution-boundary.md",
+    "title": "Saccade product and execution boundary",
+    "topic": "product-execution-boundary",
+    "baseRevision": null,
+    "status": "published",
+    "sha256": "895d6b746c857d644ae93a4fbf3d7a1cb77d39deff7f52f822a75bb80dfa7aaa",
+    "createdAt": "2026-08-19T21:55:58.628Z",
+    "publishedAt": "2026-08-19T21:56:01.982Z",
+    "publishedRevision": 1,
+    "archivePath": ".authority/archive/proposals/1787176561951-product-execution-boundary.md"
+  },
+  {
+    "id": "1787191553742-actionability-follows-the-execution-primitive",
+    "path": "docs/proposals/actionability-by-execution-primitive.md",
+    "title": "Actionability follows the execution primitive",
+    "topic": "product-execution-boundary",
+    "baseRevision": null,
+    "status": "pending",
+    "sha256": "4aa130ff3e62e76e2d15fa22c4eacdcc18d93b17d5da5e2f7447d68c188b6978",
+    "createdAt": "2026-08-20T02:05:53.743Z"
+  }
+]

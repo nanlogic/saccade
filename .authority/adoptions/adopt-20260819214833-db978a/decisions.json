@@ -1,0 +1,68 @@
+[
+  {
+    "decisionId": "product-execution-boundary",
+    "topic": "product-execution-boundary",
+    "scope": ".",
+    "action": "unresolved",
+    "updatedAt": "2026-08-19T21:54:02.972Z",
+    "selectedSource": null,
+    "actor": {
+      "name": "Wayne Ma",
+      "email": "wayne.maq@gmail.com"
+    }
+  },
+  {
+    "decisionId": "truth-observation-contract",
+    "topic": "truth-observation-contract",
+    "scope": ".",
+    "action": "applied",
+    "updatedAt": "2026-08-19T21:54:02.999Z",
+    "selectedSource": null,
+    "actor": {
+      "name": "Wayne Ma",
+      "email": "wayne.maq@gmail.com"
+    },
+    "publishedRevision": 1,
+    "appliedAt": "2026-08-19T21:54:03.112Z"
+  },
+  {
+    "decisionId": "profile-boundary",
+    "topic": "profile-boundary",
+    "scope": ".",
+    "action": "applied",
+    "updatedAt": "2026-08-19T21:54:03.025Z",
+    "selectedSource": null,
+    "actor": {
+      "name": "Wayne Ma",
+      "email": "wayne.maq@gmail.com"
+    },
+    "publishedRevision": 1,
+    "appliedAt": "2026-08-19T21:54:03.155Z"
+  },
+  {
+    "decisionId": "legacy-migration-policy",
+    "topic": "legacy-migration-policy",
+    "scope": ".",
+    "action": "applied",
+    "updatedAt": "2026-08-19T21:54:03.051Z",
+    "selectedSource": null,
+    "actor": {
+      "name": "Wayne Ma",
+      "email": "wayne.maq@gmail.com"
+    },
+    "publishedRevision": 1,
+    "appliedAt": "2026-08-19T21:54:03.188Z"
+  },
+  {
+    "decisionId": "historical-agent-evidence",
+    "topic": "historical-agent-evidence",
+    "scope": ".",
+    "action": "unresolved",
+    "updatedAt": "2026-08-19T21:54:03.077Z",
+    "selectedSource": null,
+    "actor": {
+      "name": "Wayne Ma",
+      "email": "wayne.maq@gmail.com"
+    }
+  }
+]

@@ -1,10 +1,10 @@
-# @nanlogic/saccade
+# @saccade/setup
 
 Install the Saccade Extension from the Chrome Web Store in Chrome or Edge, then
 run:
 
 ```sh
-npx -y @nanlogic/saccade
+npx -y @saccade/setup
 ```
 
 Setup installs the headless Saccade Runtime, user-level Native Messaging
@@ -29,13 +29,13 @@ the browser's installation confirmation.
 Use these lifecycle commands:
 
 ```sh
-npx -y @nanlogic/saccade doctor
-npx -y @nanlogic/saccade update
-npx -y @nanlogic/saccade uninstall
+npx -y @saccade/setup doctor
+npx -y @saccade/setup update
+npx -y @saccade/setup uninstall
 ```
 
 Updates and ordinary uninstall preserve your Saccade Profile. Run
-`npx -y @nanlogic/saccade uninstall --purge` to remove the Profile and Runtime
+`npx -y @saccade/setup uninstall --purge` to remove the Profile and Runtime
 data.
 
 The first release supports Apple Silicon and Intel macOS clients that can start

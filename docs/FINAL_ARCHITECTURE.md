@@ -148,12 +148,9 @@ resizing, scrolling, and rendered animation update geometry on the same object
 identity and produce pushed Truth changes. Geometry is observation, not action
 authority: the API still contains no locator, DOM path, arbitrary-coordinate
 action, editable value, protected value, cookie, browser storage, or default
-execution authority. Profiles are strict Runtime inputs with Agent-facing
-behavior and bounded filtering policy. Profile `ban` filtering happens after
-canonical control recognition and before the Agent projection. A filtered
-control and its action authority are both absent. Profile policy cannot change
-recognition or reveal editable values, protected values, cookies, browser
-storage, locators, or arbitrary execution authority.
+execution authority. Profile `ban` filtering happens before the Agent
+projection; Profile behavior is supplied as Agent-facing instructions. The
+three-field boundary is defined by `PROFILE_ARCHITECTURE.md`.
 
 The Extension is the only product safety/redaction gate. It protects password,
 SSN, and EIN fields and masks SSN/EIN-shaped text before emission. MCP adds no
@@ -419,7 +416,7 @@ This diagnostic SLA and recovery behavior do not add execution to default MCP.
 ## Installation and verification
 
 The first public release has two user-facing components: the Saccade browser
-Extension and `npx -y @nanlogic/saccade`. The explicit setup command installs the
+Extension and `npx -y @saccade/setup`. The explicit setup command installs the
 headless local Runtime, user-level Native Messaging manifests, and local MCP
 entries for supported Codex and Claude clients. It does not install a visible
 application, use an npm `postinstall` hook, or request Accessibility. The

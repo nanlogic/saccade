@@ -1,0 +1,3 @@
+# Gatekeeper audit records preserve source text and hashes byte-for-byte.
+/.authority/** -whitespace
+/PROJECT_AUTHORITY.md -whitespace

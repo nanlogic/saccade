@@ -419,7 +419,7 @@ actionable, and every successful receipt requires the score to advance.
 The first release uses the browser-store Extension plus one explicit command:
 
 ```sh
-npx -y @nanlogic/saccade
+npx -y @saccade/setup
 ```
 
 The command installs the headless local Runtime, user-level Native
@@ -445,9 +445,9 @@ state projection, or delta semantics.
 }
 ```
 
-Read the Profile boundary in [the architecture](docs/FINAL_ARCHITECTURE.md)
-and the [Profile schema](catalog/profile.schema.json) before adding Profile
-behavior.
+Read the [current Profile boundary](docs/current/profile-boundary.md), the
+[architecture](docs/FINAL_ARCHITECTURE.md), and the
+[Profile schema](catalog/profile.schema.json) before adding Profile behavior.
 
 ## Repository map
 
