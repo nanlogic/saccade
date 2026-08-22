@@ -3,6 +3,7 @@ import json
 import shutil
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -32,6 +33,14 @@ class PackageExtensionReleaseTests(unittest.TestCase):
             archive = MODULE.package(ROOT / "extension", Path(directory))
             self.assertTrue(archive.is_file())
             self.assertEqual(archive.name, "saccade-extension-0.3.24.zip")
+            with zipfile.ZipFile(archive) as packaged:
+                names = packaged.namelist()
+                manifest = json.loads(packaged.read("manifest.json"))
+            self.assertIn("candidate.json", names)
+            self.assertFalse(any(name.startswith("tests/") for name in names))
+            self.assertIn("src/candidate_identity.js", names)
+            self.assertNotIn("key", manifest)
+            self.assertIn("key", json.loads((ROOT / "extension/manifest.json").read_text()))
 
     def test_exact_production_candidate_is_packaged(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

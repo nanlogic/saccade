@@ -3074,10 +3074,8 @@ mod tests {
             })
             .unwrap();
 
-        let grant: HostGrant = serde_json::from_slice(
-            &fs::read(dir.path().join("host-grant.json")).unwrap(),
-        )
-        .unwrap();
+        let grant: HostGrant =
+            serde_json::from_slice(&fs::read(dir.path().join("host-grant.json")).unwrap()).unwrap();
         assert_eq!(
             grant.address,
             LocalAddress::Unix {
