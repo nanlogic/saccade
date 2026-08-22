@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use crate::browser_wake;
 use crate::profile::Profile;
+use crate::session::load_expected_extension_candidate;
 use anyhow::{anyhow, bail, Context, Result};
 use saccade_host_client::HostClient;
 use saccade_protocol::{ActionReceipt, Affordance, ChangeKind, ObservationSnapshot, ProtocolError};
@@ -167,7 +168,9 @@ fn dispatch(
         "initialize" => initialize(host, mode, startup_profile),
         "notifications/initialized" | "ping" => Ok(json!({})),
         "resources/list" => list_truth_resources(host),
-        "resources/read" => read_truth_resource(host, agent_views, &request.params),
+        "resources/read" => {
+            read_truth_resource(host, agent_views, &request.params, startup_profile)
+        }
         "resources/subscribe" => subscribe_truth_resource(host, subscriptions, &request.params),
         "resources/unsubscribe" => unsubscribe_truth_resource(subscriptions, &request.params),
         "tools/list" => Ok(json!({"tools":tools(mode, diagnostics)})),
@@ -178,7 +181,15 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let value = call_tool(host, agent_views, name, arguments, mode, diagnostics)?;
+            let value = call_tool(
+                host,
+                agent_views,
+                name,
+                arguments,
+                mode,
+                diagnostics,
+                startup_profile,
+            )?;
             let summary = tool_result_summary(&value);
             Ok(
                 json!({"content":[{"type":"text","text":summary}],"structuredContent":value,"isError":false}),
@@ -255,6 +266,7 @@ fn read_truth_resource(
     host: &HostClient,
     agent_views: &mut AgentViewState,
     params: &Value,
+    startup_profile: &Profile,
 ) -> Result<Value> {
     let tab_id = tab_id_from_truth_uri(params)?;
     let view = call_tool(
@@ -264,6 +276,7 @@ fn read_truth_resource(
         json!({"tab_id":tab_id}),
         McpMode::Truth,
         false,
+        startup_profile,
     )?;
     Ok(json!({"contents":[{
         "uri":truth_uri(&tab_id),
@@ -412,6 +425,40 @@ fn project_profile_capabilities(capabilities: &mut Value) -> String {
     digest
 }
 
+fn disconnected_capabilities(host: &HostClient, startup_profile: &Profile) -> Result<Value> {
+    let runtime_dir = host
+        .grant_path()
+        .parent()
+        .context("Saccade grant path has no runtime directory")?;
+    let expected_extension_candidate = load_expected_extension_candidate(runtime_dir)?
+        .as_ref()
+        .map(|candidate| candidate.value());
+    Ok(json!({
+        "schema":"saccade.capabilities/6",
+        "product":"truth_layer",
+        "observation_schema":saccade_protocol::OBSERVATION_SCHEMA,
+        "host_protocol":saccade_protocol::HOST_PROTOCOL,
+        "perception":"dom_extension",
+        "truth":{
+            "full_then_delta":true,
+            "resource_subscriptions":true,
+            "stable_object_identity":true
+        },
+        "execution_owner":"agent_client",
+        "attached_browser":browser_wake::attached_browser(runtime_dir),
+        "reference_actuator_available":true,
+        "browser_support":["chrome","edge"],
+        "extension_connected":false,
+        "extension_candidate":Value::Null,
+        "expected_extension_candidate":expected_extension_candidate,
+        "first_slice":["button","text_field","checkbox","select"],
+        "profile":{
+            "name":&startup_profile.name,
+            "behavior":&startup_profile.behavior
+        }
+    }))
+}
+
 fn call_tool(
     host: &HostClient,
     agent_views: &mut AgentViewState,
@@ -419,6 +466,7 @@ fn call_tool(
     mut arguments: Value,
     mode: McpMode,
     diagnostics: bool,
+    startup_profile: &Profile,
 ) -> Result<Value> {
     let public_method = name
         .strip_prefix("saccade.")
@@ -617,6 +665,7 @@ fn call_tool(
                 .unwrap_or(10_000)
                 + 2_000,
         ),
+        "system.capabilities" => Duration::from_millis(250),
         _ => Duration::from_secs(10),
     };
     // A claim never creates a tab, so it must never wake a browser either: the
@@ -645,12 +694,20 @@ fn call_tool(
             )?;
         }
     }
-    let mut result = host.call(
+    let mut result = match host.call(
         NEXT_ID.fetch_add(1, Ordering::Relaxed),
         method,
         arguments,
         timeout,
-    )?;
+    ) {
+        Ok(result) => result,
+        Err(ProtocolError::TransportUnavailable(_) | ProtocolError::Timeout)
+            if method == "system.capabilities" =>
+        {
+            disconnected_capabilities(host, startup_profile)?
+        }
+        Err(error) => return Err(error.into()),
+    };
     if method == "web.observe" && delivery_mode == TruthDeliveryMode::Economy {
         if let (Some(tab_id), Some(since_revision)) =
             (observation_tab_id.as_deref(), requested_after_revision)
@@ -3300,6 +3357,40 @@ mod tests {
         assert!(!instructions.contains("全权推进目标"));
         assert!(instructions.len() <= 800);
         assert!(serde_json::to_vec(&response).unwrap().len() <= 1_500);
+    }
+
+    #[test]
+    fn capabilities_report_disconnected_without_waiting_for_an_absent_host() {
+        let directory = tempfile::tempdir().unwrap();
+        let host = HostClient::connect(directory.path().join("missing-grant.json")).unwrap();
+        let profile = Profile {
+            name: "offline profile".into(),
+            behavior: "Keep the adapter available while the browser reconnects.".into(),
+            ban: Vec::new(),
+        };
+        let mut agent_views = AgentViewState::new(false);
+        let started = std::time::Instant::now();
+        let response = call_tool(
+            &host,
+            &mut agent_views,
+            "saccade.system.capabilities",
+            json!({}),
+            McpMode::Truth,
+            false,
+            &profile,
+        )
+        .unwrap();
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(response["schema"], "saccade.capabilities/6");
+        assert_eq!(response["extension_connected"], false);
+        assert_eq!(response["extension_candidate"], Value::Null);
+        assert_eq!(response["profile"]["name"], "offline profile");
+        assert_eq!(
+            response["profile"]["behavior_delivery"],
+            "capabilities_once"
+        );
+        assert!(response["mcp_contract_hash"].as_str().is_some());
     }
 
     #[cfg(unix)]
