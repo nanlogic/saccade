@@ -151,7 +151,7 @@ pub struct NativeHostSession {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ExtensionCandidate {
+pub(crate) struct ExtensionCandidate {
     schema: String,
     id: String,
     version: String,
@@ -178,12 +178,14 @@ impl ExtensionCandidate {
         })
     }
 
-    fn value(&self) -> Value {
+    pub(crate) fn value(&self) -> Value {
         json!({"schema":self.schema,"id":self.id,"version":self.version})
     }
 }
 
-fn load_expected_extension_candidate(runtime_dir: &Path) -> Result<Option<ExtensionCandidate>> {
+pub(crate) fn load_expected_extension_candidate(
+    runtime_dir: &Path,
+) -> Result<Option<ExtensionCandidate>> {
     let path = runtime_dir.join("expected-extension-candidate.json");
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
