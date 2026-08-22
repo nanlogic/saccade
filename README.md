@@ -3,36 +3,56 @@
 [![CI](https://github.com/nanlogic/saccade/actions/workflows/ci.yml/badge.svg)](https://github.com/nanlogic/saccade/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Saccade gives any AI Agent a compact, live semantic view of an authorized
-Chrome or Edge tab. The Extension continuously compiles the page and pushes
-meaningful changes; the Agent uses its own web-act or computer-use tool in the
-same browser tab.
+Saccade gives a local MCP-compatible AI Agent a compact, live semantic view of
+an authorized Chrome or Edge tab. The Extension continuously compiles the page
+and pushes meaningful changes. Supported objects expose bounded,
+object-addressed `saccade.act`; the Agent's own same-tab tool remains the
+fallback when that route cannot execute or verify the requested transition.
 
 ```text
-page change → Extension compiler → current Truth → MCP delta → Agent reaction
+page change → Extension compiler → current Truth → MCP delta → Agent action → verified transition
 ```
 
 Agents receive semantic objects, safe state, affordances, stable document-local
 identity, current document/viewport bounds, and limitations. Geometry changes
 arrive as deltas on the same identity. Agents do not receive selectors, DOM
-paths, editable values, cookies, browser storage, or default execution
-authority.
+paths, editable values, cookies, browser storage, or arbitrary-coordinate
+execution authority.
 
 The Extension owns page interpretation. The Native Host keeps the latest Truth
 and bounded revision history. MCP delivers a full view or folded delta. The
 Agent chooses `live` delivery for fast reactions or `economy` delivery for
-lower model churn, then acts through its own same-tab tool.
+lower model churn.
 
 Read [How Saccade works](docs/HOW_SACCADE_WORKS.md) for the public architecture
 overview. The [final architecture](docs/FINAL_ARCHITECTURE.md) and
 [Extension Truth contract](docs/extension_observation_contract.md) define the
 normative boundary.
 
+## Latest public comparison
+
+An audited, reversed-order comparison covered React and Angular forms, six
+public sites, a continuously moving MouseAccuracy target, and accessible video
+metadata. Both products completed their lane in all 16 final paired reports.
+Saccade averaged 24.66 seconds and 4.5 browser calls; Playwright averaged 32.82
+seconds and 5.5 calls. Playwright produced the smaller browser transcript.
+
+Saccade's public object-addressed action completed 88 verified MouseAccuracy
+actions in each 30-second order while Playwright's locator click timed out on
+the continuously moving target. On the Mythcast Era homepage, Saccade exposed
+the video's author-provided accessible description while marking the decoded
+video opaque.
+
+Read the [public comparison report](docs/reports/2026-08-20-saccade-playwright-public-results.md)
+for the complete table, method, failures, and limits. The report does not make
+a blanket superiority claim.
+
 ## Product north star
 
 > Saccade is a live semantic Truth Layer for the web. It continuously compiles
 > browser pages into structured objects and pushes meaningful changes to any
-> Agent. Execution belongs to the Agent client's own tools.
+> Agent. Supported actions use bounded, object-addressed software execution;
+> the Agent client's own same-tab tool is the explicit fallback.
 
 The Extension continuously compiles the authorized webpage into that Truth
 Layer. The Agent builds its plan from the compiled view. After the first view,
@@ -57,7 +77,7 @@ Testing and Microsoft Edge profiles.
 | Inventory | Count | Current evidence |
 | --- | ---: | --- |
 | Protocol Truth roles | 34 | local Chrome and Edge gate passed |
-| Reference Actuator families | 15 | local closed-loop evidence; soft reflex reached 96/96 on `Insane + Tiny` |
+| Public action operations | 3 | bounded click, type, and select with semantic receipts |
 | Reusable variants | 12 | local pushed-delta gate passed |
 | Structural/push boundaries | 6 | local gate passed |
 | Lifecycle scenarios | 11 | page-driven Chrome and Edge matrix passed locally |
@@ -72,17 +92,14 @@ explicit `reference-actuator-mcp` development mode. Its receipts do not
 establish default Truth Layer execution capability.
 
 This proves the local framework and projection route, not compatibility with
-every modern website. Public-source compatibility, lifecycle coverage, and a
-fair core-product Playwright comparison remain open. No current evidence
-supports a blanket claim that Saccade is faster than Playwright. Catalog
-entries remain `implementation` until one frozen release candidate passes the
-public and same-candidate Chrome/Edge release gates. The public setup package
-is the release target and is not published yet.
+every modern website. The final public comparison is linked above and retains
+its failures and limits. Catalog entries remain `implementation` until one
+frozen release candidate passes the same-candidate Chrome/Edge release gates.
+The public setup package is the release target and is not published yet.
 
 See the [generated coverage table](docs/generated/control_coverage.md) for the
-current Registry and [evidence roadmap](docs/CONTROL_ROADMAP.md) for the next
-gates. The [Developer Preview release plan](docs/RELEASE_PLAN.md) defines the
-product, evidence, setup, and launch gates.
+current Registry. The [Developer Preview release plan](docs/RELEASE_PLAN.md)
+defines the product, evidence, setup, and launch gates.
 
 ## One route
 
@@ -99,6 +116,29 @@ Saccade has no Playwright, CDP, embedded-browser, screenshot, vision, or
 arbitrary-coordinate action fallback. The
 [How Saccade works](docs/HOW_SACCADE_WORKS.md) overview explains this route for
 Agent builders.
+
+## Claude and Codex
+
+Claude and Codex do not need a separate browser-control extension for supported
+controls. After setup, the normal closed loop is:
+
+```text
+saccade.tabs.open
+  → saccade.truth.read
+  → saccade.act
+  → saccade.truth.read(after_revision)
+```
+
+Use the returned object IDs and affordances; do not introduce selectors,
+coordinates, Playwright, or CDP. A verified `saccade.act` result already carries
+the resulting Truth revision.
+
+If `saccade.act` returns `external_execution_required` with `retry_safe: true`,
+the Agent may use its own same-tab tool. A client that must create the tab itself
+uses the provisioned claim flow: arm with `saccade.tabs.open(claim="arm")`,
+create exactly one same-origin tab with the client tool, then confirm its exact
+tab ID with `saccade.tabs.open(claim="confirm")`. The claim is single-use and
+does not weaken session isolation.
 
 ## Development on macOS
 
@@ -230,7 +270,7 @@ initial-full and mutation-to-MCP latency plus missing, duplicate, empty-delta,
 and identity counts. Current tiered limits are 50 ms single-object p95, 100 ms
 10-object p95, 500 ms 100-object p95, 250 ms lifecycle maximum, and 500 ms
 initial full, with zero omissions, duplicates, empty deltas, or reorder identity
-churn. See `docs/reports/2026-08-03-truth-latency-baseline.md`.
+churn.
 
 `test chrome|edge|all` uses a 150 ms single-object smoke ceiling because those
 long-lived development profiles may contain retained tabs. The publishable
@@ -322,8 +362,7 @@ Catalog row merely because its fixture passed.
 
 `external` and `compare` remain historical Reference Actuator evidence. The
 `fair` harness has been hard-cut to the core comparison boundary: Saccade Truth
-plus the Agent client's own web-act tool in the same tab, with no Reference
-Actuator; see the [evidence roadmap](docs/CONTROL_ROADMAP.md).
+plus public object-addressed actions, with no Reference Actuator.
 
 The fair runner imports the Saccade lane from client-native Chrome evidence; it
 does not configure an execution MCP. Pass `--saccade-client-evidence` to the
@@ -383,11 +422,10 @@ The first release uses the browser-store Extension plus one explicit command:
 npx -y @saccade/setup
 ```
 
-The command will install the headless local Runtime, user-level Native
+The command installs the headless local Runtime, user-level Native
 Messaging manifests, and local MCP entries for supported Codex and Claude
 clients. It will not install a visible app or request Accessibility. The npm
-scope is not yet confirmed, so this command defines the target and is not yet
-an available package. See [the setup target](docs/SETUP_TARGET.md) for the
+package is not published yet. See [the setup target](docs/SETUP_TARGET.md) for the
 normative install, update, doctor, uninstall, and client boundaries.
 
 ## Profiles
@@ -407,7 +445,8 @@ state projection, or delta semantics.
 }
 ```
 
-Read [Profile architecture](docs/current/profile-boundary.md) and the
+Read the [current Profile boundary](docs/current/profile-boundary.md), the
+[architecture](docs/FINAL_ARCHITECTURE.md), and the
 [Profile schema](catalog/profile.schema.json) before adding Profile behavior.
 
 ## Repository map

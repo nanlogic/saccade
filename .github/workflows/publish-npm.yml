@@ -49,6 +49,14 @@ jobs:
             --artifact-dir dist/npm-release
           (cd dist/npm-release && sha256sum --check SHA256SUMS)
           cp dist/npm-release/release.json packages/setup/release.json
-      - name: Publish with npm trusted publishing and provenance
+      - name: Publish with provenance
         working-directory: packages/setup
-        run: npm publish --access public --provenance
+        env:
+          # Only v0.1.0 may use this short-lived bootstrap credential. Once the
+          # package exists, delete the secret and use the trusted publisher.
+          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          if [ -n "$NPM_BOOTSTRAP_TOKEN" ]; then
+            export NODE_AUTH_TOKEN="$NPM_BOOTSTRAP_TOKEN"
+          fi
+          npm publish --access public --provenance

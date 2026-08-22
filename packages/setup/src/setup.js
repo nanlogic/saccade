@@ -17,6 +17,7 @@ const EXTENSION_CANDIDATE_SCHEMA = 'saccade.extension-candidate/1';
 const CAPABILITIES_SCHEMA = 'saccade.capabilities/6';
 const OBSERVATION_SCHEMA = 'saccade.observation/1';
 const HOST_PROTOCOL = 'saccade-extension-host/1';
+const SETUP_COMMAND = 'npx -y @saccade/setup';
 
 function parseArguments(argv) {
   const options = { command: 'install', purge: false, releaseManifest: DEFAULT_RELEASE };
@@ -394,7 +395,10 @@ async function install(options, environment = process.env) {
     console.log('Start a new Codex or Claude task, or restart the client, to load the Saccade MCP tools.');
     for (const warning of configured.warnings) console.warn(`Warning: ${warning}`);
     const health = await doctor(environment, false);
-    if (!health.connected) console.warn('Extension connectivity is pending. Install or restart the store Extension, then run doctor.');
+    if (!health.connected) {
+      console.warn('Browser Extension connectivity is pending.');
+      printExtensionInstructions(state);
+    }
   } catch (error) {
     for (const action of rollbackActions.reverse()) action();
     await transaction.rollback();
@@ -412,6 +416,29 @@ function candidateMatches(left, right) {
     && right.schema === EXTENSION_CANDIDATE_SCHEMA
     && left.id === right.id
     && left.version === right.version);
+}
+
+function extensionStoreUrl(host) {
+  for (const origin of host && host.allowed_origins || []) {
+    const match = /^chrome-extension:\/\/([a-p]{32})\/$/.exec(origin);
+    if (match) return `https://chromewebstore.google.com/detail/saccade/${match[1]}`;
+  }
+  return null;
+}
+
+function printExtensionInstructions(state, log = console.log) {
+  const storeUrl = extensionStoreUrl(state && state.native_host);
+  if (!storeUrl) return false;
+  const version = state.extension_candidate && state.extension_candidate.version;
+  log('');
+  log('Saccade browser Extension setup:');
+  log(`1. Open this page in Chrome or Edge: ${storeUrl}`);
+  log('2. Chrome: click "Add to Chrome" and approve the browser confirmation.');
+  log('   Edge: if prompted, allow extensions from other stores, then click "Add to Chrome".');
+  log(`3. Keep the browser open, then run: ${SETUP_COMMAND} doctor`);
+  log('4. Restart Codex or Claude if the Saccade MCP tools are not visible yet.');
+  if (version) log(`Expected Extension version: ${version}`);
+  return true;
 }
 
 async function doctor(environment = process.env, print = true) {
@@ -435,7 +462,10 @@ async function doctor(environment = process.env, print = true) {
     checks.push({ name: 'setup state', ok: false, detail: 'not installed' });
   }
   if (!state) {
-    if (print) for (const check of checks) console.log(`${check.ok ? 'OK' : 'FAIL'} ${check.name}${check.detail ? `: ${check.detail}` : ''}`);
+    if (print) {
+      for (const check of checks) console.log(`${check.ok ? 'OK' : 'FAIL'} ${check.name}${check.detail ? `: ${check.detail}` : ''}`);
+      console.log(`Next: install Saccade with ${SETUP_COMMAND}`);
+    }
     return { ok: false, connected: false, checks };
   }
   try {
@@ -478,7 +508,8 @@ async function doctor(environment = process.env, print = true) {
     }
   }
   let connected = false;
-  if (checks.every((check) => check.ok)) {
+  const localChecksOk = checks.every((check) => check.ok);
+  if (localChecksOk) {
     const result = run(paths.runtime, ['doctor'], { ...environment, SACCADE_RUNTIME_DIR: paths.runtimeDir });
     try {
       const value = JSON.parse(result.stdout);
@@ -503,6 +534,9 @@ async function doctor(environment = process.env, print = true) {
   const ok = checks.every((check) => check.ok);
   if (print) {
     for (const check of checks) console.log(`${check.ok ? 'OK' : 'FAIL'} ${check.name}${check.detail ? `: ${check.detail}` : ''}`);
+    if (!connected && localChecksOk) {
+      printExtensionInstructions(state);
+    }
   }
   return { ok, connected, checks };
 }
@@ -603,6 +637,7 @@ module.exports = {
   candidateMatches,
   codexMatches,
   doctor,
+  extensionStoreUrl,
   expectedMcp,
   install,
   installPaths,
@@ -610,6 +645,7 @@ module.exports = {
   nativeManifest,
   parseArguments,
   platformKey,
+  printExtensionInstructions,
   sha256,
   uninstall,
   validateRelease,
