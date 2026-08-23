@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "saccade-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "saccade_host_client",
@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "saccade_control_sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "saccade_protocol",
  "serde",
@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "saccade_host_client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "saccade_protocol",
  "serde_json",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "saccade_protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -205,7 +205,7 @@ dependencies = [
 
 [[package]]
 name = "saccade_runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64",

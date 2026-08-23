@@ -80,7 +80,7 @@ class BuildSetupReleaseTests(unittest.TestCase):
             result = ASSEMBLE.assemble(
                 drafts,
                 output,
-                base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.0",
+                base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.1",
                 allowed_origins=["chrome-extension://abcdefghijklmnopabcdefghijklmnop/"],
             )
             manifest = json.loads(Path(result["manifest"]).read_text())
@@ -88,11 +88,11 @@ class BuildSetupReleaseTests(unittest.TestCase):
             self.assertEqual(manifest["publisher"]["organization"], "Nanlogic")
             self.assertEqual(set(manifest["artifacts"]), {"darwin-arm64", "darwin-x64"})
             self.assertTrue(all(item["signed"] for item in manifest["artifacts"].values()))
-            VERIFY.verify(Path(result["manifest"]), "v0.1.0", output)
-            arm64 = output / "saccade-runtime-0.1.0-darwin-arm64"
+            VERIFY.verify(Path(result["manifest"]), "v0.1.1", output)
+            arm64 = output / "saccade-runtime-0.1.1-darwin-arm64"
             arm64.write_bytes(arm64.read_bytes() + b"changed")
             with self.assertRaisesRegex(ValueError, "checksum differs"):
-                VERIFY.verify(Path(result["manifest"]), "v0.1.0", output)
+                VERIFY.verify(Path(result["manifest"]), "v0.1.1", output)
 
     def test_assembly_rejects_unsigned_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -109,7 +109,7 @@ class BuildSetupReleaseTests(unittest.TestCase):
                 ASSEMBLE.assemble(
                     [Path(result["manifest"])],
                     root / "release",
-                    base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.0",
+                    base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.1",
                     allowed_origins=["chrome-extension://abcdefghijklmnopabcdefghijklmnop/"],
                 )
 

@@ -27,14 +27,14 @@ def main() -> None:
     require("crates/saccade_protocol/src/lib.rs", '"saccade-extension-host/1"')
     require("AGENTS.md", "docs/current/profile-boundary.md")
     require("README.md", "docs/current/profile-boundary.md")
-    require("docs/FINAL_ARCHITECTURE.md", "`npx -y @saccade/setup`")
+    require("docs/SETUP_TARGET.md", "npx -y @nanlogic/saccade")
     require("docs/SETUP_TARGET.md", "Status: normative for the first public release.")
     require("docs/SETUP_TARGET.md", "`postinstall`")
     require("docs/SETUP_TARGET.md", "Cloud-only Agent sessions cannot reach")
     setup_package = json.loads(
         (ROOT / "packages/setup/package.json").read_text(encoding="utf-8")
     )
-    if setup_package.get("name") != "@saccade/setup":
+    if setup_package.get("name") != "@nanlogic/saccade":
         raise SystemExit("setup package lost its public npm name")
     if "postinstall" in setup_package.get("scripts", {}):
         raise SystemExit("setup package must not mutate the system from postinstall")

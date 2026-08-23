@@ -1,5 +1,9 @@
 # Changelog
 
+- Moved the public setup package to the Nanlogic-owned
+  `@nanlogic/saccade@0.1.1` name after the unavailable `@saccade` npm scope
+  blocked the 0.1.0 bootstrap publish. Runtime and Extension behavior are
+  unchanged.
 - Promoted the store Extension source to the production `Saccade` name and
   version `0.3.24`; local development installs now derive a separately
   content-addressed development candidate so they cannot silently switch from

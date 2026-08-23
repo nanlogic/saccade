@@ -17,7 +17,7 @@ const EXTENSION_CANDIDATE_SCHEMA = 'saccade.extension-candidate/1';
 const CAPABILITIES_SCHEMA = 'saccade.capabilities/6';
 const OBSERVATION_SCHEMA = 'saccade.observation/1';
 const HOST_PROTOCOL = 'saccade-extension-host/1';
-const SETUP_COMMAND = 'npx -y @saccade/setup';
+const SETUP_COMMAND = 'npx -y @nanlogic/saccade';
 
 function parseArguments(argv) {
   const options = { command: 'install', purge: false, releaseManifest: DEFAULT_RELEASE };
@@ -128,7 +128,7 @@ function validateRelease(release, key) {
 function fetchHttps(url, redirects = 0) {
   if (redirects > 5) return Promise.reject(new Error('too many Runtime download redirects'));
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { 'User-Agent': '@saccade/setup' } }, (response) => {
+    const request = https.get(url, { headers: { 'User-Agent': '@nanlogic/saccade' } }, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         response.resume();
         const next = new URL(response.headers.location, url).toString();

@@ -27,7 +27,7 @@ const MAX_QUERY_OBJECTS: usize = 32;
 const CATALOG_PREVIEW_CHARS: usize = 96;
 const QUERY_MAX_SETTLE: Duration = Duration::from_millis(6_000);
 const QUERY_QUIET_WINDOW: Duration = Duration::from_millis(250);
-const INITIALIZE_INSTRUCTIONS: &str = "Call saccade.system.capabilities once before browser work and obey its Profile behavior. Saccade is the primary route for navigation and page Truth; if it remains unhealthy after one reconnect, stop instead of falling back to another browser. If the Extension is missing or outdated, tell the user to run `npx -y @saccade/setup doctor`; it prints the exact store link and browser steps. Open a known URL with saccade.tabs.open, read one bounded Truth view, then use object-addressed saccade.act. Fold verified transitions and later revision deltas into the cached view. Resync only the exact tab if that cache is lost. Use Agent-client execution only after external_execution_required with retry_safe true.";
+const INITIALIZE_INSTRUCTIONS: &str = "Call saccade.system.capabilities once before browser work and obey its Profile behavior. Saccade is the primary route for navigation and page Truth; if it remains unhealthy after one reconnect, stop instead of falling back to another browser. If the Extension is missing or outdated, tell the user to run `npx -y @nanlogic/saccade doctor`; it prints the exact store link and browser steps. Open a known URL with saccade.tabs.open, read one bounded Truth view, then use object-addressed saccade.act. Fold verified transitions and later revision deltas into the cached view. Resync only the exact tab if that cache is lost. Use Agent-client execution only after external_execution_required with retry_safe true.";
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Deserialize)]
@@ -690,7 +690,7 @@ fn call_tool(
                 .parent()
                 .context("Saccade grant path has no runtime directory")?;
             browser_wake::wake(runtime_dir).context(
-                "Saccade Extension route is unavailable; run `npx -y @saccade/setup doctor` for the exact store link and browser steps",
+                "Saccade Extension route is unavailable; run `npx -y @nanlogic/saccade doctor` for the exact store link and browser steps",
             )?;
         }
     }
@@ -3352,7 +3352,7 @@ mod tests {
         let instructions = response["instructions"].as_str().unwrap();
         assert!(instructions.contains("Call saccade.system.capabilities once"));
         assert!(instructions.contains("instead of falling back"));
-        assert!(instructions.contains("@saccade/setup doctor"));
+        assert!(instructions.contains("@nanlogic/saccade doctor"));
         assert!(!instructions.contains("聪明的野蛮人 CEO"));
         assert!(!instructions.contains("全权推进目标"));
         assert!(instructions.len() <= 800);

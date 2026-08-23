@@ -1,18 +1,18 @@
-# Saccade 0.1.0 Developer Preview release plan
+# Saccade 0.1.1 Developer Preview release plan
 
-Status: release preparation only. No public artifact has been published.
+Status: corrective release after the 0.1.0 npm bootstrap failure.
 
 ## Ownership and release surface
 
 Saccade is a Nanlogic product. `nanlogic/saccade` is the sole active source
 repository, GitHub Actions publisher, and Runtime Release owner. The npm name
-remains `@saccade/setup`, but the npm organization, trusted publisher,
-recovery methods, and at least two administrators must be controlled by
-Nanlogic. Wayne operates the Chrome Web Store submission through a
+is `@nanlogic/saccade`; its organization, trusted publisher, recovery methods,
+and at least two administrators must be controlled by Nanlogic. Wayne operates
+the Chrome Web Store submission through a
 Nanlogic-controlled publisher identity.
 
 The public product contains one browser-store Extension and the explicit
-`npx -y @saccade/setup` command. The Extension package is shared across CPU
+`npx -y @nanlogic/saccade` command. The Extension package is shared across CPU
 architectures. Setup selects one signed and notarized headless Runtime for
 `darwin-arm64` or `darwin-x64`. Windows follows only after its setup and
 lifecycle evidence exists. There is no GUI installer, Accessibility request,
@@ -21,7 +21,7 @@ coordinate fallback in this release.
 
 ## Automated publication
 
-1. Freeze an existing `v0.1.0` tag after the complete local and browser gates.
+1. Freeze an existing `v0.1.1` tag after the complete local and browser gates.
 2. Manually dispatch `Prepare signed Runtime release` with that tag and the
    final store Extension ID. The workflow reruns repository gates, requires a
    production-named exact Extension candidate, builds on GitHub's arm64 and
@@ -65,13 +65,16 @@ publication job, after the GitHub Release is public.
 
 ## Current blockers
 
-- Production candidate `0.3.24` has a store-safe `Saccade` manifest. Local
-  development installs derive a separately identified development candidate
-  so they continue to use `com.nanlogic.saccade.dev`. The production candidate
-  still requires exact Chrome and Edge browser evidence before store upload.
-- Nanlogic's Apple signing/notarization credentials, final store Extension ID,
-  npm trusted-publisher binding, company recovery channels, and second npm
-  administrator must exist before the workflows can publish.
+- Production candidate `0.3.24` has a store-safe `Saccade` manifest and is in
+  Chrome Web Store review. Local development installs derive a separately
+  identified development candidate and continue to use
+  `com.nanlogic.saccade.dev`.
+- The first `@nanlogic/saccade` publication uses one short-lived bootstrap
+  token. Afterward, the package must bind GitHub OIDC trusted publishing and
+  the token and GitHub secret must be removed.
+- Company recovery channels and a second npm administrator remain required.
 - The x64 Runtime and setup lifecycle still need real Intel macOS evidence.
+- GitHub Release `v0.1.0` is a prerelease because its npm package name used a
+  scope Nanlogic does not own. Its published tag and artifacts are not reused.
 - The owner-approved repository archival is complete and recorded in the
   repository archive report.
