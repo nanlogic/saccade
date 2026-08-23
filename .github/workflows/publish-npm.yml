@@ -52,11 +52,16 @@ jobs:
       - name: Publish with provenance
         working-directory: packages/setup
         env:
-          # Only v0.1.0 may use this short-lived bootstrap credential. Once the
-          # package exists, delete the secret and use the trusted publisher.
+          # Only the first @nanlogic/saccade publication may use this short-lived
+          # bootstrap credential. Delete it after v0.1.1 and use OIDC thereafter.
           NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           if [ -n "$NPM_BOOTSTRAP_TOKEN" ]; then
+            if [ "$RELEASE_TAG" != "v0.1.1" ]; then
+              echo "bootstrap token is restricted to v0.1.1" >&2
+              exit 1
+            fi
             export NODE_AUTH_TOKEN="$NPM_BOOTSTRAP_TOKEN"
           fi
           npm publish --access public --provenance

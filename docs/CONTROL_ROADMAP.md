@@ -93,7 +93,7 @@ After public evidence is complete:
 - freeze one release candidate and gate the same build in Chrome and Edge;
 - prove default install and use without Accessibility;
 - publish the Chrome Web Store and Edge Add-ons Extension;
-- publish and verify `npx -y @saccade/setup` for supported local clients;
+- publish and verify `npx -y @nanlogic/saccade` for supported local clients;
 - dogfood Codex and Claude against the same browser instance;
 - publish a five-minute README quickstart and reproducible evidence bundle.
 

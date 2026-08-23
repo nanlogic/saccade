@@ -1,6 +1,6 @@
 {
-  "name": "@saccade/setup",
-  "version": "0.1.0",
+  "name": "@nanlogic/saccade",
+  "version": "0.1.1",
   "description": "Install the local Saccade Truth Layer Runtime and MCP configuration.",
   "license": "Apache-2.0",
   "repository": {

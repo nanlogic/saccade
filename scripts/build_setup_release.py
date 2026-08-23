@@ -78,7 +78,7 @@ def build(
             "Chrome Web Store Extension origin",
             "Edge Add-ons Extension origin",
             "HTTPS artifact URL",
-            "@saccade npm scope ownership",
+            "@nanlogic/saccade npm trusted-publisher binding",
         ],
     }
     manifest_path = output_dir / "release.json"

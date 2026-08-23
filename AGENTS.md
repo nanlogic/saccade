@@ -47,7 +47,7 @@ fallback execution routes.
   full-page transfer, model polling, or model replanning.
 - Keep wire schemas at `saccade.observation/1` and
   `saccade-extension-host/1` until an explicit version decision lands.
-- Ship one browser-store Extension plus `npx -y @saccade/setup`. Setup installs
+- Ship one browser-store Extension plus `npx -y @nanlogic/saccade`. Setup installs
   the headless local MCP and Native Host for supported local Agent clients. The
   first release has no DMG, visible Runtime app, or Windows Setup.
 - Keep Native Host and MCP modes separate in framing, lifecycle, and

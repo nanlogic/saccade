@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing immutable release tag, for example v0.1.0
+        description: Existing immutable release tag, for example v0.1.1
         required: true
-        default: v0.1.0
+        default: v0.1.1
       extension_id:
         description: Final Chrome Web Store Extension ID (32 letters a-p)
         required: true
@@ -151,5 +151,5 @@ jobs:
             --repo nanlogic/saccade \
             --draft \
             --verify-tag \
-            --title "Saccade 0.1.0 Developer Preview" \
-            --notes-file docs/releases/0.1.0.md
+            --title "Saccade ${RELEASE_TAG#v} Developer Preview" \
+            --notes-file "docs/releases/${RELEASE_TAG#v}.md"
