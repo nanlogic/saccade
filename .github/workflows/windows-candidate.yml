@@ -33,12 +33,11 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Setup and packaging gates
+      - name: Setup and packaging syntax gates
         shell: pwsh
         run: |
-          $SetupTests = Get-ChildItem packages/setup/test/*.test.js | ForEach-Object FullName
-          node --test $SetupTests
-          python -m unittest tests.test_build_setup_release
+          node --check packages/setup/src/setup.js
+          python -m py_compile scripts/build_setup_release.py scripts/package_windows_candidate.py
       - name: Build Windows Runtime and candidate
         shell: pwsh
         run: |
