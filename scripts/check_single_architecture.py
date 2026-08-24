@@ -54,19 +54,16 @@ def main() -> None:
     require("packages/setup/src/setup.js", "saccade.capabilities/6")
     require(".github/workflows/prepare-release.yml", "macos-15-intel")
     require(".github/workflows/prepare-release.yml", "sign_notarize_runtime.sh")
-    require(
-        ".github/workflows/prepare-release.yml",
-        "signpath/github-action-submit-signing-request@v2",
-    )
-    require(".github/workflows/prepare-release.yml", "actions: read")
     require(".github/workflows/prepare-release.yml", "--draft")
     require(".github/workflows/publish-npm.yml", "id-token: write")
     require(".github/workflows/publish-npm.yml", "npm publish --access public --provenance")
     require("scripts/assemble_setup_release.py", "https://github.com/nanlogic/saccade/releases/download/")
     require(
         "scripts/verify_published_setup_release.py",
-        '"darwin-arm64", "darwin-x64", "win32-x64"',
+        '"darwin-arm64", "darwin-x64"',
     )
+    require("scripts/install_windows_from_source.ps1", "SACCADE_SOURCE_INSTALL_READY")
+    require(".agents/skills/saccade-windows-install/SKILL.md", "install_windows_from_source.ps1")
     require("scripts/package_extension_release.py", "store Extension manifest still has a development name")
     require("PROJECT_AUTHORITY.md", "docs/current/profile-boundary.md")
     require(
@@ -109,6 +106,8 @@ def main() -> None:
         ("docs/CONTROL_ROADMAP.md", "package the store Extension, signed macOS DMG"),
         (".github/workflows/prepare-release.yml", "azure/artifact-signing-action"),
         (".github/workflows/prepare-release.yml", "AZURE_CLIENT_ID"),
+        (".github/workflows/prepare-release.yml", "SIGNPATH_API_TOKEN"),
+        (".github/workflows/prepare-release.yml", "windows-runtime"),
     ):
         forbid(path, needle)
     require(

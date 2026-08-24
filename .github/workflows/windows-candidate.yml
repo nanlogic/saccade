@@ -1,4 +1,4 @@
-name: Windows x64 candidate
+name: Windows x64 source install
 
 on:
   pull_request:
@@ -10,9 +10,8 @@ on:
       - 'crates/**'
       - 'extension/**'
       - 'packages/setup/**'
+      - 'scripts/install_windows_from_source.ps1'
       - 'scripts/build_setup_release.py'
-      - 'scripts/package_windows_candidate.py'
-      - 'scripts/windows_candidate/**'
       - 'tests/test_build_setup_release.py'
   workflow_dispatch:
 
@@ -37,19 +36,8 @@ jobs:
         shell: pwsh
         run: |
           node --check packages/setup/src/setup.js
-          python -m py_compile scripts/build_setup_release.py scripts/package_windows_candidate.py
-      - name: Build Windows Runtime and candidate
-        shell: pwsh
-        run: |
-          cargo build --release --locked --bin saccade-runtime
-          python scripts/build_setup_release.py `
-            --runtime target/release/saccade-runtime.exe `
-            --platform win32-x64 `
-            --output dist/windows-draft
-          python scripts/package_windows_candidate.py `
-            --draft dist/windows-draft/release.json `
-            --output dist/saccade-windows-x64-candidate
-      - name: Isolated install, MCP, registry, and uninstall smoke
+          [void][scriptblock]::Create((Get-Content -Raw scripts/install_windows_from_source.ps1))
+      - name: Source build, isolated install, MCP, registry, and uninstall smoke
         shell: pwsh
         env:
           SACCADE_SETUP_HOME: ${{ runner.temp }}\saccade-home
@@ -57,8 +45,7 @@ jobs:
           SACCADE_SETUP_APPDATA: ${{ runner.temp }}\saccade-roaming
           SACCADE_SETUP_DISABLE_CLIENTS: '1'
         run: |
-          $Bundle = Resolve-Path dist/saccade-windows-x64-candidate
-          & "$Bundle\install.ps1" -ExtensionId abcdefghijklmnopabcdefghijklmnop
+          & scripts/install_windows_from_source.ps1 -NoBrowser
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $Installed = Join-Path $env:SACCADE_SETUP_LOCALAPPDATA 'Saccade\runtime\saccade-runtime.exe'
@@ -94,7 +81,7 @@ jobs:
               raise SystemExit(f'unexpected MCP tools: {sorted(names)}')
           '@ | python -
 
-          & node "$Bundle\package\bin\saccade-setup.js" uninstall --purge
+          & node packages/setup/bin/saccade-setup.js uninstall --purge
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($Key in @(
             'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.nanlogic.saccade',
@@ -102,9 +89,3 @@ jobs:
           )) {
             if (Test-Path $Key) { throw "uninstall left Native Messaging registration: $Key" }
           }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: saccade-windows-x64-0.1.2-candidate
-          path: dist/saccade-windows-x64-candidate
-          if-no-files-found: error
-          retention-days: 7

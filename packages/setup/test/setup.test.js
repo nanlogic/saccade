@@ -63,6 +63,7 @@ async function writeRelease(
   checksum,
   contractHash = CONTRACT_HASH,
   platform = 'darwin-arm64',
+  extra = {},
 ) {
   const data = await fsp.readFile(runtime);
   const value = {
@@ -78,9 +79,66 @@ async function writeRelease(
         sha256: checksum || crypto.createHash('sha256').update(data).digest('hex'),
       },
     },
+    ...extra,
   };
   await fsp.writeFile(target, `${JSON.stringify(value, null, 2)}\n`);
 }
+
+test('a source build points the Agent at the exact unpacked Extension', async (t) => {
+  const values = await fixture();
+  t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
+  const extension = path.join(values.root, 'extension');
+  await fsp.mkdir(extension);
+  await fsp.writeFile(path.join(extension, 'manifest.json'), '{}');
+  await writeRuntime(values.runtime, 'source', CANDIDATE, '1.0.0', CONTRACT_HASH, false);
+  await writeRelease(
+    values.release,
+    values.runtime,
+    '1.0.0',
+    undefined,
+    CONTRACT_HASH,
+    'darwin-arm64',
+    { source_build: true, source_extension: extension },
+  );
+
+  const installed = run(['--release-manifest', values.release], values);
+  assert.equal(installed.status, 0, installed.stderr);
+  const pendingLine = installed.stdout.split('\n')
+    .find((line) => line.startsWith('SACCADE_EXTENSION_PENDING '));
+  assert.ok(pendingLine);
+  assert.deepEqual(JSON.parse(pendingLine.slice('SACCADE_EXTENSION_PENDING '.length)), {
+    path: extension,
+    id: 'abcdefghijklmnopabcdefghijklmnop',
+    version: CANDIDATE.version,
+  });
+  assert.doesNotMatch(installed.stdout, /chromewebstore\.google\.com/);
+});
+
+test('Codex config fallback handles an installed but unlaunchable CLI', async (t) => {
+  const values = await fixture();
+  t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
+  const codexConfig = path.join(values.home, '.codex', 'config.toml');
+  await fsp.mkdir(path.dirname(codexConfig), { recursive: true });
+  await fsp.writeFile(codexConfig, `[mcp_servers.saccade]\ncommand = "C:\\\\Program Files\\\\Saccade\\\\saccade-mcp.exe"\nargs = ["serve-stdio"]\n`);
+  const environment = {
+    SACCADE_SETUP_DISABLE_CLIENTS: '0',
+    SACCADE_SETUP_CODEX: values.root,
+    SACCADE_SETUP_CODEX_CONFIG: codexConfig,
+    SACCADE_SETUP_CLAUDE: path.join(values.root, 'missing-claude'),
+  };
+
+  const installed = run(['--release-manifest', values.release], values, environment);
+  assert.equal(installed.status, 0, installed.stderr);
+  assert.match(installed.stdout, /Clients: codex/);
+  const config = await fsp.readFile(codexConfig, 'utf8');
+  assert.match(config, /# saccade-setup:start/);
+  assert.match(config, /\[mcp_servers\.saccade\]/);
+  assert.doesNotMatch(config, /serve-stdio/);
+
+  const removed = run(['uninstall'], values, environment);
+  assert.equal(removed.status, 0, removed.stdout + removed.stderr);
+  assert.doesNotMatch(await fsp.readFile(codexConfig, 'utf8'), /mcp_servers\.saccade/);
+});
 
 async function writeFakeRegistry(target, stateFile) {
   const source = `#!/usr/bin/env node

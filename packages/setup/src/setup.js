@@ -18,6 +18,8 @@ const CAPABILITIES_SCHEMA = 'saccade.capabilities/6';
 const OBSERVATION_SCHEMA = 'saccade.observation/1';
 const HOST_PROTOCOL = 'saccade-extension-host/1';
 const SETUP_COMMAND = 'npx -y @nanlogic/saccade';
+const CODEX_BLOCK_START = '# saccade-setup:start';
+const CODEX_BLOCK_END = '# saccade-setup:end';
 
 function parseArguments(argv) {
   const options = { command: 'install', purge: false, releaseManifest: DEFAULT_RELEASE };
@@ -103,6 +105,9 @@ function installPaths(environment = process.env) {
         'HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.nanlogic.saccade',
         'HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.nanlogic.saccade',
       ],
+      codexConfig: environment.SACCADE_SETUP_CODEX_CONFIG
+        ? path.resolve(environment.SACCADE_SETUP_CODEX_CONFIG)
+        : path.join(home, '.codex', 'config.toml'),
       claudeDesktop: environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG
         ? path.resolve(environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG)
         : path.join(appData, 'Claude', 'claude_desktop_config.json'),
@@ -125,6 +130,9 @@ function installPaths(environment = process.env) {
     ],
     nativeHostManifest: null,
     nativeHostRegistryKeys: [],
+    codexConfig: environment.SACCADE_SETUP_CODEX_CONFIG
+      ? path.resolve(environment.SACCADE_SETUP_CODEX_CONFIG)
+      : path.join(home, '.codex', 'config.toml'),
     claudeDesktop: environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG
       ? path.resolve(environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG)
       : path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
@@ -169,7 +177,15 @@ function validateRelease(release, key) {
   if (!artifact || typeof artifact.url !== 'string' || !/^[a-f0-9]{64}$/.test(artifact.sha256 || '')) {
     throw new Error(`release has no valid ${key} Runtime artifact`);
   }
-  return { host, artifact, extensionCandidate, mcpContractHash };
+  let sourceExtension = null;
+  if (release.source_build === true) {
+    sourceExtension = release.source_extension;
+    if (typeof sourceExtension !== 'string' || !path.isAbsolute(sourceExtension)
+        || !fs.existsSync(path.join(sourceExtension, 'manifest.json'))) {
+      throw new Error('source build has no valid Extension directory');
+    }
+  }
+  return { host, artifact, extensionCandidate, mcpContractHash, sourceExtension };
 }
 
 function fetchHttps(url, redirects = 0) {
@@ -344,6 +360,75 @@ function codexMatches(value, expected) {
     && transport.env.SACCADE_RUNTIME_DIR === expected.env.SACCADE_RUNTIME_DIR);
 }
 
+function codexTomlBlock(expected) {
+  const quotedCommand = JSON.stringify(expected.command);
+  const quotedRuntimeDir = JSON.stringify(expected.env.SACCADE_RUNTIME_DIR);
+  return `${CODEX_BLOCK_START}\n`
+    + '[mcp_servers.saccade]\n'
+    + `command = ${quotedCommand}\n`
+    + 'args = ["mcp"]\n\n'
+    + '[mcp_servers.saccade.env]\n'
+    + `SACCADE_RUNTIME_DIR = ${quotedRuntimeDir}\n`
+    + `${CODEX_BLOCK_END}\n`;
+}
+
+function codexSaccadeSection(text) {
+  const header = /^\s*\[mcp_servers\.saccade\]\s*\r?\n/m.exec(text);
+  if (!header) return null;
+  const bodyStart = header.index + header[0].length;
+  const next = /^\s*\[/m.exec(text.slice(bodyStart));
+  const end = next ? bodyStart + next.index : text.length;
+  return { start: header.index, end, text: text.slice(header.index, end) };
+}
+
+function isLegacyCodexSaccadeSection(section) {
+  return Boolean(section
+    && /^\s*command\s*=\s*["'][^"'\r\n]*saccade-mcp(?:\.exe)?["']\s*$/im.test(section.text)
+    && /^\s*args\s*=\s*\[\s*["']serve-stdio["']\s*\]\s*$/im.test(section.text));
+}
+
+function codexFileStatus(text, expected) {
+  const block = codexTomlBlock(expected);
+  if (text.includes(block)) return 'match';
+  if (text.includes(CODEX_BLOCK_START)) return 'conflict';
+  const section = codexSaccadeSection(text);
+  if (isLegacyCodexSaccadeSection(section)) return 'legacy';
+  if (section || /^\s*\[mcp_servers\.saccade\./m.test(text)) return 'conflict';
+  return 'missing';
+}
+
+async function configureCodexFile(paths, expected, transaction) {
+  let text = '';
+  try { text = await fsp.readFile(paths.codexConfig, 'utf8'); } catch {}
+  const status = codexFileStatus(text, expected);
+  if (status === 'legacy') {
+    const section = codexSaccadeSection(text);
+    const next = `${text.slice(0, section.start)}${codexTomlBlock(expected)}${text.slice(section.end)}`;
+    await transaction.write(paths.codexConfig, next, 0o600);
+    return 'match';
+  }
+  if (status !== 'missing') return status;
+  const separator = text.length && !text.endsWith('\n') ? '\n\n' : text.length ? '\n' : '';
+  await transaction.write(paths.codexConfig, `${text}${separator}${codexTomlBlock(expected)}`, 0o600);
+  return 'match';
+}
+
+async function codexFileMatches(paths, expected) {
+  try {
+    return codexFileStatus(await fsp.readFile(paths.codexConfig, 'utf8'), expected) === 'match';
+  } catch { return false; }
+}
+
+async function removeCodexFileBlock(paths, expected) {
+  let text;
+  try { text = await fsp.readFile(paths.codexConfig, 'utf8'); } catch { return false; }
+  const block = codexTomlBlock(expected);
+  if (!text.includes(block)) return false;
+  const next = text.replace(`\n${block}`, '\n').replace(block, '');
+  await fsp.writeFile(paths.codexConfig, next, { mode: 0o600 });
+  return true;
+}
+
 async function configureClients(paths, previousState, transaction, rollbackActions, environment) {
   if (environment.SACCADE_SETUP_DISABLE_CLIENTS === '1') return { clients: [], warnings: [] };
   const expected = expectedMcp(paths.runtime, paths.root);
@@ -351,6 +436,8 @@ async function configureClients(paths, previousState, transaction, rollbackActio
   const clients = [];
   const warnings = [];
   const codex = findCodex(environment);
+  let tryCodexFile = !codex && (fs.existsSync(paths.codexConfig)
+    || Boolean(environment.SACCADE_SETUP_CODEX_CONFIG));
   if (codex) {
     const current = run(codex, ['mcp', 'get', 'saccade', '--json'], environment);
     if (current.status === 0) {
@@ -368,8 +455,15 @@ async function configureClients(paths, previousState, transaction, rollbackActio
       if (added.status === 0) {
         clients.push('codex');
         rollbackActions.push(() => run(codex, ['mcp', 'remove', 'saccade'], environment));
-      } else warnings.push(`Codex MCP configuration failed: ${commandFailure(added)}`);
+      } else if (added.error) tryCodexFile = true;
+      else warnings.push(`Codex MCP configuration failed: ${commandFailure(added)}`);
     }
+    if (current.error) tryCodexFile = true;
+  }
+  if (tryCodexFile && !clients.includes('codex')) {
+    const status = await configureCodexFile(paths, expected, transaction);
+    if (status === 'match') clients.push('codex');
+    else warnings.push('Codex already has a different MCP entry named saccade; it was preserved.');
   }
   const claude = findClaude(environment);
   if (claude) {
@@ -428,7 +522,9 @@ async function install(options, environment = process.env) {
   const paths = installPaths(environment);
   const key = platformKey(environment);
   const release = await readJson(options.releaseManifest);
-  const { host, artifact, extensionCandidate, mcpContractHash } = validateRelease(release, key);
+  const {
+    host, artifact, extensionCandidate, mcpContractHash, sourceExtension,
+  } = validateRelease(release, key);
   const runtimeData = await loadArtifact(artifact.url);
   const digest = sha256(runtimeData);
   if (digest !== artifact.sha256) throw new Error('Runtime checksum verification failed');
@@ -493,6 +589,7 @@ async function install(options, environment = process.env) {
       runtime_sha256: digest,
       mcp_contract_hash: mcpContractHash,
       extension_candidate: extensionCandidate,
+      source_extension: sourceExtension,
       native_host: host,
       native_manifests: manifestPaths,
       native_registrations: paths.nativeHostRegistryKeys,
@@ -528,15 +625,33 @@ function candidateMatches(left, right) {
     && left.version === right.version);
 }
 
-function extensionStoreUrl(host) {
+function extensionId(host) {
   for (const origin of host && host.allowed_origins || []) {
     const match = /^chrome-extension:\/\/([a-p]{32})\/$/.exec(origin);
-    if (match) return `https://chromewebstore.google.com/detail/saccade/${match[1]}`;
+    if (match) return match[1];
   }
   return null;
 }
 
+function extensionStoreUrl(host) {
+  const id = extensionId(host);
+  return id ? `https://chromewebstore.google.com/detail/saccade/${id}` : null;
+}
+
 function printExtensionInstructions(state, log = console.log) {
+  if (state && state.source_extension) {
+    const id = extensionId(state.native_host);
+    const version = state.extension_candidate && state.extension_candidate.version;
+    log('');
+    log(`SACCADE_EXTENSION_PENDING ${JSON.stringify({
+      path: state.source_extension,
+      id,
+      version,
+    })}`);
+    log('Load this local folder as an unpacked Extension in chrome://extensions or edge://extensions.');
+    log('Keep the source folder in place, then rerun doctor.');
+    return true;
+  }
   const storeUrl = extensionStoreUrl(state && state.native_host);
   if (!storeUrl) return false;
   const version = state.extension_candidate && state.extension_candidate.version;
@@ -614,6 +729,7 @@ async function doctor(environment = process.env, print = true) {
         const current = codex && run(codex, ['mcp', 'get', 'saccade', '--json'], environment);
         let matches = false;
         try { matches = current && current.status === 0 && codexMatches(JSON.parse(current.stdout), expected); } catch {}
+        if (!matches) matches = await codexFileMatches(paths, expected);
         checks.push({ name: 'Codex MCP', ok: Boolean(matches) });
       } else if (client === 'claude-code') {
         const claude = findClaude(environment);
@@ -669,14 +785,21 @@ async function removeClientConfiguration(paths, state, environment, warnings) {
   const expected = expectedMcp(paths.runtime, paths.root);
   if ((state.clients || []).includes('codex')) {
     const codex = findCodex(environment);
+    let handled = false;
     if (codex) {
       const current = run(codex, ['mcp', 'get', 'saccade', '--json'], environment);
       try {
-        if (current.status !== 0 || codexMatches(JSON.parse(current.stdout), expected)) {
+        if (current.status === 0 && codexMatches(JSON.parse(current.stdout), expected)) {
           run(codex, ['mcp', 'remove', 'saccade'], environment);
-        } else warnings.push('Codex saccade entry changed after setup and was preserved.');
-      } catch { warnings.push('Codex saccade entry could not be verified and was preserved.'); }
-    } else warnings.push('Codex is unavailable, so its saccade entry was not removed.');
+          handled = true;
+        } else if (current.status === 0) {
+          warnings.push('Codex saccade entry changed after setup and was preserved.');
+          handled = true;
+        } else if (!current.error) handled = true;
+      } catch {}
+    }
+    if (!handled) handled = await removeCodexFileBlock(paths, expected);
+    if (!handled) warnings.push('Codex saccade entry could not be verified and was preserved.');
   }
   if ((state.clients || []).includes('claude-code')) {
     const claude = findClaude(environment);

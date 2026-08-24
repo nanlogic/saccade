@@ -19,4 +19,5 @@ node_modules/
 /runs/*
 !/runs/.gitkeep
 /dist/
+/.saccade-source-install/
 /packaging/out/
