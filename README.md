@@ -102,6 +102,25 @@ See the [generated coverage table](docs/generated/control_coverage.md) for the
 current Registry. The [Developer Preview release plan](docs/RELEASE_PLAN.md)
 defines the product, evidence, setup, and launch gates.
 
+## Code signing policy
+
+Free Windows code signing is provided by [SignPath.io](https://signpath.io/),
+with a certificate from the [SignPath Foundation](https://signpath.org/).
+Release binaries must be built from this public repository on GitHub-hosted
+runners, pass the repository gates, and be approved through the protected
+release workflow before signing.
+
+- Committer and reviewer: [sacravenger](https://github.com/sacravenger)
+- Signing approver: [sacravenger](https://github.com/sacravenger)
+
+Saccade does not send authorized page data to Nanlogic or another remote
+service. Its Extension, Native Host, Runtime, and MCP adapter communicate
+locally. Network access occurs only when explicitly requested for browser
+navigation or when the user requests installation or an update from the Chrome
+Web Store, npm, or GitHub Releases. Setup reports its user-level file,
+Native Messaging, and MCP configuration changes, and provides both ordinary
+uninstall and full `uninstall --purge` removal.
+
 ## One route
 
 ```text

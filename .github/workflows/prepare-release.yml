@@ -109,34 +109,56 @@ jobs:
     runs-on: windows-latest
     environment: release
     permissions:
+      actions: read
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag }}
       - name: Build Windows release Runtime
         run: cargo build --release --locked --bin saccade-runtime
-      - name: Authenticate to Azure with GitHub OIDC
-        uses: azure/login@v3
+      - name: Validate Windows product metadata
+        shell: pwsh
+        run: |
+          $Version = (Get-Item target/release/saccade-runtime.exe).VersionInfo
+          $PackageVersion = (Get-Content packages/setup/package.json | ConvertFrom-Json).version
+          $Expected = @{
+            FileDescription = 'Saccade Runtime'
+            ProductName = 'Saccade'
+            ProductVersion = $PackageVersion
+            FileVersion = $PackageVersion
+            OriginalFilename = 'saccade-runtime.exe'
+            InternalName = 'saccade-runtime'
+            CompanyName = 'Nanlogic'
+          }
+          foreach ($Field in $Expected.Keys) {
+            if ($Version.$Field -ne $Expected[$Field]) {
+              throw "Windows Runtime $Field must be '$($Expected[$Field])', got '$($Version.$Field)'"
+            }
+          }
+      - name: Upload unsigned Windows Runtime for origin verification
+        id: upload-unsigned-windows-runtime
+        uses: actions/upload-artifact@v4
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Sign Windows Runtime with Microsoft Artifact Signing
-        uses: azure/artifact-signing-action@v2
+          name: unsigned-runtime-win32-x64
+          path: target/release/saccade-runtime.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Submit Windows Runtime to SignPath Foundation
+        uses: signpath/github-action-submit-signing-request@v2
         with:
-          endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
-          files: ${{ github.workspace }}\target\release\saccade-runtime.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-windows-runtime.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed/windows
       - name: Verify Windows Authenticode and build architecture draft
         shell: pwsh
         run: |
-          $Runtime = Resolve-Path target/release/saccade-runtime.exe
+          $Runtime = Resolve-Path signed/windows/saccade-runtime.exe
           $Signature = Get-AuthenticodeSignature $Runtime
           if ($Signature.Status -ne 'Valid') {
             throw "Windows Runtime Authenticode verification failed: $($Signature.StatusMessage)"
