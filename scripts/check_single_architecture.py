@@ -58,7 +58,10 @@ def main() -> None:
     require(".github/workflows/publish-npm.yml", "id-token: write")
     require(".github/workflows/publish-npm.yml", "npm publish --access public --provenance")
     require("scripts/assemble_setup_release.py", "https://github.com/nanlogic/saccade/releases/download/")
-    require("scripts/verify_published_setup_release.py", '"darwin-arm64", "darwin-x64"')
+    require(
+        "scripts/verify_published_setup_release.py",
+        '"darwin-arm64", "darwin-x64", "win32-x64"',
+    )
     require("scripts/package_extension_release.py", "store Extension manifest still has a development name")
     require("PROJECT_AUTHORITY.md", "docs/current/profile-boundary.md")
     require(
