@@ -4,7 +4,7 @@ Status: normative for the 0.1.2 developer preview.
 
 ## User experience
 
-The public setup has two user-facing components:
+The public macOS setup has two user-facing components:
 
 1. the Saccade Extension from the Chrome Web Store or Edge Add-ons;
 2. one setup command:
@@ -17,29 +17,39 @@ The command installs the local MCP and Native Host without adding a visible
 application. Saccade does not use a DMG, macOS application, MSI, or system
 input permission.
 
+Windows x64 is source-install only. A user clones or downloads the repository,
+opens it in an Agent that supports repository Skills, and asks the Agent to
+install Saccade. `.agents/skills/saccade-windows-install` drives
+`scripts/install_windows_from_source.ps1`, which compiles the locked source and
+then uses the same setup implementation. No unsigned Windows Runtime is
+published or downloaded.
+
 The `@nanlogic` npm organization, trusted publisher, recovery methods, and at
 least two administrators must be controlled by Nanlogic. Version 0.1.1 is
 public for macOS; the Windows-capable 0.1.2 package remains unpublished until
 its platform gates pass.
 
 The package source lives in `packages/setup`. Its bundled `release.json` stays
-explicitly unpublished until signed Runtime artifacts, checksums, and final
-store Extension origins are available. Development tests provide their own
-isolated release manifest and never install into the real user home.
+explicitly unpublished until signed macOS Runtime artifacts, checksums, and
+final store Extension origins are available. Development tests provide their
+own isolated release manifest and never install into the real user home.
 
 `scripts/build_setup_release.py` packages one real local Runtime and
 writes its SHA-256, `SHA256SUMS`, exact Extension candidate, and an unpublished
 architecture draft under ignored `dist/`. The draft deliberately records a
 null download URL and empty store origins. Only the protected GitHub release
-workflow currently combines signed `darwin-arm64` and `darwin-x64` drafts. It
-must admit `win32-x64` only after the real-machine gate and Authenticode signing
-land, then produce the published manifest consumed by npm trusted publishing.
+workflow combines signed `darwin-arm64` and `darwin-x64` drafts for the
+published manifest consumed by npm trusted publishing. The Windows source
+installer generates a separate local-only manifest containing the exact
+compiled Runtime checksum, deterministic unpacked Extension ID, and candidate
+identity.
 
 ## Setup responsibilities
 
-The setup package:
+The setup implementation:
 
-- downloads the platform-specific Saccade Runtime to a stable user-owned path;
+- downloads a signed macOS Runtime or reads the locally compiled Windows
+  Runtime into a stable user-owned path;
 - verifies the downloaded artifact against the release checksum;
 - installs user-level Chrome and Edge Native Messaging manifests;
 - adds the local STDIO MCP to detected Codex and Claude clients;
@@ -69,8 +79,9 @@ the user passes an explicit purge option.
 
 ## Client boundary
 
-The 0.1.2 target supports Apple Silicon and Intel macOS plus Windows x64 Agent
-clients that can start a STDIO MCP and control the same Chrome or Edge tab:
+The 0.1.2 target supports Apple Silicon and Intel macOS downloads plus
+source-built Windows x64 Agent clients that can start a STDIO MCP and control
+the same Chrome or Edge tab:
 
 - Codex desktop, CLI, and IDE clients;
 - Claude Code;

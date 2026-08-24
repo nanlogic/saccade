@@ -104,79 +104,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  windows-runtime:
-    needs: gates
-    runs-on: windows-latest
-    environment: release
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.tag }}
-      - name: Build Windows release Runtime
-        run: cargo build --release --locked --bin saccade-runtime
-      - name: Validate Windows product metadata
-        shell: pwsh
-        run: |
-          $Version = (Get-Item target/release/saccade-runtime.exe).VersionInfo
-          $PackageVersion = (Get-Content packages/setup/package.json | ConvertFrom-Json).version
-          $Expected = @{
-            FileDescription = 'Saccade Runtime'
-            ProductName = 'Saccade'
-            ProductVersion = $PackageVersion
-            FileVersion = $PackageVersion
-            OriginalFilename = 'saccade-runtime.exe'
-            InternalName = 'saccade-runtime'
-            CompanyName = 'Nanlogic'
-          }
-          foreach ($Field in $Expected.Keys) {
-            if ($Version.$Field -ne $Expected[$Field]) {
-              throw "Windows Runtime $Field must be '$($Expected[$Field])', got '$($Version.$Field)'"
-            }
-          }
-      - name: Upload unsigned Windows Runtime for origin verification
-        id: upload-unsigned-windows-runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-runtime-win32-x64
-          path: target/release/saccade-runtime.exe
-          if-no-files-found: error
-          retention-days: 1
-      - name: Submit Windows Runtime to SignPath Foundation
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-windows-runtime.outputs.artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 1800
-          output-artifact-directory: signed/windows
-      - name: Verify Windows Authenticode and build architecture draft
-        shell: pwsh
-        run: |
-          $Runtime = Resolve-Path signed/windows/saccade-runtime.exe
-          $Signature = Get-AuthenticodeSignature $Runtime
-          if ($Signature.Status -ne 'Valid') {
-            throw "Windows Runtime Authenticode verification failed: $($Signature.StatusMessage)"
-          }
-          python scripts/build_setup_release.py `
-            --runtime $Runtime `
-            --platform win32-x64 `
-            --output dist/win32-x64 `
-            --signed
-      - uses: actions/upload-artifact@v4
-        with:
-          name: runtime-win32-x64
-          path: dist/win32-x64
-          if-no-files-found: error
-          retention-days: 7
-
   draft-release:
-    needs: [runtime, windows-runtime]
+    needs: runtime
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -197,7 +126,6 @@ jobs:
           python3 scripts/assemble_setup_release.py \
             --draft dist/runtime-drafts/runtime-darwin-arm64/release.json \
             --draft dist/runtime-drafts/runtime-darwin-x64/release.json \
-            --draft dist/runtime-drafts/runtime-win32-x64/release.json \
             --output dist/release \
             --base-url "https://github.com/nanlogic/saccade/releases/download/$RELEASE_TAG" \
             --allowed-origin "chrome-extension://$EXTENSION_ID/"

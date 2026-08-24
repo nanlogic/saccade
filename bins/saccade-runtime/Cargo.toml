@@ -4,15 +4,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Local Truth Layer Runtime for Saccade browser control."
-build = "build.rs"
-
-[package.metadata.winresource]
-ProductName = "Saccade"
-FileDescription = "Saccade Runtime"
-OriginalFilename = "saccade-runtime.exe"
-InternalName = "saccade-runtime"
-CompanyName = "Nanlogic"
-LegalCopyright = "Copyright (c) 2026 Nanlogic contributors"
 
 [dependencies]
 anyhow.workspace = true
@@ -20,6 +11,3 @@ saccade_host_client = { path = "../../crates/saccade_host_client" }
 saccade_runtime = { path = "../../crates/saccade_runtime" }
 saccade_protocol = { path = "../../crates/saccade_protocol" }
 serde_json.workspace = true
-
-[build-dependencies]
-winresource = "0.1.31"

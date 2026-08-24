@@ -1,7 +1,6 @@
 # @nanlogic/saccade
 
-Install the Saccade Extension from the Chrome Web Store in Chrome or Edge, then
-run:
+On macOS, install the Saccade Extension from the Chrome Web Store, then run:
 
 ```sh
 npx -y @nanlogic/saccade
@@ -38,10 +37,11 @@ Updates and ordinary uninstall preserve your Saccade Profile. Run
 `npx -y @nanlogic/saccade uninstall --purge` to remove the Profile and Runtime
 data.
 
-Version 0.1.2 supports Apple Silicon and Intel macOS plus Windows x64 clients
-that can start a STDIO MCP and control the same Chrome or Edge tab. The same
-store Extension is used on every platform; setup selects the matching signed
-Runtime.
+Version 0.1.2 publishes signed Runtime downloads only for Apple Silicon and
+Intel macOS. Windows x64 users clone or download the source repository and ask
+their Agent to install Saccade; the repository Skill compiles the Runtime on
+that machine and invokes this same setup implementation with a checksummed
+local manifest. Nanlogic does not redistribute the unsigned Windows Runtime.
 Cloud-only sessions cannot connect to the local Extension and Native Host.
 Setup does not request Accessibility or install the optional Reference
 Actuator.

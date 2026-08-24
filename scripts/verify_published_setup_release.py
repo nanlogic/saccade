@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIRED_PLATFORMS = {"darwin-arm64", "darwin-x64", "win32-x64"}
+REQUIRED_PLATFORMS = {"darwin-arm64", "darwin-x64"}
 
 
 def verify(release_path: Path, tag: str, artifact_dir: Path | None = None) -> None:
@@ -33,7 +33,7 @@ def verify(release_path: Path, tag: str, artifact_dir: Path | None = None) -> No
         raise ValueError("setup manifest has no valid store Extension origin")
     artifacts = release.get("artifacts") or {}
     if set(artifacts) != REQUIRED_PLATFORMS:
-        raise ValueError("setup manifest must contain both macOS architectures and Windows x64")
+        raise ValueError("setup manifest must contain both macOS architectures")
     prefix = f"https://github.com/nanlogic/saccade/releases/download/{tag}/"
     for platform, artifact in artifacts.items():
         if artifact.get("signed") is not True:

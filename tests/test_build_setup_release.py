@@ -116,7 +116,7 @@ class BuildSetupReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             drafts = []
-            for platform in ("darwin-arm64", "darwin-x64", "win32-x64"):
+            for platform in ("darwin-arm64", "darwin-x64"):
                 runtime = root / f"runtime-{platform}"
                 runtime.write_text(
                     "#!/bin/sh\nprintf '%s\\n' '{\"mcp_contract_hash\":\""
@@ -141,10 +141,7 @@ class BuildSetupReleaseTests(unittest.TestCase):
             manifest = json.loads(Path(result["manifest"]).read_text())
             self.assertTrue(manifest["published"])
             self.assertEqual(manifest["publisher"]["organization"], "Nanlogic")
-            self.assertEqual(
-                set(manifest["artifacts"]),
-                {"darwin-arm64", "darwin-x64", "win32-x64"},
-            )
+            self.assertEqual(set(manifest["artifacts"]), {"darwin-arm64", "darwin-x64"})
             self.assertTrue(all(item["signed"] for item in manifest["artifacts"].values()))
             VERIFY.verify(Path(result["manifest"]), "v0.1.2", output)
             arm64 = output / "saccade-runtime-0.1.2-darwin-arm64"

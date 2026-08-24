@@ -72,7 +72,8 @@ input backends stay outside the core product.
 
 Saccade is a developer preview. `@nanlogic/saccade@0.1.1` and its signed macOS
 Runtime artifacts are public; the Chrome Web Store Extension is still under
-review. Windows x64 support is being validated for 0.1.2 and is not public yet.
+review. Windows x64 is available as a source-built developer preview; Nanlogic
+does not redistribute an unsigned Windows Runtime binary.
 
 | Inventory | Count | Current evidence |
 | --- | ---: | --- |
@@ -102,24 +103,25 @@ See the [generated coverage table](docs/generated/control_coverage.md) for the
 current Registry. The [Developer Preview release plan](docs/RELEASE_PLAN.md)
 defines the product, evidence, setup, and launch gates.
 
-## Code signing policy
+## Windows x64 source install
 
-Free Windows code signing is provided by [SignPath.io](https://signpath.io/),
-with a certificate from the [SignPath Foundation](https://signpath.org/).
-Release binaries must be built from this public repository on GitHub-hosted
-runners, pass the repository gates, and be approved through the protected
-release workflow before signing.
+Clone or download this repository, open its root folder in Codex, and ask:
 
-- Committer and reviewer: [sacravenger](https://github.com/sacravenger)
-- Signing approver: [sacravenger](https://github.com/sacravenger)
+```text
+Install Saccade on this Windows PC.
+```
 
-Saccade does not send authorized page data to Nanlogic or another remote
-service. Its Extension, Native Host, Runtime, and MCP adapter communicate
-locally. Network access occurs only when explicitly requested for browser
-navigation or when the user requests installation or an update from the Chrome
-Web Store, npm, or GitHub Releases. Setup reports its user-level file,
-Native Messaging, and MCP configuration changes, and provides both ordinary
-uninstall and full `uninstall --purge` removal.
+The repository-level `saccade-windows-install` Skill builds the locked Rust
+source locally, installs only Saccade-owned current-user files and registry
+entries, adds detected Codex or Claude MCP configuration, and runs doctor. If a
+machine lacks global build tools, the Agent asks one yes/no question before
+installing them. The browser's unpacked-Extension confirmation and a new Agent
+task may still require user presence because an Agent cannot bypass those
+security and process boundaries.
+
+The resulting Windows executable is unsigned, local to that machine, and must
+not be redistributed. Smart App Control or enterprise Application Control can
+still block it; the installer never weakens Windows security policy.
 
 ## One route
 
@@ -436,7 +438,8 @@ actionable, and every successful receipt requires the score to advance.
 
 ## Public setup target
 
-The public setup uses the browser-store Extension plus one explicit command:
+The public macOS setup uses the browser-store Extension plus one explicit
+command:
 
 ```sh
 npx -y @nanlogic/saccade
@@ -447,6 +450,10 @@ Messaging manifests, and local MCP entries for supported Codex and Claude
 clients. It will not install a visible app or request Accessibility. See
 [the setup target](docs/SETUP_TARGET.md) for the
 normative install, update, doctor, uninstall, and client boundaries.
+
+Windows x64 uses the repository Skill and
+`scripts/install_windows_from_source.ps1`; no unsigned Windows Runtime is
+attached to a release or downloaded by npm.
 
 ## Profiles
 
@@ -479,6 +486,7 @@ Read the [current Profile boundary](docs/current/profile-boundary.md), the
 | `crates/saccade_control_sdk/` | Catalog-backed semantic Registry and optional reference verifiers |
 | `crates/saccade_runtime/` | Host session, Profile, IPC, Truth MCP, and optional Reference Actuator |
 | `fixtures/` | Browser conformance fixtures |
+| `.agents/skills/` | Repository-scoped Agent workflows, including Windows source install |
 | `scripts/` | Catalog generation, architecture checks, and managed development |
 
 User-visible changes are recorded in [CHANGELOG.md](CHANGELOG.md).
