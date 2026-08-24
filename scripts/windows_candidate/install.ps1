@@ -12,12 +12,20 @@ $RuntimePath = (Resolve-Path (Join-Path $Root 'runtime\saccade-runtime.exe')).Pa
 $Release = Get-Content -Raw $TemplatePath | ConvertFrom-Json
 $Release.native_host.allowed_origins = @("chrome-extension://$ExtensionId/")
 $Release.artifacts.'win32-x64'.url = ([System.Uri]$RuntimePath).AbsoluteUri
-$Release | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 $ReleasePath
+$ReleaseJson = $Release | ConvertTo-Json -Depth 12
+# Windows PowerShell 5.1 writes a BOM for -Encoding UTF8. The setup CLI reads
+# this as JSON, so write interoperable UTF-8 without a BOM on every PowerShell.
+[System.IO.File]::WriteAllText(
+  $ReleasePath,
+  $ReleaseJson,
+  [System.Text.UTF8Encoding]::new($false)
+)
 
 Write-Host 'Installing the unsigned Saccade Windows test candidate...'
 & node (Join-Path $Root 'package\bin\saccade-setup.js') --release-manifest $ReleasePath
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ''
-Write-Host 'Installation finished. Keep the unpacked Extension loaded, share one tab, then restart Codex or Claude.'
+Write-Host 'Installation finished. Keep the unpacked Extension loaded, then restart Codex or Claude.'
+Write-Host 'Saccade opens known test URLs as Agent-owned tabs automatically; no tab sharing is required for the normal route.'
 Write-Host "Run doctor with: node `"$Root\package\bin\saccade-setup.js`" doctor"

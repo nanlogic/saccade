@@ -136,7 +136,8 @@ def main() -> None:
     if (
         not isinstance(behavior, str)
         or "autonomously" not in behavior
-        or "Agent-owned tab is Agent On" not in behavior
+        or "no suitable Agent-owned tab exists" not in behavior
+        or "never ask permission first" not in behavior
         or "MCP adds no safety taxonomy or action gate" not in behavior
     ):
         raise SystemExit("default Profile must require autonomous Agent-owned access without an MCP safety gate")

@@ -629,6 +629,18 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   assert.match(worker, /saccade_action_error\|\$\{stage\}\|\$\{code\}\|\$\{retrySafe\}/);
 });
 
+test('native preparation removes symmetric window borders from the content origin', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const origin = collector.slice(
+    collector.indexOf('function contentScreenOrigin('),
+    collector.indexOf('function prepare('),
+  );
+  assert.match(origin, /\(outerWidth - innerWidth\) \/ 2/);
+  assert.match(origin, /x: screenX \+ sideBorder/);
+  assert.match(origin, /outerHeight - innerHeight - sideBorder/);
+  assert.doesNotMatch(collector, /x: screenX \+ topBox\.x/);
+});
+
 test('the browser harness edits through the same statements as the collector', () => {
   // The harness is what Chrome and Edge actually execute to prove the event
   // order. It only proves anything about the product while it edits the way

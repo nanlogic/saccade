@@ -86,6 +86,60 @@ class DevProbeTests(unittest.TestCase):
         )
         self.assertFalse(complete["objects"][1]["protected"])
 
+    def test_full_view_materializer_fetches_every_frozen_page(self) -> None:
+        client = MODULE.Mcp.__new__(MODULE.Mcp)
+        client.agent_views = {}
+        base = {
+            "schema": "saccade.agent-view/1", "mode": "full",
+            "browser_instance_id": "browser-1", "tab_id": "tab-1",
+            "document_id": "document-1", "revision": 7, "viewport_revision": 1,
+            "object_defaults": {"protected": False}, "coverage": {},
+            "limitations": [], "gap": False,
+        }
+        calls = []
+
+        def raw_tool(name, arguments, timeout=35.0):  # noqa: ANN001, ARG001
+            calls.append((name, arguments))
+            return {
+                **base,
+                "page": {"index": 2, "count": 2, "complete": True},
+                "objects": [{"object_id": "o2", "role": "search_field"}],
+            }
+
+        client.raw_tool = raw_tool
+        complete = client.materialize_full({
+            **base,
+            "page": {"index": 1, "count": 2, "complete": False},
+            "objects": [{"object_id": "o1", "role": "button"}],
+        })
+
+        self.assertEqual(calls, [("truth.read", {"tab_id": "tab-1"})])
+        self.assertEqual(
+            [item["object_id"] for item in complete["objects"]],
+            ["o1", "o2"],
+        )
+
+    def test_working_set_keeps_current_tokens_and_advances_full_base(self) -> None:
+        client = MODULE.Mcp.__new__(MODULE.Mcp)
+        client.agent_views = {"tab-1": {
+            "document_id": "document-1", "revision": 3,
+            "objects": [{"object_id": "o2", "role": "heading"}],
+        }}
+        bounded = client.materialize_working_set({
+            "schema": "saccade.agent-view/1", "mode": "working_set",
+            "tab_id": "tab-1", "document_id": "document-1", "revision": 9,
+            "object_defaults": {"protected": False},
+            "objects": [{"object_id": "o1", "action_token": "action.current"}],
+        })
+
+        self.assertEqual(bounded["objects"][0]["action_token"], "action.current")
+        self.assertFalse(bounded["objects"][0]["protected"])
+        self.assertEqual(client.agent_views["tab-1"]["revision"], 9)
+        self.assertEqual(
+            {item["object_id"] for item in client.agent_views["tab-1"]["objects"]},
+            {"o1", "o2"},
+        )
+
     def test_diagnostic_catalog_expands_frozen_pages_and_details(self) -> None:
         client = MODULE.Mcp.__new__(MODULE.Mcp)
         client.agent_views = {}
@@ -145,7 +199,10 @@ class DevProbeTests(unittest.TestCase):
 
         client = FakeMcp()
         self.assertIs(MODULE.wait_mouseaccuracy_settings(client, shell, timeout=1.0), ready)
-        self.assertEqual(client.call, ("web.observe", {"tab_id": "tab-1"}))
+        self.assertEqual(
+            client.call,
+            ("web.observe", {"tab_id": "tab-1", "resync": True}),
+        )
 
     def test_frame_gate_is_truth_only(self) -> None:
         source = (ROOT / "scripts/dev_probe.py").read_text(encoding="utf-8")
@@ -162,6 +219,7 @@ class DevProbeTests(unittest.TestCase):
             "action token is not current for operation",
             "action token is not present in the current Profile-filtered observation",
             "action token is stale or absent from this Agent's current Truth Layer",
+            "action token is missing, mismatched, or already used",
             "tab observation is not current",
             "prepared action failed identity, focus, geometry, visibility, or topmost revalidation",
         ):

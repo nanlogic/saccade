@@ -154,28 +154,30 @@ impl ClosedLoopEngine {
         }
 
         // Preparing may scroll, focus, and yield to the browser. Recheck the
-        // authoritative identity and revision immediately before native input.
-        let current = observations.current_observation()?;
-        current.validate()?;
-        let target_is_current = current.objects.iter().any(|object| {
-            object.object_id == target.object_id
-                && object.action_token.as_deref() == Some(&request.action_token)
-                && object.affordances == target.affordances
-                && ((!software_dispatch && !native_reflex_rebase)
-                    || software_semantics_unchanged(target, object))
-        });
-        if current.browser_instance_id != request.browser_instance_id
-            || current.tab_id != request.tab_id
-            || current.document_id != request.document_id
-            || (!software_dispatch
-                && !native_reflex_rebase
-                && current.revision != request.basis_revision)
-            || (native_reflex_rebase && current.revision < prepared.basis_revision)
-            || (software_dispatch && current.revision < prepared.basis_revision)
-            || (!software_dispatch && current.viewport_revision != prepared.viewport_revision)
-            || !target_is_current
-        {
-            return Err(ClosedLoopError::Stale);
+        // authoritative identity and revision immediately before input. A
+        // physical reflex prepare is itself the Extension's final synchronous
+        // identity, topmost, focus, viewport, and geometry revalidation. An
+        // additional observation round trip would retain those semantics but
+        // dispatch at the previous position of a continuously moving target.
+        if !native_reflex_rebase {
+            let current = observations.current_observation()?;
+            current.validate()?;
+            let target_is_current = current.objects.iter().any(|object| {
+                object.object_id == target.object_id
+                    && object.action_token.as_deref() == Some(&request.action_token)
+                    && object.affordances == target.affordances
+                    && (!software_dispatch || software_semantics_unchanged(target, object))
+            });
+            if current.browser_instance_id != request.browser_instance_id
+                || current.tab_id != request.tab_id
+                || current.document_id != request.document_id
+                || (!software_dispatch && current.revision != request.basis_revision)
+                || (software_dispatch && current.revision < prepared.basis_revision)
+                || (!software_dispatch && current.viewport_revision != prepared.viewport_revision)
+                || !target_is_current
+            {
+                return Err(ClosedLoopError::Stale);
+            }
         }
 
         // Single use begins immediately before the only side effect.

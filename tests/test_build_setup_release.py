@@ -36,6 +36,11 @@ WINDOWS_SPEC.loader.exec_module(WINDOWS)
 
 
 class BuildSetupReleaseTests(unittest.TestCase):
+    def test_windows_candidate_installer_writes_bomless_json(self) -> None:
+        installer = (ROOT / "scripts/windows_candidate/install.ps1").read_text()
+        self.assertIn("[System.Text.UTF8Encoding]::new($false)", installer)
+        self.assertNotIn("Set-Content -Encoding UTF8", installer)
+
     def test_draft_has_real_checksum_but_cannot_claim_publication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -103,6 +108,9 @@ class BuildSetupReleaseTests(unittest.TestCase):
             self.assertNotIn("key", extension_manifest)
             self.assertFalse((root / "candidate/extension/tests").exists())
             self.assertTrue((root / "candidate/install.ps1").is_file())
+            installer = (root / "candidate/install.ps1").read_text()
+            self.assertIn("[System.Text.UTF8Encoding]::new($false)", installer)
+            self.assertNotIn("Set-Content -Encoding UTF8", installer)
 
     def test_signed_architecture_drafts_assemble_into_nanlogic_release(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

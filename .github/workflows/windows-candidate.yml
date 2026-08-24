@@ -63,6 +63,8 @@ jobs:
 
           $Installed = Join-Path $env:SACCADE_SETUP_LOCALAPPDATA 'Saccade\runtime\saccade-runtime.exe'
           if (-not (Test-Path $Installed)) { throw 'installed Windows Runtime is missing' }
+          $ExpectedCandidate = Join-Path $env:SACCADE_SETUP_LOCALAPPDATA 'Saccade\expected-extension-candidate.json'
+          if (-not (Test-Path $ExpectedCandidate)) { throw 'expected Extension candidate identity is missing' }
           foreach ($Key in @(
             'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.nanlogic.saccade',
             'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.nanlogic.saccade'
@@ -73,6 +75,7 @@ jobs:
           @'
           import json, os, subprocess
           runtime = os.path.join(os.environ['SACCADE_SETUP_LOCALAPPDATA'], 'Saccade', 'runtime', 'saccade-runtime.exe')
+          runtime_dir = os.path.dirname(os.path.dirname(runtime))
           messages = [
               {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'windows-ci','version':'1'}}},
               {'jsonrpc':'2.0','method':'notifications/initialized','params':{}},
@@ -82,7 +85,7 @@ jobs:
               [runtime, 'mcp'],
               input=''.join(json.dumps(item, separators=(',', ':')) + '\n' for item in messages),
               text=True, capture_output=True, timeout=15, check=True,
-              env={**os.environ, 'SACCADE_RUNTIME_DIR': os.path.dirname(runtime)},
+              env={**os.environ, 'SACCADE_RUNTIME_DIR': runtime_dir},
           )
           responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
           tools = next(item['result']['tools'] for item in responses if item.get('id') == 2)

@@ -122,7 +122,9 @@ mod windows {
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
     };
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
-    use windows_sys::Win32::Storage::FileSystem::{ReadFile, WriteFile, PIPE_ACCESS_DUPLEX};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FlushFileBuffers, ReadFile, WriteFile, PIPE_ACCESS_DUPLEX,
+    };
     use windows_sys::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE,
         PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
@@ -169,7 +171,13 @@ mod windows {
                         DisconnectNamedPipe(handle);
                         CloseHandle(handle);
                     }
-                    result?;
+                    // A caller may time out or exit after connecting but before
+                    // completing its request/response exchange. That failure is
+                    // scoped to this pipe instance; keep the owner endpoint alive
+                    // so the Extension and the next MCP request can reconnect.
+                    if let Err(error) = result {
+                        eprintln!("saccade owner IPC client disconnected: {error}");
+                    }
                 } else {
                     // SAFETY: failed connection still leaves one live handle to close.
                     unsafe { CloseHandle(handle) };
@@ -282,6 +290,15 @@ mod windows {
                 std::io::Error::last_os_error().to_string(),
             ));
         }
+        // DisconnectNamedPipe discards unread outbound bytes. Wait until the
+        // client has consumed this response before serve() disconnects and
+        // closes the pipe instance.
+        // SAFETY: handle remains the connected server end for this client.
+        if unsafe { FlushFileBuffers(handle) } == 0 {
+            return Err(ProtocolError::TransportUnavailable(
+                std::io::Error::last_os_error().to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -344,5 +361,123 @@ mod tests {
         .unwrap();
         assert_eq!(result["route"], "owner_only_ipc");
         thread.join().unwrap().unwrap();
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod windows_tests {
+    use std::fs::OpenOptions;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use saccade_host_client::call_host;
+    use saccade_protocol::{
+        ControlRequest, ControlResponse, HostGrant, LocalAddress, HOST_PROTOCOL,
+        SESSION_CAPABILITY_SCHEME,
+    };
+
+    use super::OwnerIpcServer;
+
+    #[test]
+    fn owner_pipe_survives_a_client_that_disconnects_before_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = OwnerIpcServer::bind(dir.path()).unwrap();
+        let address = server.address();
+        let LocalAddress::WindowsNamedPipe { path } = &address else {
+            panic!("Windows owner IPC must use a named pipe");
+        };
+        let pipe_path = path.clone();
+        let capability = "c".repeat(43);
+        let expected_capability = capability.clone();
+        std::thread::spawn(move || {
+            let handler: Arc<dyn Fn(ControlRequest) -> ControlResponse + Send + Sync> =
+                Arc::new(move |request| {
+                    let allowed = request.capability == expected_capability;
+                    ControlResponse {
+                        id: request.id,
+                        ok: allowed,
+                        result: allowed.then(|| serde_json::json!({"route":"owner_only_ipc"})),
+                        error: None,
+                    }
+                });
+            server.serve(handler).unwrap();
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match OpenOptions::new().read(true).write(true).open(&pipe_path) {
+                Ok(client) => {
+                    drop(client);
+                    break;
+                }
+                Err(error) if Instant::now() < deadline => {
+                    let _ = error;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("could not connect aborting named-pipe client: {error}"),
+            }
+        }
+
+        let grant = HostGrant {
+            protocol: HOST_PROTOCOL.into(),
+            browser_instance_id: "browser-1".into(),
+            address,
+            capability_scheme: SESSION_CAPABILITY_SCHEME.into(),
+            capability: capability.clone(),
+        };
+        let result = call_host(
+            &grant,
+            &ControlRequest {
+                id: 7,
+                method: "system.capabilities".into(),
+                params: serde_json::json!({}),
+                capability,
+            },
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(result["route"], "owner_only_ipc");
+    }
+
+    #[test]
+    fn owner_pipe_delivers_each_response_before_reusing_the_pipe_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = OwnerIpcServer::bind(dir.path()).unwrap();
+        let address = server.address();
+        let capability = "c".repeat(43);
+        let expected_capability = capability.clone();
+        std::thread::spawn(move || {
+            let handler: Arc<dyn Fn(ControlRequest) -> ControlResponse + Send + Sync> =
+                Arc::new(move |request| ControlResponse {
+                    id: request.id,
+                    ok: request.capability == expected_capability,
+                    result: Some(serde_json::json!({"sequence":request.id})),
+                    error: None,
+                });
+            server.serve(handler).unwrap();
+        });
+
+        let grant = HostGrant {
+            protocol: HOST_PROTOCOL.into(),
+            browser_instance_id: "browser-1".into(),
+            address,
+            capability_scheme: SESSION_CAPABILITY_SCHEME.into(),
+            capability: capability.clone(),
+        };
+        for id in 1..=256 {
+            let result = call_host(
+                &grant,
+                &ControlRequest {
+                    id,
+                    method: "system.capabilities".into(),
+                    params: serde_json::json!({}),
+                    capability: capability.clone(),
+                },
+                Duration::from_secs(2),
+            )
+            .unwrap();
+            assert_eq!(result["sequence"], id);
+        }
     }
 }

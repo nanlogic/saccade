@@ -304,7 +304,7 @@ fn reflex_target_verifies_only_when_the_same_loop_class_advances() {
 }
 
 #[test]
-fn native_reflex_may_rebase_only_across_semantically_identical_revisions() {
+fn native_reflex_dispatches_from_the_extensions_final_prepared_geometry() {
     let mut target = object(
         "reflex-rebase",
         SemanticRole::ReflexTarget,
@@ -314,7 +314,6 @@ fn native_reflex_may_rebase_only_across_semantically_identical_revisions() {
     target.name = None;
     target.loop_class_token = Some("loop.0123456789abcdef0123456789abcdef0123456789".into());
     let before = snapshot(1, vec![target.clone()]);
-    let current = snapshot(2, vec![target.clone()]);
     let mut after_target = target.clone();
     after_target
         .state
@@ -332,32 +331,11 @@ fn native_reflex_may_rebase_only_across_semantically_identical_revisions() {
             &before,
             &prep,
             &mut native,
-            &mut source(Some(current), Some(snapshot(3, vec![after_target]))),
+            &mut source(None, Some(snapshot(3, vec![after_target]))),
         )
         .unwrap();
     assert_eq!(receipt.postcondition, PostconditionStatus::Verified);
     assert_eq!(native.calls, vec![NativePrimitive::PrimaryClick]);
-
-    let mut changed = target.clone();
-    changed
-        .state
-        .insert("reflex_occurrence".into(), "99".into());
-    let mut engine = ClosedLoopEngine::builtin().unwrap();
-    let mut native = Native {
-        calls: vec![],
-        status: DispatchStatus::AcceptedByOs,
-    };
-    assert_eq!(
-        engine.execute(
-            &request(&target, ActionOperation::Click, ActionPayload::None),
-            &before,
-            &prep,
-            &mut native,
-            &mut source(Some(snapshot(2, vec![changed])), None),
-        ),
-        Err(ClosedLoopError::Stale)
-    );
-    assert!(native.calls.is_empty());
 }
 
 #[test]

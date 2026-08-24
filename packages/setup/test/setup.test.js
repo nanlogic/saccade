@@ -129,8 +129,10 @@ test('install, doctor, update, and uninstall preserve the Profile', async (t) =>
   assert.equal(installed.status, 0, installed.stderr);
   assert.match(installed.stdout, /Start a new Codex or Claude task/);
   const runtime = path.join(values.home, 'Library/Application Support/Saccade/runtime/saccade-runtime');
-  const profile = path.join(values.home, 'Library/Application Support/Saccade/runtime/profile.json');
+  const profile = path.join(values.home, 'Library/Application Support/Saccade/profile.json');
+  const expectedCandidate = path.join(values.home, 'Library/Application Support/Saccade/expected-extension-candidate.json');
   assert.match(await fsp.readFile(runtime, 'utf8'), /# one/);
+  assert.deepEqual(JSON.parse(await fsp.readFile(expectedCandidate, 'utf8')), CANDIDATE);
   const installedProfile = JSON.parse(await fsp.readFile(profile, 'utf8'));
   assert.match(installedProfile.behavior, /deferred or lazy registry/);
   assert.match(installedProfile.behavior, /instead of silently falling back/);
@@ -150,6 +152,7 @@ test('install, doctor, update, and uninstall preserve the Profile', async (t) =>
   const removed = run(['uninstall'], values);
   assert.equal(removed.status, 0, removed.stderr);
   assert.equal(fs.existsSync(runtime), false);
+  assert.equal(fs.existsSync(expectedCandidate), false);
   assert.equal(fs.existsSync(profile), true);
   assert.match(removed.stdout, /Profile was preserved/);
 });
@@ -176,8 +179,10 @@ test('Windows x64 installs one Runtime, one manifest, and Chrome and Edge regist
   assert.equal(installed.status, 0, installed.stdout + installed.stderr);
   const root = path.join(localAppData, 'Saccade');
   const runtime = path.join(root, 'runtime', 'saccade-runtime.exe');
+  const expectedCandidate = path.join(root, 'expected-extension-candidate.json');
   const manifest = path.join(root, 'native-messaging', 'com.nanlogic.saccade.json');
   assert.equal(fs.existsSync(runtime), true);
+  assert.deepEqual(JSON.parse(await fsp.readFile(expectedCandidate, 'utf8')), CANDIDATE);
   assert.equal(JSON.parse(await fsp.readFile(manifest, 'utf8')).path, runtime);
   const registrations = JSON.parse(await fsp.readFile(registryState, 'utf8'));
   assert.equal(registrations['HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.nanlogic.saccade'], manifest);
@@ -196,6 +201,7 @@ test('Windows x64 installs one Runtime, one manifest, and Chrome and Edge regist
   assert.equal(removed.status, 0, removed.stdout + removed.stderr);
   assert.deepEqual(JSON.parse(await fsp.readFile(registryState, 'utf8')), {});
   assert.equal(fs.existsSync(runtime), false);
+  assert.equal(fs.existsSync(expectedCandidate), false);
   assert.equal(fs.existsSync(manifest), false);
 });
 
@@ -244,7 +250,7 @@ test('repeat install is idempotent and preserves a custom Profile', async (t) =>
   const values = await fixture();
   t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
   assert.equal(run(['--release-manifest', values.release], values).status, 0);
-  const profile = path.join(values.home, 'Library/Application Support/Saccade/runtime/profile.json');
+  const profile = path.join(values.home, 'Library/Application Support/Saccade/profile.json');
   const state = path.join(values.home, 'Library/Application Support/Saccade/setup-state.json');
   const customized = { name: 'mine', behavior: 'stay mine', ban: [] };
   await fsp.writeFile(profile, `${JSON.stringify(customized)}\n`);
@@ -263,6 +269,8 @@ test('failed update rolls back Runtime and setup state', async (t) => {
   const state = path.join(values.home, 'Library/Application Support/Saccade/setup-state.json');
   const beforeRuntime = await fsp.readFile(installedRuntime);
   const beforeState = await fsp.readFile(state);
+  const expectedCandidate = path.join(values.home, 'Library/Application Support/Saccade/expected-extension-candidate.json');
+  const beforeExpectedCandidate = await fsp.readFile(expectedCandidate);
   await writeRuntime(values.runtime, 'update-that-must-roll-back', CANDIDATE, '1.1.0');
   await writeRelease(values.release, values.runtime, '1.1.0');
   const chromeManifest = path.join(values.home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.nanlogic.saccade.json');
@@ -272,6 +280,7 @@ test('failed update rolls back Runtime and setup state', async (t) => {
   assert.equal(result.status, 1);
   assert.deepEqual(await fsp.readFile(installedRuntime), beforeRuntime);
   assert.deepEqual(await fsp.readFile(state), beforeState);
+  assert.deepEqual(await fsp.readFile(expectedCandidate), beforeExpectedCandidate);
 });
 
 test('doctor rejects a stale live Extension candidate', async (t) => {
@@ -286,6 +295,20 @@ test('doctor rejects a stale live Extension candidate', async (t) => {
   const doctor = run(['doctor'], values);
   assert.equal(doctor.status, 1);
   assert.match(doctor.stdout, /FAIL exact Extension → Native Host → Runtime → MCP candidate and contract/);
+});
+
+test('doctor reports a missing expected Extension candidate file', async (t) => {
+  const values = await fixture();
+  t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
+  assert.equal(run(['--release-manifest', values.release], values).status, 0);
+  const expectedCandidate = path.join(
+    values.home,
+    'Library/Application Support/Saccade/expected-extension-candidate.json',
+  );
+  await fsp.rm(expectedCandidate);
+  const doctor = run(['doctor'], values);
+  assert.equal(doctor.status, 1);
+  assert.match(doctor.stdout, /FAIL expected Extension candidate: missing or invalid/);
 });
 
 test('doctor rejects a stale Runtime MCP contract', async (t) => {
@@ -340,7 +363,7 @@ test('purge after an ordinary uninstall still removes the preserved Profile', as
   t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
   assert.equal(run(['--release-manifest', values.release], values).status, 0);
   const managedRoot = path.join(values.home, 'Library/Application Support/Saccade');
-  const profile = path.join(managedRoot, 'runtime/profile.json');
+  const profile = path.join(managedRoot, 'profile.json');
 
   const removed = run(['uninstall'], values);
   assert.equal(removed.status, 0, removed.stderr);

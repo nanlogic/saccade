@@ -14,10 +14,13 @@ unsigned and is not a public release.
    .\install.ps1 -ExtensionId YOUR_32_LETTER_EXTENSION_ID
    ```
 
-5. Pin Saccade, open the tab to test, click **Share this tab**, and restart
-   Codex or Claude so it reloads the MCP configuration.
-6. Ask the agent to call `saccade.system.capabilities`, inspect the shared tab,
-   perform one supported action, and observe its delta.
+5. Restart Codex or Claude so it reloads the MCP configuration.
+6. Ask the agent to call `saccade.system.capabilities`, open the test URL with
+   `saccade.tabs.open`, perform one supported action, and observe its delta.
+
+Sharing is optional and only exposes a specific pre-existing user tab. The
+normal route opens an Agent-owned tab automatically and requires no manual tab
+authorization.
 
 Windows SmartScreen may warn because this test Runtime is not yet signed. Check
 the artifact came from the `nanlogic/saccade` Actions run before allowing it.
