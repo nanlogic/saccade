@@ -1,0 +1,110 @@
+name: Windows x64 candidate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-candidate.yml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'bins/**'
+      - 'crates/**'
+      - 'extension/**'
+      - 'packages/setup/**'
+      - 'scripts/build_setup_release.py'
+      - 'scripts/package_windows_candidate.py'
+      - 'scripts/windows_candidate/**'
+      - 'tests/test_build_setup_release.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Windows Rust gates
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Setup and packaging syntax gates
+        shell: pwsh
+        run: |
+          node --check packages/setup/src/setup.js
+          python -m py_compile scripts/build_setup_release.py scripts/package_windows_candidate.py
+      - name: Build Windows Runtime and candidate
+        shell: pwsh
+        run: |
+          cargo build --release --locked --bin saccade-runtime
+          python scripts/build_setup_release.py `
+            --runtime target/release/saccade-runtime.exe `
+            --platform win32-x64 `
+            --output dist/windows-draft
+          python scripts/package_windows_candidate.py `
+            --draft dist/windows-draft/release.json `
+            --output dist/saccade-windows-x64-candidate
+      - name: Isolated install, MCP, registry, and uninstall smoke
+        shell: pwsh
+        env:
+          SACCADE_SETUP_HOME: ${{ runner.temp }}\saccade-home
+          SACCADE_SETUP_LOCALAPPDATA: ${{ runner.temp }}\saccade-local
+          SACCADE_SETUP_APPDATA: ${{ runner.temp }}\saccade-roaming
+          SACCADE_SETUP_DISABLE_CLIENTS: '1'
+        run: |
+          $Bundle = Resolve-Path dist/saccade-windows-x64-candidate
+          & "$Bundle\install.ps1" -ExtensionId abcdefghijklmnopabcdefghijklmnop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $Installed = Join-Path $env:SACCADE_SETUP_LOCALAPPDATA 'Saccade\runtime\saccade-runtime.exe'
+          if (-not (Test-Path $Installed)) { throw 'installed Windows Runtime is missing' }
+          $ExpectedCandidate = Join-Path $env:SACCADE_SETUP_LOCALAPPDATA 'Saccade\expected-extension-candidate.json'
+          if (-not (Test-Path $ExpectedCandidate)) { throw 'expected Extension candidate identity is missing' }
+          foreach ($Key in @(
+            'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.nanlogic.saccade',
+            'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.nanlogic.saccade'
+          )) {
+            if (-not (Test-Path $Key)) { throw "Native Messaging registration is missing: $Key" }
+          }
+
+          @'
+          import json, os, subprocess
+          runtime = os.path.join(os.environ['SACCADE_SETUP_LOCALAPPDATA'], 'Saccade', 'runtime', 'saccade-runtime.exe')
+          runtime_dir = os.path.dirname(os.path.dirname(runtime))
+          messages = [
+              {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'windows-ci','version':'1'}}},
+              {'jsonrpc':'2.0','method':'notifications/initialized','params':{}},
+              {'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}},
+          ]
+          completed = subprocess.run(
+              [runtime, 'mcp'],
+              input=''.join(json.dumps(item, separators=(',', ':')) + '\n' for item in messages),
+              text=True, capture_output=True, timeout=15, check=True,
+              env={**os.environ, 'SACCADE_RUNTIME_DIR': runtime_dir},
+          )
+          responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+          tools = next(item['result']['tools'] for item in responses if item.get('id') == 2)
+          names = {item['name'] for item in tools}
+          if len(names) != 6 or 'saccade.system.capabilities' not in names:
+              raise SystemExit(f'unexpected MCP tools: {sorted(names)}')
+          '@ | python -
+
+          & node "$Bundle\package\bin\saccade-setup.js" uninstall --purge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($Key in @(
+            'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.nanlogic.saccade',
+            'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.nanlogic.saccade'
+          )) {
+            if (Test-Path $Key) { throw "uninstall left Native Messaging registration: $Key" }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saccade-windows-x64-0.1.2-candidate
+          path: dist/saccade-windows-x64-candidate
+          if-no-files-found: error
+          retention-days: 7

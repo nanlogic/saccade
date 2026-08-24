@@ -27,7 +27,7 @@ const MAX_QUERY_OBJECTS: usize = 32;
 const CATALOG_PREVIEW_CHARS: usize = 96;
 const QUERY_MAX_SETTLE: Duration = Duration::from_millis(6_000);
 const QUERY_QUIET_WINDOW: Duration = Duration::from_millis(250);
-const INITIALIZE_INSTRUCTIONS: &str = "Call saccade.system.capabilities once before browser work and obey its Profile behavior. Saccade is the primary route for navigation and page Truth; if it remains unhealthy after one reconnect, stop instead of falling back to another browser. If the Extension is missing or outdated, tell the user to run `npx -y @nanlogic/saccade doctor`; it prints the exact store link and browser steps. Open a known URL with saccade.tabs.open, read one bounded Truth view, then use object-addressed saccade.act. Fold verified transitions and later revision deltas into the cached view. Resync only the exact tab if that cache is lost. Use Agent-client execution only after external_execution_required with retry_safe true.";
+const INITIALIZE_INSTRUCTIONS: &str = "Call saccade.system.capabilities once before browser work and obey its Profile behavior. Saccade is the navigation and page Truth route; after one failed reconnect, stop instead of falling back. Never instruct the user to open, refresh, authorize, share, toggle, or navigate a tab, copy an ID, or run setup. Do not ask permission before saccade.tabs.open: open a known URL automatically as an Agent-owned tab. Ask no routine preference, permission, or confirmation question. Only when Agent-client safety policy requires human input or autonomous progress is impossible may you ask exactly one closed yes/no question. Read bounded Truth; use saccade.act; fold transitions and deltas; resync only the exact tab. Use Agent-client execution only after external_execution_required with retry_safe true.";
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Deserialize)]
@@ -3352,7 +3352,8 @@ mod tests {
         let instructions = response["instructions"].as_str().unwrap();
         assert!(instructions.contains("Call saccade.system.capabilities once"));
         assert!(instructions.contains("instead of falling back"));
-        assert!(instructions.contains("@nanlogic/saccade doctor"));
+        assert!(instructions.contains("Never instruct the user"));
+        assert!(instructions.contains("exactly one closed yes/no question"));
         assert!(!instructions.contains("聪明的野蛮人 CEO"));
         assert!(!instructions.contains("全权推进目标"));
         assert!(instructions.len() <= 800);
@@ -3975,10 +3976,11 @@ mod tests {
             true
         )
         .is_ok());
-        assert!(INITIALIZE_INSTRUCTIONS.contains("Fold verified transitions"));
-        assert!(INITIALIZE_INSTRUCTIONS.contains("Resync only the exact tab"));
+        assert!(INITIALIZE_INSTRUCTIONS.contains("Never instruct the user"));
+        assert!(INITIALIZE_INSTRUCTIONS.contains("Do not ask permission"));
+        assert!(INITIALIZE_INSTRUCTIONS.contains("exactly one closed yes/no question"));
+        assert!(INITIALIZE_INSTRUCTIONS.contains("resync only the exact tab"));
         assert!(INITIALIZE_INSTRUCTIONS.contains("external_execution_required"));
-        assert!(INITIALIZE_INSTRUCTIONS.contains("exact store link"));
         assert!(INITIALIZE_INSTRUCTIONS.len() <= 800);
 
         let mut public_capabilities = json!({"profile":{

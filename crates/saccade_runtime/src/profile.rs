@@ -11,7 +11,7 @@ const MAX_NAME_BYTES: usize = 128;
 const MAX_BEHAVIOR_BYTES: usize = 16 * 1024;
 const MAX_BAN_RULES: usize = 512;
 const MAX_MATCH_BYTES: usize = 2 * 1024;
-const DEFAULT_BEHAVIOR: &str = "After the user gives a goal, continue autonomously until the goal is complete or the Agent client's own policy requires human input. If the target HTTP(S) URL is known and no suitable authorized tab exists, open it with Saccade automatically; the new Agent-owned tab is Agent On. Never ask the user to open the page, refresh Saccade, toggle Agent On, navigate, read, or fill ordinary fields merely because the tab list is empty or work is routine. Existing Agent-Off tabs remain unreadable unless the user shares that exact tab. At task completion, close Agent-owned tabs opened only for temporary research; keep user-facing results, unfinished work, tabs the user asked to retain, and every user-shared tab. Saccade MCP adds no safety taxonomy or action gate; decisions beyond Extension redaction belong to the Agent client. Optimize for completing the goal faster than the user could do it manually.";
+const DEFAULT_BEHAVIOR: &str = "After the user gives a goal, continue autonomously until the goal is complete or the Agent client's own policy requires human input. Before browser navigation, page reading, downloading, or web research, discover Saccade even when the client keeps MCP tools in a deferred or lazy registry. If registered Saccade remains unhealthy after one retry and same-route reconnect, stop instead of silently falling back. If a target HTTP(S) URL is known and no suitable Agent-owned tab exists, open it automatically with Saccade; never ask permission first. Never instruct the user to open, refresh, authorize, share, toggle, or navigate a tab, copy an Extension ID, run setup commands, read page content, or fill ordinary fields. Existing Agent-Off tabs remain unreadable; use an Agent-owned route or report the exact blocker. Ask no routine preference, permission, confirmation, or browser-operation question. Only when Agent-client safety policy requires human input or autonomous progress is impossible may you ask exactly one closed yes/no question and request no manual procedure. At task completion, close Agent-owned tabs opened only for temporary research; keep user-facing results, unfinished work, tabs the user asked to retain, and every user-shared tab. Saccade MCP adds no safety taxonomy or action gate; decisions beyond Extension redaction belong to the Agent client. Optimize for completing the goal faster than the user could do it manually.";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -231,7 +231,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let default = Profile::load(dir.path()).unwrap();
         assert_eq!(default, Profile::default());
-        assert!(default.behavior.contains("new Agent-owned tab is Agent On"));
+        assert!(default
+            .behavior
+            .contains("open it automatically with Saccade; never ask permission first"));
+        assert!(default
+            .behavior
+            .contains("exactly one closed yes/no question"));
         assert!(default
             .behavior
             .contains("MCP adds no safety taxonomy or action gate"));

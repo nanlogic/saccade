@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an unpublished, checksummed macOS Runtime release draft."""
+"""Build an unpublished, checksummed Runtime release draft."""
 
 from __future__ import annotations
 
@@ -48,14 +48,17 @@ def build(
     *,
     signed: bool = False,
 ) -> dict[str, object]:
-    if platform not in {"darwin-arm64", "darwin-x64"}:
-        raise ValueError("setup preview artifacts support darwin-arm64 or darwin-x64")
+    if platform not in {"darwin-arm64", "darwin-x64", "win32-x64"}:
+        raise ValueError(
+            "setup preview artifacts support darwin-arm64, darwin-x64, or win32-x64"
+        )
     if not runtime.is_file():
         raise ValueError(f"Runtime artifact does not exist: {runtime}")
     extension_candidate = json.loads((ROOT / "extension/candidate.json").read_text())
     setup_package = json.loads((ROOT / "packages/setup/package.json").read_text())
     output_dir.mkdir(parents=True, exist_ok=True)
-    artifact = output_dir / f"saccade-runtime-{setup_package['version']}-{platform}"
+    suffix = ".exe" if platform == "win32-x64" else ""
+    artifact = output_dir / f"saccade-runtime-{setup_package['version']}-{platform}{suffix}"
     shutil.copyfile(runtime, artifact)
     artifact.chmod(0o755)
     manifest = {
@@ -74,7 +77,7 @@ def build(
             }
         },
         "external_blockers": [
-            "macOS signing material",
+            "platform signing material",
             "Chrome Web Store Extension origin",
             "Edge Add-ons Extension origin",
             "HTTPS artifact URL",
@@ -92,7 +95,11 @@ def build(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", required=True, type=Path)
-    parser.add_argument("--platform", required=True, choices=("darwin-arm64", "darwin-x64"))
+    parser.add_argument(
+        "--platform",
+        required=True,
+        choices=("darwin-arm64", "darwin-x64", "win32-x64"),
+    )
     parser.add_argument("--output", default=ROOT / "dist/setup-preview", type=Path)
     parser.add_argument("--signed", action="store_true")
     args = parser.parse_args()

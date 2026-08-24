@@ -1,13 +1,12 @@
-#![allow(unsafe_code)]
-
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use saccade_protocol::{ControlRequest, ControlResponse, ProtocolError, MAX_LOCAL_MESSAGE_BYTES};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE,
+    CloseHandle, GetLastError, ERROR_FILE_NOT_FOUND, ERROR_SEM_TIMEOUT, GENERIC_READ,
+    GENERIC_WRITE, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, ReadFile, WriteFile, OPEN_EXISTING};
 use windows_sys::Win32::System::Pipes::WaitNamedPipeW;
@@ -20,11 +19,7 @@ pub(super) fn call(
     timeout: Duration,
 ) -> Result<serde_json::Value, ProtocolError> {
     let name = wide(path.as_os_str());
-    let wait_ms = timeout.as_millis().min(u32::MAX as u128) as u32;
-    // SAFETY: name is NUL-terminated and alive for the synchronous call.
-    if unsafe { WaitNamedPipeW(name.as_ptr(), wait_ms) } == 0 {
-        return Err(ProtocolError::Timeout);
-    }
+    wait_for_pipe(&name, timeout)?;
     // SAFETY: pointers are valid inputs or null optional parameters.
     let handle = unsafe {
         CreateFileW(
@@ -46,6 +41,36 @@ pub(super) fn call(
     // SAFETY: handle came from CreateFileW and is closed once.
     unsafe { CloseHandle(handle) };
     result
+}
+
+fn wait_for_pipe(name: &[u16], timeout: Duration) -> Result<(), ProtocolError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(ProtocolError::Timeout);
+        }
+        let wait_ms = remaining.min(Duration::from_millis(50)).as_millis().max(1) as u32;
+        // SAFETY: name is NUL-terminated and alive for the synchronous call.
+        if unsafe { WaitNamedPipeW(name.as_ptr(), wait_ms) } != 0 {
+            return Ok(());
+        }
+        // A server that just handled a disconnected client briefly has no
+        // named-pipe instance while it creates the replacement. WaitNamedPipeW
+        // reports FILE_NOT_FOUND immediately in that window instead of honoring
+        // its timeout, so retry within the caller's original budget.
+        let error = unsafe { GetLastError() };
+        if error == ERROR_FILE_NOT_FOUND {
+            std::thread::sleep(remaining.min(Duration::from_millis(5)));
+            continue;
+        }
+        if error == ERROR_SEM_TIMEOUT {
+            continue;
+        }
+        return Err(ProtocolError::TransportUnavailable(
+            std::io::Error::from_raw_os_error(error as i32).to_string(),
+        ));
+    }
 }
 
 pub(super) fn validate_private_file(path: &Path) -> Result<(), ProtocolError> {

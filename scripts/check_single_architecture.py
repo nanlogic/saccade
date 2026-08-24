@@ -28,7 +28,7 @@ def main() -> None:
     require("AGENTS.md", "docs/current/profile-boundary.md")
     require("README.md", "docs/current/profile-boundary.md")
     require("docs/SETUP_TARGET.md", "npx -y @nanlogic/saccade")
-    require("docs/SETUP_TARGET.md", "Status: normative for the first public release.")
+    require("docs/SETUP_TARGET.md", "Status: normative for the 0.1.2 developer preview.")
     require("docs/SETUP_TARGET.md", "`postinstall`")
     require("docs/SETUP_TARGET.md", "Cloud-only Agent sessions cannot reach")
     setup_package = json.loads(
@@ -136,7 +136,8 @@ def main() -> None:
     if (
         not isinstance(behavior, str)
         or "autonomously" not in behavior
-        or "Agent-owned tab is Agent On" not in behavior
+        or "no suitable Agent-owned tab exists" not in behavior
+        or "never ask permission first" not in behavior
         or "MCP adds no safety taxonomy or action gate" not in behavior
     ):
         raise SystemExit("default Profile must require autonomous Agent-owned access without an MCP safety gate")

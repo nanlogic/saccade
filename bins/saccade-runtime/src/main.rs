@@ -11,10 +11,14 @@ fn main() -> Result<()> {
     let mode = std::env::args().nth(1);
     match mode.as_deref() {
         Some("native-host") => native_host(default_runtime_dir()),
-        Some("chrome-extension://bobfbgjplflcigednmccmbhlgclomgod/") => {
-            native_host(dev_runtime_dir())
+        Some(origin) if is_extension_origin(origin) => {
+            let runtime_dir = if launched_from_dev_runtime_app() {
+                dev_runtime_dir()
+            } else {
+                default_runtime_dir()
+            };
+            native_host(runtime_dir)
         }
-        Some(origin) if is_extension_origin(origin) => native_host(default_runtime_dir()),
         Some("mcp") => saccade_runtime::mcp::serve(default_grant_path()),
         Some("reference-actuator-mcp") => {
             saccade_runtime::mcp::serve_reference_actuator(default_grant_path())
@@ -33,6 +37,17 @@ fn is_extension_origin(value: &str) -> bool {
         return false;
     };
     id.len() == 32 && id.bytes().all(|byte| matches!(byte, b'a'..=b'p'))
+}
+
+fn launched_from_dev_runtime_app() -> bool {
+    std::env::current_exe()
+        .map(|path| is_dev_runtime_executable(&path))
+        .unwrap_or(false)
+}
+
+fn is_dev_runtime_executable(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "Saccade Dev Runtime.app")
 }
 
 fn reference_actuator_repair() -> Result<()> {
@@ -65,7 +80,9 @@ fn native_host(runtime_dir: PathBuf) -> Result<()> {
                     + Send
                     + Sync,
             > = Arc::new(move |request| ipc_session.handle_control(request));
-            let _ = server.serve(handler);
+            if let Err(error) = server.serve(handler) {
+                eprintln!("saccade owner IPC server stopped: {error}");
+            }
         })?;
     let mut input = std::io::stdin().lock();
     loop {
@@ -163,7 +180,9 @@ fn default_grant_path() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::is_extension_origin;
+    use std::path::Path;
+
+    use super::{is_dev_runtime_executable, is_extension_origin};
 
     #[test]
     fn accepts_chromium_extension_origins_only() {
@@ -177,5 +196,26 @@ mod tests {
         assert!(!is_extension_origin(
             "https://abcdefghijklmnopabcdefghijklmnop/"
         ));
+    }
+
+    #[test]
+    fn identifies_only_the_development_app_bundle_as_the_dev_runtime() {
+        let dev = Path::new("Users")
+            .join("wayne")
+            .join("Applications")
+            .join("Saccade Dev Runtime.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("saccade-runtime");
+        let production = Path::new("Users")
+            .join("wayne")
+            .join("Applications")
+            .join("Saccade.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("saccade-runtime");
+
+        assert!(is_dev_runtime_executable(&dev));
+        assert!(!is_dev_runtime_executable(&production));
     }
 }

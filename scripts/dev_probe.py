@@ -6,8 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import select
+import queue
 import subprocess
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -115,9 +116,17 @@ class Mcp:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             bufsize=1,
             env=environment,
         )
+        self.stdout_lines: queue.Queue[str | None] = queue.Queue()
+        self.stdout_thread = threading.Thread(
+            target=self._pump_stdout,
+            name="saccade-dev-probe-stdout",
+            daemon=True,
+        )
+        self.stdout_thread.start()
         self.next_id = 1
         self.agent_views: dict[str, dict[str, Any]] = {}
         self.notifications: list[dict[str, Any]] = []
@@ -128,11 +137,31 @@ class Mcp:
             self.close()
             raise
 
+    def _pump_stdout(self) -> None:
+        assert self.process.stdout is not None
+        try:
+            for line in self.process.stdout:
+                self.stdout_lines.put(line)
+        finally:
+            self.stdout_lines.put(None)
+
+    def _readline(self, timeout: float, context: str) -> str:
+        try:
+            line = self.stdout_lines.get(timeout=max(0.0, timeout))
+        except queue.Empty as error:
+            raise RuntimeError(f"MCP timed out {context}") from error
+        if line is not None:
+            return line
+        stderr = ""
+        if self.process.poll() is not None and self.process.stderr:
+            stderr = self.process.stderr.read().strip()
+        detail = f": {stderr}" if stderr else ""
+        raise RuntimeError(f"MCP exited {context}{detail}")
+
     def rpc(self, method: str, params: dict[str, Any], timeout: float = 35.0) -> dict[str, Any]:
         request_id = self.next_id
         self.next_id += 1
         assert self.process.stdin is not None
-        assert self.process.stdout is not None
         self.process.stdin.write(
             json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
             + "\n"
@@ -140,13 +169,7 @@ class Mcp:
         self.process.stdin.flush()
         deadline = time.monotonic() + timeout
         while True:
-            ready, _, _ = select.select([self.process.stdout], [], [], max(0, deadline - time.monotonic()))
-            if not ready:
-                raise RuntimeError(f"MCP timed out during {method}")
-            line = self.process.stdout.readline()
-            if not line:
-                stderr = self.process.stderr.read() if self.process.stderr else ""
-                raise RuntimeError(f"MCP exited during {method}: {stderr.strip()}")
+            line = self._readline(deadline - time.monotonic(), f"during {method}")
             response = json.loads(line)
             if response.get("id") == request_id:
                 break
@@ -162,15 +185,9 @@ class Mcp:
         for index, notification in enumerate(self.notifications):
             if notification.get("method") == method:
                 return self.notifications.pop(index)
-        assert self.process.stdout is not None
         deadline = time.monotonic() + timeout
         while True:
-            ready, _, _ = select.select([self.process.stdout], [], [], max(0, deadline - time.monotonic()))
-            if not ready:
-                raise RuntimeError(f"MCP timed out waiting for {method}")
-            line = self.process.stdout.readline()
-            if not line:
-                raise RuntimeError(f"MCP exited waiting for {method}")
+            line = self._readline(deadline - time.monotonic(), f"waiting for {method}")
             notification = json.loads(line)
             if notification.get("method") == method:
                 return notification
@@ -195,6 +212,10 @@ class Mcp:
         if value.get("schema") == "saccade.agent-view/1":
             if value.get("mode") == "catalog":
                 return self.materialize_catalog(value, timeout=timeout)
+            if value.get("mode") == "full":
+                return self.materialize_full(value, timeout=timeout)
+            if value.get("mode") == "working_set":
+                return self.materialize_working_set(value)
             return self.materialize_view(value)
         if value.get("schema") == "saccade.agent-receipt/1":
             receipt = dict(value)
@@ -215,6 +236,52 @@ class Mcp:
             timeout=timeout,
         )
         return result["structuredContent"]
+
+    def materialize_working_set(self, view: dict[str, Any]) -> dict[str, Any]:
+        """Expand a bounded query and advance the local base for later deltas."""
+        defaults = view.get("object_defaults") or {}
+        bounded = {
+            "schema": "saccade.agent-browser-state/1",
+            **{
+                key: value for key, value in view.items()
+                if key not in {"schema", "mode", "object_defaults"}
+            },
+            "objects": [dict(defaults, **item) for item in view.get("objects", [])],
+            "changes": [],
+        }
+        tab_id = str(view["tab_id"])
+        previous = self.agent_views.get(tab_id)
+        if previous is not None and previous.get("document_id") == view.get("document_id"):
+            merged = dict(previous)
+            objects = {item["object_id"]: dict(item) for item in previous.get("objects", [])}
+            objects.update({item["object_id"]: dict(item) for item in bounded["objects"]})
+            merged.update({key: value for key, value in bounded.items() if key != "objects"})
+            merged["objects"] = list(objects.values())
+            self.agent_views[tab_id] = merged
+        else:
+            self.agent_views[tab_id] = dict(bounded)
+        return bounded
+
+    def materialize_full(
+        self, first: dict[str, Any], timeout: float = 35.0
+    ) -> dict[str, Any]:
+        """Fold every page of one frozen full view before returning it."""
+        tab_id = str(first["tab_id"])
+        document_id = str(first["document_id"])
+        revision = int(first["revision"])
+        snapshot = self.materialize_view(first)
+        page = first.get("page") or {"complete": True}
+        while page.get("complete") is False:
+            continuation = self.raw_tool("truth.read", {"tab_id": tab_id}, timeout=timeout)
+            if (
+                continuation.get("mode") != "full"
+                or continuation.get("document_id") != document_id
+                or continuation.get("revision") != revision
+            ):
+                raise RuntimeError("Truth full continuation changed its frozen basis")
+            snapshot = self.materialize_view(continuation)
+            page = continuation.get("page") or {"complete": True}
+        return snapshot
 
     def materialize_catalog(
         self, first: dict[str, Any], timeout: float = 35.0
@@ -404,12 +471,13 @@ def is_stale_action_error(error: Exception) -> bool:
         "action token is not current",
         "action token is not present in the current",
         "action token is stale or absent",
+        "action token is missing, mismatched, or already used",
         "tab observation is not current",
         "prepared action failed identity, focus, geometry, visibility, or topmost revalidation",
     ))
 
 
-def stable_observation(mcp: Mcp, tab_id: str, timeout: float = 5.0) -> dict[str, Any]:
+def stable_observation(mcp: Mcp, tab_id: str, timeout: float = 20.0) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     previous = mcp.tool("web.observe", {"tab_id": tab_id})
     while time.monotonic() < deadline:
@@ -948,20 +1016,29 @@ def mouseaccuracy_setting_value(
 def wait_mouseaccuracy_settings(
     mcp: Mcp,
     observation: dict[str, Any],
-    timeout: float = 12.0,
+    timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Wait for the client-rendered settings instead of accepting the shell."""
     deadline = time.monotonic() + timeout
     current = observation
+    last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
             mouseaccuracy_setting_value(current, MOUSEACCURACY_DIFFICULTY_VALUES)
             mouseaccuracy_setting_value(current, MOUSEACCURACY_SIZE_VALUES)
             return current
-        except RuntimeError as _error:
+        except RuntimeError as error:
+            last_error = error
             time.sleep(0.25)
-            current = mcp.tool("web.observe", {"tab_id": observation["tab_id"]})
-    raise RuntimeError("MouseAccuracy client-rendered settings did not become observable")
+            try:
+                current = mcp.tool(
+                    "web.observe", {"tab_id": observation["tab_id"], "resync": True}
+                )
+            except RuntimeError as error:
+                last_error = error
+    raise RuntimeError(
+        f"MouseAccuracy client-rendered settings did not become observable: {last_error}"
+    )
 
 
 def drive_mouseaccuracy_setting(
@@ -975,8 +1052,15 @@ def drive_mouseaccuracy_setting(
     for _step in range(len(values) + 2):
         if current == values[-1]:
             return current, transitions
-        for attempt in range(5):
-            observation = stable_observation(mcp, observation["tab_id"])
+        # MouseAccuracy continuously advances page Truth and replaces settings
+        # controls during client renders. Delta delivery can lag behind that
+        # live page, so each bounded retry resyncs this tab to one exact current
+        # snapshot and acts immediately. A stale attempt always consumes a
+        # newly observed successor token; the same token is never resent.
+        for attempt in range(12):
+            observation = mcp.tool(
+                "web.observe", {"tab_id": observation["tab_id"], "resync": True}
+            )
             current = mouseaccuracy_setting_value(observation, values)
             target = named(observation, "button", f"{direction} {current}")
             request = action_arguments(observation, target, "click", {"kind": "none"})
@@ -985,7 +1069,7 @@ def drive_mouseaccuracy_setting(
                 observation = receipt["post_action_observation"]
                 break
             except Exception as error:  # noqa: BLE001
-                if attempt == 4 or not is_stale_action_error(error):
+                if attempt == 11 or not is_stale_action_error(error):
                     raise
         next_value = mouseaccuracy_setting_value(observation, values)
         current = next_value

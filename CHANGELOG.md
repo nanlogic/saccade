@@ -1,5 +1,10 @@
 # Changelog
 
+- Added a gated Windows x64 candidate path for 0.1.2: one headless Runtime,
+  current-user Chrome and Edge Native Messaging registration, MCP/client setup,
+  exact-checksum rollback, and a Windows Actions install/MCP/uninstall smoke.
+  The candidate remains unpublished until a real Windows machine passes and
+  the Runtime has a verified Authenticode signature.
 - Moved the public setup package to the Nanlogic-owned
   `@nanlogic/saccade@0.1.1` name after the unavailable `@saccade` npm scope
   blocked the 0.1.0 bootstrap publish. Runtime and Extension behavior are

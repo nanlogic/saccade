@@ -38,9 +38,10 @@ Updates and ordinary uninstall preserve your Saccade Profile. Run
 `npx -y @nanlogic/saccade uninstall --purge` to remove the Profile and Runtime
 data.
 
-The first release supports Apple Silicon and Intel macOS clients that can start
-a STDIO MCP and control the same Chrome or Edge tab. The same store Extension
-is used on both architectures; setup selects the matching signed Runtime.
+Version 0.1.2 supports Apple Silicon and Intel macOS plus Windows x64 clients
+that can start a STDIO MCP and control the same Chrome or Edge tab. The same
+store Extension is used on every platform; setup selects the matching signed
+Runtime.
 Cloud-only sessions cannot connect to the local Extension and Native Host.
 Setup does not request Accessibility or install the optional Reference
 Actuator.

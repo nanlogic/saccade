@@ -1,10 +1,10 @@
 # Saccade setup target
 
-Status: normative for the first public release.
+Status: normative for the 0.1.2 developer preview.
 
 ## User experience
 
-The first release has two user-facing components:
+The public setup has two user-facing components:
 
 1. the Saccade Extension from the Chrome Web Store or Edge Add-ons;
 2. one setup command:
@@ -14,26 +14,26 @@ npx -y @nanlogic/saccade
 ```
 
 The command installs the local MCP and Native Host without adding a visible
-application. Saccade does not use a DMG, macOS application, Windows Setup, or
-system input permission in the first release.
+application. Saccade does not use a DMG, macOS application, MSI, or system
+input permission.
 
 The `@nanlogic` npm organization, trusted publisher, recovery methods, and at
-least two administrators must be controlled by Nanlogic before general
-availability. Until publication, the command above defines the product target
-rather than an available package.
+least two administrators must be controlled by Nanlogic. Version 0.1.1 is
+public for macOS; the Windows-capable 0.1.2 package remains unpublished until
+its platform gates pass.
 
 The package source lives in `packages/setup`. Its bundled `release.json` stays
 explicitly unpublished until signed Runtime artifacts, checksums, and final
 store Extension origins are available. Development tests provide their own
 isolated release manifest and never install into the real user home.
 
-`scripts/build_setup_release.py` packages one real local macOS Runtime and
+`scripts/build_setup_release.py` packages one real local Runtime and
 writes its SHA-256, `SHA256SUMS`, exact Extension candidate, and an unpublished
 architecture draft under ignored `dist/`. The draft deliberately records a
 null download URL and empty store origins. Only the protected GitHub release
-workflow may combine signed `darwin-arm64` and `darwin-x64` drafts, attach the
-final Nanlogic Release URLs, and produce the published manifest consumed by
-the npm trusted-publishing workflow.
+workflow currently combines signed `darwin-arm64` and `darwin-x64` drafts. It
+must admit `win32-x64` only after the real-machine gate and Authenticode signing
+land, then produce the published manifest consumed by npm trusted publishing.
 
 ## Setup responsibilities
 
@@ -69,8 +69,8 @@ the user passes an explicit purge option.
 
 ## Client boundary
 
-The first release supports Apple Silicon and Intel macOS Agent clients that can
-start a STDIO MCP and control the same Chrome or Edge tab:
+The 0.1.2 target supports Apple Silicon and Intel macOS plus Windows x64 Agent
+clients that can start a STDIO MCP and control the same Chrome or Edge tab:
 
 - Codex desktop, CLI, and IDE clients;
 - Claude Code;
@@ -98,6 +98,11 @@ Default setup:
 - writes only user-level Runtime, Native Messaging, Profile, and Agent-client
   configuration paths;
 - keeps the Runtime headless.
+
+On Windows, setup writes one Native Messaging manifest under
+`%LOCALAPPDATA%\Saccade` and registers that exact file for Chrome and Edge under
+the current user's registry hive. Uninstall removes only registrations that
+still match the setup-owned manifest. It does not require administrator access.
 
 The repository may retain an internal macOS `.app` wrapper for development
 codesigning and Native Messaging tests. That wrapper is not a release artifact

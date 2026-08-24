@@ -1010,6 +1010,17 @@
     return { x, y, width: box.width, height: box.height };
   }
 
+  function contentScreenOrigin() {
+    // outerWidth includes both side borders. The remaining vertical chrome is
+    // the toolbar plus the matching bottom border, so subtract one side border
+    // to locate the content viewport instead of the outer window frame.
+    const sideBorder = Math.max(0, (outerWidth - innerWidth) / 2);
+    return {
+      x: screenX + sideBorder,
+      y: screenY + Math.max(0, outerHeight - innerHeight - sideBorder),
+    };
+  }
+
   function prepare(request) {
     if (!config || request.browser_instance_id !== config.browserInstanceId || request.tab_id !== config.tabId
       || request.document_id !== documentId || request.basis_revision > revision) {
@@ -1034,11 +1045,12 @@
     }
     const box = boxFor(target.element);
     const topBox = topViewportBox(target.element, box);
+    const screenOrigin = contentScreenOrigin();
     const prepared = {
       browser_instance_id: config.browserInstanceId, tab_id: config.tabId, document_id: documentId,
       basis_revision: revision, viewport_revision: viewportRevision, object_id: target.objectId,
       action_token: request.action_token, operation: request.operation,
-      screen_bounds: { x: screenX + topBox.x, y: screenY + Math.max(0, outerHeight - innerHeight) + topBox.y, width: topBox.width, height: topBox.height },
+      screen_bounds: { x: screenOrigin.x + topBox.x, y: screenOrigin.y + topBox.y, width: topBox.width, height: topBox.height },
       visible: visibilityFor(target.element, box) === 'visible', topmost: isTopmost(target.element, box),
       focus_verified: (request.operation === 'type' || request.operation === 'select')
         ? target.element.ownerDocument.activeElement === target.element
