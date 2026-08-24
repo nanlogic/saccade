@@ -9,7 +9,9 @@ from scripts.dev_profile import install, resolve_profile_source, validate
 class DevelopmentProfileTests(unittest.TestCase):
     def test_default_profile_requires_autonomous_safe_completion(self) -> None:
         profile = json.loads((Path(__file__).parents[1] / "profiles" / "default.json").read_text())
-        self.assertIn("new Agent-owned tab is Agent On", profile["behavior"])
+        self.assertIn("no suitable Agent-owned tab exists", profile["behavior"])
+        self.assertIn("never ask permission first", profile["behavior"])
+        self.assertIn("exactly one closed yes/no question", profile["behavior"])
         self.assertIn("faster than the user", profile["behavior"])
         self.assertIn("MCP adds no safety taxonomy or action gate", profile["behavior"])
         self.assertIn("Agent-Off tabs remain unreadable", profile["behavior"])
