@@ -27,9 +27,11 @@ Actuator, Playwright/CDP route, screenshot, or arbitrary-coordinate fallback.
 2. Wayne downloads the unsigned seven-day artifact on a real Windows x64
    machine, loads the unpacked Extension, and verifies capabilities, Truth,
    action, delta, restart recovery, doctor, and uninstall.
-3. After that proof, add Nanlogic-controlled Authenticode signing to the
-   protected release workflow. The assembler and verifier must require all
-   three Runtime platforms before publication.
+3. After that proof, submit the GitHub-hosted Windows build to the free
+   SignPath Foundation open-source program. The protected release workflow
+   must use SignPath origin verification and manual signing approval. The
+   assembler and verifier must require all three Runtime platforms before
+   publication.
 4. Freeze an existing `v0.1.2` tag after the complete local and browser gates.
 5. Manually dispatch `Prepare signed Runtime release` with that tag and the
    final store Extension ID. The workflow reruns repository gates, requires a
