@@ -104,8 +104,57 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  windows-runtime:
+    needs: gates
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Build Windows release Runtime
+        run: cargo build --release --locked --bin saccade-runtime
+      - name: Authenticate to Azure with GitHub OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign Windows Runtime with Microsoft Artifact Signing
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\target\release\saccade-runtime.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify Windows Authenticode and build architecture draft
+        shell: pwsh
+        run: |
+          $Runtime = Resolve-Path target/release/saccade-runtime.exe
+          $Signature = Get-AuthenticodeSignature $Runtime
+          if ($Signature.Status -ne 'Valid') {
+            throw "Windows Runtime Authenticode verification failed: $($Signature.StatusMessage)"
+          }
+          python scripts/build_setup_release.py `
+            --runtime $Runtime `
+            --platform win32-x64 `
+            --output dist/win32-x64 `
+            --signed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-win32-x64
+          path: dist/win32-x64
+          if-no-files-found: error
+          retention-days: 7
+
   draft-release:
-    needs: runtime
+    needs: [runtime, windows-runtime]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -126,6 +175,7 @@ jobs:
           python3 scripts/assemble_setup_release.py \
             --draft dist/runtime-drafts/runtime-darwin-arm64/release.json \
             --draft dist/runtime-drafts/runtime-darwin-x64/release.json \
+            --draft dist/runtime-drafts/runtime-win32-x64/release.json \
             --output dist/release \
             --base-url "https://github.com/nanlogic/saccade/releases/download/$RELEASE_TAG" \
             --allowed-origin "chrome-extension://$EXTENSION_ID/"

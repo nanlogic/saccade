@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 
 
-REQUIRED_PLATFORMS = {"darwin-arm64", "darwin-x64"}
+REQUIRED_PLATFORMS = {"darwin-arm64", "darwin-x64", "win32-x64"}
 
 
 def assemble(
