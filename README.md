@@ -70,9 +70,9 @@ input backends stay outside the core product.
 
 ## Status
 
-Saccade is pre-release. The current vertical slice runs through the complete
-Extension → Native Host → Runtime → MCP route on managed macOS Chrome for
-Testing and Microsoft Edge profiles.
+Saccade is a developer preview. `@nanlogic/saccade@0.1.1` and its signed macOS
+Runtime artifacts are public; the Chrome Web Store Extension is still under
+review. Windows x64 support is being validated for 0.1.2 and is not public yet.
 
 | Inventory | Count | Current evidence |
 | --- | ---: | --- |
@@ -95,7 +95,8 @@ This proves the local framework and projection route, not compatibility with
 every modern website. The final public comparison is linked above and retains
 its failures and limits. Catalog entries remain `implementation` until one
 frozen release candidate passes the same-candidate Chrome/Edge release gates.
-The public setup package is the release target and is not published yet.
+The public setup package is available, but a new user still needs the browser
+Extension before the complete route can connect.
 
 See the [generated coverage table](docs/generated/control_coverage.md) for the
 current Registry. The [Developer Preview release plan](docs/RELEASE_PLAN.md)
@@ -416,7 +417,7 @@ actionable, and every successful receipt requires the score to advance.
 
 ## Public setup target
 
-The first release uses the browser-store Extension plus one explicit command:
+The public setup uses the browser-store Extension plus one explicit command:
 
 ```sh
 npx -y @nanlogic/saccade
@@ -424,8 +425,8 @@ npx -y @nanlogic/saccade
 
 The command installs the headless local Runtime, user-level Native
 Messaging manifests, and local MCP entries for supported Codex and Claude
-clients. It will not install a visible app or request Accessibility. The npm
-package is not published yet. See [the setup target](docs/SETUP_TARGET.md) for the
+clients. It will not install a visible app or request Accessibility. See
+[the setup target](docs/SETUP_TARGET.md) for the
 normative install, update, doctor, uninstall, and client boundaries.
 
 ## Profiles

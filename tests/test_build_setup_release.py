@@ -27,6 +27,13 @@ VERIFY = importlib.util.module_from_spec(VERIFY_SPEC)
 assert VERIFY_SPEC.loader is not None
 VERIFY_SPEC.loader.exec_module(VERIFY)
 
+WINDOWS_SPEC = importlib.util.spec_from_file_location(
+    "package_windows_candidate", ROOT / "scripts/package_windows_candidate.py"
+)
+WINDOWS = importlib.util.module_from_spec(WINDOWS_SPEC)
+assert WINDOWS_SPEC.loader is not None
+WINDOWS_SPEC.loader.exec_module(WINDOWS)
+
 
 class BuildSetupReleaseTests(unittest.TestCase):
     def test_draft_has_real_checksum_but_cannot_claim_publication(self) -> None:
@@ -57,6 +64,46 @@ class BuildSetupReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "mcp_contract_hash"):
                 MODULE.build(runtime, "darwin-arm64", root / "out")
 
+    def test_windows_draft_uses_an_executable_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "saccade-runtime.exe"
+            runtime.write_text(
+                "#!/bin/sh\nprintf '%s\\n' '{\"mcp_contract_hash\":\""
+                + ("a" * 64)
+                + "\"}'\n"
+            )
+            runtime.chmod(0o755)
+            result = MODULE.build(runtime, "win32-x64", root / "out")
+            manifest = json.loads(Path(result["manifest"]).read_text())
+            artifact = manifest["artifacts"]["win32-x64"]
+            self.assertEqual(artifact["local_file"], "saccade-runtime-0.1.2-win32-x64.exe")
+            self.assertEqual(Path(result["artifact"]).name, artifact["local_file"])
+
+    def test_windows_candidate_is_unpacked_and_requires_a_local_extension_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "saccade-runtime.exe"
+            runtime.write_text(
+                "#!/bin/sh\nprintf '%s\\n' '{\"mcp_contract_hash\":\""
+                + ("a" * 64)
+                + "\"}'\n"
+            )
+            runtime.chmod(0o755)
+            draft = MODULE.build(runtime, "win32-x64", root / "draft")
+            result = WINDOWS.package(Path(draft["manifest"]), root / "candidate")
+            release = json.loads(Path(result["release"]).read_text())
+            extension_manifest = json.loads(
+                (root / "candidate/extension/manifest.json").read_text()
+            )
+            self.assertTrue(release["candidate_only"])
+            self.assertEqual(release["native_host"]["allowed_origins"], [])
+            self.assertFalse(release["artifacts"]["win32-x64"]["signed"])
+            self.assertIsNone(release["artifacts"]["win32-x64"]["url"])
+            self.assertNotIn("key", extension_manifest)
+            self.assertFalse((root / "candidate/extension/tests").exists())
+            self.assertTrue((root / "candidate/install.ps1").is_file())
+
     def test_signed_architecture_drafts_assemble_into_nanlogic_release(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -80,7 +127,7 @@ class BuildSetupReleaseTests(unittest.TestCase):
             result = ASSEMBLE.assemble(
                 drafts,
                 output,
-                base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.1",
+                base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.2",
                 allowed_origins=["chrome-extension://abcdefghijklmnopabcdefghijklmnop/"],
             )
             manifest = json.loads(Path(result["manifest"]).read_text())
@@ -88,11 +135,11 @@ class BuildSetupReleaseTests(unittest.TestCase):
             self.assertEqual(manifest["publisher"]["organization"], "Nanlogic")
             self.assertEqual(set(manifest["artifacts"]), {"darwin-arm64", "darwin-x64"})
             self.assertTrue(all(item["signed"] for item in manifest["artifacts"].values()))
-            VERIFY.verify(Path(result["manifest"]), "v0.1.1", output)
-            arm64 = output / "saccade-runtime-0.1.1-darwin-arm64"
+            VERIFY.verify(Path(result["manifest"]), "v0.1.2", output)
+            arm64 = output / "saccade-runtime-0.1.2-darwin-arm64"
             arm64.write_bytes(arm64.read_bytes() + b"changed")
             with self.assertRaisesRegex(ValueError, "checksum differs"):
-                VERIFY.verify(Path(result["manifest"]), "v0.1.1", output)
+                VERIFY.verify(Path(result["manifest"]), "v0.1.2", output)
 
     def test_assembly_rejects_unsigned_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -109,7 +156,7 @@ class BuildSetupReleaseTests(unittest.TestCase):
                 ASSEMBLE.assemble(
                     [Path(result["manifest"])],
                     root / "release",
-                    base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.1",
+                    base_url="https://github.com/nanlogic/saccade/releases/download/v0.1.2",
                     allowed_origins=["chrome-extension://abcdefghijklmnopabcdefghijklmnop/"],
                 )
 

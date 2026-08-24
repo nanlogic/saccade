@@ -1,7 +1,7 @@
 {
   "schema": "saccade.setup-release/1",
   "published": false,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "mcp_contract_hash": "ceec0b059a7215aa94669f77d94e846b54baa7bab9cf9eb481844bd263c01c20",
   "extension_candidate": {
     "schema": "saccade.extension-candidate/1",

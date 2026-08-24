@@ -56,7 +56,14 @@ async function writeRuntime(
   await fsp.writeFile(target, `#!/bin/sh\nif [ "$1" = doctor ]; then printf '%s\\n' '${doctor}'; fi\n# ${marker}\n`, { mode: 0o700 });
 }
 
-async function writeRelease(target, runtime, version, checksum, contractHash = CONTRACT_HASH) {
+async function writeRelease(
+  target,
+  runtime,
+  version,
+  checksum,
+  contractHash = CONTRACT_HASH,
+  platform = 'darwin-arm64',
+) {
   const data = await fsp.readFile(runtime);
   const value = {
     schema: 'saccade.setup-release/1',
@@ -66,13 +73,39 @@ async function writeRelease(target, runtime, version, checksum, contractHash = C
     extension_candidate: CANDIDATE,
     native_host: { name: 'com.nanlogic.saccade', allowed_origins: [ORIGIN] },
     artifacts: {
-      'darwin-arm64': {
+      [platform]: {
         url: pathToFileURL(runtime).toString(),
         sha256: checksum || crypto.createHash('sha256').update(data).digest('hex'),
       },
     },
   };
   await fsp.writeFile(target, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function writeFakeRegistry(target, stateFile) {
+  const source = `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const action = args[0];
+const key = args[1];
+let state = {};
+try { state = JSON.parse(fs.readFileSync(process.env.SACCADE_TEST_REGISTRY_STATE, 'utf8')); } catch {}
+if (action === 'query') {
+  if (!(key in state)) process.exit(1);
+  console.log('    (Default)    REG_SZ    ' + state[key]);
+} else if (action === 'add') {
+  const index = args.indexOf('/d');
+  if (index < 0 || !args[index + 1]) process.exit(2);
+  state[key] = args[index + 1];
+  fs.writeFileSync(process.env.SACCADE_TEST_REGISTRY_STATE, JSON.stringify(state));
+} else if (action === 'delete') {
+  if (!(key in state)) process.exit(1);
+  delete state[key];
+  fs.writeFileSync(process.env.SACCADE_TEST_REGISTRY_STATE, JSON.stringify(state));
+} else process.exit(2);
+`;
+  await fsp.writeFile(target, source, { mode: 0o700 });
+  await fsp.writeFile(stateFile, '{}');
 }
 
 function run(args, values, extra = {}) {
@@ -119,6 +152,51 @@ test('install, doctor, update, and uninstall preserve the Profile', async (t) =>
   assert.equal(fs.existsSync(runtime), false);
   assert.equal(fs.existsSync(profile), true);
   assert.match(removed.stdout, /Profile was preserved/);
+});
+
+test('Windows x64 installs one Runtime, one manifest, and Chrome and Edge registry values', async (t) => {
+  const values = await fixture();
+  t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
+  await writeRelease(values.release, values.runtime, '1.0.0', undefined, CONTRACT_HASH, 'win32-x64');
+  const registry = path.join(values.root, 'reg.exe');
+  const registryState = path.join(values.root, 'registry.json');
+  await writeFakeRegistry(registry, registryState);
+  const localAppData = path.join(values.home, 'AppData', 'Local');
+  const appData = path.join(values.home, 'AppData', 'Roaming');
+  const environment = {
+    SACCADE_SETUP_PLATFORM: 'win32',
+    SACCADE_SETUP_ARCH: 'x64',
+    SACCADE_SETUP_LOCALAPPDATA: localAppData,
+    SACCADE_SETUP_APPDATA: appData,
+    SACCADE_SETUP_REG: registry,
+    SACCADE_TEST_REGISTRY_STATE: registryState,
+  };
+
+  const installed = run(['--release-manifest', values.release], values, environment);
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  const root = path.join(localAppData, 'Saccade');
+  const runtime = path.join(root, 'runtime', 'saccade-runtime.exe');
+  const manifest = path.join(root, 'native-messaging', 'com.nanlogic.saccade.json');
+  assert.equal(fs.existsSync(runtime), true);
+  assert.equal(JSON.parse(await fsp.readFile(manifest, 'utf8')).path, runtime);
+  const registrations = JSON.parse(await fsp.readFile(registryState, 'utf8'));
+  assert.equal(registrations['HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.nanlogic.saccade'], manifest);
+  assert.equal(registrations['HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.nanlogic.saccade'], manifest);
+  const state = JSON.parse(await fsp.readFile(path.join(root, 'setup-state.json'), 'utf8'));
+  assert.equal(state.platform, 'win32-x64');
+  assert.equal(state.native_manifests[0], manifest);
+  assert.equal(state.native_registrations.length, 2);
+
+  const doctor = run(['doctor'], values, environment);
+  assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
+  assert.match(doctor.stdout, /OK Native Host Chrome registration/);
+  assert.match(doctor.stdout, /OK Native Host Microsoft Edge registration/);
+
+  const removed = run(['uninstall'], values, environment);
+  assert.equal(removed.status, 0, removed.stdout + removed.stderr);
+  assert.deepEqual(JSON.parse(await fsp.readFile(registryState, 'utf8')), {});
+  assert.equal(fs.existsSync(runtime), false);
+  assert.equal(fs.existsSync(manifest), false);
 });
 
 test('a disconnected install prints exact Extension installation steps', async (t) => {
@@ -381,7 +459,7 @@ if (args[1] === 'get') {
 test('package has an explicit CLI and no install-time hook', async () => {
   const packageJson = JSON.parse(await fsp.readFile(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'));
   assert.equal(packageJson.name, '@nanlogic/saccade');
-  assert.equal(packageJson.version, '0.1.1');
+  assert.equal(packageJson.version, '0.1.2');
   assert.equal(packageJson.bin['saccade-setup'], 'bin/saccade-setup.js');
   assert.equal(packageJson.scripts.postinstall, undefined);
   const release = JSON.parse(await fsp.readFile(path.join(PACKAGE_ROOT, 'release.json'), 'utf8'));

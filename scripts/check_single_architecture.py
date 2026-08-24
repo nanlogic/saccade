@@ -28,7 +28,7 @@ def main() -> None:
     require("AGENTS.md", "docs/current/profile-boundary.md")
     require("README.md", "docs/current/profile-boundary.md")
     require("docs/SETUP_TARGET.md", "npx -y @nanlogic/saccade")
-    require("docs/SETUP_TARGET.md", "Status: normative for the first public release.")
+    require("docs/SETUP_TARGET.md", "Status: normative for the 0.1.2 developer preview.")
     require("docs/SETUP_TARGET.md", "`postinstall`")
     require("docs/SETUP_TARGET.md", "Cloud-only Agent sessions cannot reach")
     setup_package = json.loads(

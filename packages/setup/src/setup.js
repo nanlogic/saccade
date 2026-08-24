@@ -54,20 +54,63 @@ Options:
 function platformKey(environment = process.env) {
   const platform = environment.SACCADE_SETUP_PLATFORM || process.platform;
   const architecture = environment.SACCADE_SETUP_ARCH || process.arch;
-  if (platform !== 'darwin') {
-    throw new Error(`unsupported platform ${platform}; the first setup release supports macOS only`);
+  if (platform === 'darwin' && ['arm64', 'x64'].includes(architecture)) {
+    return `${platform}-${architecture}`;
+  }
+  if (platform === 'win32' && architecture === 'x64') {
+    return `${platform}-${architecture}`;
+  }
+  if (!['darwin', 'win32'].includes(platform)) {
+    throw new Error(`unsupported platform ${platform}; setup supports macOS and Windows x64`);
+  }
+  if (platform === 'win32') {
+    throw new Error(`unsupported Windows architecture ${architecture}; setup supports Windows x64`);
   }
   if (!['arm64', 'x64'].includes(architecture)) {
     throw new Error(`unsupported architecture ${architecture}`);
   }
-  return `${platform}-${architecture}`;
+  throw new Error(`unsupported platform ${platform}-${architecture}`);
 }
 
 function installPaths(environment = process.env) {
+  const platform = environment.SACCADE_SETUP_PLATFORM || process.platform;
   const home = path.resolve(environment.SACCADE_SETUP_HOME || os.homedir());
+  if (platform === 'win32') {
+    const localAppData = path.resolve(
+      environment.SACCADE_SETUP_LOCALAPPDATA
+        || environment.LOCALAPPDATA
+        || path.join(home, 'AppData', 'Local'),
+    );
+    const appData = path.resolve(
+      environment.SACCADE_SETUP_APPDATA
+        || environment.APPDATA
+        || path.join(home, 'AppData', 'Roaming'),
+    );
+    const root = path.join(localAppData, 'Saccade');
+    const runtimeDir = path.join(root, 'runtime');
+    return {
+      platform,
+      home,
+      root,
+      runtimeDir,
+      runtime: path.join(runtimeDir, 'saccade-runtime.exe'),
+      profile: path.join(runtimeDir, 'profile.json'),
+      state: path.join(root, 'setup-state.json'),
+      nativeHostDirectories: [],
+      nativeHostManifest: path.join(root, 'native-messaging', 'com.nanlogic.saccade.json'),
+      nativeHostRegistryKeys: [
+        'HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.nanlogic.saccade',
+        'HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.nanlogic.saccade',
+      ],
+      claudeDesktop: environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG
+        ? path.resolve(environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG)
+        : path.join(appData, 'Claude', 'claude_desktop_config.json'),
+    };
+  }
   const root = path.join(home, 'Library', 'Application Support', 'Saccade');
   const runtimeDir = path.join(root, 'runtime');
   return {
+    platform,
     home,
     root,
     runtimeDir,
@@ -78,6 +121,8 @@ function installPaths(environment = process.env) {
       path.join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
       path.join(home, 'Library', 'Application Support', 'Microsoft Edge', 'NativeMessagingHosts'),
     ],
+    nativeHostManifest: null,
+    nativeHostRegistryKeys: [],
     claudeDesktop: environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG
       ? path.resolve(environment.SACCADE_SETUP_CLAUDE_DESKTOP_CONFIG)
       : path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
@@ -218,13 +263,17 @@ function expectedMcp(runtime, runtimeDir) {
 }
 
 function executableOnPath(name, environment = process.env) {
+  const platform = environment.SACCADE_SETUP_PLATFORM || process.platform;
+  const names = platform === 'win32' ? [name, `${name}.exe`] : [name];
   for (const directory of (environment.PATH || '').split(path.delimiter)) {
     if (!directory) continue;
-    const candidate = path.join(directory, name);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {}
+    for (const executable of names) {
+      const candidate = path.join(directory, executable);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {}
+    }
   }
   return null;
 }
@@ -250,6 +299,37 @@ function run(command, args, environment = process.env) {
 
 function commandFailure(result) {
   return String(result.stderr || result.stdout || result.error && result.error.message || 'command unavailable').trim();
+}
+
+function registryCommand(environment = process.env) {
+  return environment.SACCADE_SETUP_REG || 'reg.exe';
+}
+
+function readRegistryValue(key, environment = process.env) {
+  const result = run(registryCommand(environment), ['query', key, '/ve'], environment);
+  if (result.status !== 0) return null;
+  const match = String(result.stdout || '').match(/REG_SZ\s+([^\r\n]+)\s*$/m);
+  return match ? match[1].trim() : null;
+}
+
+function writeRegistryValue(key, value, environment = process.env) {
+  const result = run(registryCommand(environment), [
+    'add', key, '/ve', '/t', 'REG_SZ', '/d', value, '/f',
+  ], environment);
+  if (result.status !== 0) {
+    throw new Error(`Native Host registry write failed for ${key}: ${commandFailure(result)}`);
+  }
+}
+
+function removeRegistryValue(key, environment = process.env) {
+  const result = run(registryCommand(environment), ['delete', key, '/f'], environment);
+  return result.status === 0;
+}
+
+function nativeRegistrationLabel(key) {
+  if (key.includes('\\Google\\Chrome\\')) return 'Chrome';
+  if (key.includes('\\Microsoft\\Edge\\')) return 'Microsoft Edge';
+  return key;
 }
 
 function codexMatches(value, expected) {
@@ -359,7 +439,10 @@ async function install(options, environment = process.env) {
   const rollbackActions = [];
   const manifest = nativeManifest(host, paths.runtime);
   const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
-  const manifestPaths = paths.nativeHostDirectories.map((directory) => path.join(directory, `${host.name}.json`));
+  const manifestPaths = paths.nativeHostManifest
+    ? [paths.nativeHostManifest]
+    : paths.nativeHostDirectories.map((directory) => path.join(directory, `${host.name}.json`));
+  const registryValues = new Map();
   if (!previousState && fs.existsSync(paths.runtime)) {
     throw new Error(`unmanaged Runtime already exists at ${paths.runtime}`);
   }
@@ -369,6 +452,17 @@ async function install(options, environment = process.env) {
         throw new Error(`unmanaged Native Host manifest already exists at ${target}`);
       }
     }
+    for (const key of paths.nativeHostRegistryKeys) {
+      const current = readRegistryValue(key, environment);
+      registryValues.set(key, current);
+      if (current !== null && current !== paths.nativeHostManifest) {
+        throw new Error(`unmanaged Native Host registry value already exists at ${key}`);
+      }
+    }
+  } else {
+    for (const key of paths.nativeHostRegistryKeys) {
+      registryValues.set(key, readRegistryValue(key, environment));
+    }
   }
   try {
     await transaction.write(paths.runtime, runtimeData, 0o700);
@@ -376,6 +470,14 @@ async function install(options, environment = process.env) {
       await transaction.write(paths.profile, await fsp.readFile(DEFAULT_PROFILE), 0o600);
     }
     for (const target of manifestPaths) await transaction.write(target, manifestText, 0o600);
+    for (const key of paths.nativeHostRegistryKeys) {
+      const previous = registryValues.get(key);
+      writeRegistryValue(key, paths.nativeHostManifest, environment);
+      rollbackActions.push(() => {
+        if (previous === null) removeRegistryValue(key, environment);
+        else writeRegistryValue(key, previous, environment);
+      });
+    }
     const configured = await configureClients(paths, previousState, transaction, rollbackActions, environment);
     const state = {
       schema: STATE_SCHEMA,
@@ -386,6 +488,7 @@ async function install(options, environment = process.env) {
       extension_candidate: extensionCandidate,
       native_host: host,
       native_manifests: manifestPaths,
+      native_registrations: paths.nativeHostRegistryKeys,
       clients: configured.clients,
     };
     await transaction.write(paths.state, `${JSON.stringify(state, null, 2)}\n`, 0o600);
@@ -471,7 +574,8 @@ async function doctor(environment = process.env, print = true) {
   try {
     const data = await fsp.readFile(paths.runtime);
     const stat = await fsp.stat(paths.runtime);
-    checks.push({ name: 'Runtime checksum', ok: sha256(data) === state.runtime_sha256 && Boolean(stat.mode & 0o100) });
+    const executable = paths.platform === 'win32' || Boolean(stat.mode & 0o100);
+    checks.push({ name: 'Runtime checksum', ok: sha256(data) === state.runtime_sha256 && executable });
   } catch { checks.push({ name: 'Runtime checksum', ok: false, detail: 'missing' }); }
   try {
     const profile = await readJson(paths.profile);
@@ -481,6 +585,12 @@ async function doctor(environment = process.env, print = true) {
   for (const target of state.native_manifests || []) {
     try { checks.push({ name: `Native Host ${path.basename(path.dirname(path.dirname(target)))}`, ok: jsonEqual(await readJson(target), expectedManifest) }); }
     catch { checks.push({ name: `Native Host ${target}`, ok: false, detail: 'missing or invalid' }); }
+  }
+  for (const key of state.native_registrations || []) {
+    checks.push({
+      name: `Native Host ${nativeRegistrationLabel(key)} registration`,
+      ok: readRegistryValue(key, environment) === paths.nativeHostManifest,
+    });
   }
   if (environment.SACCADE_SETUP_DISABLE_CLIENTS !== '1') {
     const expected = expectedMcp(paths.runtime, paths.runtimeDir);
@@ -595,6 +705,16 @@ async function uninstall(options, environment = process.env) {
     await removeClientConfiguration(paths, state, environment, warnings);
   }
   const expectedManifest = nativeManifest(state.native_host, paths.runtime);
+  for (const key of state.native_registrations || []) {
+    const current = readRegistryValue(key, environment);
+    if (current === paths.nativeHostManifest) {
+      if (!removeRegistryValue(key, environment)) {
+        warnings.push(`Native Host registry value could not be removed: ${key}`);
+      }
+    } else if (current !== null) {
+      warnings.push(`Native Host registry value changed after setup and was preserved: ${key}`);
+    }
+  }
   for (const target of state.native_manifests || []) {
     try {
       if (jsonEqual(await readJson(target), expectedManifest)) await fsp.rm(target, { force: true });

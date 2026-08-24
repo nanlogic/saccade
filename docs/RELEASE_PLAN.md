@@ -1,6 +1,7 @@
-# Saccade 0.1.1 Developer Preview release plan
+# Saccade 0.1.2 Windows x64 release plan
 
-Status: corrective release after the 0.1.0 npm bootstrap failure.
+Status: candidate implementation; public release is blocked on Windows proof
+and code signing.
 
 ## Ownership and release surface
 
@@ -13,33 +14,41 @@ Nanlogic-controlled publisher identity.
 
 The public product contains one browser-store Extension and the explicit
 `npx -y @nanlogic/saccade` command. The Extension package is shared across CPU
-architectures. Setup selects one signed and notarized headless Runtime for
-`darwin-arm64` or `darwin-x64`. Windows follows only after its setup and
-lifecycle evidence exists. There is no GUI installer, Accessibility request,
-Reference Actuator, Playwright/CDP route, selector, screenshot, or arbitrary
-coordinate fallback in this release.
+architectures. Version 0.1.2 keeps Extension candidate 0.3.24 and targets signed
+headless Runtimes for `darwin-arm64`, `darwin-x64`, and `win32-x64`. Windows
+uses current-user files and Native Messaging registry entries; it adds no MSI,
+GUI installer, administrator requirement, Accessibility request, Reference
+Actuator, Playwright/CDP route, screenshot, or arbitrary-coordinate fallback.
 
 ## Automated publication
 
-1. Freeze an existing `v0.1.1` tag after the complete local and browser gates.
-2. Manually dispatch `Prepare signed Runtime release` with that tag and the
+1. Run the Windows candidate workflow and its isolated install, MCP tool-list,
+   registry, and uninstall smoke.
+2. Wayne downloads the unsigned seven-day artifact on a real Windows x64
+   machine, loads the unpacked Extension, and verifies capabilities, Truth,
+   action, delta, restart recovery, doctor, and uninstall.
+3. After that proof, add Nanlogic-controlled Authenticode signing to the
+   protected release workflow. The assembler and verifier must require all
+   three Runtime platforms before publication.
+4. Freeze an existing `v0.1.2` tag after the complete local and browser gates.
+5. Manually dispatch `Prepare signed Runtime release` with that tag and the
    final store Extension ID. The workflow reruns repository gates, requires a
    production-named exact Extension candidate, builds on GitHub's arm64 and
-   Intel macOS runners, signs and notarizes both Runtime artifacts, and creates
+   Intel macOS and Windows runners, verifies platform signatures, and creates
    one draft GitHub Release without overwriting an existing release.
-3. The workflow assembles `release.json` only when both architecture drafts
+6. The workflow assembles `release.json` only when all architecture drafts
    share the exact version, MCP contract, Extension candidate, signing status,
    and Nanlogic Release URL. It attaches the manifest, checksums, Runtime
    binaries, and Extension ZIP to the draft.
-4. Wayne reviews and publishes the GitHub Release. That publication event is
+7. Wayne reviews and publishes the GitHub Release. That publication event is
    the only trigger for `Publish setup package`.
-5. The npm workflow downloads the attached manifest, verifies the tag,
-   company ownership, candidate, store origin, both signed artifacts and
+8. The npm workflow downloads the attached manifest, verifies the tag,
+   company ownership, candidate, store origin, all signed artifacts and
    checksums, then publishes with GitHub OIDC trusted publishing and npm
    provenance. It has no long-lived npm token.
-6. Wayne submits the exact attached Extension ZIP to the Nanlogic Chrome Web
-   Store publisher. After approval, a clean user runs setup, doctor, open,
-   Truth, action, browser restart, uninstall, and Profile-preservation smoke.
+9. The Chrome Web Store submission remains Extension 0.3.24. After approval, a
+   clean user runs setup, doctor, open, Truth, action, browser restart,
+   uninstall, and Profile-preservation smoke.
 
 The tracked `packages/setup/release.json` remains an unpublished template.
 Final URLs and checksums are injected into the package only inside the npm
@@ -53,6 +62,8 @@ publication job, after the GitHub Release is public.
   site reading.
 - Intel macOS additionally passes install, checksum, Native Messaging, MCP
   start, doctor, browser restart, update, rollback, uninstall, and purge.
+- Windows x64 passes the same lifecycle on a real machine, including Chrome and
+  Edge current-user registry ownership and Authenticode verification.
 - Codex and Claude each act with their own tool in the same authorized tab
   while Saccade reports the semantic transition.
 - Fair Playwright comparisons retain identical URL/task/model/order controls
@@ -69,11 +80,9 @@ publication job, after the GitHub Release is public.
   Chrome Web Store review. Local development installs derive a separately
   identified development candidate and continue to use
   `com.nanlogic.saccade.dev`.
-- The first `@nanlogic/saccade` publication uses one short-lived bootstrap
-  token. Afterward, the package must bind GitHub OIDC trusted publishing and
-  the token and GitHub secret must be removed.
 - Company recovery channels and a second npm administrator remain required.
-- The x64 Runtime and setup lifecycle still need real Intel macOS evidence.
+- The Windows Actions candidate, real-machine route, and Authenticode signing
+  still need to pass before 0.1.2 can be public.
 - GitHub Release `v0.1.0` is a prerelease because its npm package name used a
   scope Nanlogic does not own. Its published tag and artifacts are not reused.
 - The owner-approved repository archival is complete and recorded in the
