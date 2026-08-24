@@ -17,6 +17,21 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PackageExtensionReleaseTests(unittest.TestCase):
+    def test_candidate_identity_normalizes_text_line_endings_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            left = root / "left"
+            right = root / "right"
+            for extension in (left, right):
+                (extension / "src").mkdir(parents=True)
+                (extension / "icons").mkdir()
+                (extension / "icons/icon.png").write_bytes(b"\x89PNG\r\n\x00")
+            (left / "manifest.json").write_bytes(b'{"version":"1"}\n')
+            (right / "manifest.json").write_bytes(b'{"version":"1"}\r\n')
+            (left / "src/worker.js").write_bytes(b"one\ntwo\n")
+            (right / "src/worker.js").write_bytes(b"one\r\ntwo\r\n")
+            self.assertEqual(MODULE.candidate_id(left), MODULE.candidate_id(right))
+
     def test_development_manifest_cannot_be_packaged_for_store(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             extension = Path(directory) / "extension"

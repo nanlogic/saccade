@@ -4,28 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import tempfile
 import zipfile
 from pathlib import Path
 
+try:
+    from scripts.extension_candidate import candidate_id
+except ModuleNotFoundError:  # Direct `python scripts/...` execution.
+    from extension_candidate import candidate_id
 
-EXCLUDED = {"candidate.json", "src/candidate_identity.js"}
 STORE_EXCLUDED_PREFIXES = ("tests/",)
-
-
-def candidate_id(extension_root: Path) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(item for item in extension_root.rglob("*") if item.is_file()):
-        relative = path.relative_to(extension_root).as_posix()
-        if relative in EXCLUDED:
-            continue
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
 
 
 def include_in_store(relative: str) -> bool:
