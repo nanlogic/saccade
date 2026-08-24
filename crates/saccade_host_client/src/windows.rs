@@ -1,5 +1,3 @@
-#![allow(unsafe_code)]
-
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
