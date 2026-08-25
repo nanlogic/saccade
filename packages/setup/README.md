@@ -37,7 +37,7 @@ Updates and ordinary uninstall preserve your Saccade Profile. Run
 `npx -y @nanlogic/saccade uninstall --purge` to remove the Profile and Runtime
 data.
 
-Version 0.1.2 publishes signed Runtime downloads only for Apple Silicon and
+Version 0.1.3 publishes signed Runtime downloads only for Apple Silicon and
 Intel macOS. Windows x64 users clone or download the source repository and ask
 their Agent to install Saccade; the repository Skill compiles the Runtime on
 that machine and invokes this same setup implementation with a checksummed

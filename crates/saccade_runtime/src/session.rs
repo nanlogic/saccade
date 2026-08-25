@@ -653,7 +653,7 @@ impl NativeHostSession {
         if params.get("actions").is_some() {
             return self.act_object_batch(params);
         }
-        const ALLOWED: [&str; 9] = [
+        const ALLOWED: [&str; 10] = [
             "tab_id",
             "object_id",
             "operation",
@@ -661,6 +661,7 @@ impl NativeHostSession {
             "basis_revision",
             "option_object_id",
             "text",
+            "path",
             "timeout_ms",
             "ignore_learned_policy",
         ];
@@ -680,8 +681,8 @@ impl NativeHostSession {
             .get("basis_revision")
             .and_then(Value::as_u64)
             .context("basis_revision is required")?;
-        if !matches!(operation.as_str(), "click" | "select" | "type") {
-            bail!("operation must be click, select or type");
+        if !matches!(operation.as_str(), "click" | "select" | "type" | "upload") {
+            bail!("operation must be click, select, type or upload");
         }
         let selected_option_id = (operation == "select")
             .then(|| required_string(&params, "option_object_id").map(str::to_string))
@@ -730,6 +731,49 @@ impl NativeHostSession {
                 )
             })?
             .clone();
+
+        if operation == "upload" {
+            if target.role != SemanticRole::FileInput {
+                bail!("upload requires a file_input target");
+            }
+            if !target.affordances.contains(&Affordance::Upload) {
+                bail!("file_input is not currently actionable");
+            }
+            let token = target
+                .action_token
+                .clone()
+                .context("file_input has no current action authority")?;
+            let path = required_string(&params, "path")?;
+            let page = self.page_scope_for_tab(&tab_id)?;
+            let mut receipt = self.act_inner(
+                json!({
+                    "browser_instance_id": before.browser_instance_id,
+                    "tab_id": tab_id,
+                    "document_id": document_id,
+                    "basis_revision": basis_revision,
+                    "action_token": token,
+                    "operation": "upload",
+                    "payload": {"kind":"file","path":path},
+                    "_actionability_timeout_ms": timeout.as_millis() as u64,
+                }),
+                Some(InputBackend::Native),
+                Some(&page),
+                true,
+            )?;
+            let dispatch = receipt
+                .get("dispatch_status")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            let verified = receipt.get("postcondition").and_then(Value::as_str) == Some("verified");
+            let retry_safe =
+                !matches!(dispatch.as_str(), "accepted_by_os" | "accepted_by_software");
+            receipt["object_id"] = Value::String(object_id);
+            receipt["dispatch"] = Value::String(dispatch);
+            receipt["verified"] = Value::Bool(verified);
+            receipt["retry_safe"] = Value::Bool(retry_safe);
+            return Ok(receipt);
+        }
 
         if operation == "type" && !Self::software_typeable(target.role) {
             return Ok(Self::external_required(
@@ -1430,7 +1474,7 @@ impl NativeHostSession {
             ActionPayload::Select { .. } => serde_json::to_value(&request.payload)?,
             _ => json!({"kind":"none"}),
         };
-        let prepared: PreparedAction = serde_json::from_value(self.request_extension(
+        let mut prepared: PreparedAction = serde_json::from_value(self.request_extension(
             "prepare_action",
             json!({
                 "browser_instance_id":request.browser_instance_id,
@@ -1450,6 +1494,16 @@ impl NativeHostSession {
             }),
             EXTENSION_TIMEOUT,
         )?)?;
+        #[cfg(target_os = "windows")]
+        if request.operation == saccade_protocol::ActionOperation::Upload
+            && target_role == SemanticRole::FileInput
+        {
+            // The Windows adapter acquires and verifies the target browser
+            // window immediately before its bounded chooser sequence. A
+            // background Chrome window therefore must not be rejected by the
+            // earlier DOM-focus snapshot before the adapter can focus it.
+            prepared.focus_verified = true;
+        }
 
         let mut engine = self.engine.lock().map_err(lock_error)?;
         let mut source = SessionObservationSource {

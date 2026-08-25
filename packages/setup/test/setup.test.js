@@ -540,7 +540,7 @@ if (args[1] === 'get') {
 test('package has an explicit CLI and no install-time hook', async () => {
   const packageJson = JSON.parse(await fsp.readFile(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'));
   assert.equal(packageJson.name, '@nanlogic/saccade');
-  assert.equal(packageJson.version, '0.1.2');
+  assert.equal(packageJson.version, '0.1.3');
   assert.equal(packageJson.bin['saccade-setup'], 'bin/saccade-setup.js');
   assert.equal(packageJson.scripts.postinstall, undefined);
   const release = JSON.parse(await fsp.readFile(path.join(PACKAGE_ROOT, 'release.json'), 'utf8'));

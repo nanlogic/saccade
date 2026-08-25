@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Offscreen software type</title>
+  <style>
+    body { font: 16px system-ui; margin: 40px; }
+    main { min-height: 240vh; }
+    #editors { margin-top: 160vh; display: grid; gap: 24px; max-width: 560px; }
+    label { display: grid; gap: 8px; }
+    textarea, [contenteditable] { min-height: 72px; font: inherit; }
+    [contenteditable] { border: 1px solid #777; padding: 8px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Offscreen software type</h1>
+    <p>The editable controls begin outside the initial viewport so software
+       preparation must scroll before it focuses and dispatches the edit.</p>
+    <section id="editors">
+      <label>Offscreen notes<textarea id="offscreen-notes"></textarea></label>
+      <label>Offscreen rich note
+        <div id="offscreen-rich" role="textbox" contenteditable="true"></div>
+      </label>
+    </section>
+  </main>
+</body>
+</html>

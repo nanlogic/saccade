@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3 / Extension 0.3.25
+
+- Fixed focus-triggered collection invalidating `content_editable` software
+  typing between preparation and dispatch.
+- Added bounded recognition and upload handling for custom file drop surfaces,
+  including the Steamworks graphical-asset controls exercised in dogfood.
+- Added Windows native file-chooser focus and path-entry support while keeping
+  public upload restricted to a current `file_input` and one validated file.
+- Rotated accepted software-action authority even when the projected semantic
+  state does not otherwise change.
+
 - Added a gated Windows x64 candidate path for 0.1.2: one headless Runtime,
   current-user Chrome and Edge Native Messaging registration, MCP/client setup,
   exact-checksum rollback, and a Windows Actions install/MCP/uninstall smoke.

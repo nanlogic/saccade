@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Focus churn contenteditable</title>
+  <style>
+    body { font: 16px system-ui; margin: 40px; max-width: 720px; }
+    [contenteditable] { min-height: 96px; border: 1px solid #777; padding: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Focus churn contenteditable</h1>
+    <p>This fixture changes the editor's semantic description synchronously on focus.</p>
+    <label for="rich-note">Rich note</label>
+    <p id="rich-note-hint">Editor idle</p>
+    <div id="rich-note" role="textbox" contenteditable="true"
+         aria-describedby="rich-note-hint"></div>
+    <output id="input-receipt">No input received</output>
+  </main>
+  <script>
+    const editor = document.querySelector('#rich-note');
+    const hint = document.querySelector('#rich-note-hint');
+    const receipt = document.querySelector('#input-receipt');
+    editor.addEventListener('focus', () => {
+      hint.textContent = 'Editor focused';
+    });
+    editor.addEventListener('input', () => {
+      receipt.textContent = `Input received: ${editor.textContent}`;
+    });
+  </script>
+</body>
+</html>

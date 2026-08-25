@@ -1469,8 +1469,9 @@ fn tools(mode: McpMode, diagnostics: bool) -> Vec<Value> {
             "document_id":{"type":"string","minLength":1},
             "basis_revision":{"type":"integer","minimum":1},
             "object_id":{"type":"string","minLength":1},
-            "operation":{"type":"string","enum":["click","select","type"]},
+            "operation":{"type":"string","enum":["click","select","type","upload"]},
             "option_object_id":{"type":"string","minLength":1},
+            "path":{"type":"string","minLength":1,"maxLength":4096,"description":"Absolute path to one accessible regular file for a file_input upload."},
             "text":{"type":"string","maxLength":8192},
             "value":{"type":"string","maxLength":8192,"description":"Ordinary text to enter. Equivalent to text for a single action and consistent with batch actions."},
             "actions":{
@@ -2216,8 +2217,14 @@ impl AgentViewState {
             let has_option = action.get("option_object_id").is_some();
             let has_text = action.get(if batch { "value" } else { "text" }).is_some()
                 || (!batch && action.get("value").is_some());
-            if has_option && has_text {
-                bail!("an action cannot carry both text and option_object_id");
+            let has_path = !batch && action.get("path").is_some();
+            if [has_option, has_text, has_path]
+                .into_iter()
+                .filter(|present| *present)
+                .count()
+                > 1
+            {
+                bail!("an action cannot combine text, option_object_id, and path payloads");
             }
 
             let explicit_operation = action.get("operation").and_then(Value::as_str);
@@ -2227,6 +2234,8 @@ impl AgentViewState {
                 "select".to_string()
             } else if has_text {
                 "type".to_string()
+            } else if has_path {
+                "upload".to_string()
             } else {
                 let operations = target
                     .affordances
@@ -2235,6 +2244,7 @@ impl AgentViewState {
                         Affordance::Click => Some("click"),
                         Affordance::Type => Some("type"),
                         Affordance::Select => Some("select"),
+                        Affordance::Upload => Some("upload"),
                         _ => None,
                     })
                     .collect::<BTreeSet<_>>();
@@ -2257,6 +2267,7 @@ impl AgentViewState {
                             | saccade_protocol::SemanticRole::TextArea
                             | saccade_protocol::SemanticRole::ContentEditable
                             | saccade_protocol::SemanticRole::SpinButton
+                            | saccade_protocol::SemanticRole::FileInput
                     ) => bail!(
                         "object {alias} is a recognized action control but is not currently actionable; pass operation explicitly to use the bounded local actionability wait"
                     ),
@@ -2273,7 +2284,8 @@ impl AgentViewState {
                 "click" => Affordance::Click,
                 "type" => Affordance::Type,
                 "select" => Affordance::Select,
-                _ => bail!("operation must be click, type, or select"),
+                "upload" => Affordance::Upload,
+                _ => bail!("operation must be click, type, select, or upload"),
             };
             let role_supports_operation = match operation.as_str() {
                 "click" => matches!(
@@ -2298,6 +2310,7 @@ impl AgentViewState {
                         | saccade_protocol::SemanticRole::SpinButton
                 ),
                 "select" => target.role == saccade_protocol::SemanticRole::Select,
+                "upload" => target.role == saccade_protocol::SemanticRole::FileInput,
                 _ => false,
             };
             if !(target.affordances.contains(&required_affordance)
@@ -3106,20 +3119,28 @@ fn validate_public_action_shape(value: &Value, batch: bool) -> Result<()> {
         .get("operation")
         .map(|_| string(value, "operation"))
         .transpose()?;
-    if operation.is_some_and(|operation| !matches!(operation, "click" | "type" | "select")) {
-        bail!("operation must be click, type, or select");
+    if operation
+        .is_some_and(|operation| !matches!(operation, "click" | "type" | "select" | "upload"))
+    {
+        bail!("operation must be click, type, select, or upload");
     }
     let has_option = action.get("option_object_id").is_some();
     let has_text = action.get("text").is_some();
     let has_value = action.get("value").is_some();
+    let has_path = action.get("path").is_some();
     if batch && has_text {
         bail!("batch type actions use value, not text");
     }
     if has_text && has_value {
         bail!("single type actions cannot carry both text and value");
     }
-    if has_option && (has_text || has_value) {
-        bail!("an action cannot carry both text and option_object_id");
+    if [has_option, has_text || has_value, has_path]
+        .into_iter()
+        .filter(|present| *present)
+        .count()
+        > 1
+    {
+        bail!("an action cannot combine text, option_object_id, and path payloads");
     }
     if has_option {
         string(value, "option_object_id")?;
@@ -3132,6 +3153,13 @@ fn validate_public_action_shape(value: &Value, batch: bool) -> Result<()> {
             .filter(|text| text.len() <= 8192)
             .with_context(|| format!("{field} must be a string within 8192 bytes"))?;
     }
+    if has_path {
+        value
+            .get("path")
+            .and_then(Value::as_str)
+            .filter(|path| !path.is_empty() && path.len() <= 4096)
+            .context("path must be a non-empty string within 4096 bytes")?;
+    }
     match operation {
         Some("click") if has_option || has_text || has_value => {
             bail!("click cannot carry text, value, or option_object_id")
@@ -3142,6 +3170,10 @@ fn validate_public_action_shape(value: &Value, batch: bool) -> Result<()> {
         Some("type") if has_option => bail!("type cannot carry option_object_id"),
         Some("select") if !has_option => bail!("select requires option_object_id"),
         Some("select") if has_text || has_value => bail!("select cannot carry text or value"),
+        Some("upload") if !has_path => bail!("upload requires path"),
+        Some("upload") if has_option || has_text || has_value => {
+            bail!("upload cannot carry text, value, or option_object_id")
+        }
         _ => {}
     }
     Ok(())
@@ -3209,6 +3241,7 @@ fn validate_public_act(value: &Value) -> Result<()> {
             "option_object_id",
             "text",
             "value",
+            "path",
             "timeout_ms",
         ]
         .contains(&key.as_str())
@@ -3458,11 +3491,13 @@ mod tests {
                 "saccade.act must not accept {forbidden}"
             );
         }
-        // Only what the Extension's software pipe actually implements.
+        // Upload is a finite file chooser primitive; no coordinate or locator
+        // enters the public contract.
         assert_eq!(
             schema["properties"]["operation"]["enum"],
-            serde_json::json!(["click", "select", "type"])
+            serde_json::json!(["click", "select", "type", "upload"])
         );
+        assert!(schema["properties"].get("path").is_some());
         // Stale replay protection is not optional.
         let required = schema["required"].as_array().expect("required");
         for key in ["tab_id", "document_id", "basis_revision"] {
@@ -3498,6 +3533,19 @@ mod tests {
             false
         )
         .is_ok());
+        assert!(validate_arguments(
+            "web.act_object",
+            &json!({
+                "tab_id":"tab-1",
+                "document_id":"doc-1",
+                "basis_revision":7,
+                "object_id":"o5",
+                "operation":"upload",
+                "path":"C:\\assets\\capsule.png"
+            }),
+            false
+        )
+        .is_ok());
         for invalid in [
             json!({"tab_id":"tab-1","document_id":"doc-1","basis_revision":7,"actions":[]}),
             json!({"tab_id":"tab-1","document_id":"doc-1","basis_revision":7,"actions":[{"object_id":"o1","operation":"upload"}]}),
@@ -3511,12 +3559,14 @@ mod tests {
     }
 
     #[test]
-    fn act_never_reaches_the_native_backend() {
-        // Truth mode promotes software execution only; native input and the
-        // Accessibility grant stay behind the Reference Actuator.
+    fn act_uses_native_input_only_for_the_finite_upload_chooser() {
+        // Ordinary page controls remain software-only. The one public native
+        // primitive is the path-validated file chooser for file_input.
         let source = include_str!("session.rs");
         let body = act_object_body(source);
-        assert!(!body.contains("InputBackend::Native"));
+        assert!(body.contains("operation == \"upload\""));
+        assert!(body.contains("Some(InputBackend::Native)"));
+        assert!(body.contains("target.role != SemanticRole::FileInput"));
         assert!(body.contains("Some(InputBackend::Soft)"));
         assert!(body.contains("InputPolicy::NativeRequired"));
         assert!(body.contains("Self::external_required"));
@@ -4744,9 +4794,14 @@ mod tests {
         delayed_button.role = saccade_protocol::SemanticRole::Button;
         delayed_button.name = Some("Available shortly".into());
         delayed_button.affordances = BTreeSet::new();
+        let mut upload = observation.objects[0].clone();
+        upload.object_id = "internal-upload".into();
+        upload.role = saccade_protocol::SemanticRole::FileInput;
+        upload.name = Some("Upload images".into());
+        upload.affordances = BTreeSet::from([Affordance::Upload]);
         observation
             .objects
-            .extend([button, select, option, delayed_button]);
+            .extend([button, select, option, delayed_button, upload]);
 
         let tab_id = observation.tab_id.clone();
         let document_id = observation.document_id.clone();
@@ -4763,6 +4818,18 @@ mod tests {
         });
         views.infer_public_act_operations(&mut click).unwrap();
         assert_eq!(click["operation"], "click");
+
+        let mut upload_action = json!({
+            "tab_id":tab_id,
+            "document_id":document_id,
+            "basis_revision":revision,
+            "object_id":"o6",
+            "path":"C:\\assets\\capsule.png"
+        });
+        views
+            .infer_public_act_operations(&mut upload_action)
+            .unwrap();
+        assert_eq!(upload_action["operation"], "upload");
 
         let mut type_action = json!({
             "tab_id":tab_id,

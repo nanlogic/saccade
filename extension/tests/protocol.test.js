@@ -42,7 +42,7 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, 'Saccade');
-  assert.equal(manifest.version, '0.3.24');
+  assert.equal(manifest.version, '0.3.25');
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
@@ -209,6 +209,79 @@ test('semantic page churn preserves authority only for the same live object cont
   assert.match(reuse, /previous\.target\.affordances\.join/);
   assert.match(reuse, /object\.action_token = previous\.token/);
   assert.ok(collector.indexOf('reuseStableAuthorities(objects, previousTokenTargets)') < collector.indexOf('const changes = compileChanges'));
+});
+
+test('scrolling an offscreen control into view preserves its action authority', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/offscreen_software_type.html'), 'utf8');
+  const fingerprint = collector.slice(
+    collector.indexOf('function authorityFingerprint('),
+    collector.indexOf('function reuseStableAuthorities('),
+  );
+  assert.match(fingerprint, /delete contract\.document_bounds/);
+  assert.match(fingerprint, /delete contract\.viewport_bounds/);
+  assert.match(fingerprint, /delete contract\.visibility/);
+  assert.match(collector, /if \(!target\) \{\s*throw actionFailure\('dispatch', 'stale_action_token'/s);
+  assert.match(collector, /if \(!SOFTWARE_TYPE_ROLES\.has\(target\.role\)\) \{\s*throw actionFailure\('dispatch', 'operation_not_registered'/s);
+  assert.match(fixture, /margin-top: 160vh/);
+  assert.match(fixture, /<textarea id="offscreen-notes">/);
+  assert.match(fixture, /id="offscreen-rich" role="textbox" contenteditable="true"/);
+});
+
+test('accepted software actions rotate their single-use authority even without a semantic value change', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /let authorityRotationPending = false/);
+  assert.match(collector, /&& !authorityRotationPending/);
+  assert.match(collector, /tokenTargets\.delete\(request\.action_token\);\s*authorityRotationPending = true;\s*requestAnimationFrame\(collect\);/s);
+  assert.match(collector, /compiledObjects = objects;\s*authorityRotationPending = false;/s);
+});
+
+test('focus-triggered collection cannot invalidate a zero-wait software dispatch', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/focus_churn_content_editable.html'), 'utf8');
+  const action = collector.slice(
+    collector.indexOf('async function softAction('),
+    collector.indexOf('function scheduleVisual('),
+  );
+  assert.match(collector, /let softwareDispatchDepth = 0/);
+  assert.match(collector, /let softwareDispatchCollectPending = false/);
+  assert.match(action, /softwareDispatchDepth \+= 1/);
+  assert.match(action, /finally \{\s*softwareDispatchDepth -= 1;/s);
+  assert.match(action, /if \(softwareDispatchDepth > 0\) \{\s*softwareDispatchCollectPending = true;\s*return;/s);
+  assert.match(action, /queueMicrotask\(\(\) => \{\s*scheduled = false;\s*if \(softwareDispatchDepth > 0\)/s);
+  assert.match(fixture, /id="rich-note" role="textbox" contenteditable="true"/);
+  assert.match(fixture, /aria-describedby="rich-note-hint"/);
+  assert.match(fixture, /addEventListener\('focus'/);
+  assert.match(fixture, /hint\.textContent = 'Editor focused'/);
+  assert.match(fixture, /addEventListener\('input'/);
+});
+
+test('custom pointer tabs and drop targets remain finite semantic controls', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/custom_upload_and_tabs.html'), 'utf8');
+  assert.match(collector, /const GENERIC_CLICK_SELECTOR =/);
+  assert.match(collector, /semanticGenericClick\(element\)/);
+  assert.match(collector, /genericTabLike\(element\)/);
+  assert.match(collector, /genericFileDropTarget\(element\)/);
+  assert.match(collector, /Affordance|file_input|upload/);
+  assert.match(fixture, /class="store_tab">Graphical Assets/);
+  assert.match(fixture, /class="asset_upload_drop_target"/);
+  assert.match(fixture, /input id="asset-upload" type="file"/);
+  assert.match(fixture, /class="drag_and_drop_file_upload"/);
+  assert.match(collector, /fileInputCount > 1/);
+  assert.match(collector, /uploadInstruction && strongSurface/);
+  assert.match(collector, /function uploadInstructionSurface\(element\)/);
+  assert.match(collector, /instructionSurfaces = composedQuery/);
+  assert.match(fixture, /Choose screenshot files to upload/);
+  assert.match(collector, /function armDropSurfaceChooser\(surface\)/);
+  assert.match(collector, /new view\.DataTransfer\(\)/);
+  assert.match(collector, /new view\.DragEvent\(type/);
+  assert.match(collector, /armDropSurfaceChooser\(target\.element\)/);
+  assert.match(collector, /z-index:2147483647/);
+  assert.match(collector, /pointer-events:auto/);
 });
 
 test('semantic mutations are not gated by rendering frames', () => {
@@ -569,7 +642,7 @@ test('links declare a disposition only when this document cannot verify them', (
 test('software typing sets a value through the native setter and never reaches protected fields', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /SOFTWARE_TYPE_ROLES/);
-  assert.match(collector, /if \(request\.operation === 'type'\) return softType\(request\);/);
+  assert.match(collector, /if \(request\.operation === 'type'\) return await softType\(request\);/);
   // Frameworks patch the value property, so assign through the prototype setter
   // or React and Angular never observe the change.
   assert.match(collector, /Object\.getOwnPropertyDescriptor\(prototype, 'value'\)\?\.set/);

@@ -6,7 +6,8 @@
   const { occurrence: reflexOccurrence } = globalThis.SaccadeControls.reflex_target;
   const MAX_OBJECTS = 10000;
   const MAX_STRUCTURAL_TEXT_BYTES = 256 * 1024;
-  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],[data-saccade-label],[data-saccade-generic-control],.target';
+  const GENERIC_CLICK_SELECTOR = '[onclick],[tabindex]:not([tabindex="-1"]),[class~="tab"],[class*="_tab"],[class*="tab_"],[class*="dropzone"],[class*="drop_zone"],[class*="drop-target"],[class*="drop_target"],[class*="upload"],[class*="drag"],[id*="upload"],[id*="dropzone"],[id*="dragdrop"],[data-upload],[data-upload-url]';
+  const CONTROL_SELECTOR = `a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],[data-saccade-label],[data-saccade-generic-control],.target,${GENERIC_CLICK_SELECTOR}`;
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
   const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,table,tr,th,td,[role="text"],[role="heading"],[role="paragraph"],[role="list"],[role="listitem"],[role="table"],[role="row"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"],[aria-live]';
   const GENERIC_TEXT_SELECTOR = 'div,span,section,article,main,aside';
@@ -27,6 +28,7 @@
   const tokenTargets = new Map();
   const objectTargets = new Map();
   const fileTriggerHasValue = new WeakSet();
+  const dropChooserArmed = new WeakSet();
   const frameIdentities = new WeakMap();
   const frameDocumentIds = new WeakMap();
   const observers = [];
@@ -54,6 +56,9 @@
   let rememberedChoiceOwner = new WeakMap();
   let rememberedChoicePopup = new WeakMap();
   let compiledObjects = null;
+  let authorityRotationPending = false;
+  let softwareDispatchDepth = 0;
+  let softwareDispatchCollectPending = false;
   let workerPort = null;
   let geometryResizeObserver = null;
   let geometryObservedElements = new Set();
@@ -292,9 +297,14 @@
     if (ariaRole === 'tab') return 'tab';
     if (ariaRole === 'listbox' && comboboxForListbox(element)) return null;
     if (ariaRole === 'listbox' || ariaRole === 'combobox') return 'select';
+    const genericClickable = semanticGenericClick(element);
     const buttonLike = tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type));
-    if (buttonLike && /\b(upload|choose|select|browse|attach|replace|add)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
+    const uploadName = safeName(element, 'button') || '';
+    const uploadLike = /\b(upload|choose|select|browse|attach|replace|add|drop)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?|trailers?|videos?)\b/i.test(uploadName);
+    if ((buttonLike || genericClickable) && (uploadLike || genericFileDropTarget(element))) return 'file_input';
     if (buttonLike) return 'button';
+    if (genericClickable && genericTabLike(element)) return 'tab';
+    if (genericClickable) return 'button';
     if (tag === 'INPUT' && type === 'checkbox' || ariaRole === 'checkbox') return 'checkbox';
     if (tag === 'SELECT') return 'select';
     if (tag === 'INPUT' && type === 'number') return 'spin_button';
@@ -343,8 +353,60 @@
       if (ancestor.querySelectorAll('input[type="file"]').length !== 1) continue;
       const candidates = Array.from(ancestor.querySelectorAll('button,[role="button"],label')).filter(visible);
       if (candidates.length === 1) return candidates[0];
+      if (semanticGenericClick(ancestor) && genericFileDropTarget(ancestor) && visible(ancestor)) return ancestor;
+      const genericCandidates = Array.from(ancestor.querySelectorAll(GENERIC_CLICK_SELECTOR))
+        .filter((candidate) => semanticGenericClick(candidate) && genericFileDropTarget(candidate) && visible(candidate));
+      if (genericCandidates.length === 1) return genericCandidates[0];
     }
     return input;
+  }
+
+  function semanticGenericClick(element) {
+    const semanticUpload = uploadInstructionSurface(element);
+    if (!element?.matches?.(GENERIC_CLICK_SELECTOR) && !semanticUpload) return false;
+    if (!['A', 'DIV', 'LABEL', 'SPAN', 'LI', 'SECTION', 'ARTICLE'].includes(element.tagName)) return false;
+    if (element.closest('button,a[href],input,textarea,select,[role="button"],[role="tab"]')) return false;
+    const view = element.ownerDocument.defaultView;
+    const style = view.getComputedStyle(element);
+    const explicit = element.hasAttribute('onclick') || element.tabIndex >= 0;
+    const classHint = /(^|[-_\s])(tab|upload|dropzone|drop[-_]?target)([-_\s]|$)/i.test(String(element.className || ''))
+      || /drag[-_\s]*(and[-_\s]*)?drop/i.test(String(element.className || ''));
+    return style.pointerEvents !== 'none' && (semanticUpload || explicit || (classHint && style.cursor === 'pointer'));
+  }
+
+  function uploadInstructionSurface(element) {
+    if (!element?.children) return false;
+    const text = normalizedText(element.textContent, 256) || '';
+    if (!/\b(upload|choose|select|browse|attach|drop)\b.*\b(files?|images?|covers?|screenshots?|trailers?|videos?)\b/i.test(text)
+      && !/\b(files?|images?|covers?|screenshots?|trailers?|videos?)\b.*\b(upload|choose|select|browse|attach|drop)\b/i.test(text)) return false;
+    return !Array.from(element.children).some((child) => {
+      const childText = normalizedText(child.textContent, 256) || '';
+      return /\b(upload|choose|select|browse|attach|drop)\b.*\b(files?|images?|covers?|screenshots?|trailers?|videos?)\b/i.test(childText)
+        || /\b(files?|images?|covers?|screenshots?|trailers?|videos?)\b.*\b(upload|choose|select|browse|attach|drop)\b/i.test(childText);
+    });
+  }
+
+  function genericTabLike(element) {
+    return /(^|[-_\s])tab([-_\s]|$)/i.test(String(element.className || ''))
+      || element.parentElement?.getAttribute('role') === 'tablist';
+  }
+
+  function genericFileDropTarget(element) {
+    if (!element?.querySelectorAll) return false;
+    const fileInputCount = element.querySelectorAll('input[type="file"]').length;
+    if (fileInputCount > 1) return false;
+    const semanticText = normalizedText(element.textContent, 512) || '';
+    const signature = [
+      element.id,
+      element.className,
+      element.getAttribute('data-upload'),
+      element.getAttribute('data-upload-url'),
+    ].filter(Boolean).join(' ');
+    const uploadInstruction = /\b(upload|choose|select|browse|attach|drop)\b.*\b(files?|images?|covers?|screenshots?|trailers?|videos?)\b/i.test(semanticText)
+      || /\b(files?|images?|covers?|screenshots?|trailers?|videos?)\b.*\b(upload|choose|select|browse|attach|drop)\b/i.test(semanticText);
+    const strongSurface = /(^|[-_\s])(upload|dropzone|drop[-_]?target)([-_\s]|$)/i.test(signature)
+      || /drag[-_\s]*(and[-_\s]*)?drop/i.test(signature);
+    return fileInputCount === 1 ? uploadInstruction || strongSurface : uploadInstruction && strongSurface;
   }
 
   function ariaBoolean(element, name) {
@@ -766,6 +828,12 @@
     delete contract.object_revision;
     delete contract.document_bounds;
     delete contract.viewport_bounds;
+    // visible <-> offscreen is a viewport-geometry transition, not a change to
+    // the control's semantic authority. Software preparation scrolls an
+    // offscreen target into view; retaining the token across that self-caused
+    // transition lets the same bounded action reach dispatch. Hidden controls
+    // are still omitted entirely, and prepare() rechecks current visibility.
+    delete contract.visibility;
     return JSON.stringify(contract);
   }
 
@@ -807,9 +875,13 @@
       const loopStatus = observationObject(document.body, 'reflex_target', config.frameId);
       if (loopStatus) objects.push(loopStatus);
     }
-    const candidates = frameState.contexts.flatMap((context) => (
-      composedQuery(context.doc, CONTROL_SELECTOR).map((element) => ({ element, frameId: context.frameId }))
-    ));
+    const candidates = frameState.contexts.flatMap((context) => {
+      const controls = composedQuery(context.doc, CONTROL_SELECTOR);
+      const seen = new Set(controls);
+      const instructionSurfaces = composedQuery(context.doc, 'a,div,label,span,li,section,article')
+        .filter((element) => uploadInstructionSurface(element) && !seen.has(element));
+      return [...controls, ...instructionSurfaces].map((element) => ({ element, frameId: context.frameId }));
+    });
     const actionNameCounts = new Map();
     for (const { element } of candidates) {
       const role = roleFor(element);
@@ -919,7 +991,8 @@
     const urlFingerprint = frameState.frames
       .map((frame) => `${frame.frame_id}\u0000${frame.document_url || ''}`).join('\u0001');
     const unchanged = hadCompiledObjects && changes.length === 0
-      && urlFingerprint === lastUrlFingerprint && !geometryChanged;
+      && urlFingerprint === lastUrlFingerprint && !geometryChanged
+      && !authorityRotationPending;
     if (unchanged && !forceSnapshot) {
       tokenTargets.clear();
       objectTargets.clear();
@@ -950,6 +1023,7 @@
       limitations: [...frameState.limitations, ...surfaceLimitations, ...(truncated ? [{ kind: 'truncated', frame_id: config.frameId }] : [])], gap: false,
     };
     compiledObjects = objects;
+    authorityRotationPending = false;
     continueGeometryTracking();
     connectWorkerPort();
     if (!hadCompiledObjects || forceSnapshot) {
@@ -1021,6 +1095,49 @@
     };
   }
 
+  function armDropSurfaceChooser(surface) {
+    if (surface.tagName === 'INPUT' || dropChooserArmed.has(surface)) return;
+    if (surface.querySelector?.('input[type="file"]')) return;
+    const doc = surface.ownerDocument;
+    const view = doc.defaultView;
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.tabIndex = -1;
+    const box = boxFor(surface);
+    input.style.cssText = [
+      'position:fixed', `left:${box.x}px`, `top:${box.y}px`,
+      `width:${box.width}px`, `height:${box.height}px`,
+      'opacity:0.01', 'pointer-events:auto', 'z-index:2147483647', 'cursor:pointer',
+    ].join(';');
+    doc.documentElement.appendChild(input);
+    dropChooserArmed.add(surface);
+    let timer;
+    const cleanup = () => {
+      clearTimeout(timer);
+      input.remove();
+      dropChooserArmed.delete(surface);
+    };
+    const dispatchDrop = () => {
+      const files = Array.from(input.files || []);
+      if (!files.length) { cleanup(); return; }
+      const transfer = new view.DataTransfer();
+      for (const file of files) transfer.items.add(file);
+      transfer.effectAllowed = 'copy';
+      transfer.dropEffect = 'copy';
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        surface.dispatchEvent(new view.DragEvent(type, {
+          bubbles: true, cancelable: true, composed: true, dataTransfer: transfer,
+        }));
+      }
+      fileTriggerHasValue.add(surface);
+      schedule();
+      setTimeout(cleanup, 0);
+    };
+    input.addEventListener('change', dispatchDrop, { once: true });
+    timer = setTimeout(cleanup, 15000);
+  }
+
   function prepare(request) {
     if (!config || request.browser_instance_id !== config.browserInstanceId || request.tab_id !== config.tabId
       || request.document_id !== documentId || request.basis_revision > revision) {
@@ -1071,6 +1188,7 @@
     }
     if (request.operation === 'upload' && target.role === 'file_input') {
       activeFileTrigger = target.element;
+      armDropSurfaceChooser(target.element);
       const expectedTrigger = activeFileTrigger;
       setTimeout(() => { if (activeFileTrigger === expectedTrigger) activeFileTrigger = null; }, 10000);
     }
@@ -1171,7 +1289,10 @@
   async function softClick(request) {
     const prepared = await waitForSoftwarePreparation(request);
     const target = tokenTargets.get(request.action_token);
-    if (!target || !SOFTWARE_CLICK_ROLES.has(target.role)) {
+    if (!target) {
+      throw actionFailure('dispatch', 'stale_action_token', false, 'action token changed before software click dispatch');
+    }
+    if (!SOFTWARE_CLICK_ROLES.has(target.role)) {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software click is not registered for the current control');
     }
     const box = boxFor(target.element);
@@ -1187,6 +1308,13 @@
         button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true,
       }));
     }
+    // An accepted action authority is single-use in the Runtime. Remove it
+    // before recollection so this object receives a fresh token even when the
+    // page's public semantic state is unchanged (for example, replacing text
+    // in an already non-empty textarea). The pending flag makes that
+    // authority-only rotation advance Truth and reach the Runtime.
+    tokenTargets.delete(request.action_token);
+    authorityRotationPending = true;
     requestAnimationFrame(collect);
     return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
@@ -1194,7 +1322,10 @@
   async function softType(request) {
     const prepared = await waitForSoftwarePreparation(request);
     const target = tokenTargets.get(request.action_token);
-    if (!target || !SOFTWARE_TYPE_ROLES.has(target.role)) {
+    if (!target) {
+      throw actionFailure('dispatch', 'stale_action_token', false, 'action token changed before software type dispatch');
+    }
+    if (!SOFTWARE_TYPE_ROLES.has(target.role)) {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software typing is not registered for the current control');
     }
     const element = target.element;
@@ -1222,38 +1353,70 @@
       bubbles: true, composed: true, inputType: 'insertText', data: text,
     }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
+    tokenTargets.delete(request.action_token);
+    authorityRotationPending = true;
     requestAnimationFrame(collect);
     return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
 
   async function softAction(request) {
-    if (request.operation === 'click') return softClick(request);
-    if (request.operation === 'type') return softType(request);
-    const prepared = await waitForSoftwarePreparation(request);
-    if (request.operation !== 'select' || request.payload?.kind !== 'select') {
-      throw actionFailure('dispatch', 'operation_not_registered', false, 'software action is not registered for the current operation');
-    }
-    const target = tokenTargets.get(request.action_token)?.element;
-    const option = objectTargets.get(request.payload.option_object_id);
-    if (!target || !option || choiceOwner(option) !== target || !optionEnabled(option, target)) {
-      throw actionFailure('dispatch', 'select_option_not_current', false, 'software select option is not bound and enabled for this control');
-    }
-    if (target.matches('select') && option.matches('option')) {
-      option.selected = true;
-      target.dispatchEvent(new Event('input', { bubbles: true }));
-      target.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      for (const key of ['Home', ...Array(prepared.selection_index).fill('ArrowDown'), 'Enter']) {
-        target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    // Focus, input, and page-authored mutation handlers normally trigger a
+    // microtask collection. Keep preparation and the zero-wait dispatch in one
+    // authority transaction so a focusin recollection cannot delete the exact
+    // token between waitForSoftwarePreparation() and the awaited continuation.
+    // The bounded actionability loop still calls collect() explicitly on each
+    // animation frame, so a real identity or authority change fails stale.
+    softwareDispatchDepth += 1;
+    try {
+      if (request.operation === 'click') return await softClick(request);
+      if (request.operation === 'type') return await softType(request);
+      const prepared = await waitForSoftwarePreparation(request);
+      if (request.operation !== 'select' || request.payload?.kind !== 'select') {
+        throw actionFailure('dispatch', 'operation_not_registered', false, 'software action is not registered for the current operation');
+      }
+      const target = tokenTargets.get(request.action_token)?.element;
+      const option = objectTargets.get(request.payload.option_object_id);
+      if (!target || !option || choiceOwner(option) !== target || !optionEnabled(option, target)) {
+        throw actionFailure('dispatch', 'select_option_not_current', false, 'software select option is not bound and enabled for this control');
+      }
+      if (target.matches('select') && option.matches('option')) {
+        option.selected = true;
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        for (const key of ['Home', ...Array(prepared.selection_index).fill('ArrowDown'), 'Enter']) {
+          target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+        }
+      }
+      tokenTargets.delete(request.action_token);
+      authorityRotationPending = true;
+      requestAnimationFrame(collect);
+      return { accepted: true, local_wait_ms: prepared.local_wait_ms };
+    } finally {
+      softwareDispatchDepth -= 1;
+      if (softwareDispatchDepth === 0 && softwareDispatchCollectPending) {
+        softwareDispatchCollectPending = false;
+        schedule();
       }
     }
-    return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
 
   function schedule() {
-    if (scheduled || !config) return;
+    if (!config) return;
+    if (softwareDispatchDepth > 0) {
+      softwareDispatchCollectPending = true;
+      return;
+    }
+    if (scheduled) return;
     scheduled = true;
-    queueMicrotask(() => { scheduled = false; collect(); });
+    queueMicrotask(() => {
+      scheduled = false;
+      if (softwareDispatchDepth > 0) {
+        softwareDispatchCollectPending = true;
+        return;
+      }
+      collect();
+    });
   }
 
   function scheduleVisual() {
@@ -1316,6 +1479,8 @@
     choiceHasValue = new WeakMap();
     rememberedChoiceOwner = new WeakMap();
     rememberedChoicePopup = new WeakMap();
+    softwareDispatchDepth = 0;
+    softwareDispatchCollectPending = false;
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
