@@ -27,17 +27,16 @@ def backup(codex: Path, path: Path) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
-def install(codex: Path, saved: Path, runtime: Path, runtime_dir: Path) -> None:
+def install(codex: Path, saved: Path, entrypoint: Path) -> None:
     backup(codex, saved)
     run(codex, "remove", "saccade", check=False)
     run(
         codex,
         "add",
         "saccade",
-        "--env",
-        f"SACCADE_RUNTIME_DIR={runtime_dir}",
         "--",
-        str(runtime),
+        "node",
+        str(entrypoint),
         "mcp",
     )
 
@@ -64,13 +63,12 @@ def main() -> None:
     parser.add_argument("action", choices=["install", "restore"])
     parser.add_argument("--codex", type=Path, required=True)
     parser.add_argument("--backup", type=Path, required=True)
-    parser.add_argument("--runtime", type=Path)
-    parser.add_argument("--runtime-dir", type=Path)
+    parser.add_argument("--entrypoint", type=Path)
     args = parser.parse_args()
     if args.action == "install":
-        if args.runtime is None or args.runtime_dir is None:
-            parser.error("install requires --runtime and --runtime-dir")
-        install(args.codex, args.backup, args.runtime, args.runtime_dir)
+        if args.entrypoint is None:
+            parser.error("install requires --entrypoint")
+        install(args.codex, args.backup, args.entrypoint.resolve())
     else:
         restore(args.codex, args.backup)
 
