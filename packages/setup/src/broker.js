@@ -13,6 +13,7 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const HISTORY_LIMIT = 256;
 const DIAGNOSTIC_LIMIT = 256;
 const COMMAND_LIMIT = 1024;
+const EXTENSION_POLL_HEARTBEAT_MS = 2_000;
 const STATE_SCHEMA = 'saccade.node-broker-state/1';
 const OCCURRENCE_LIMIT = 256;
 
@@ -303,7 +304,7 @@ class BrokerState extends EventEmitter {
     if (!connection || connection.state !== 'online') return;
     connection.state = 'offline';
     connection.disconnected_at = this.now();
-    for (const waiter of connection.waiters.splice(0)) waiter([]);
+    for (const waiter of connection.waiters.splice(0)) waiter.finish([]);
     for (const command of this.commands.values()) {
       if (command.connection_id !== connectionId || command.state !== 'delivered') continue;
       if (command.idempotent && this.now() < command.deadline_at) {
@@ -327,7 +328,7 @@ class BrokerState extends EventEmitter {
       .sort((left, right) => right.connected_at - left.connected_at)[0];
   }
 
-  async pollCommands(connectionId, timeoutMs = 25_000) {
+  async pollCommands(connectionId, timeoutMs = EXTENSION_POLL_HEARTBEAT_MS) {
     const connection = this.connections.get(cleanId(connectionId, 'connection_id'));
     if (!connection || connection.state !== 'online') throw new BrokerError('EXTENSION_OFFLINE', 'Extension connection is offline');
     connection.last_seen_at = this.now();
@@ -335,14 +336,18 @@ class BrokerState extends EventEmitter {
     if (immediate.length) return immediate;
     return new Promise((resolve) => {
       let completed = false;
+      const waiter = { finish: null };
       const finish = (commands) => {
         if (completed) return;
         completed = true;
         clearTimeout(timer);
+        const index = connection.waiters.indexOf(waiter);
+        if (index !== -1) connection.waiters.splice(index, 1);
         resolve(commands);
       };
-      const timer = setTimeout(() => finish([]), Math.min(timeoutMs, 25_000));
-      connection.waiters.push(finish);
+      waiter.finish = finish;
+      const timer = setTimeout(() => finish([]), Math.min(timeoutMs, EXTENSION_POLL_HEARTBEAT_MS));
+      connection.waiters.push(waiter);
     });
   }
 
@@ -374,9 +379,9 @@ class BrokerState extends EventEmitter {
 
   wakeConnection(connection) {
     if (!connection.waiters.length) return;
+    const waiter = connection.waiters.shift();
     const commands = this.takeCommands(connection);
-    if (!commands.length) return;
-    connection.waiters.shift()(commands);
+    waiter.finish(commands);
   }
 
   enqueueCommand(agentSessionId, kind, payload, timeoutMs, {
@@ -1018,7 +1023,9 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
         return writeJson(response, 200, brokerState.connectExtension(await readBody(request)), origin);
       }
       if (request.method === 'GET' && url.pathname === '/v1/extension/commands') {
-        const commands = await brokerState.pollCommands(url.searchParams.get('connection_id'), 25_000);
+        const commands = await brokerState.pollCommands(
+          url.searchParams.get('connection_id'), EXTENSION_POLL_HEARTBEAT_MS,
+        );
         return writeJson(response, 200, { commands, broker_epoch: brokerState.epoch }, origin);
       }
       if (request.method === 'POST' && url.pathname === '/v1/extension/events') {
@@ -1043,6 +1050,7 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
 module.exports = {
   BROKER_SCHEMA,
   DEFAULT_PORT,
+  EXTENSION_POLL_HEARTBEAT_MS,
   BrokerError,
   BrokerState,
   createBrokerServer,

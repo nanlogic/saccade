@@ -11,6 +11,9 @@
   delta reads, local semantic waits, and action-plus-verification receipts.
 - Removed Cargo, OS input backends, binary signing, platform installers, and
   platform artifact release jobs.
+- Kept the MV3 command channel alive with a bounded two-second local heartbeat,
+  removed expired long-poll waiters before dispatch, and made the Extension own
+  exactly one generation-checked command loop per Broker connection.
 
 ## Historical previews
 

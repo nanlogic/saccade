@@ -26,7 +26,7 @@ test('ordinary tabs and opener popups never inherit authorization', () => {
 });
 
 test('Broker loss keeps tab ACL but forces a fresh connection and full Truth', () => {
-  const connect = worker.slice(worker.indexOf('async function connectBroker'), worker.indexOf('function numericTabId'));
+  const connect = worker.slice(worker.indexOf('function startCommandLoop'), worker.indexOf('function numericTabId'));
   assert.match(connect, /connected\.require_full_truth/);
   assert.match(connect, /requestCollectorSnapshot\(tabId\)/);
   assert.match(connect, /brokerConnectionId = undefined/);

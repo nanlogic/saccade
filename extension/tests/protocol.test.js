@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const childProcess = require('node:child_process');
 const { BROKER_PROTOCOL, OBSERVATION_SCHEMA, randomToken } = require('../src/protocol.js');
 const { normalizeOrigin, isProtectedFieldType, redactProtectedText } = require('../src/consent.js');
 const { compileChanges, compactTransport } = require('../src/truth_delta.js');
@@ -456,6 +457,16 @@ test('Node Broker reconnect uses bounded backoff without a popup wake-up', () =>
   assert.match(worker, /chrome\.windows\.getAll\(\{ windowTypes: \['normal'\] \}\)/);
   assert.match(worker, /if \(windows\.length\) chrome\.alarms\.clear\(RECONNECT_ALARM\)/);
   assert.match(worker, /chrome\.alarms\.onAlarm\.addListener/);
+  assert.match(reconnect, /if \(brokerConnectionId \|\| connectPromise\) return/);
+  assert.match(worker, /function startCommandLoop\(connectionId, generation\)/);
+  assert.match(worker, /commandLoopState !== state[\s\S]*brokerLoopGeneration !== generation/);
+  assert.match(worker, /if \(commandLoopState === state\) commandLoopState = undefined/);
+});
+
+test('the Extension Service Worker is valid JavaScript', () => {
+  const workerPath = path.join(__dirname, '../src/service_worker.js');
+  const checked = childProcess.spawnSync(process.execPath, ['--check', workerPath], { encoding: 'utf8' });
+  assert.equal(checked.status, 0, checked.stderr || checked.stdout);
 });
 
 test('Broker connect declares browser family and candidate', () => {

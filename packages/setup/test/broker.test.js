@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { BrokerState, extensionOrigin } = require('../src/broker');
+const { BrokerState, EXTENSION_POLL_HEARTBEAT_MS, extensionOrigin } = require('../src/broker');
 
 function observation(tabId = '7', revision = 1) {
   return {
@@ -155,6 +155,23 @@ test('a delivered action is never replayed after Extension reconnect', async () 
   await assert.rejects(pending, (error) => error.code === 'OUTCOME_UNKNOWN' && error.retry_safe === false);
   const second = broker.connectExtension({ browser_instance_id: 'browser-1' });
   assert.deepEqual(await broker.pollCommands(second.connection_id, 5), []);
+});
+
+test('an expired long-poll waiter cannot swallow the next command', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  assert.deepEqual(await broker.pollCommands(connection.connection_id, 2), []);
+  assert.equal(broker.connections.get(connection.connection_id).waiters.length, 0);
+
+  const pending = broker.enqueueCommand(session, 'tabs.open', {}, 1000);
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+  assert.equal(command.kind, 'tabs.open');
+  broker.acceptExtensionEvents(connection.connection_id, [{
+    kind: 'response', command_id: command.command_id, result: { tab_id: '7' },
+  }]);
+  assert.equal((await pending).tab_id, '7');
+  assert.ok(EXTENSION_POLL_HEARTBEAT_MS < 4_000);
 });
 
 test('Broker restart resumes the same proven session and lease without persisting Truth', (context) => {

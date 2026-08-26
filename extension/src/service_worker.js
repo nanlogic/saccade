@@ -24,6 +24,7 @@ let connectPromise;
 let reconnectAttempts = 0;
 let reconnectTimer;
 let brokerLoopGeneration = 0;
+let commandLoopState;
 const pendingEvents = [];
 let flushPromise;
 
@@ -127,6 +128,7 @@ const RECONNECT_ALARM_DELAY_MS = 30_000;
 
 function scheduleReconnect(error) {
   if (error) console.error(`Saccade reconnect scheduled: ${String(error.message || error)}`);
+  if (brokerConnectionId || connectPromise) return;
   if (reconnectTimer) {
     chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
     return;
@@ -209,6 +211,22 @@ async function commandLoop(connectionId, generation) {
   }
 }
 
+function startCommandLoop(connectionId, generation) {
+  const state = { connectionId, generation, promise: null };
+  state.promise = commandLoop(connectionId, generation).catch((error) => {
+    if (commandLoopState !== state
+        || brokerConnectionId !== connectionId
+        || brokerLoopGeneration !== generation) return;
+    brokerConnectionId = undefined;
+    brokerEpoch = undefined;
+    pendingClaim = undefined;
+    scheduleReconnect(error);
+  }).finally(() => {
+    if (commandLoopState === state) commandLoopState = undefined;
+  });
+  commandLoopState = state;
+}
+
 async function connectBroker() {
   if (brokerConnectionId) return;
   if (connectPromise) return connectPromise;
@@ -227,6 +245,7 @@ async function connectBroker() {
     });
     brokerConnectionId = connected.connection_id;
     brokerEpoch = connected.broker_epoch;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
     pendingEvents.length = 0;
     const generation = ++brokerLoopGeneration;
     setTimeout(() => { settleReconnect(connected.connection_id).catch(scheduleReconnect); }, 1000);
@@ -236,12 +255,7 @@ async function connectBroker() {
         if (connected.require_full_truth) await requestCollectorSnapshot(tabId);
       } catch (error) { reportAuthorizationFailure(error); }
     }
-    commandLoop(connected.connection_id, generation).catch((error) => {
-      if (brokerConnectionId === connected.connection_id) brokerConnectionId = undefined;
-      brokerEpoch = undefined;
-      pendingClaim = undefined;
-      scheduleReconnect(error);
-    });
+    startCommandLoop(connected.connection_id, generation);
   })().finally(() => { connectPromise = undefined; });
   return connectPromise;
 }
