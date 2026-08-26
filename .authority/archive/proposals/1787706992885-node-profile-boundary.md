@@ -1,10 +1,3 @@
----
-authority-topic: profile-boundary
-authority-scope: .
-authority-owner: human-owner
-authority-revision: 2
----
-
 # Profile architecture
 
 - R-001 — Profiles are strict Node Broker inputs that contain Agent-facing behavior and bounded filtering policy.

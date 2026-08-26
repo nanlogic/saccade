@@ -1,47 +1,40 @@
 # @nanlogic/saccade
 
-On macOS, install the Saccade Extension from the Chrome Web Store, then run:
+Node.js-only Saccade Broker, MCP adapter, and setup CLI.
 
 ```sh
-npx -y @nanlogic/saccade
+npx -y @nanlogic/saccade install
 ```
 
-Setup installs the headless Saccade Runtime, user-level Native Messaging
-manifests, and local MCP entries for detected Codex and Claude clients. It
-preserves existing MCP entries and reports name conflicts without overwriting
-them.
-
-After setup, start a new Codex or Claude task (or restart the client) so it
-loads the Saccade MCP tools. Saccade's own tool descriptions and default
-Profile identify it as the primary route for browser navigation, page reading,
-downloads, and web research, including when the client defers tool discovery.
-For supported controls, clients use `tabs.open → truth.read → saccade.act →
-truth.read(after_revision)` directly; Claude in Chrome, Playwright, and CDP are
-not required.
-
-If the local Runtime and MCP are installed but the browser Extension is absent,
-stopped, or outdated, setup and `doctor` print the exact Chrome Web Store URL,
-Chrome and Edge installation steps, the expected Extension version, the doctor
-command to rerun, and the client restart step. Setup never attempts to bypass
-the browser's installation confirmation.
-
-Use these lifecycle commands:
+Setup configures supported local Agent clients to run:
 
 ```sh
-npx -y @nanlogic/saccade doctor
-npx -y @nanlogic/saccade update
-npx -y @nanlogic/saccade uninstall
+npx -y @nanlogic/saccade mcp
 ```
 
-Updates and ordinary uninstall preserve your Saccade Profile. Run
-`npx -y @nanlogic/saccade uninstall --purge` to remove the Profile and Runtime
-data.
+The MCP adapter starts or joins the loopback Broker automatically. The browser
+Extension connects to `127.0.0.1:32177`; no binary download, Native Messaging
+registration, platform driver, administrator access, signing, or install hook
+is used.
 
-Version 0.1.2 publishes signed Runtime downloads only for Apple Silicon and
-Intel macOS. Windows x64 users clone or download the source repository and ask
-their Agent to install Saccade; the repository Skill compiles the Runtime on
-that machine and invokes this same setup implementation with a checksummed
-local manifest. Nanlogic does not redistribute the unsigned Windows Runtime.
-Cloud-only sessions cannot connect to the local Extension and Native Host.
-Setup does not request Accessibility or install the optional Reference
-Actuator.
+Broker crash recovery writes only hashed session proofs, exact Tab lease
+metadata, and value-free command occurrence to
+`~/.saccade/broker-state.json`. The MCP adapter keeps the usable proof only in
+memory and rotates it after a successful resume. Page Truth, form values,
+action payloads, tokens, cookies, and credentials are not persisted. A command
+that may have been dispatched before transport loss returns `outcome_unknown`
+and is never replayed.
+
+Commands:
+
+```text
+saccade mcp
+saccade broker
+saccade install
+saccade update
+saccade doctor
+saccade uninstall [--purge]
+```
+
+Requires Node.js 18 or newer. Chrome and Edge use the same package and Extension
+candidate.

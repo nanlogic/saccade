@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "truth-observation-contract",
+  "scope": ".",
+  "title": "Browser Truth observation contract",
+  "revision": 2,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "32a590084c8cc5a3ffcbd28a0d5fa4c33decd415ea9a6f9db12befab5df77bf2",
+  "baseCurrentSha256": "52230f279566fb26d2769a557708281e8eb9f48b69ef2e0e6701382ecdaffec2",
+  "previousEvidencePath": ".authority/evidence/truth-observation-contract/r0001.md",
+  "previousEvidenceSha256": "bf37d9d1276ecf975ad0f68258916b95eb05d8621339fa46536c3b44abbeac6c",
+  "previousEvidenceDataPath": ".authority/evidence/truth-observation-contract/r0001.json",
+  "previousEvidenceDataSha256": "db574ac03ec24701d19f75ca9f783fa6398a9ad2020f5066789aa7f4168c4ebc",
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The Extension compiles each authorized tab into one canonical full semantic view and then pushes meaningful revision-bounded deltas to the loopback Node Broker.",
+      "previousText": "The Extension compiles each authorized tab into one canonical full semantic view and then pushes meaningful revision-bounded deltas."
+    },
+    {
+      "item": "R-003",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Geometry changes update the same object identity; document replacement creates a new document boundary and invalidates stale authority. Replacement never rebinds an old object or action token.",
+      "previousText": "Geometry changes update the same object identity; document replacement creates a new document boundary and invalidates stale authority."
+    },
+    {
+      "item": "R-004",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Editable values, protected values, cookies, storage, DOM paths, locators, screenshots, and arbitrary JavaScript are never exposed as Truth.",
+      "previousText": "Editable values, protected values, cookies, storage, DOM paths, and locators are never exposed as Truth."
+    },
+    {
+      "item": "R-006",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Stream gaps and impossible revisions force an exact-tab reset rather than guessed state. Delta requests never silently become full reads.",
+      "previousText": "Stream gaps and impossible revisions force an exact-tab reset rather than guessed state."
+    },
+    {
+      "item": "R-007",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The Broker keeps one canonical current Truth per exact tab. Full reads return a bounded full view or complete compact catalog; delta reads wait locally for pushed change and return only provably continuous changes."
+    },
+    {
+      "item": "R-008",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Semantic queries return a bounded working set or bounded candidates and never become selectors or execution authority."
+    },
+    {
+      "item": "R-009",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Action receipts may carry value-free relevant deltas and verified semantic postconditions so an Agent does not need a redundant follow-up read."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/node-truth-observation-contract.md",
+      "archivePath": ".authority/archive/proposals/1787706992752-node-truth-observation-contract.md",
+      "sha256": "b96ae9d109f6022297c1fe0692914d1f72aca31d9d3e74996c719ee47bfebc29",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-26T01:16:32.777Z"
+}

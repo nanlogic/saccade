@@ -1,0 +1,533 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 2,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "bad39793e098ea9d1d16c4b23aa2e489b668711b4bce46d6ac8ca28436bd1de9",
+  "baseCurrentSha256": "29b69270bdef25a32579dab425cff38beb3806812343e4e643cc1110b3fa5f71",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0001.md",
+  "previousEvidenceSha256": "276e063e5363d387f56467cae7383c2e3f910fc671165a0c75688d0f2bd8503d",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0001.json",
+  "previousEvidenceDataSha256": "38e7fec33942c08ed33b7e9fe08f47d5bff19a52effb7caacc320a52b3199e58",
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The implementation is Node.js plus the shared Chrome/Edge Extension;",
+      "previousText": "One `saccade.act` request performs its actionability wait locally in"
+    },
+    {
+      "item": "R-002",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "One long-lived Node Broker multiplexes Extension connections and MCP",
+      "previousText": "Before dispatch, the Extension requires the current document,"
+    },
+    {
+      "item": "R-003",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The Broker queue uses unique command IDs, bounded delivery, explicit",
+      "previousText": "Normal controls additionally require stable geometry and current"
+    },
+    {
+      "item": "R-004",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A command not delivered before cancellation is removed. A delivered",
+      "previousText": "Object replacement is stale even when a semantic replacement looks"
+    },
+    {
+      "item": "R-005",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Idempotent read commands may be redelivered only inside the same",
+      "previousText": "Continuous `reflex_target` controls retain a separate bounded"
+    },
+    {
+      "item": "R-006",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Extension reconnect publishes its browser identity, current lease",
+      "previousText": "An `object_id` resolves to exactly one object in the current"
+    },
+    {
+      "item": "R-007",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`tabs.open` records the calling `agent_session_id` in the command;",
+      "previousText": "A document, revision, or token mismatch fails closed before a side"
+    },
+    {
+      "item": "R-008",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`tabs.list`, `tabs.close`, `truth.read`, and `saccade.act` expose or",
+      "previousText": "An ambiguous semantic query returns a bounded candidate set and"
+    },
+    {
+      "item": "R-009",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`truth.read` requires `tab_id` and an explicit `mode` of `full` or",
+      "previousText": "Agent inputs never include CSS, XPath, DOM paths, locators, arbitrary"
+    },
+    {
+      "item": "R-010",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Full reads return the bounded canonical Truth for exactly one tab.",
+      "previousText": "`truth.read` accepts `tab_id`, optional `after_revision`, a bounded"
+    },
+    {
+      "item": "R-011",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Agent responses always identify `tab_id`, `document_id`, revision,",
+      "previousText": "Broker waits locally for browser-pushed state and returns the first"
+    },
+    {
+      "item": "R-012",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "One monotonic request deadline covers MCP → Broker → Extension →",
+      "previousText": "Fixed sleeps are not a protocol primitive or success criterion."
+    },
+    {
+      "item": "R-013",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Diagnostics are a bounded metadata-only ring: session/tab/document,",
+      "previousText": "Each MCP request creates exactly one monotonic deadline and passes"
+    },
+    {
+      "item": "R-014",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Chrome and Edge run the identical Extension and Node Broker candidate",
+      "previousText": "No downstream layer restarts the full timeout."
+    },
+    {
+      "item": "R-015",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Failures report `stage`, `code`, `elapsed_ms`, `retry_safe`, and the"
+    },
+    {
+      "item": "R-016",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "A missing Extension fails immediately rather than consuming the"
+    },
+    {
+      "item": "R-017",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Cancellation removes a command that has not been dispatched from"
+    },
+    {
+      "item": "R-018",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Once dispatched, cancellation is not reported as successful; the"
+    },
+    {
+      "item": "R-019",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "If reconciliation cannot determine the result, the receipt is"
+    },
+    {
+      "item": "R-020",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Actions are never automatically replayed after reconnection."
+    },
+    {
+      "item": "R-021",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Each MCP connection owns a fresh opaque `agent_session_id`."
+    },
+    {
+      "item": "R-022",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "`tabs.open` leases the created tab to the calling session; one"
+    },
+    {
+      "item": "R-023",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "A session cannot read or act on another session's leased tab."
+    },
+    {
+      "item": "R-024",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "A user-shared tab is assigned explicitly to exactly one online Agent"
+    },
+    {
+      "item": "R-025",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "When an Agent disappears, its leases become orphaned; tabs are not"
+    },
+    {
+      "item": "R-026",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "With a connected Chrome or Edge Extension, `tabs.open` creates and"
+    },
+    {
+      "item": "R-027",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "If the browser is not running, Saccade launches the user's normal"
+    },
+    {
+      "item": "R-028",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Saccade never launches a bundled/test browser or creates a hidden or"
+    },
+    {
+      "item": "R-029",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "`tabs.open` returns `tab_id`, `document_id`, initial revision, and"
+    },
+    {
+      "item": "R-030",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Navigation creates a new `document_id` and immediately invalidates"
+    },
+    {
+      "item": "R-031",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Popups, new windows, and opener tabs do not inherit authorization."
+    },
+    {
+      "item": "R-032",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "`saccade.act` may carry a bounded, preplanned batch of independent"
+    },
+    {
+      "item": "R-033",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "The entire batch is resolved and preflighted before the first side"
+    },
+    {
+      "item": "R-034",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Each executed step returns value-free semantic verification; the"
+    },
+    {
+      "item": "R-035",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Submit, navigation, upload, protected fill, and dependent or"
+    },
+    {
+      "item": "R-036",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Every action receipt includes `command_id`, one of"
+    },
+    {
+      "item": "R-037",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "A verified action result is self-sufficient; the Agent is not"
+    },
+    {
+      "item": "R-038",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "`external_execution_required` is an explicit handoff, not permission"
+    },
+    {
+      "item": "R-039",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Broker stores one canonical current Truth for every authorized tab."
+    },
+    {
+      "item": "R-040",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "When the Agent supplies a known goal, the first read prefers a"
+    },
+    {
+      "item": "R-041",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Small pages return a bounded full view; large pages return a complete"
+    },
+    {
+      "item": "R-042",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "The Agent does not select transport-shaped full/index/region modes."
+    },
+    {
+      "item": "R-043",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Runtime keeps a bounded ring buffer containing command identity,"
+    },
+    {
+      "item": "R-044",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Diagnostics never record passwords, protected or editable values,"
+    },
+    {
+      "item": "R-045",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "`doctor` returns only bounded summaries and recent machine-readable"
+    },
+    {
+      "item": "R-046",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "A release candidate is publishable only after the same Extension"
+    },
+    {
+      "item": "R-047",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "Production never uses CDP, Playwright, bundled/test browsers, hidden"
+    },
+    {
+      "item": "R-048",
+      "change": "removed",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Removed by an owner-approved revision.",
+      "confidence": "high",
+      "previousText": "The production implementation is the Rust Runtime plus the shared"
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/node-only-0.2.0-runtime-contract.md",
+      "archivePath": ".authority/archive/proposals/1787703662247-node-only-0.2.0-runtime-contract.md",
+      "sha256": "f73788a7f2132cc1f39259c4f70143efe637d8cc922044004083eece51c8820a",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-26T00:21:02.274Z"
+}

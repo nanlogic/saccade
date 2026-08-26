@@ -21,5 +21,83 @@
     "status": "pending",
     "sha256": "4aa130ff3e62e76e2d15fa22c4eacdcc18d93b17d5da5e2f7447d68c188b6978",
     "createdAt": "2026-08-20T02:05:53.743Z"
+  },
+  {
+    "id": "1787702059018-saccade-0-2-0-runtime-contract",
+    "path": "docs/proposals/saccade-0.2.0-runtime-contract.md",
+    "title": "Saccade 0.2.0 runtime contract",
+    "topic": "saccade-0-2-0-runtime-contract",
+    "baseRevision": 0,
+    "status": "published",
+    "sha256": "8473496c6d0bddc075a1177b15c8e64c63e8260084b1b0def507bc1075b62a89",
+    "createdAt": "2026-08-25T23:54:19.020Z",
+    "publishedAt": "2026-08-25T23:54:28.183Z",
+    "publishedRevision": 1,
+    "archivePath": ".authority/archive/proposals/1787702068151-saccade-0.2.0-runtime-contract.md"
+  },
+  {
+    "id": "1787703642464-node-only-product-and-execution-boundary",
+    "path": "docs/proposals/node-only-product-boundary.md",
+    "title": "Node-only product and execution boundary",
+    "topic": "product-execution-boundary",
+    "baseRevision": 1,
+    "status": "published",
+    "sha256": "b2d85d65aa23e400477447326e98d692f7c9ea0ca69256fcfdca2f7c597c940e",
+    "createdAt": "2026-08-26T00:20:42.468Z",
+    "publishedAt": "2026-08-26T00:20:57.870Z",
+    "publishedRevision": 2,
+    "archivePath": ".authority/archive/proposals/1787703657841-node-only-product-boundary.md"
+  },
+  {
+    "id": "1787703645296-saccade-0-2-0-node-broker-contract",
+    "path": "docs/proposals/node-only-0.2.0-runtime-contract.md",
+    "title": "Saccade 0.2.0 Node Broker contract",
+    "topic": "saccade-0-2-0-runtime-contract",
+    "baseRevision": 1,
+    "status": "published",
+    "sha256": "f73788a7f2132cc1f39259c4f70143efe637d8cc922044004083eece51c8820a",
+    "createdAt": "2026-08-26T00:20:45.297Z",
+    "publishedAt": "2026-08-26T00:21:02.275Z",
+    "publishedRevision": 2,
+    "archivePath": ".authority/archive/proposals/1787703662247-node-only-0.2.0-runtime-contract.md"
+  },
+  {
+    "id": "1787706992695-browser-truth-observation-contract",
+    "path": "docs/proposals/node-truth-observation-contract.md",
+    "title": "Browser Truth observation contract",
+    "topic": "truth-observation-contract",
+    "baseRevision": 1,
+    "status": "published",
+    "sha256": "b96ae9d109f6022297c1fe0692914d1f72aca31d9d3e74996c719ee47bfebc29",
+    "createdAt": "2026-08-26T01:16:32.698Z",
+    "publishedAt": "2026-08-26T01:16:32.778Z",
+    "publishedRevision": 2,
+    "archivePath": ".authority/archive/proposals/1787706992752-node-truth-observation-contract.md"
+  },
+  {
+    "id": "1787706992837-profile-architecture",
+    "path": "docs/proposals/node-profile-boundary.md",
+    "title": "Profile architecture",
+    "topic": "profile-boundary",
+    "baseRevision": 1,
+    "status": "published",
+    "sha256": "faab0c869a3736168e38db7dd5761e5a77aeead90512d4365218bbbf72485e4c",
+    "createdAt": "2026-08-26T01:16:32.838Z",
+    "publishedAt": "2026-08-26T01:16:32.909Z",
+    "publishedRevision": 2,
+    "archivePath": ".authority/archive/proposals/1787706992885-node-profile-boundary.md"
+  },
+  {
+    "id": "1787751422472-saccade-0-2-0-node-broker-contract",
+    "path": "docs/proposals/node-broker-crash-recovery.md",
+    "title": "Saccade 0.2.0 Node Broker contract",
+    "topic": "saccade-0-2-0-runtime-contract",
+    "baseRevision": 2,
+    "status": "published",
+    "sha256": "726491d1af6905641317238c9e90436324c21b283c700a808bc4ffb31c542e57",
+    "createdAt": "2026-08-26T13:37:02.475Z",
+    "publishedAt": "2026-08-26T13:37:02.568Z",
+    "publishedRevision": 3,
+    "archivePath": ".authority/archive/proposals/1787751422536-node-broker-crash-recovery.md"
   }
 ]

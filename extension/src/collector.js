@@ -1023,19 +1023,16 @@
 
   function prepare(request) {
     if (!config || request.browser_instance_id !== config.browserInstanceId || request.tab_id !== config.tabId
-      || request.document_id !== documentId || request.basis_revision > revision) {
+      || request.document_id !== documentId || request.basis_revision !== revision) {
       throw actionFailure('prepare', 'stale_action_basis', false, 'stale action basis');
     }
     const target = tokenTargets.get(request.action_token);
     if (!target || !target.element.isConnected || !target.affordances.includes(request.operation)) {
       throw actionFailure('prepare', 'stale_action_token', false, 'action token is not current for operation');
     }
-    // Software dispatch prepares twice: once for the Runtime's closed-loop
-    // receipt, then again inside the Extension command that performs the
-    // action. Defer scrolling on the first pass so its own scroll observation
-    // cannot make the immediately following dispatch stale. The dispatch pass
-    // scrolls and acts synchronously in one task, while all identity, token,
-    // document, revision, and affordance checks remain mandatory.
+    // A preflight may defer scrolling. The dispatch pass scrolls and acts in
+    // the same task while identity, token, document, revision, and affordance
+    // checks remain mandatory.
     const deferred = request.defer_scroll === true;
     if (!deferred) {
       target.element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
@@ -1168,10 +1165,10 @@
     );
   }
 
-  async function softClick(request) {
-    const prepared = await waitForSoftwarePreparation(request);
+  async function softClick(request, preflight) {
+    const prepared = preflight || await waitForSoftwarePreparation(request);
     const target = tokenTargets.get(request.action_token);
-    if (!target || !SOFTWARE_CLICK_ROLES.has(target.role)) {
+    if (!target || !target.element.isConnected || !SOFTWARE_CLICK_ROLES.has(target.role)) {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software click is not registered for the current control');
     }
     const box = boxFor(target.element);
@@ -1191,10 +1188,10 @@
     return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
 
-  async function softType(request) {
-    const prepared = await waitForSoftwarePreparation(request);
+  async function softType(request, preflight) {
+    const prepared = preflight || await waitForSoftwarePreparation(request);
     const target = tokenTargets.get(request.action_token);
-    if (!target || !SOFTWARE_TYPE_ROLES.has(target.role)) {
+    if (!target || !target.element.isConnected || !SOFTWARE_TYPE_ROLES.has(target.role)) {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software typing is not registered for the current control');
     }
     const element = target.element;
@@ -1226,10 +1223,10 @@
     return { accepted: true, local_wait_ms: prepared.local_wait_ms };
   }
 
-  async function softAction(request) {
-    if (request.operation === 'click') return softClick(request);
-    if (request.operation === 'type') return softType(request);
-    const prepared = await waitForSoftwarePreparation(request);
+  async function softAction(request, preflight) {
+    if (request.operation === 'click') return softClick(request, preflight);
+    if (request.operation === 'type') return softType(request, preflight);
+    const prepared = preflight || await waitForSoftwarePreparation(request);
     if (request.operation !== 'select' || request.payload?.kind !== 'select') {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software action is not registered for the current operation');
     }
@@ -1248,6 +1245,36 @@
       }
     }
     return { accepted: true, local_wait_ms: prepared.local_wait_ms };
+  }
+
+  async function softActionBatch(request) {
+    if (!Array.isArray(request.steps) || request.steps.length < 1 || request.steps.length > 32) {
+      throw actionFailure('preflight', 'invalid_batch', true, 'form batch must contain 1 to 32 steps');
+    }
+    const prepared = [];
+    const seen = new Set();
+    const deadline = performance.now() + Math.max(1, Math.min(30000, Number(request.timeout_ms) || 5000));
+    for (const step of request.steps) {
+      if (seen.has(step.object_id)) {
+        throw actionFailure('preflight', 'invalid_batch', true, 'form batch objects must be independent');
+      }
+      seen.add(step.object_id);
+      const target = tokenTargets.get(step.action_token);
+      const safeToggle = step.operation === 'click' && ['checkbox', 'radio', 'switch'].includes(target?.role);
+      if (!['type', 'select'].includes(step.operation) && !safeToggle) {
+        throw actionFailure('preflight', 'batch_boundary', true, 'submit, navigation, and upload are not allowed in a form batch');
+      }
+      const remaining = Math.max(1, deadline - performance.now());
+      prepared.push(await waitForSoftwarePreparation({ ...step, timeout_ms: remaining }));
+    }
+    const receipts = [];
+    for (let index = 0; index < request.steps.length; index += 1) {
+      const step = request.steps[index];
+      const result = await softAction(step, prepared[index]);
+      receipts.push({ object_id: step.object_id, operation: step.operation, accepted: result.accepted === true });
+    }
+    requestAnimationFrame(collect);
+    return { accepted: receipts.every((receipt) => receipt.accepted), steps: receipts };
   }
 
   function schedule() {
@@ -1319,8 +1346,10 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
-    if (message.kind === 'collector.soft_click' || message.kind === 'collector.soft_action') {
-      const action = message.kind === 'collector.soft_click' ? softClick : softAction;
+    if (message.kind === 'collector.soft_click' || message.kind === 'collector.soft_action'
+      || message.kind === 'collector.soft_action_batch') {
+      const action = message.kind === 'collector.soft_click'
+        ? softClick : message.kind === 'collector.soft_action_batch' ? softActionBatch : softAction;
       action(message.request).then((result) => respond({ ok: true, result })).catch((error) => {
         respond({
           ok: false,

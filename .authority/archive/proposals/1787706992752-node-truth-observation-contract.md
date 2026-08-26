@@ -1,10 +1,3 @@
----
-authority-topic: truth-observation-contract
-authority-scope: .
-authority-owner: human-owner
-authority-revision: 2
----
-
 # Browser Truth observation contract
 
 - R-001 — The Extension compiles each authorized tab into one canonical full semantic view and then pushes meaningful revision-bounded deltas to the loopback Node Broker.

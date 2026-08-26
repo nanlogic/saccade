@@ -1,0 +1,519 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "baseline",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 runtime contract",
+  "revision": 1,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "29b69270bdef25a32579dab425cff38beb3806812343e4e643cc1110b3fa5f71",
+  "baseCurrentSha256": null,
+  "previousEvidencePath": null,
+  "previousEvidenceSha256": null,
+  "previousEvidenceDataPath": null,
+  "previousEvidenceDataSha256": null,
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "One `saccade.act` request performs its actionability wait locally in"
+    },
+    {
+      "item": "R-002",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Before dispatch, the Extension requires the current document,"
+    },
+    {
+      "item": "R-003",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Normal controls additionally require stable geometry and current"
+    },
+    {
+      "item": "R-004",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Object replacement is stale even when a semantic replacement looks"
+    },
+    {
+      "item": "R-005",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Continuous `reflex_target` controls retain a separate bounded"
+    },
+    {
+      "item": "R-006",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "An `object_id` resolves to exactly one object in the current"
+    },
+    {
+      "item": "R-007",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "A document, revision, or token mismatch fails closed before a side"
+    },
+    {
+      "item": "R-008",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "An ambiguous semantic query returns a bounded candidate set and"
+    },
+    {
+      "item": "R-009",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Agent inputs never include CSS, XPath, DOM paths, locators, arbitrary"
+    },
+    {
+      "item": "R-010",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "`truth.read` accepts `tab_id`, optional `after_revision`, a bounded"
+    },
+    {
+      "item": "R-011",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Broker waits locally for browser-pushed state and returns the first"
+    },
+    {
+      "item": "R-012",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Fixed sleeps are not a protocol primitive or success criterion."
+    },
+    {
+      "item": "R-013",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Each MCP request creates exactly one monotonic deadline and passes"
+    },
+    {
+      "item": "R-014",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "No downstream layer restarts the full timeout."
+    },
+    {
+      "item": "R-015",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Failures report `stage`, `code`, `elapsed_ms`, `retry_safe`, and the"
+    },
+    {
+      "item": "R-016",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "A missing Extension fails immediately rather than consuming the"
+    },
+    {
+      "item": "R-017",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Cancellation removes a command that has not been dispatched from"
+    },
+    {
+      "item": "R-018",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Once dispatched, cancellation is not reported as successful; the"
+    },
+    {
+      "item": "R-019",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "If reconciliation cannot determine the result, the receipt is"
+    },
+    {
+      "item": "R-020",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Actions are never automatically replayed after reconnection."
+    },
+    {
+      "item": "R-021",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Each MCP connection owns a fresh opaque `agent_session_id`."
+    },
+    {
+      "item": "R-022",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "`tabs.open` leases the created tab to the calling session; one"
+    },
+    {
+      "item": "R-023",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "A session cannot read or act on another session's leased tab."
+    },
+    {
+      "item": "R-024",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "A user-shared tab is assigned explicitly to exactly one online Agent"
+    },
+    {
+      "item": "R-025",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "When an Agent disappears, its leases become orphaned; tabs are not"
+    },
+    {
+      "item": "R-026",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "With a connected Chrome or Edge Extension, `tabs.open` creates and"
+    },
+    {
+      "item": "R-027",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "If the browser is not running, Saccade launches the user's normal"
+    },
+    {
+      "item": "R-028",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Saccade never launches a bundled/test browser or creates a hidden or"
+    },
+    {
+      "item": "R-029",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "`tabs.open` returns `tab_id`, `document_id`, initial revision, and"
+    },
+    {
+      "item": "R-030",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Navigation creates a new `document_id` and immediately invalidates"
+    },
+    {
+      "item": "R-031",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Popups, new windows, and opener tabs do not inherit authorization."
+    },
+    {
+      "item": "R-032",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "`saccade.act` may carry a bounded, preplanned batch of independent"
+    },
+    {
+      "item": "R-033",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "The entire batch is resolved and preflighted before the first side"
+    },
+    {
+      "item": "R-034",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Each executed step returns value-free semantic verification; the"
+    },
+    {
+      "item": "R-035",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Submit, navigation, upload, protected fill, and dependent or"
+    },
+    {
+      "item": "R-036",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Every action receipt includes `command_id`, one of"
+    },
+    {
+      "item": "R-037",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "A verified action result is self-sufficient; the Agent is not"
+    },
+    {
+      "item": "R-038",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "`external_execution_required` is an explicit handoff, not permission"
+    },
+    {
+      "item": "R-039",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Broker stores one canonical current Truth for every authorized tab."
+    },
+    {
+      "item": "R-040",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "When the Agent supplies a known goal, the first read prefers a"
+    },
+    {
+      "item": "R-041",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Small pages return a bounded full view; large pages return a complete"
+    },
+    {
+      "item": "R-042",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "The Agent does not select transport-shaped full/index/region modes."
+    },
+    {
+      "item": "R-043",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Runtime keeps a bounded ring buffer containing command identity,"
+    },
+    {
+      "item": "R-044",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Diagnostics never record passwords, protected or editable values,"
+    },
+    {
+      "item": "R-045",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "`doctor` returns only bounded summaries and recent machine-readable"
+    },
+    {
+      "item": "R-046",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "A release candidate is publishable only after the same Extension"
+    },
+    {
+      "item": "R-047",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "Production never uses CDP, Playwright, bundled/test browsers, hidden"
+    },
+    {
+      "item": "R-048",
+      "change": "selected",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Explicit owner-approved source.",
+      "confidence": "high",
+      "text": "The production implementation is the Rust Runtime plus the shared"
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/saccade-0.2.0-runtime-contract.md",
+      "archivePath": ".authority/archive/proposals/1787702068151-saccade-0.2.0-runtime-contract.md",
+      "sha256": "8473496c6d0bddc075a1177b15c8e64c63e8260084b1b0def507bc1075b62a89",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-25T23:54:28.181Z"
+}

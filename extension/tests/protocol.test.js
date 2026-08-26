@@ -5,20 +5,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { HOST_PROTOCOL, OBSERVATION_SCHEMA, envelope, parseHostMessage, randomToken } = require('../src/protocol.js');
+const { BROKER_PROTOCOL, OBSERVATION_SCHEMA, randomToken } = require('../src/protocol.js');
 const { normalizeOrigin, isProtectedFieldType, redactProtectedText } = require('../src/consent.js');
 const { compileChanges, compactTransport } = require('../src/truth_delta.js');
 const registry = require('../src/controls/registry.js');
 
-test('Native Messaging envelope preserves the v1 wire names', () => {
-  assert.deepEqual(envelope('hello', { browser_instance_id: 'browser.test' }, 7), {
-    protocol: HOST_PROTOCOL, kind: 'hello', payload: { browser_instance_id: 'browser.test' }, request_id: 7,
-  });
-  assert.equal(HOST_PROTOCOL, 'saccade-extension-host/1');
+test('Extension protocol names the Node Broker and observation schema', () => {
+  assert.equal(BROKER_PROTOCOL, 'saccade.node-broker/1');
   assert.equal(OBSERVATION_SCHEMA, 'saccade.observation/1');
-  assert.equal(parseHostMessage({ protocol: 'wrong', kind: 'tabs.list' }), null);
-  assert.equal(parseHostMessage({ protocol: HOST_PROTOCOL, kind: 'tabs.list', request_id: -1 }), null);
-  assert.equal(parseHostMessage({ protocol: HOST_PROTOCOL, kind: 'tabs.list', selector: 'button' }), null);
   assert.match(randomToken('action', 16), /^action\.[0-9a-f]{32}$/);
   assert.throws(() => randomToken('action', 15));
 });
@@ -42,11 +36,12 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, 'Saccade');
-  assert.equal(manifest.version, '0.3.24');
+  assert.equal(manifest.version, '0.4.0');
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
-  assert.deepEqual(manifest.permissions, ['tabs', 'nativeMessaging', 'storage', 'alarms']);
+  assert.deepEqual(manifest.permissions, ['tabs', 'storage', 'alarms']);
+  assert.ok(manifest.host_permissions.includes('http://127.0.0.1:32177/*'));
   assert.deepEqual(manifest.icons, {
     16: 'icons/icon-16.png',
     32: 'icons/icon-32.png',
@@ -64,9 +59,8 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   assert.equal(manifest.content_scripts[0].js.at(-1), 'src/collector.js');
   assert.ok(manifest.content_scripts[0].js.indexOf('src/truth_delta.js') < manifest.content_scripts[0].js.indexOf('src/collector.js'));
   assert.equal(manifest.action.default_popup, 'popup.html');
-  assert.match(worker, /com\.nanlogic\.saccade\.dev/);
-  assert.match(worker, /com\.nanlogic\.saccade'/);
-  assert.match(worker, /getManifest\(\)\.name\.includes\('\(Development\)'\)/);
+  assert.match(worker, /BROKER_ORIGIN = 'http:\/\/127\.0\.0\.1:32177'/);
+  assert.doesNotMatch(worker, /connectNative|nativeMessaging|NATIVE_HOST/);
   assert.match(worker, /extension_candidate: LOADED_CANDIDATE/);
   assert.match(worker, /reloadIfCandidateChanged/);
   assert.match(worker, /sameCandidate\(ping\.extension_candidate\)/);
@@ -395,9 +389,9 @@ test('tab ownership survives Extension reload but resets at browser startup', ()
   assert.match(worker, /chrome\.storage\.session\.get\(BROWSER_SESSION_KEY\)/);
   assert.match(worker, /freshBrowserSession \? \{\} : \(storedAcl\[TAB_ACL_KEY\] \|\| \{\}\)/);
   assert.match(worker, /chrome\.storage\.local\.remove\(TAB_ACL_KEY\)/);
-  assert.match(worker, /chrome\.runtime\.onStartup\.addListener\(\(\) => \{\s*connectHost\(\)\.catch\(scheduleReconnect\)/s);
-  assert.match(worker, /connectHost\(\)\.catch\(scheduleReconnect\);\s*$/);
-  assert.doesNotMatch(worker, /bootTimer|setTimeout\(\(\) => \{ connectHost/);
+  assert.match(worker, /chrome\.runtime\.onStartup\.addListener\(\(\) => \{\s*connectBroker\(\)\.catch\(scheduleReconnect\)/s);
+  assert.match(worker, /connectBroker\(\)\.catch\(scheduleReconnect\);\s*$/);
+  assert.doesNotMatch(worker, /bootTimer|setTimeout\(\(\) => \{ connectBroker/);
   assert.doesNotMatch(worker, /chrome\.storage\.session\.(get|set)\(TAB_ACL_KEY/);
 });
 
@@ -407,7 +401,7 @@ test('prepare checks the revision basis after tab activation and focus', () => {
   assert.match(worker, /if \(!browserWindow\.focused\).*chrome\.windows\.update/s);
   assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
-  assert.match(collector, /request\.basis_revision > revision/);
+  assert.match(collector, /request\.basis_revision !== revision/);
   assert.match(collector, /previous\.target\.authorityFingerprint !== current\.authorityFingerprint/);
   assert.match(collector, /authorityFingerprint: authorityFingerprint\(object\)/);
   assert.match(collector, /request\.document_id !== documentId/);
@@ -443,48 +437,33 @@ test('software action bridge is token-bound and limited to Registry roles', () =
   assert.match(worker, /collector\.soft_click/);
 });
 
-test('managed Chrome and Edge routes share one protocol and keep browser evidence separate', () => {
-  const dev = fs.readFileSync(path.join(__dirname, '../../scripts/dev.sh'), 'utf8');
-  const probe = fs.readFileSync(path.join(__dirname, '../../scripts/dev_probe.py'), 'utf8');
-  const host = fs.readFileSync(path.join(__dirname, '../../scripts/dev/com.nanlogic.saccade.dev.json.in'), 'utf8');
-  assert.match(dev, /Microsoft Edge\/NativeMessagingHosts/);
-  assert.match(dev, /profile-v\$BROWSER_PROFILE_GENERATION/);
-  assert.match(dev, /--disable-session-crashed-bubble/);
-  assert.match(dev, /--window-size=800,747/);
-  assert.match(dev, /profile\["exit_type"\] = "Normal"/);
-  assert.match(dev, /test \[chrome\|edge\|all\]/);
-  assert.match(dev, /compare \[chrome\|edge\|all\]/);
-  assert.match(dev, /external_dogfood\.py/);
-  assert.match(dev, /reference\/playwright/);
-  assert.match(dev, /accuracy \[chrome\|edge\|all\]/);
-  assert.match(probe, /mouse_accuracy/);
-  assert.match(probe, /ACCURACY_WINDOW_PHASES/);
-  assert.match(dev, /--window-pid/);
-  assert.match(dev, /EVIDENCE_DIR\/\$test_stamp\/\$test_browser/);
-  assert.match(probe, /--browser/);
-  assert.match(probe, /"browser": browser/);
-  assert.match(host, /chrome-extension:\/\/bobfbgjplflcigednmccmbhlgclomgod\//);
+test('Chrome and Edge share one loopback Broker protocol', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(worker, /BROWSER_FAMILY = navigator\.userAgent\.includes\('Edg\/'\) \? 'edge' : 'chrome'/);
+  assert.match(worker, /browser_family: BROWSER_FAMILY/);
+  assert.match(worker, /broker_epoch/);
+  assert.doesNotMatch(worker, /darwin|win32|platform_input|connectNative/);
 });
 
-test('Native Host ownership conflicts recover without requiring a popup wake-up', () => {
+test('Node Broker reconnect uses bounded backoff without a popup wake-up', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
-  const reconnect = worker.slice(worker.indexOf('function scheduleReconnect'), worker.indexOf('async function connectHost'));
+  const reconnect = worker.slice(worker.indexOf('function scheduleReconnect'), worker.indexOf('async function brokerRequest'));
   assert.match(reconnect, /Math\.min\(250 \* \(2 \*\* reconnectAttempts\+\+\), 4000\)/);
   assert.doesNotMatch(reconnect, /reconnectAttempts\s*>=/);
   assert.match(reconnect, /chrome\.alarms\.create\(RECONNECT_ALARM/);
   assert.match(worker, /RECONNECT_ALARM_DELAY_MS = 30_000/);
-  assert.match(worker, /async function settleReconnect\(port\)/);
+  assert.match(worker, /async function settleReconnect\(connectionId\)/);
   assert.match(worker, /chrome\.windows\.getAll\(\{ windowTypes: \['normal'\] \}\)/);
   assert.match(worker, /if \(windows\.length\) chrome\.alarms\.clear\(RECONNECT_ALARM\)/);
   assert.match(worker, /chrome\.alarms\.onAlarm\.addListener/);
 });
 
-test('Native Host hello supplies a fixed browser lifecycle wake route', () => {
+test('Broker connect declares browser family and candidate', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /BROWSER_FAMILY = navigator\.userAgent\.includes\('Edg\/'\) \? 'edge' : 'chrome'/);
   assert.match(worker, /browser_family: BROWSER_FAMILY/);
-  assert.match(worker, /development: NATIVE_HOST\.endsWith\('\.dev'\)/);
-  assert.match(worker, /wake_url: chrome\.runtime\.getURL\('popup\.html'\)/);
+  assert.match(worker, /extension_candidate: LOADED_CANDIDATE/);
+  assert.match(worker, /\/v1\/extension\/connect/);
 });
 
 test('Agent tab lifecycle recovers from no current window and survives last-tab close', () => {
@@ -497,10 +476,10 @@ test('Agent tab lifecycle recovers from no current window and survives last-tab 
   assert.match(close, /closesLastWindowTab/);
   assert.ok(close.indexOf("reply(command, { tab_id: String(tabId), closed: true })") < close.indexOf('await chrome.tabs.remove(tabId)'));
   assert.match(worker, /chrome\.windows\.onRemoved\.addListener\(\(\) => \{ reconnectAfterWindowRemoval\(\); \}\)/);
-  const windowReconnect = worker.slice(worker.indexOf('async function reconnectAfterWindowRemoval'), worker.indexOf('async function connectHost'));
-  assert.match(windowReconnect, /if \(nativePort\) return/);
+  const windowReconnect = worker.slice(worker.indexOf('async function reconnectAfterWindowRemoval'), worker.indexOf('async function brokerRequest'));
+  assert.match(windowReconnect, /if \(brokerConnectionId\) return/);
   assert.doesNotMatch(windowReconnect, /\.disconnect\(\)/);
-  assert.match(windowReconnect, /await connectHost\(\)/);
+  assert.match(windowReconnect, /await connectBroker\(\)/);
 });
 
 test('the Collector reads the full document URL in the same collect as the objects', () => {
@@ -569,7 +548,7 @@ test('links declare a disposition only when this document cannot verify them', (
 test('software typing sets a value through the native setter and never reaches protected fields', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /SOFTWARE_TYPE_ROLES/);
-  assert.match(collector, /if \(request\.operation === 'type'\) return softType\(request\);/);
+  assert.match(collector, /if \(request\.operation === 'type'\) return softType\(request, preflight\);/);
   // Frameworks patch the value property, so assign through the prototype setter
   // or React and Angular never observe the change.
   assert.match(collector, /Object\.getOwnPropertyDescriptor\(prototype, 'value'\)\?\.set/);

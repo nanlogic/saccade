@@ -4,7 +4,7 @@
     "name": "SACCADE-CONTROL-RUNTIME",
     "owner": "human-owner"
   },
-  "revision": 4,
+  "revision": 10,
   "topics": {
     "truth-observation-contract": {
       "title": "Browser Truth observation contract",
@@ -12,37 +12,49 @@
       "scope": ".",
       "status": "current",
       "path": "docs/current/truth-observation-contract.md",
-      "revision": 1,
-      "sha256": "52230f279566fb26d2769a557708281e8eb9f48b69ef2e0e6701382ecdaffec2",
-      "evidencePath": ".authority/evidence/truth-observation-contract/r0001.md",
-      "evidenceSha256": "bf37d9d1276ecf975ad0f68258916b95eb05d8621339fa46536c3b44abbeac6c",
-      "evidenceDataPath": ".authority/evidence/truth-observation-contract/r0001.json",
-      "evidenceDataSha256": "db574ac03ec24701d19f75ca9f783fa6398a9ad2020f5066789aa7f4168c4ebc",
+      "revision": 2,
+      "sha256": "32a590084c8cc5a3ffcbd28a0d5fa4c33decd415ea9a6f9db12befab5df77bf2",
+      "evidencePath": ".authority/evidence/truth-observation-contract/r0002.md",
+      "evidenceSha256": "ae97be560c5e257ccc0283bfd5487127fb6d1619ddcef92adc7ff3aaa41d7c55",
+      "evidenceDataPath": ".authority/evidence/truth-observation-contract/r0002.json",
+      "evidenceDataSha256": "f7109ed7eaaa7cbb01c46354762f7def351765a9a3be1141d0d7e7179af2c219",
       "evidenceStatus": "complete",
       "owner": "human-owner",
-      "updatedAt": "2026-08-19T21:54:03.108Z",
-      "adoptionRun": "adopt-20260819214833-db978a",
-      "decisionId": "truth-observation-contract",
-      "supersedes": null
+      "updatedAt": "2026-08-26T01:16:32.778Z",
+      "adoptionRun": null,
+      "decisionId": null,
+      "supersedes": {
+        "path": "docs/current/truth-observation-contract.md",
+        "revision": 1,
+        "sha256": "52230f279566fb26d2769a557708281e8eb9f48b69ef2e0e6701382ecdaffec2",
+        "evidencePath": ".authority/evidence/truth-observation-contract/r0001.md",
+        "evidenceSha256": "bf37d9d1276ecf975ad0f68258916b95eb05d8621339fa46536c3b44abbeac6c"
+      }
     },
     "profile-boundary": {
-      "title": "Profile architecture and filtering boundary",
+      "title": "Profile architecture",
       "topic": "profile-boundary",
       "scope": ".",
       "status": "current",
       "path": "docs/current/profile-boundary.md",
-      "revision": 1,
-      "sha256": "2877406baa1b181abe2251b47ad12c1b8e490eeebb8ffe5dd48805ce4c28a6c6",
-      "evidencePath": ".authority/evidence/profile-boundary/r0001.md",
-      "evidenceSha256": "47a12945b958efd13cf548f6c4efdf61511eeddb424415dad643605b16ba4d58",
-      "evidenceDataPath": ".authority/evidence/profile-boundary/r0001.json",
-      "evidenceDataSha256": "17cd7949669e0b3584cef5ad3e69871fcc8243697f7ba5bb63364c16f8a48081",
+      "revision": 2,
+      "sha256": "685e0f89a96eb4f8cab50f8e958a8e0d1fc8d429d5b4f5fc5784623748ec27b1",
+      "evidencePath": ".authority/evidence/profile-boundary/r0002.md",
+      "evidenceSha256": "7ec0b9c4c42656c56884568e248c732b725a070ab3e9b7d69912291588baa406",
+      "evidenceDataPath": ".authority/evidence/profile-boundary/r0002.json",
+      "evidenceDataSha256": "6855088a3fee998256b7a8877344c875fca6281cf9d41bab67bc45b99fc6e23b",
       "evidenceStatus": "complete",
       "owner": "human-owner",
-      "updatedAt": "2026-08-19T21:54:03.137Z",
-      "adoptionRun": "adopt-20260819214833-db978a",
-      "decisionId": "profile-boundary",
-      "supersedes": null
+      "updatedAt": "2026-08-26T01:16:32.909Z",
+      "adoptionRun": null,
+      "decisionId": null,
+      "supersedes": {
+        "path": "docs/current/profile-boundary.md",
+        "revision": 1,
+        "sha256": "2877406baa1b181abe2251b47ad12c1b8e490eeebb8ffe5dd48805ce4c28a6c6",
+        "evidencePath": ".authority/evidence/profile-boundary/r0001.md",
+        "evidenceSha256": "47a12945b958efd13cf548f6c4efdf61511eeddb424415dad643605b16ba4d58"
+      }
     },
     "legacy-migration-policy": {
       "title": "Legacy migration policy",
@@ -64,24 +76,55 @@
       "supersedes": null
     },
     "product-execution-boundary": {
-      "title": "Saccade product and execution boundary",
+      "title": "Node-only product and execution boundary",
       "topic": "product-execution-boundary",
       "scope": ".",
       "status": "current",
       "path": "docs/current/product-execution-boundary.md",
-      "revision": 1,
-      "sha256": "3077b4e9ae120c39b6ac1e51af306e635be5693e5d6a06a5b348061649fbcb8c",
-      "evidencePath": ".authority/evidence/product-execution-boundary/r0001.md",
-      "evidenceSha256": "67499cb7b80f1f2701ae27a45ad2a179368fd8b992bb78ce4ef18a30da28287f",
-      "evidenceDataPath": ".authority/evidence/product-execution-boundary/r0001.json",
-      "evidenceDataSha256": "0ad06e44c4b05f7d1032f48995f298c66325611a1da6ec4f5ca2ee74ef0d5a29",
+      "revision": 2,
+      "sha256": "39e463050c3de8802e9255e3e7592686dd994cc32052b7fdbf670c620d3ce016",
+      "evidencePath": ".authority/evidence/product-execution-boundary/r0002.md",
+      "evidenceSha256": "97aafe745edec7bb86805eacdef8fd4079c75c5710faeb8023c646bb6836e4ed",
+      "evidenceDataPath": ".authority/evidence/product-execution-boundary/r0002.json",
+      "evidenceDataSha256": "ffdf0336703c44a23722ac08620f9c3f44301c2b4245c73bc3e68235fa7fc830",
       "evidenceStatus": "complete",
       "owner": "human-owner",
-      "updatedAt": "2026-08-19T21:56:01.982Z",
+      "updatedAt": "2026-08-26T00:20:57.870Z",
       "adoptionRun": null,
       "decisionId": null,
-      "supersedes": null
+      "supersedes": {
+        "path": "docs/current/product-execution-boundary.md",
+        "revision": 1,
+        "sha256": "3077b4e9ae120c39b6ac1e51af306e635be5693e5d6a06a5b348061649fbcb8c",
+        "evidencePath": ".authority/evidence/product-execution-boundary/r0001.md",
+        "evidenceSha256": "67499cb7b80f1f2701ae27a45ad2a179368fd8b992bb78ce4ef18a30da28287f"
+      }
+    },
+    "saccade-0-2-0-runtime-contract": {
+      "title": "Saccade 0.2.0 Node Broker contract",
+      "topic": "saccade-0-2-0-runtime-contract",
+      "scope": ".",
+      "status": "current",
+      "path": "docs/current/saccade-0-2-0-runtime-contract.md",
+      "revision": 3,
+      "sha256": "74607bd0d19dd09d998a4b0021618e06990927254845ed43b8903674d508fb01",
+      "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0003.md",
+      "evidenceSha256": "b1479e33b9840f8ecfb55a0ece6932c364cbeeed6b4e355c9dadde27839de70f",
+      "evidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0003.json",
+      "evidenceDataSha256": "92839bc316cfde32d754122f0f6fce4b933f649e050ef60051025da8e30c44d4",
+      "evidenceStatus": "complete",
+      "owner": "human-owner",
+      "updatedAt": "2026-08-26T13:37:02.568Z",
+      "adoptionRun": null,
+      "decisionId": null,
+      "supersedes": {
+        "path": "docs/current/saccade-0-2-0-runtime-contract.md",
+        "revision": 2,
+        "sha256": "bad39793e098ea9d1d16c4b23aa2e489b668711b4bce46d6ac8ca28436bd1de9",
+        "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0002.md",
+        "evidenceSha256": "7dfa04d75da7691e1b1d8c438c5b30737ad397f4341f5c2b27f8e8e1f8345d22"
+      }
     }
   },
-  "updatedAt": "2026-08-19T21:56:01.982Z"
+  "updatedAt": "2026-08-26T13:37:02.568Z"
 }

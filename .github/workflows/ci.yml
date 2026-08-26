@@ -13,14 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install Rust components
-        run: rustup component add clippy rustfmt
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Rust tests
-        run: cargo test --workspace --locked
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Extension tests
         run: node --test extension/tests/*.test.js
       - name: Setup package tests
@@ -42,10 +37,8 @@ jobs:
             tests/test_external_dogfood.py \
             tests/test_public_truth_cases.py
           python3 -m unittest \
-            tests/test_dev_lifecycle.py \
             tests/test_lifecycle_truth.py \
             tests/test_summarize_fair_matrix.py \
-            tests/test_build_setup_release.py \
             tests/test_package_extension_release.py \
             tests/test_audit_public_evidence.py
           python3 -m unittest \

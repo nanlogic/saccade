@@ -1,11 +1,9 @@
 importScripts('candidate_identity.js', 'protocol.js', 'consent.js');
 
-const { envelope, parseHostMessage, randomToken } = globalThis.SaccadeProtocol;
+const { randomToken } = globalThis.SaccadeProtocol;
 const { isSupportedUrl, normalizeOrigin } = globalThis.SaccadeConsent;
 const LOADED_CANDIDATE = globalThis.SaccadeCandidate;
-const NATIVE_HOST = chrome.runtime.getManifest().name.includes('(Development)')
-  ? 'com.nanlogic.saccade.dev'
-  : 'com.nanlogic.saccade';
+const BROKER_ORIGIN = 'http://127.0.0.1:32177';
 const BROWSER_FAMILY = navigator.userAgent.includes('Edg/') ? 'edge' : 'chrome';
 const INSTANCE_KEY = 'saccade.browser_instance_id';
 const TAB_ACL_KEY = 'saccade.tab_acl';
@@ -17,13 +15,17 @@ const claimedAgentTabs = new Set();
 const sessions = new Map();
 const authorizationPromises = new Map();
 // Session-only, single-use claim intent. Never persisted: a replaced Service
-// Worker or an ended Native Host session must fail closed and force a re-arm.
+// Worker must fail closed and force a re-arm.
 let pendingClaim;
 let browserInstanceId;
-let nativePort;
+let brokerConnectionId;
+let brokerEpoch;
 let connectPromise;
 let reconnectAttempts = 0;
 let reconnectTimer;
+let brokerLoopGeneration = 0;
+const pendingEvents = [];
+let flushPromise;
 
 function sameCandidate(candidate) {
   return candidate?.schema === LOADED_CANDIDATE.schema
@@ -102,7 +104,7 @@ async function tabStatus(tabId) {
     shared: userSharedTabs.has(tabId), authorized: isAuthorized(tabId),
     provenance: tabProvenance(tabId),
     observation_ready: Boolean(session?.observationReady), collector_error: session?.error,
-    host_connected: Boolean(nativePort),
+    broker_connected: Boolean(brokerConnectionId),
   };
 }
 
@@ -120,19 +122,7 @@ async function revokeTabAccess(tabId) {
   try { await chrome.tabs.sendMessage(tabId, { kind: 'collector.deauthorize' }, { frameId: 0 }); } catch (_error) { /* already gone */ }
 }
 
-// A claimed tab is Agent On for one Native Host session only. When that session
-// ends the claim's authority ends with it; user_shared and tabs.open ownership
-// are untouched because their lifecycle is not tied to the Agent session.
-async function revokeClaimedTabs() {
-  for (const tabId of [...claimedAgentTabs]) await revokeTabAccess(tabId);
-}
-
-function post(kind, payload = {}, requestId) {
-  if (!nativePort) throw new Error('native host is disconnected');
-  nativePort.postMessage(envelope(kind, payload, requestId));
-}
-
-const RECONNECT_ALARM = 'saccade.native-host-reconnect';
+const RECONNECT_ALARM = 'saccade.node-broker-reconnect';
 const RECONNECT_ALARM_DELAY_MS = 30_000;
 
 function scheduleReconnect(error) {
@@ -143,64 +133,115 @@ function scheduleReconnect(error) {
   }
   const delay = Math.min(250 * (2 ** reconnectAttempts++), 4000);
   chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
-  reconnectTimer = setTimeout(() => { reconnectTimer = null; connectHost().catch(scheduleReconnect); }, delay);
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connectBroker().catch(scheduleReconnect); }, delay);
 }
 
 async function reconnectAfterWindowRemoval() {
   chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
-  // A healthy Native Messaging port keeps the MV3 worker reachable while the
-  // browser has no normal windows. Disconnecting it here would remove the only
-  // route through which tabs.open can create the next window.
-  if (nativePort) return;
-  try { await connectHost(); } catch (_error) { scheduleReconnect(); }
+  if (brokerConnectionId) return;
+  try { await connectBroker(); } catch (_error) { scheduleReconnect(); }
 }
 
-async function settleReconnect(port) {
-  if (nativePort !== port) return;
+async function brokerRequest(path, options = {}) {
+  const response = await fetch(`${BROKER_ORIGIN}${path}`, {
+    cache: 'no-store',
+    ...options,
+    headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error?.message || `Broker returned HTTP ${response.status}`);
+  return body;
+}
+
+async function settleReconnect(connectionId) {
+  if (brokerConnectionId !== connectionId) return;
   reconnectAttempts = 0;
   const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
   if (windows.length) chrome.alarms.clear(RECONNECT_ALARM);
   else chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
 }
 
-async function connectHost() {
-  if (nativePort) return;
+async function flushEvents(connectionId = brokerConnectionId) {
+  if (flushPromise) return flushPromise;
+  flushPromise = (async () => {
+    while (connectionId && connectionId === brokerConnectionId && pendingEvents.length) {
+      const events = pendingEvents.splice(0, 128);
+      try {
+        await brokerRequest('/v1/extension/events', {
+          method: 'POST', body: JSON.stringify({ connection_id: connectionId, events }),
+        });
+      } catch (error) {
+        // Responses from an old connection must never be replayed into a new epoch.
+        for (const event of events.reverse()) if (event.kind !== 'response') pendingEvents.unshift(event);
+        if (brokerConnectionId === connectionId) brokerConnectionId = undefined;
+        brokerEpoch = undefined;
+        throw error;
+      }
+    }
+  })().finally(() => {
+    flushPromise = undefined;
+    if (brokerConnectionId && pendingEvents.length) queueMicrotask(() => flushEvents().catch(scheduleReconnect));
+  });
+  return flushPromise;
+}
+
+function queueEvent(event) {
+  pendingEvents.push(event);
+  flushEvents().catch(scheduleReconnect);
+}
+
+async function commandLoop(connectionId, generation) {
+  while (brokerConnectionId === connectionId && brokerLoopGeneration === generation) {
+    const body = await brokerRequest(`/v1/extension/commands?connection_id=${encodeURIComponent(connectionId)}`);
+    for (const command of body.commands || []) {
+      try {
+        await handleHostCommand(command);
+      } catch (error) {
+        queueEvent({ kind: 'response', command_id: command.command_id, error: {
+          code: error.saccadeCode || 'EXTENSION_REJECTED',
+          message: String(error?.message || error).slice(0, 512),
+          stage: error.saccadeStage || 'extension',
+          retry_safe: error.saccadeRetrySafe === true,
+        } });
+      }
+    }
+    await flushEvents(connectionId);
+  }
+}
+
+async function connectBroker() {
+  if (brokerConnectionId) return;
   if (connectPromise) return connectPromise;
   connectPromise = (async () => {
     await reloadIfCandidateChanged();
     if (!browserInstanceId) await initialize();
-    const port = chrome.runtime.connectNative(NATIVE_HOST);
-    nativePort = port;
-    port.onDisconnect.addListener(() => {
-      const detail = chrome.runtime.lastError?.message;
-      if (detail) console.error(`Saccade Native Host disconnected: ${detail}`);
-      if (nativePort === port) nativePort = undefined;
-      pendingClaim = undefined;
-      revokeClaimedTabs().catch(reportAuthorizationFailure);
-      scheduleReconnect();
-    });
-    port.onMessage.addListener((message) => {
-      const command = parseHostMessage(message);
-      if (!command) return;
-      handleHostCommand(command).catch((error) => {
-        if (command.requestId !== undefined && nativePort) post('response', { error: String(error.message || error) }, command.requestId);
-      });
-    });
-    post('hello', {
+    const connected = await brokerRequest('/v1/extension/connect', {
+      method: 'POST', body: JSON.stringify({
       browser_instance_id: browserInstanceId,
       extension_candidate: LOADED_CANDIDATE,
       browser_family: BROWSER_FAMILY,
-      development: NATIVE_HOST.endsWith('.dev'),
-      wake_url: chrome.runtime.getURL('popup.html'),
+      authorized_tabs: [...new Set([...agentOwnedTabs, ...userSharedTabs])].map((tabId) => ({
+        tab_id: String(tabId), provenance: tabProvenance(tabId),
+      })),
+      }),
     });
-    setTimeout(() => { settleReconnect(port).catch(scheduleReconnect); }, 5000);
+    brokerConnectionId = connected.connection_id;
+    brokerEpoch = connected.broker_epoch;
+    pendingEvents.length = 0;
+    const generation = ++brokerLoopGeneration;
+    setTimeout(() => { settleReconnect(connected.connection_id).catch(scheduleReconnect); }, 1000);
     for (const tabId of new Set([...agentOwnedTabs, ...userSharedTabs])) {
-      const hadCurrentObservation = Boolean(sessions.get(tabId)?.observationReady);
       try {
         await authorizeTab(tabId);
-        if (hadCurrentObservation) await requestCollectorSnapshot(tabId);
+        if (connected.require_full_truth) await requestCollectorSnapshot(tabId);
       } catch (error) { reportAuthorizationFailure(error); }
     }
+    commandLoop(connected.connection_id, generation).catch((error) => {
+      if (brokerConnectionId === connected.connection_id) brokerConnectionId = undefined;
+      brokerEpoch = undefined;
+      pendingClaim = undefined;
+      scheduleReconnect(error);
+    });
   })().finally(() => { connectPromise = undefined; });
   return connectPromise;
 }
@@ -368,11 +409,25 @@ function reportAuthorizationFailure(error) {
 }
 
 function reply(command, payload) {
-  if (command.requestId !== undefined) post('response', payload, command.requestId);
+  if (command.command_id) queueEvent({ kind: 'response', command_id: command.command_id, result: payload });
 }
 
 async function handleHostCommand(command) {
-  const payload = command.payload;
+  const remainingMs = Math.min(30_000, Number(command.deadline_at) - Date.now());
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    const error = new Error('command deadline elapsed before Extension dispatch');
+    error.saccadeStage = 'extension_queue';
+    error.saccadeCode = 'deadline_exceeded';
+    error.saccadeRetrySafe = true;
+    throw error;
+  }
+  const payload = {
+    ...command.payload,
+    timeout_ms: Math.min(Number(command.payload?.timeout_ms) || remainingMs, remainingMs),
+  };
+  if (Array.isArray(payload.steps)) {
+    payload.steps = payload.steps.map((step) => ({ ...step, timeout_ms: payload.timeout_ms }));
+  }
   if (command.kind === 'tabs.list') {
     const tabs = [];
     for (const tabId of new Set([...agentOwnedTabs, ...userSharedTabs])) {
@@ -396,15 +451,22 @@ async function handleHostCommand(command) {
     reply(command, armTabClaim(payload.url));
   } else if (command.kind === 'tabs.open' && payload.claim === 'confirm') {
     const claimed = await confirmTabClaim(payload);
-    reply(command, claimed);
+    reply(command, { ...claimed, browser_instance_id: browserInstanceId });
     authorizeTab(numericTabId(claimed.tab_id)).catch(reportAuthorizationFailure);
+  } else if (command.kind === 'tabs.open' && payload.claim === 'shared') {
+    const tabId = numericTabId(payload.tab_id);
+    if (!userSharedTabs.has(tabId)) throw new Error('tab is not explicitly user-shared');
+    const tab = await chrome.tabs.get(tabId);
+    if (!isSupportedUrl(tab.url)) throw new Error('tab URL is not supported');
+    reply(command, { tab_id: String(tabId), opened: false, provenance: 'user_shared', browser_instance_id: browserInstanceId });
+    authorizeTab(tabId).catch(reportAuthorizationFailure);
   } else if (command.kind === 'tabs.open') {
     if (payload.claim !== undefined) throw new Error('claim must be arm or confirm');
     const tab = await openAgentTab(navigableUrl(payload.url), payload.active !== false);
     if (tab.id === undefined) throw new Error('browser did not return a tab identity');
     agentOwnedTabs.add(tab.id);
     await persistAcl();
-    reply(command, { tab_id: String(tab.id), opened: true });
+    reply(command, { tab_id: String(tab.id), opened: true, browser_instance_id: browserInstanceId });
     const current = await chrome.tabs.get(tab.id);
     if (isSupportedUrl(current.url)) authorizeTab(tab.id).catch(reportAuthorizationFailure);
   } else if (command.kind === 'tabs.close') {
@@ -454,6 +516,22 @@ async function handleHostCommand(command) {
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 });
     if (!result?.ok) throw collectorActionError(result, 'software action failed');
     reply(command, result.result);
+  } else if (command.kind === 'act') {
+    const tabId = numericTabId(payload.tab_id);
+    if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    const result = await chrome.tabs.sendMessage(
+      tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 },
+    );
+    if (!result?.ok) throw collectorActionError(result, 'software action failed');
+    reply(command, result.result || { accepted: true });
+  } else if (command.kind === 'act.batch') {
+    const tabId = numericTabId(payload.tab_id);
+    if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    const result = await chrome.tabs.sendMessage(
+      tabId, { kind: 'collector.soft_action_batch', request: payload }, { frameId: 0 },
+    );
+    if (!result?.ok) throw collectorActionError(result, 'form batch failed');
+    reply(command, result.result || { accepted: true, steps: [] });
   } else if (command.kind === 'observation.resync') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
@@ -469,7 +547,11 @@ function collectorActionError(result, fallback) {
   const code = String(result?.failure_code || 'software_action_rejected').replaceAll('|', '_');
   const retrySafe = result?.retry_safe === true ? 'true' : 'false';
   const detail = String(result?.error || fallback).replaceAll('|', '/').slice(0, 320);
-  return new Error(`saccade_action_error|${stage}|${code}|${retrySafe}|${detail}`);
+  const error = new Error(`saccade_action_error|${stage}|${code}|${retrySafe}|${detail}`);
+  error.saccadeStage = stage;
+  error.saccadeCode = code;
+  error.saccadeRetrySafe = result?.retry_safe === true;
+  return error;
 }
 
 async function requestCollectorSnapshot(tabId) {
@@ -487,7 +569,10 @@ function acceptCollectorObservation(message, sender) {
   session.documentId = message.payload.document_id;
   session.revision = message.payload.revision;
   delete session.error;
-  if (nativePort) post(message.kind === 'collector.observation_delta' ? 'observation.delta' : 'observation', message.payload);
+  if (brokerConnectionId) queueEvent({
+    kind: message.kind === 'collector.observation_delta' ? 'observation.delta' : 'observation',
+    payload: message.payload,
+  });
   return true;
 }
 
@@ -542,7 +627,7 @@ chrome.tabs.onCreated.addListener((tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => { sessions.delete(tabId); forgetTab(tabId); persistAcl(); });
 chrome.windows.onRemoved.addListener(() => { reconnectAfterWindowRemoval(); });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === RECONNECT_ALARM) connectHost().catch(scheduleReconnect);
+  if (alarm.name === RECONNECT_ALARM) connectBroker().catch(scheduleReconnect);
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   considerClaimCandidate(tabId, change.url || tab?.pendingUrl || tab?.url);
@@ -559,7 +644,7 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   }
 });
 chrome.runtime.onStartup.addListener(() => {
-  connectHost().catch(scheduleReconnect);
+  connectBroker().catch(scheduleReconnect);
 });
-chrome.runtime.onInstalled.addListener(() => { connectHost().catch(scheduleReconnect); });
-connectHost().catch(scheduleReconnect);
+chrome.runtime.onInstalled.addListener(() => { connectBroker().catch(scheduleReconnect); });
+connectBroker().catch(scheduleReconnect);

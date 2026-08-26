@@ -1,4 +1,0 @@
-interface:
-  display_name: "Saccade Windows Install"
-  short_description: "Build and install Saccade locally on Windows"
-  default_prompt: "Use $saccade-windows-install to build and install Saccade on this Windows PC."

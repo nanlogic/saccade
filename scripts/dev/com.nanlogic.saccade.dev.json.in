@@ -1,9 +1,0 @@
-{
-  "name": "com.nanlogic.saccade.dev",
-  "description": "Saccade development Native Host",
-  "path": "@HOST_PATH@",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://bobfbgjplflcigednmccmbhlgclomgod/"
-  ]
-}

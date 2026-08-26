@@ -1,10 +1,3 @@
----
-authority-topic: product-execution-boundary
-authority-scope: .
-authority-owner: human-owner
-authority-revision: 2
----
-
 # Node-only product and execution boundary
 
 - R-001 — Saccade 0.2.0 ships exactly one browser-store Extension and one

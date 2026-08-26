@@ -37,7 +37,7 @@
     return changes;
   }
 
-  // Native Messaging transports the first revision as a complete snapshot.
+  // The loopback Broker receives the first revision as a complete snapshot.
   // Later revisions carry complete values only for changed identities, plus
   // the opaque current authorities of unchanged actionable objects. The Host
   // can therefore materialize current Truth without receiving the whole page

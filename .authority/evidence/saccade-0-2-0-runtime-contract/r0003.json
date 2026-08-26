@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 3,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "74607bd0d19dd09d998a4b0021618e06990927254845ed43b8903674d508fb01",
+  "baseCurrentSha256": "bad39793e098ea9d1d16c4b23aa2e489b668711b4bce46d6ac8ca28436bd1de9",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0002.md",
+  "previousEvidenceSha256": "7dfa04d75da7691e1b1d8c438c5b30737ad397f4341f5c2b27f8e8e1f8345d22",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0002.json",
+  "previousEvidenceDataSha256": "01d68ec432990836c3c66f2920b554a24d9711e3114998b3bea66c253c0b1a0f",
+  "changes": [
+    {
+      "item": "R-015",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The Broker keeps an atomic, bounded recovery journal containing only"
+    },
+    {
+      "item": "R-016",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A usable session-resume proof exists only in the live MCP adapter's"
+    },
+    {
+      "item": "R-017",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "After Broker restart, previously active leases are recoverable but"
+    },
+    {
+      "item": "R-018",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A new MCP connection never receives another session's recovery proof."
+    },
+    {
+      "item": "R-019",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Truth is always empty after Broker restart and becomes readable only"
+    },
+    {
+      "item": "R-020",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A command recorded as dispatched when the Broker stops becomes"
+    },
+    {
+      "item": "R-021",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "After proven recovery, only idempotent reads and requests rejected"
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/node-broker-crash-recovery.md",
+      "archivePath": ".authority/archive/proposals/1787751422536-node-broker-crash-recovery.md",
+      "sha256": "726491d1af6905641317238c9e90436324c21b283c700a808bc4ffb31c542e57",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-26T13:37:02.567Z"
+}
