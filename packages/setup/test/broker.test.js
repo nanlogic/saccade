@@ -5,8 +5,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { once } = require('node:events');
+const WebSocket = require('ws');
 
-const { BrokerState, EXTENSION_POLL_HEARTBEAT_MS, extensionOrigin } = require('../src/broker');
+const {
+  BrokerState, EXTENSION_POLL_HEARTBEAT_MS, createBrokerServer, extensionOrigin,
+} = require('../src/broker');
 
 function observation(tabId = '7', revision = 1) {
   return {
@@ -155,6 +159,79 @@ test('a delivered action is never replayed after Extension reconnect', async () 
   await assert.rejects(pending, (error) => error.code === 'OUTCOME_UNKNOWN' && error.retry_safe === false);
   const second = broker.connectExtension({ browser_instance_id: 'browser-1' });
   assert.deepEqual(await broker.pollCommands(second.connection_id, 5), []);
+});
+
+test('queued work belongs to the browser and is claimed only on Extension delivery', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  const first = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const pending = broker.enqueueCommand(session, 'tabs.open', { url: 'https://example.test' }, 1000);
+  const queued = [...broker.commands.values()].at(-1);
+  assert.equal(queued.browser_instance_id, 'browser-1');
+  assert.equal(queued.connection_id, null);
+
+  const second = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  assert.equal(broker.connections.get(first.connection_id).state, 'offline');
+  const [command] = await broker.pollCommands(second.connection_id, 10);
+  assert.equal(command.kind, 'tabs.open');
+  assert.equal(command.payload.url, 'https://example.test');
+  assert.equal(queued.connection_id, second.connection_id);
+
+  broker.acceptExtensionEvents(second.connection_id, [{
+    kind: 'response', command_id: command.command_id, result: { tab_id: '7' },
+  }]);
+  assert.equal((await pending).tab_id, '7');
+  assert.equal(broker.occurrences.at(-1).occurrence, 'acknowledged');
+});
+
+test('Extension loss rejects queued work immediately when no reconnect is pending', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const pending = broker.enqueueCommand(session, 'tabs.open', {}, 1000);
+  broker.disconnectExtension(connection.connection_id, 'power_loss');
+  await assert.rejects(pending, (error) => (
+    error.code === 'EXTENSION_OFFLINE' && error.retry_safe === true
+  ));
+});
+
+test('a renewed consumer cannot claim another browser instance queue', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const other = broker.connectExtension({ browser_instance_id: 'browser-2' });
+  const pending = broker.enqueueCommand(session, 'tabs.open', {}, 1000, {
+    browserInstanceId: 'browser-1',
+  });
+
+  assert.deepEqual(await broker.pollCommands(other.connection_id, 5), []);
+  const renewed = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const [command] = await broker.pollCommands(renewed.connection_id, 10);
+  assert.equal(command.kind, 'tabs.open');
+  broker.acceptExtensionEvents(renewed.connection_id, [{
+    kind: 'response', command_id: command.command_id, result: { tab_id: '8' },
+  }]);
+  assert.equal((await pending).tab_id, '8');
+});
+
+test('replacement diagnostics identify browser-family consumer contention', () => {
+  const broker = new BrokerState();
+  broker.connectExtension({
+    browser_instance_id: 'browser-1', browser_family: 'chrome',
+    browser_session_id: 'session-1', worker_instance_id: 'worker-1',
+  });
+  broker.connectExtension({
+    browser_instance_id: 'browser-1', browser_family: 'edge',
+    browser_session_id: 'session-1', worker_instance_id: 'worker-2',
+  });
+  const replacement = broker.doctor().recent_failures.at(-1);
+  assert.equal(replacement.code, 'replaced_connection');
+  assert.equal(replacement.browser_family, 'chrome');
+  assert.equal(replacement.replacement_browser_family, 'edge');
+  assert.equal(replacement.same_browser_session, true);
+  assert.equal(replacement.same_worker_instance, false);
+  assert.equal(replacement.poll_count, 0);
+  assert.equal(replacement.connection_age_ms, 0);
 });
 
 test('an expired long-poll waiter cannot swallow the next command', async () => {
@@ -346,6 +423,11 @@ test('doctor exposes bounded machine diagnostics without page data', () => {
   const report = broker.doctor();
   assert.equal(report.runtime, 'node');
   assert.equal(report.active_leases, 1);
+  assert.equal(report.online_extension_connections, 0);
+  assert.equal(report.extension_polls, 0);
+  assert.equal(report.extension_poll_waiters, 0);
+  assert.equal(report.extension_keepalives, 0);
+  assert.equal(report.extension_keepalive_connections, 0);
   assert.equal(report.recent_failures.at(-1).code, 'deadline_exceeded');
   assert.doesNotMatch(JSON.stringify(report), /objects|cookies|storage|screenshot|action_token/);
 });
@@ -358,4 +440,30 @@ test('Extension routes accept only a Chrome-extension origin shape', () => {
     extensionOrigin({ headers: { origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } }),
     'chrome-extension://abcdefghijklmnopabcdefghijklmnop',
   );
+});
+
+test('Extension WebSocket heartbeat is origin-bound and value-free', async (context) => {
+  const broker = new BrokerState();
+  const connected = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const runtime = createBrokerServer(broker, { port: 0 });
+  try { await runtime.listen(); } catch (error) {
+    if (error.code === 'EPERM') return context.skip('sandbox forbids loopback listen');
+    throw error;
+  }
+  context.after(() => new Promise((resolve) => runtime.server.close(resolve)));
+  const address = runtime.server.address();
+  const webSocket = new WebSocket(
+    `ws://127.0.0.1:${address.port}/v1/extension/keepalive?connection_id=${connected.connection_id}`,
+    { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } },
+  );
+  await once(webSocket, 'open');
+  webSocket.send(JSON.stringify({ kind: 'heartbeat' }));
+  const [data] = await once(webSocket, 'message');
+  assert.deepEqual(JSON.parse(data.toString('utf8')), {
+    kind: 'heartbeat.ack', broker_epoch: broker.epoch,
+  });
+  assert.equal(broker.doctor().extension_keepalives, 1);
+  assert.equal(broker.doctor().extension_keepalive_connections, 1);
+  webSocket.close();
+  await once(webSocket, 'close');
 });

@@ -387,7 +387,7 @@ test('tab ownership survives Extension reload but resets at browser startup', ()
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /chrome\.storage\.local\.set\(\{ \[TAB_ACL_KEY\]/);
   assert.match(worker, /chrome\.storage\.local\.get\(TAB_ACL_KEY\)/);
-  assert.match(worker, /chrome\.storage\.session\.get\(BROWSER_SESSION_KEY\)/);
+  assert.match(worker, /chrome\.storage\.session\.get\(\[BROWSER_SESSION_KEY, CONNECTION_SESSION_KEY\]\)/);
   assert.match(worker, /freshBrowserSession \? \{\} : \(storedAcl\[TAB_ACL_KEY\] \|\| \{\}\)/);
   assert.match(worker, /chrome\.storage\.local\.remove\(TAB_ACL_KEY\)/);
   assert.match(worker, /chrome\.runtime\.onStartup\.addListener\(\(\) => \{\s*connectBroker\(\)\.catch\(scheduleReconnect\)/s);
@@ -451,16 +451,24 @@ test('Node Broker reconnect uses bounded backoff without a popup wake-up', () =>
   const reconnect = worker.slice(worker.indexOf('function scheduleReconnect'), worker.indexOf('async function brokerRequest'));
   assert.match(reconnect, /Math\.min\(250 \* \(2 \*\* reconnectAttempts\+\+\), 4000\)/);
   assert.doesNotMatch(reconnect, /reconnectAttempts\s*>=/);
-  assert.match(reconnect, /chrome\.alarms\.create\(RECONNECT_ALARM/);
-  assert.match(worker, /RECONNECT_ALARM_DELAY_MS = 30_000/);
+  assert.match(reconnect, /armReconnectAlarm\(\)/);
+  assert.match(worker, /function armReconnectAlarm\(\) \{\s*chrome\.alarms\.create\(RECONNECT_ALARM/s);
+  assert.match(worker, /RECONNECT_ALARM_PERIOD_MINUTES = 0\.5/);
+  assert.match(worker, /periodInMinutes: RECONNECT_ALARM_PERIOD_MINUTES/);
   assert.match(worker, /async function settleReconnect\(connectionId\)/);
-  assert.match(worker, /chrome\.windows\.getAll\(\{ windowTypes: \['normal'\] \}\)/);
-  assert.match(worker, /if \(windows\.length\) chrome\.alarms\.clear\(RECONNECT_ALARM\)/);
+  assert.match(worker, /armReconnectAlarm\(\);\s*connectBroker\(\)\.catch\(scheduleReconnect\);\s*$/);
   assert.match(worker, /chrome\.alarms\.onAlarm\.addListener/);
   assert.match(reconnect, /if \(brokerConnectionId \|\| connectPromise\) return/);
   assert.match(worker, /function startCommandLoop\(connectionId, generation\)/);
   assert.match(worker, /commandLoopState !== state[\s\S]*brokerLoopGeneration !== generation/);
   assert.match(worker, /if \(commandLoopState === state\) commandLoopState = undefined/);
+  assert.match(worker, /brokerRequest\('\/v1\/extension\/commands', \{\s*method: 'POST'/s);
+  assert.doesNotMatch(worker, /extension\/commands\?connection_id/);
+  assert.match(worker, /KEEPALIVE_INTERVAL_MS = 20_000/);
+  assert.match(worker, /new WebSocket\(/);
+  assert.match(worker, /kind: 'heartbeat'/);
+  assert.match(worker, /kind !== 'heartbeat\.ack'/);
+  assert.match(worker, /catch \(error\) \{\s*brokerConnectionId = undefined;\s*brokerEpoch = undefined;\s*throw error;/s);
 });
 
 test('the Extension Service Worker is valid JavaScript', () => {
@@ -474,6 +482,8 @@ test('Broker connect declares browser family and candidate', () => {
   assert.match(worker, /BROWSER_FAMILY = navigator\.userAgent\.includes\('Edg\/'\) \? 'edge' : 'chrome'/);
   assert.match(worker, /browser_family: BROWSER_FAMILY/);
   assert.match(worker, /extension_candidate: LOADED_CANDIDATE/);
+  assert.match(worker, /browser_session_id: connectionSessionId/);
+  assert.match(worker, /worker_instance_id: WORKER_INSTANCE_ID/);
   assert.match(worker, /\/v1\/extension\/connect/);
 });
 

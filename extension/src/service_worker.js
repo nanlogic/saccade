@@ -8,6 +8,9 @@ const BROWSER_FAMILY = navigator.userAgent.includes('Edg/') ? 'edge' : 'chrome';
 const INSTANCE_KEY = 'saccade.browser_instance_id';
 const TAB_ACL_KEY = 'saccade.tab_acl';
 const BROWSER_SESSION_KEY = 'saccade.browser_session_initialized';
+const CONNECTION_SESSION_KEY = 'saccade.connection_session_id';
+const WORKER_INSTANCE_ID = randomToken('worker');
+const KEEPALIVE_INTERVAL_MS = 20_000;
 const CLAIM_TTL_MS = 30_000;
 const agentOwnedTabs = new Set();
 const userSharedTabs = new Set();
@@ -18,6 +21,7 @@ const authorizationPromises = new Map();
 // Worker must fail closed and force a re-arm.
 let pendingClaim;
 let browserInstanceId;
+let connectionSessionId;
 let brokerConnectionId;
 let brokerEpoch;
 let connectPromise;
@@ -25,6 +29,8 @@ let reconnectAttempts = 0;
 let reconnectTimer;
 let brokerLoopGeneration = 0;
 let commandLoopState;
+let keepaliveSocket;
+let keepaliveTimer;
 const pendingEvents = [];
 let flushPromise;
 
@@ -59,15 +65,19 @@ async function initialize() {
   const [identity, storedAcl, browserSession] = await Promise.all([
     chrome.storage.local.get(INSTANCE_KEY),
     chrome.storage.local.get(TAB_ACL_KEY),
-    chrome.storage.session.get(BROWSER_SESSION_KEY),
+    chrome.storage.session.get([BROWSER_SESSION_KEY, CONNECTION_SESSION_KEY]),
   ]);
   browserInstanceId = identity[INSTANCE_KEY] || randomToken('browser');
   if (!identity[INSTANCE_KEY]) await chrome.storage.local.set({ [INSTANCE_KEY]: browserInstanceId });
+  connectionSessionId = browserSession[CONNECTION_SESSION_KEY] || randomToken('browser_session');
   const freshBrowserSession = browserSession[BROWSER_SESSION_KEY] !== true;
-  if (freshBrowserSession) {
+  if (freshBrowserSession || !browserSession[CONNECTION_SESSION_KEY]) {
     await Promise.all([
-      chrome.storage.local.remove(TAB_ACL_KEY),
-      chrome.storage.session.set({ [BROWSER_SESSION_KEY]: true }),
+      ...(freshBrowserSession ? [chrome.storage.local.remove(TAB_ACL_KEY)] : []),
+      chrome.storage.session.set({
+        [BROWSER_SESSION_KEY]: true,
+        [CONNECTION_SESSION_KEY]: connectionSessionId,
+      }),
     ]);
   }
   const acl = freshBrowserSession ? {} : (storedAcl[TAB_ACL_KEY] || {});
@@ -124,22 +134,26 @@ async function revokeTabAccess(tabId) {
 }
 
 const RECONNECT_ALARM = 'saccade.node-broker-reconnect';
-const RECONNECT_ALARM_DELAY_MS = 30_000;
+const RECONNECT_ALARM_PERIOD_MINUTES = 0.5;
+
+function armReconnectAlarm() {
+  chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: RECONNECT_ALARM_PERIOD_MINUTES });
+}
 
 function scheduleReconnect(error) {
   if (error) console.error(`Saccade reconnect scheduled: ${String(error.message || error)}`);
   if (brokerConnectionId || connectPromise) return;
   if (reconnectTimer) {
-    chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
+    armReconnectAlarm();
     return;
   }
   const delay = Math.min(250 * (2 ** reconnectAttempts++), 4000);
-  chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
+  armReconnectAlarm();
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connectBroker().catch(scheduleReconnect); }, delay);
 }
 
 async function reconnectAfterWindowRemoval() {
-  chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
+  armReconnectAlarm();
   if (brokerConnectionId) return;
   try { await connectBroker(); } catch (_error) { scheduleReconnect(); }
 }
@@ -158,9 +172,7 @@ async function brokerRequest(path, options = {}) {
 async function settleReconnect(connectionId) {
   if (brokerConnectionId !== connectionId) return;
   reconnectAttempts = 0;
-  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
-  if (windows.length) chrome.alarms.clear(RECONNECT_ALARM);
-  else chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + RECONNECT_ALARM_DELAY_MS });
+  armReconnectAlarm();
 }
 
 async function flushEvents(connectionId = brokerConnectionId) {
@@ -192,9 +204,56 @@ function queueEvent(event) {
   flushEvents().catch(scheduleReconnect);
 }
 
+function stopKeepalive(connectionId) {
+  if (!keepaliveSocket || (connectionId && keepaliveSocket.saccadeConnectionId !== connectionId)) return;
+  const socket = keepaliveSocket;
+  keepaliveSocket = undefined;
+  if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = undefined; }
+  socket.onclose = null;
+  socket.onerror = null;
+  try { socket.close(1000, 'connection reset'); } catch (_error) { /* already closed */ }
+}
+
+function startKeepalive(connectionId) {
+  stopKeepalive();
+  const socket = new WebSocket(
+    `ws://127.0.0.1:32177/v1/extension/keepalive?connection_id=${encodeURIComponent(connectionId)}`,
+  );
+  socket.saccadeConnectionId = connectionId;
+  keepaliveSocket = socket;
+  const heartbeat = () => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ kind: 'heartbeat' }));
+  };
+  socket.onopen = () => {
+    if (keepaliveSocket !== socket || brokerConnectionId !== connectionId) return socket.close();
+    heartbeat();
+    keepaliveTimer = setInterval(heartbeat, KEEPALIVE_INTERVAL_MS);
+    return undefined;
+  };
+  socket.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(String(event.data)); } catch (_error) { return socket.close(); }
+    if (message?.kind !== 'heartbeat.ack' || message.broker_epoch !== brokerEpoch) socket.close();
+    return undefined;
+  };
+  socket.onerror = () => socket.close();
+  socket.onclose = () => {
+    if (keepaliveSocket !== socket) return;
+    keepaliveSocket = undefined;
+    if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = undefined; }
+    if (brokerConnectionId !== connectionId) return;
+    brokerConnectionId = undefined;
+    brokerEpoch = undefined;
+    pendingClaim = undefined;
+    scheduleReconnect(new Error('Broker keepalive closed'));
+  };
+}
+
 async function commandLoop(connectionId, generation) {
   while (brokerConnectionId === connectionId && brokerLoopGeneration === generation) {
-    const body = await brokerRequest(`/v1/extension/commands?connection_id=${encodeURIComponent(connectionId)}`);
+    const body = await brokerRequest('/v1/extension/commands', {
+      method: 'POST', body: JSON.stringify({ connection_id: connectionId }),
+    });
     for (const command of body.commands || []) {
       try {
         await handleHostCommand(command);
@@ -220,6 +279,7 @@ function startCommandLoop(connectionId, generation) {
     brokerConnectionId = undefined;
     brokerEpoch = undefined;
     pendingClaim = undefined;
+    stopKeepalive(connectionId);
     scheduleReconnect(error);
   }).finally(() => {
     if (commandLoopState === state) commandLoopState = undefined;
@@ -236,6 +296,8 @@ async function connectBroker() {
     const connected = await brokerRequest('/v1/extension/connect', {
       method: 'POST', body: JSON.stringify({
       browser_instance_id: browserInstanceId,
+      browser_session_id: connectionSessionId,
+      worker_instance_id: WORKER_INSTANCE_ID,
       extension_candidate: LOADED_CANDIDATE,
       browser_family: BROWSER_FAMILY,
       authorized_tabs: [...new Set([...agentOwnedTabs, ...userSharedTabs])].map((tabId) => ({
@@ -245,6 +307,13 @@ async function connectBroker() {
     });
     brokerConnectionId = connected.connection_id;
     brokerEpoch = connected.broker_epoch;
+    try {
+      startKeepalive(connected.connection_id);
+    } catch (error) {
+      brokerConnectionId = undefined;
+      brokerEpoch = undefined;
+      throw error;
+    }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
     pendingEvents.length = 0;
     const generation = ++brokerLoopGeneration;
@@ -661,4 +730,5 @@ chrome.runtime.onStartup.addListener(() => {
   connectBroker().catch(scheduleReconnect);
 });
 chrome.runtime.onInstalled.addListener(() => { connectBroker().catch(scheduleReconnect); });
+armReconnectAlarm();
 connectBroker().catch(scheduleReconnect);

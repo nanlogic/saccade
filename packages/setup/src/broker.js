@@ -6,6 +6,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
+const { WebSocketServer } = require('ws');
 
 const BROKER_SCHEMA = 'saccade.node-broker/1';
 const DEFAULT_PORT = 32177;
@@ -264,28 +265,41 @@ class BrokerState extends EventEmitter {
 
   connectExtension(payload) {
     const browserInstanceId = cleanId(payload.browser_instance_id, 'browser_instance_id');
+    const browserSessionId = typeof payload.browser_session_id === 'string'
+      ? cleanId(payload.browser_session_id, 'browser_session_id') : undefined;
+    const workerInstanceId = typeof payload.worker_instance_id === 'string'
+      ? cleanId(payload.worker_instance_id, 'worker_instance_id') : undefined;
     const connectionId = opaque('extension');
     for (const connection of this.connections.values()) {
       if (connection.browser_instance_id === browserInstanceId && connection.state === 'online') {
-        this.disconnectExtension(connection.connection_id, 'replaced_connection');
+        this.disconnectExtension(connection.connection_id, 'replaced_connection', {
+          reconnectPending: true,
+          replacementBrowserFamily: payload.browser_family,
+          replacementBrowserSessionId: browserSessionId,
+          replacementWorkerInstanceId: workerInstanceId,
+        });
       }
     }
     this.connections.set(connectionId, {
       connection_id: connectionId,
       browser_instance_id: browserInstanceId,
       browser_family: payload.browser_family,
+      browser_session_id: browserSessionId,
+      worker_instance_id: workerInstanceId,
       extension_candidate: payload.extension_candidate,
       authorized_tabs: Array.isArray(payload.authorized_tabs) ? payload.authorized_tabs.slice(0, 256) : [],
       state: 'online',
       connected_at: this.now(),
       last_seen_at: this.now(),
+      poll_count: 0,
+      keepalive_count: 0,
+      keepalive_socket: null,
       queue: [],
       waiters: [],
     });
     const connection = this.connections.get(connectionId);
     for (const command of this.commands.values()) {
-      if (command.state === 'queued' && !command.connection_id && command.idempotent) {
-        command.connection_id = connectionId;
+      if (command.state === 'queued' && command.browser_instance_id === browserInstanceId) {
         connection.queue.push(command.command_id);
       }
     }
@@ -299,18 +313,36 @@ class BrokerState extends EventEmitter {
     };
   }
 
-  disconnectExtension(connectionId, reason = 'disconnected') {
+  disconnectExtension(connectionId, reason = 'disconnected', {
+    reconnectPending = false, replacementBrowserFamily,
+    replacementBrowserSessionId, replacementWorkerInstanceId,
+  } = {}) {
     const connection = this.connections.get(connectionId);
     if (!connection || connection.state !== 'online') return;
     connection.state = 'offline';
     connection.disconnected_at = this.now();
+    if (connection.keepalive_socket) {
+      const socket = connection.keepalive_socket;
+      connection.keepalive_socket = null;
+      try { socket.close(1000, 'connection replaced'); } catch (_error) { /* already closed */ }
+    }
     for (const waiter of connection.waiters.splice(0)) waiter.finish([]);
     for (const command of this.commands.values()) {
-      if (command.connection_id !== connectionId || command.state !== 'delivered') continue;
-      if (command.idempotent && this.now() < command.deadline_at) {
+      if (command.state === 'queued'
+          && command.browser_instance_id === connection.browser_instance_id
+          && !reconnectPending) {
+        this.finishCommand(command, null, new BrokerError(
+          'EXTENSION_OFFLINE',
+          'Extension disconnected before command dispatch',
+          { outcome: 'rejected', retry_safe: true },
+        ));
+      } else if (command.connection_id === connectionId
+          && command.state === 'delivered'
+          && command.idempotent
+          && this.now() < command.deadline_at) {
         command.state = 'queued';
         command.connection_id = null;
-      } else {
+      } else if (command.connection_id === connectionId && command.state === 'delivered') {
         this.finishCommand(command, null, new BrokerError(
           'OUTCOME_UNKNOWN',
           'Extension disconnected after command dispatch',
@@ -318,7 +350,19 @@ class BrokerState extends EventEmitter {
         ));
       }
     }
-    this.record({ stage: 'extension', code: reason, connection_id: connectionId });
+    this.record({
+      stage: 'extension', code: reason, connection_id: connectionId,
+      browser_family: connection.browser_family,
+      replacement_browser_family: replacementBrowserFamily,
+      same_browser_session: replacementBrowserSessionId === undefined
+        ? undefined : replacementBrowserSessionId === connection.browser_session_id,
+      same_worker_instance: replacementWorkerInstanceId === undefined
+        ? undefined : replacementWorkerInstanceId === connection.worker_instance_id,
+      poll_count: connection.poll_count,
+      connection_age_ms: this.now() - connection.connected_at,
+      ms_since_last_poll: connection.poll_count
+        ? this.now() - connection.last_seen_at : undefined,
+    });
   }
 
   activeConnection(browserInstanceId) {
@@ -332,6 +376,7 @@ class BrokerState extends EventEmitter {
     const connection = this.connections.get(cleanId(connectionId, 'connection_id'));
     if (!connection || connection.state !== 'online') throw new BrokerError('EXTENSION_OFFLINE', 'Extension connection is offline');
     connection.last_seen_at = this.now();
+    connection.poll_count += 1;
     const immediate = this.takeCommands(connection);
     if (immediate.length) return immediate;
     return new Promise((resolve) => {
@@ -357,6 +402,7 @@ class BrokerState extends EventEmitter {
     for (const id of ids) {
       const command = this.commands.get(id);
       if (!command || command.state !== 'queued') continue;
+      if (command.browser_instance_id !== connection.browser_instance_id) continue;
       if (this.now() >= command.deadline_at) {
         this.finishCommand(command, null, new BrokerError('DEADLINE_EXCEEDED', 'Command deadline exceeded'));
         continue;
@@ -410,7 +456,8 @@ class BrokerState extends EventEmitter {
         state: 'queued',
         created_at: this.now(),
         deadline_at: deadlineAt,
-        connection_id: connection.connection_id,
+        browser_instance_id: connection.browser_instance_id,
+        connection_id: null,
         resolve,
         reject,
       };
@@ -865,9 +912,15 @@ class BrokerState extends EventEmitter {
 
   doctor() {
     const failures = this.diagnostics.filter((event) => event.code !== 'acknowledged' && event.code !== 'connected').slice(-16);
+    const onlineExtensions = [...this.connections.values()].filter((connection) => connection.state === 'online');
     return {
       schema: 'saccade.doctor/2', runtime: 'node', broker_epoch: this.epoch,
       extension_connected: Boolean(this.activeConnection()),
+      online_extension_connections: onlineExtensions.length,
+      extension_polls: onlineExtensions.reduce((total, connection) => total + connection.poll_count, 0),
+      extension_poll_waiters: onlineExtensions.reduce((total, connection) => total + connection.waiters.length, 0),
+      extension_keepalives: onlineExtensions.reduce((total, connection) => total + connection.keepalive_count, 0),
+      extension_keepalive_connections: onlineExtensions.filter((connection) => connection.keepalive_socket).length,
       online_sessions: [...this.sessions.values()].filter((session) => session.state === 'online').length,
       active_leases: [...this.leases.values()].filter((lease) => lease.state === 'active').length,
       orphaned_leases: [...this.leases.values()].filter((lease) => lease.state === 'orphaned').length,
@@ -983,6 +1036,7 @@ function sessionProof(request) {
 
 function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultStatePath() } = {}) {
   const brokerState = state || new BrokerState({ statePath });
+  const webSockets = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
   const server = http.createServer(async (request, response) => {
     let responseOrigin;
     try {
@@ -991,6 +1045,10 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
       const origin = extensionOrigin(request);
       responseOrigin = origin;
       if (isExtensionRoute && !origin) {
+        brokerState.record({
+          stage: 'extension_transport', code: 'extension_origin_required',
+          method: request.method, route: url.pathname,
+        });
         return writeJson(response, 403, { ok: false, error: { code: 'EXTENSION_ORIGIN_REQUIRED', message: 'Extension origin is required' } });
       }
       if (request.method === 'OPTIONS') return writeJson(response, 204, {}, origin);
@@ -1022,9 +1080,10 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
       if (request.method === 'POST' && url.pathname === '/v1/extension/connect') {
         return writeJson(response, 200, brokerState.connectExtension(await readBody(request)), origin);
       }
-      if (request.method === 'GET' && url.pathname === '/v1/extension/commands') {
+      if (request.method === 'POST' && url.pathname === '/v1/extension/commands') {
+        const body = await readBody(request);
         const commands = await brokerState.pollCommands(
-          url.searchParams.get('connection_id'), EXTENSION_POLL_HEARTBEAT_MS,
+          body.connection_id, EXTENSION_POLL_HEARTBEAT_MS,
         );
         return writeJson(response, 200, { commands, broker_epoch: brokerState.epoch }, origin);
       }
@@ -1041,7 +1100,43 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
       }, responseOrigin);
     }
   });
-  return { state: brokerState, server, listen: () => new Promise((resolve, reject) => {
+  server.on('upgrade', (request, socket, head) => {
+    try {
+      const url = new URL(request.url, `http://127.0.0.1:${port}`);
+      if (url.pathname !== '/v1/extension/keepalive' || !extensionOrigin(request)) {
+        throw new Error('Extension WebSocket origin is required');
+      }
+      const connectionId = cleanId(url.searchParams.get('connection_id'), 'connection_id');
+      const connection = brokerState.connections.get(connectionId);
+      if (!connection || connection.state !== 'online') throw new Error('Extension connection is offline');
+      webSockets.handleUpgrade(request, socket, head, (webSocket) => {
+        if (connection.keepalive_socket && connection.keepalive_socket !== webSocket) {
+          try { connection.keepalive_socket.close(1000, 'keepalive replaced'); } catch (_error) { /* closed */ }
+        }
+        connection.keepalive_socket = webSocket;
+        connection.keepalive_connected_at = brokerState.now();
+        webSocket.on('message', (data, isBinary) => {
+          if (isBinary || data.length > 1024) return webSocket.close(1008, 'invalid heartbeat');
+          let message;
+          try { message = JSON.parse(data.toString('utf8')); } catch (_error) {
+            return webSocket.close(1008, 'invalid heartbeat');
+          }
+          if (message?.kind !== 'heartbeat') return webSocket.close(1008, 'invalid heartbeat');
+          connection.keepalive_count += 1;
+          connection.last_seen_at = brokerState.now();
+          webSocket.send(JSON.stringify({ kind: 'heartbeat.ack', broker_epoch: brokerState.epoch }));
+          return undefined;
+        });
+        webSocket.on('close', () => {
+          if (connection.keepalive_socket === webSocket) connection.keepalive_socket = null;
+        });
+      });
+    } catch (_error) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+    }
+  });
+  return { state: brokerState, server, webSockets, listen: () => new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => resolve(server.address()));
   }) };

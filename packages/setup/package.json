@@ -20,6 +20,9 @@
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "ws": "8.21.3"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true
