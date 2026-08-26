@@ -31,6 +31,29 @@ test('setup is platform-independent Node configuration only', async (t) => {
   assert.equal('native_host' in state, false);
 });
 
+test('setup replaces the legacy local Runtime MCP block instead of duplicating Saccade', async (t) => {
+  const values = await fixture();
+  t.after(() => fsp.rm(values.root, { recursive: true, force: true }));
+  await fsp.writeFile(values.environment.SACCADE_SETUP_CODEX_CONFIG, [
+    'model = "current"',
+    '# saccade-2-setup:start',
+    '[mcp_servers.saccade]',
+    'command = "/old/node"',
+    'args = ["/old/Saccade/2.0/runtime/cli.js", "mcp"]',
+    '[mcp_servers.saccade.env]',
+    'SACCADE_V2_RUNTIME_DIR = "/old/Saccade/2.0"',
+    '# saccade-2-setup:end',
+    '',
+  ].join('\n'));
+
+  await setup.install({}, values.environment);
+  const config = await fsp.readFile(values.environment.SACCADE_SETUP_CODEX_CONFIG, 'utf8');
+  assert.doesNotMatch(config, /saccade-2-setup|SACCADE_V2_RUNTIME_DIR|runtime\/cli\.js/);
+  assert.equal((config.match(/\[mcp_servers\.saccade\]/g) || []).length, 1);
+  assert.match(config, /@nanlogic\/saccade/);
+  assert.match(config, /model = "current"/);
+});
+
 test('update and uninstall preserve a customized Profile', async (t) => {
   const values = await fixture();
   t.after(() => fsp.rm(values.root, { recursive: true, force: true }));

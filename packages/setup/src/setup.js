@@ -7,6 +7,8 @@ const path = require('node:path');
 
 const CODEX_BLOCK_START = '# saccade-setup:start';
 const CODEX_BLOCK_END = '# saccade-setup:end';
+const LEGACY_CODEX_BLOCK_START = '# saccade-2-setup:start';
+const LEGACY_CODEX_BLOCK_END = '# saccade-2-setup:end';
 const MCP_COMMAND = 'npx';
 const MCP_ARGS = ['-y', '@nanlogic/saccade', 'mcp'];
 
@@ -46,7 +48,8 @@ function codexBlock() {
 
 function replaceManagedBlock(source, replacement) {
   const pattern = new RegExp(`${CODEX_BLOCK_START}[\\s\\S]*?${CODEX_BLOCK_END}\\n?`, 'g');
-  const clean = source.replace(pattern, '').trimEnd();
+  const legacyPattern = new RegExp(`${LEGACY_CODEX_BLOCK_START}[\\s\\S]*?${LEGACY_CODEX_BLOCK_END}\\n?`, 'g');
+  const clean = source.replace(pattern, '').replace(legacyPattern, '').trimEnd();
   return replacement ? `${clean}${clean ? '\n\n' : ''}${replacement}\n` : `${clean}${clean ? '\n' : ''}`;
 }
 
