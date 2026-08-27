@@ -1116,6 +1116,38 @@
     return null;
   }
 
+  function currentSoftwareRequest(request) {
+    if (request.basis_revision === revision) return request;
+    const target = tokenTargets.get(request.action_token);
+    if (request.basis_revision < revision
+      && request.document_id === documentId
+      && target?.element.isConnected
+      && target.objectId === request.object_id
+      && target.affordances.includes(request.operation)) {
+      return { ...request, basis_revision: revision };
+    }
+    return request;
+  }
+
+  function waitForPreparationFrame(deadline) {
+    const remainingMs = Math.max(0, deadline - performance.now());
+    return new Promise((resolve) => {
+      let settled = false;
+      let timerId;
+      const finish = (frameObserved) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timerId);
+        resolve(frameObserved);
+      };
+      const frameId = requestAnimationFrame(() => finish(true));
+      timerId = setTimeout(() => {
+        cancelAnimationFrame(frameId);
+        finish(false);
+      }, remainingMs);
+    });
+  }
+
   function sameBox(left, right) {
     return Boolean(left && right
       && left.x === right.x && left.y === right.y
@@ -1124,7 +1156,8 @@
 
   async function waitForSoftwarePreparation(request) {
     const startedAt = performance.now();
-    let prepared = prepare(request);
+    let activeRequest = currentSoftwareRequest(request);
+    let prepared = prepare(activeRequest);
     let target = tokenTargets.get(request.action_token);
     const policy = softwarePreparationPolicy(request, target);
     if (!preparationIssue(prepared, target, policy)
@@ -1139,14 +1172,15 @@
     let lastIssue = preparationIssue(prepared, target, policy)
       || (policy.require_stable_geometry ? 'geometry_unstable' : null);
     while (performance.now() < deadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      if (!await waitForPreparationFrame(deadline)) break;
       // Recompile locally before revalidation. If identity, semantic authority,
       // document, or token changed, the old token is absent and prepare()
       // fails stale instead of rebinding. Geometry-only revisions may rebase
       // this private dispatch preparation; the public object identity and
       // action token never change.
       collect();
-      prepared = prepare({ ...request, basis_revision: revision });
+      activeRequest = currentSoftwareRequest(activeRequest);
+      prepared = prepare(activeRequest);
       target = tokenTargets.get(request.action_token);
       lastIssue = preparationIssue(prepared, target, policy);
       const box = prepared.screen_bounds;
@@ -1185,7 +1219,11 @@
       }));
     }
     requestAnimationFrame(collect);
-    return { accepted: true, local_wait_ms: prepared.local_wait_ms };
+    return {
+      accepted: true, local_wait_ms: prepared.local_wait_ms,
+      dispatch_document_id: prepared.document_id,
+      dispatch_basis_revision: prepared.basis_revision,
+    };
   }
 
   async function softType(request, preflight) {
@@ -1220,7 +1258,11 @@
     }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     requestAnimationFrame(collect);
-    return { accepted: true, local_wait_ms: prepared.local_wait_ms };
+    return {
+      accepted: true, local_wait_ms: prepared.local_wait_ms,
+      dispatch_document_id: prepared.document_id,
+      dispatch_basis_revision: prepared.basis_revision,
+    };
   }
 
   async function softAction(request, preflight) {
@@ -1244,7 +1286,11 @@
         target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
       }
     }
-    return { accepted: true, local_wait_ms: prepared.local_wait_ms };
+    return {
+      accepted: true, local_wait_ms: prepared.local_wait_ms,
+      dispatch_document_id: prepared.document_id,
+      dispatch_basis_revision: prepared.basis_revision,
+    };
   }
 
   async function softActionBatch(request) {
@@ -1274,7 +1320,12 @@
       receipts.push({ object_id: step.object_id, operation: step.operation, accepted: result.accepted === true });
     }
     requestAnimationFrame(collect);
-    return { accepted: receipts.every((receipt) => receipt.accepted), steps: receipts };
+    return {
+      accepted: receipts.every((receipt) => receipt.accepted),
+      steps: receipts,
+      dispatch_document_id: prepared[0]?.document_id,
+      dispatch_basis_revision: Math.max(...prepared.map((item) => item.basis_revision)),
+    };
   }
 
   function schedule() {

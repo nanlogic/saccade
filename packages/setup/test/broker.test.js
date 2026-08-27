@@ -415,6 +415,43 @@ test('form batch rejects submit-like clicks before dispatch', async () => {
   assert.equal(broker.commands.size, 0);
 });
 
+test('action verification starts after the Extension dispatch basis', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  broker.acceptTruth('observation', observation());
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const pending = broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1,
+    object_id: 'object-1', operation: 'click', timeout_ms: 200,
+  }, 200, 22);
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+
+  broker.acceptTruth('observation.delta', {
+    tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
+    viewport_revision: 2, objects: [], authorities: [],
+    changes: [{ kind: 'updated', object_id: 'other-object', object_revision: 1 }],
+  });
+  broker.acceptExtensionEvents(connection.connection_id, [{
+    kind: 'response', command_id: command.command_id,
+    result: {
+      accepted: true, dispatch_document_id: 'document-1', dispatch_basis_revision: 2,
+    },
+  }]);
+  setTimeout(() => broker.acceptTruth('observation.delta', {
+    tab_id: '7', document_id: 'document-1', base_revision: 2, revision: 3,
+    viewport_revision: 2, objects: [], authorities: [],
+    changes: [{ kind: 'updated', object_id: 'object-1', object_revision: 2 }],
+  }), 5);
+
+  const receipt = await pending;
+  assert.equal(receipt.outcome, 'accepted');
+  assert.equal(receipt.dispatch_basis_revision, 2);
+  assert.equal(receipt.final_revision, 3);
+  assert.equal(receipt.relevant_delta.next_basis_revision, 3);
+  assert.deepEqual(receipt.relevant_delta.changes.map((change) => change.object_id), ['object-1']);
+});
+
 test('doctor exposes bounded machine diagnostics without page data', () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;

@@ -849,15 +849,20 @@ class BrokerState extends EventEmitter {
       const result = await this.enqueueCommand(agentSessionId, batch ? 'act.batch' : 'act', command, remaining(), {
         clientRequestId, browserInstanceId: current.full.browser_instance_id,
       });
+      const dispatchDocumentId = typeof result.dispatch_document_id === 'string'
+        ? result.dispatch_document_id : basisDocumentId;
+      const dispatchBasisRevision = Number.isSafeInteger(result.dispatch_basis_revision)
+        && result.dispatch_basis_revision >= basisRevision
+        ? result.dispatch_basis_revision : basisRevision;
       const finalTruth = result.accepted
         ? await this.waitForTruth(params.tab_id, (truth) => (
-          truth.document_id !== basisDocumentId || truth.revision > basisRevision
+          truth.document_id !== dispatchDocumentId || truth.revision > dispatchBasisRevision
         ), deadlineAt)
         : null;
       const verified = Boolean(finalTruth);
-      const transition = verified && finalTruth.document_id === basisDocumentId
+      const transition = verified && finalTruth.document_id === dispatchDocumentId
         ? this.readTruthNow(agentSessionId, {
-          tab_id: params.tab_id, mode: 'delta', after_revision: basisRevision,
+          tab_id: params.tab_id, mode: 'delta', after_revision: dispatchBasisRevision,
           query: params.query,
         })
         : undefined;
@@ -870,6 +875,7 @@ class BrokerState extends EventEmitter {
           verified,
         },
         document_id: finalTruth?.document_id || basisDocumentId,
+        dispatch_basis_revision: dispatchBasisRevision,
         final_revision: finalTruth?.revision || basisRevision,
         next_basis_revision: finalTruth?.revision || basisRevision,
         relevant_delta: transition,

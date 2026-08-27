@@ -399,9 +399,14 @@ test('tab ownership survives Extension reload but resets at browser startup', ()
 test('prepare checks the revision basis after tab activation and focus', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const publicAct = worker.slice(worker.indexOf("command.kind === 'act'"), worker.indexOf("command.kind === 'act.batch'"));
   assert.match(worker, /if \(!browserWindow\.focused\).*chrome\.windows\.update/s);
   assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
+  assert.match(publicAct, /await activateTabForAction\(tabId, command\.deadline_at\)/);
+  assert.ok(publicAct.indexOf('activateTabForAction') < publicAct.indexOf("kind: 'collector.soft_action'"));
+  assert.match(worker, /ACTION_RESPONSE_RESERVE_MS = 250/);
+  assert.match(worker, /return remainingMs - ACTION_RESPONSE_RESERVE_MS/);
   assert.match(collector, /request\.basis_revision !== revision/);
   assert.match(collector, /previous\.target\.authorityFingerprint !== current\.authorityFingerprint/);
   assert.match(collector, /authorityFingerprint: authorityFingerprint\(object\)/);
@@ -614,9 +619,18 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   assert.match(prepare, /require_focus: !reflexClick/);
   assert.match(prepare, /require_stable_geometry: !reflexClick/);
   assert.match(prepare, /!policy\.require_stable_geometry \|\| !targetGeometryIsAnimating/);
-  assert.match(prepare, /await new Promise\(\(resolve\) => requestAnimationFrame\(resolve\)\)/);
+  assert.match(prepare, /function currentSoftwareRequest\(request\)/);
+  assert.match(prepare, /request\.basis_revision < revision/);
+  assert.match(prepare, /request\.document_id === documentId/);
+  assert.match(prepare, /target\.objectId === request\.object_id/);
+  assert.match(prepare, /target\.affordances\.includes\(request\.operation\)/);
+  assert.match(prepare, /activeRequest = currentSoftwareRequest\(activeRequest\)/);
+  assert.match(prepare, /function waitForPreparationFrame\(deadline\)/);
+  assert.match(prepare, /requestAnimationFrame\(\(\) => finish\(true\)\)/);
+  assert.match(prepare, /setTimeout\(\(\) => \{\s*cancelAnimationFrame\(frameId\);\s*finish\(false\);/s);
+  assert.match(prepare, /if \(!await waitForPreparationFrame\(deadline\)\) break/);
   assert.match(prepare, /!policy\.require_stable_geometry \|\| stableFrames >= 2/);
-  assert.match(prepare, /collect\(\);\s+prepared = prepare\(\{ \.\.\.request, basis_revision: revision \}\)/);
+  assert.match(prepare, /collect\(\);\s+activeRequest = currentSoftwareRequest\(activeRequest\);\s+prepared = prepare\(activeRequest\)/);
   assert.match(prepare, /actionability_timeout_/);
   assert.match(prepare, /request\.timeout_ms/);
   assert.match(prepare, /targetEnabled/);
@@ -625,6 +639,8 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   const softType = collector.slice(collector.indexOf('function softType('), collector.indexOf('function softAction('));
   assert.match(softType, /await waitForSoftwarePreparation\(request\)/);
   assert.match(softType, /local_wait_ms: prepared\.local_wait_ms/);
+  assert.match(collector, /dispatch_document_id: prepared\.document_id/);
+  assert.match(collector, /dispatch_basis_revision: prepared\.basis_revision/);
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /saccade_action_error\|\$\{stage\}\|\$\{code\}\|\$\{retrySafe\}/);
 });

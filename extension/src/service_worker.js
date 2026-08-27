@@ -11,6 +11,7 @@ const BROWSER_SESSION_KEY = 'saccade.browser_session_initialized';
 const CONNECTION_SESSION_KEY = 'saccade.connection_session_id';
 const WORKER_INSTANCE_ID = randomToken('worker');
 const KEEPALIVE_INTERVAL_MS = 20_000;
+const ACTION_RESPONSE_RESERVE_MS = 250;
 const CLAIM_TTL_MS = 30_000;
 const agentOwnedTabs = new Set();
 const userSharedTabs = new Set();
@@ -495,14 +496,50 @@ function reply(command, payload) {
   if (command.command_id) queueEvent({ kind: 'response', command_id: command.command_id, result: payload });
 }
 
+function extensionDeadlineError(message) {
+  const error = new Error(message);
+  error.saccadeStage = 'extension_queue';
+  error.saccadeCode = 'deadline_exceeded';
+  error.saccadeRetrySafe = true;
+  return error;
+}
+
+function remainingCommandMs(deadlineAt) {
+  return Math.min(30_000, Number(deadlineAt) - Date.now());
+}
+
+async function activateTabForAction(tabId, deadlineAt) {
+  const tab = await chrome.tabs.get(tabId);
+  const browserWindow = await chrome.windows.get(tab.windowId);
+  let focusChanged = false;
+  if (!browserWindow.focused) {
+    await chrome.windows.update(tab.windowId, { focused: true });
+    focusChanged = true;
+  }
+  if (!tab.active) {
+    await chrome.tabs.update(tabId, { active: true });
+    focusChanged = true;
+  }
+  let remainingMs = remainingCommandMs(deadlineAt);
+  if (remainingMs <= ACTION_RESPONSE_RESERVE_MS) {
+    throw extensionDeadlineError('command deadline elapsed during tab activation');
+  }
+  if (focusChanged) {
+    await new Promise((resolve) => setTimeout(
+      resolve, Math.min(100, remainingMs - ACTION_RESPONSE_RESERVE_MS),
+    ));
+    remainingMs = remainingCommandMs(deadlineAt);
+  }
+  if (remainingMs <= ACTION_RESPONSE_RESERVE_MS) {
+    throw extensionDeadlineError('command deadline elapsed before Collector dispatch');
+  }
+  return remainingMs - ACTION_RESPONSE_RESERVE_MS;
+}
+
 async function handleHostCommand(command) {
-  const remainingMs = Math.min(30_000, Number(command.deadline_at) - Date.now());
+  const remainingMs = remainingCommandMs(command.deadline_at);
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-    const error = new Error('command deadline elapsed before Extension dispatch');
-    error.saccadeStage = 'extension_queue';
-    error.saccadeCode = 'deadline_exceeded';
-    error.saccadeRetrySafe = true;
-    throw error;
+    throw extensionDeadlineError('command deadline elapsed before Extension dispatch');
   }
   const payload = {
     ...command.payload,
@@ -578,30 +615,36 @@ async function handleHostCommand(command) {
   } else if (command.kind === 'prepare_action') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
-    const tab = await chrome.tabs.get(tabId);
-    const browserWindow = await chrome.windows.get(tab.windowId);
-    let focusChanged = false;
-    if (!browserWindow.focused) { await chrome.windows.update(tab.windowId, { focused: true }); focusChanged = true; }
-    if (!tab.active) { await chrome.tabs.update(tabId, { active: true }); focusChanged = true; }
-    if (focusChanged) await new Promise((resolve) => setTimeout(resolve, 100));
+    payload.timeout_ms = Math.min(
+      payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
+    );
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.prepare_action', request: payload }, { frameId: 0 });
     if (!result?.ok) throw collectorActionError(result, 'action preparation failed');
     reply(command, result.prepared);
   } else if (command.kind === 'soft_click') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    payload.timeout_ms = Math.min(
+      payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
+    );
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_click', request: payload }, { frameId: 0 });
     if (!result?.ok) throw collectorActionError(result, 'soft click failed');
     reply(command, result.result);
   } else if (command.kind === 'soft_action') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    payload.timeout_ms = Math.min(
+      payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
+    );
     const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 });
     if (!result?.ok) throw collectorActionError(result, 'software action failed');
     reply(command, result.result);
   } else if (command.kind === 'act') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    payload.timeout_ms = Math.min(
+      payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
+    );
     const result = await chrome.tabs.sendMessage(
       tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 },
     );
@@ -610,6 +653,10 @@ async function handleHostCommand(command) {
   } else if (command.kind === 'act.batch') {
     const tabId = numericTabId(payload.tab_id);
     if (!isAuthorized(tabId)) throw new Error('tab is not authorized');
+    payload.timeout_ms = Math.min(
+      payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
+    );
+    payload.steps = payload.steps.map((step) => ({ ...step, timeout_ms: payload.timeout_ms }));
     const result = await chrome.tabs.sendMessage(
       tabId, { kind: 'collector.soft_action_batch', request: payload }, { frameId: 0 },
     );
