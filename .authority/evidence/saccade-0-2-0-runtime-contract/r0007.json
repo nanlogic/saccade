@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 7,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "10eb223975ef5c93408f196f34fcd1ef00d662aad510ede0a684f09a7452ab7d",
+  "baseCurrentSha256": "6945bb68c237067976647d04ba2db31dd933dc39c17c4781c45127cc06341536",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0006.md",
+  "previousEvidenceSha256": "0701b6988a0a14bd668b1725bdf601664d51892ab00c89e6376f88df5eac7263",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0006.json",
+  "previousEvidenceDataSha256": "e3b97cec871d3a246c921badcf938bccb07c4e88d94a0b2d46bcd1376dfcdb33",
+  "changes": [
+    {
+      "item": "R-026",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`saccade.act` may authorize a bounded continuous run only from one current `reflex_target` object carrying the current loop-class authority. Because moving targets may advance unrelated geometry revisions every frame, only this non-actionable controller request may rebase an older basis onto current canonical Truth, and only when the same `document_id` and exact document-local controller `object_id` still resolve uniquely with a current loop-class token; a future basis, document change, missing or replaced identity, wrong role, or absent loop authority remains stale. The Node Broker, under the original request deadline and cancellation identity, repeatedly selects only current same-document targets with that loop class, dispatches each exact current action token once, and requires the safe occurrence to advance before continuing. A registered bridge may define that occurrence as a completed exact-target Extension software dispatch only when the page exposes no live semantic counter; its release conformance must reconcile the final page-owned aggregate with the dispatch count. Pre-dispatch stale target work may be skipped; any ambiguous or occurrence-unverified dispatch stops the loop with `outcome_unknown` and is never replayed. The report is bounded and value-free. Ordinary actions retain strict revision matching. This adds no seventh tool, Agent polling, arbitrary coordinate authority, native backend, or Rust route.",
+      "previousText": "`saccade.act` may authorize a bounded continuous run only from one current `reflex_target` object carrying the current loop-class authority. The Node Broker, under the original request deadline and cancellation identity, repeatedly selects only current same-document targets with the same loop class, dispatches each exact current action token once, and requires the safe occurrence to advance before continuing. A registered bridge may define that occurrence as a completed exact-target Extension software dispatch only when the page exposes no live semantic counter; its release conformance must reconcile the final page-owned aggregate with the dispatch count. Pre-dispatch stale work may be skipped; any ambiguous or occurrence-unverified dispatch stops the loop with `outcome_unknown` and is never replayed. The report is bounded and value-free. This adds no seventh tool, Agent polling, arbitrary coordinate authority, native backend, or Rust route."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/saccade-runtime-contract-r7.md",
+      "archivePath": ".authority/archive/proposals/1787873876043-saccade-runtime-contract-r7.md",
+      "sha256": "10eb223975ef5c93408f196f34fcd1ef00d662aad510ede0a684f09a7452ab7d",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-27T23:37:56.070Z"
+}

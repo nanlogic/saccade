@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 8,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "1efd18d1648dbb418f9ab2b4ce99f067514c3ecd6be06d5f182898c3aced7a85",
+  "baseCurrentSha256": "10eb223975ef5c93408f196f34fcd1ef00d662aad510ede0a684f09a7452ab7d",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0007.md",
+  "previousEvidenceSha256": "4b3f501c19150f32479360dfc3e440487ff07e3a80d1ca389eb30871e0315d63",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0007.json",
+  "previousEvidenceDataSha256": "2805c144b4e0510fb10487d5d967b97e08c94a71b598169418ee13f4df26f459",
+  "changes": [
+    {
+      "item": "R-012",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "One monotonic request deadline covers MCP → Broker → Extension → Collector. No layer restarts a timeout, and a disconnected Extension fails immediately when no reconnect is already active. Read requests are bounded to 30 seconds; action requests may use up to 60 seconds so one deadline can cover an explicitly authorized start transition and a bounded continuous run without hidden timeout renewal.",
+      "previousText": "One monotonic request deadline covers MCP → Broker → Extension → Collector. No layer restarts a timeout, and a disconnected Extension fails immediately when no reconnect is already active."
+    },
+    {
+      "item": "R-027",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A launch-only bounded reflex request may omit `object_id` only when it supplies one `start_object_id` at the exact current document revision. The Broker resolves that identity exactly once and fully preflights it as either a current clickable button in the same document or a current same-origin self-navigation link that does not request a new context. It dispatches the start once under the original request identity and deadline, requires an accepted and semantically verified receipt, then resolves exactly one newly available non-actionable `reflex_target` controller with current loop-class authority. Resolution may follow a new document or a later revision produced by same-document application routing; old controller authority is never reused across the transition. Cross-origin navigation, popup or new-window disposition, submit, upload, ambiguous controller resolution, replacement rebinding, and automatic replay remain forbidden. If the verified start does not yield a unique controller before the original deadline, the report is accepted but unverified with `retry_safe:false`, and the start is never replayed.",
+      "previousText": "A bounded reflex request may include one current `start_object_id`. The Broker fully preflights it as exactly one current clickable button in the same document, dispatches it once under the original request identity and deadline, and begins the loop only after that start action is accepted and semantically verified. It never hides submit, navigation, upload, replacement rebinding, or automatic replay inside the start step."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/saccade-runtime-contract-r8.md",
+      "archivePath": ".authority/archive/proposals/1787874901915-saccade-runtime-contract-r8.md",
+      "sha256": "1efd18d1648dbb418f9ab2b4ce99f067514c3ecd6be06d5f182898c3aced7a85",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-27T23:55:01.944Z"
+}

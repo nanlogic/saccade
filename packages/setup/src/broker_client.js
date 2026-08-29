@@ -62,7 +62,9 @@ async function ensureBroker() {
 async function createSession(resumeToken) {
   await ensureBroker();
   return request('/v1/sessions', {
-    method: 'POST', body: resumeToken ? { resume_token: resumeToken } : {}, timeoutMs: 2_000,
+    method: 'POST',
+    body: { ...(resumeToken ? { resume_token: resumeToken } : {}), upload_root: process.cwd() },
+    timeoutMs: 2_000,
   });
 }
 

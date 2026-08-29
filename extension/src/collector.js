@@ -6,13 +6,14 @@
   const { occurrence: reflexOccurrence } = globalThis.SaccadeControls.reflex_target;
   const MAX_OBJECTS = 10000;
   const MAX_STRUCTURAL_TEXT_BYTES = 256 * 1024;
-  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],[data-saccade-label],[data-saccade-generic-control],.target';
+  const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
+  const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],[data-saccade-label],[data-saccade-generic-control],[data-saccade-file-upload],[id*="upload" i][class*="button" i],[class*="upload" i][class*="button" i],.target';
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
   const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,table,tr,th,td,[role="text"],[role="heading"],[role="paragraph"],[role="list"],[role="listitem"],[role="table"],[role="row"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"],[aria-live]';
   const GENERIC_TEXT_SELECTOR = 'div,span,section,article,main,aside';
   const SURFACE_SELECTOR = 'canvas,video,embed[type="application/pdf"],object[type="application/pdf"],[data-saccade-restricted-document]';
   const DIALOG_SELECTOR = '[role="dialog"],[aria-modal="true"]';
-  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR},${SURFACE_SELECTOR}`;
+  const OBSERVED_SELECTOR = `${CONTROL_SELECTOR},label,${IMAGE_SELECTOR},${STRUCTURAL_SELECTOR},${DIALOG_SELECTOR},${SURFACE_SELECTOR}`;
   // Typing is registered for the roles whose Truth exposes has_value, which is
   // the only evidence a typed value can produce: Truth never exposes the value
   // itself. Protected fields already carry no type affordance, so prepare()
@@ -32,6 +33,8 @@
   const observers = [];
   const documentId = randomToken('document');
   const reflexLoopClassToken = randomToken('loop');
+  const seenMouseAccuracyHits = new WeakSet();
+  let mouseAccuracyHitOccurrence = 0;
   let objectSerial = 0;
   let revision = 0;
   // A pure hash/pushState change mutates no DOM, so the object fingerprint is
@@ -292,8 +295,13 @@
     if (ariaRole === 'tab') return 'tab';
     if (ariaRole === 'listbox' && comboboxForListbox(element)) return null;
     if (ariaRole === 'listbox' || ariaRole === 'combobox') return 'select';
-    const buttonLike = tag === 'BUTTON' || ariaRole === 'button' || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type));
-    if (buttonLike && /\b(upload|choose|select|browse|attach|replace|add)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(safeName(element, 'button') || '')) return 'file_input';
+    const authoredUploadLike = element.hasAttribute('data-saccade-file-upload') || (
+      /upload/i.test(`${element.id} ${element.className}`) && /\b(btn|button)\b/i.test(String(element.className).replace(/[_-]+/g, ' '))
+    );
+    const buttonLike = tag === 'BUTTON' || ariaRole === 'button'
+      || (tag === 'INPUT' && ['button', 'submit', 'reset'].includes(type))
+      || authoredUploadLike;
+    if (buttonLike && isFileUploadTrigger(element, safeName(element, 'button'))) return 'file_input';
     if (buttonLike) return 'button';
     if (tag === 'INPUT' && type === 'checkbox' || ariaRole === 'checkbox') return 'checkbox';
     if (tag === 'SELECT') return 'select';
@@ -309,8 +317,34 @@
     return null;
   }
 
+  function isFileUploadTrigger(element, name) {
+    if (/\b(upload|choose|select|browse|attach|replace|add)\b.*\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(name || '')) return true;
+    const bareUploadVerb = /^(upload|choose|browse|attach|select|add)$/i.test(name || '');
+    const authoredUploadButton = element.hasAttribute('data-saccade-file-upload') || (
+      /upload/i.test(`${element.id} ${element.className}`)
+        && /\b(btn|button)\b/i.test(String(element.className).replace(/[_-]+/g, ' '))
+    );
+    const unnamedButton = !name && (
+      element.tagName === 'BUTTON'
+        || (element.tagName === 'INPUT' && ['button', 'submit', 'reset'].includes(String(element.type || '').toLowerCase()))
+        || String(element.getAttribute('role') || '').toLowerCase() === 'button'
+    );
+    if (!bareUploadVerb && !authoredUploadButton && !unnamedButton) return false;
+    let context = element.parentElement;
+    for (let depth = 0; context && context !== element.ownerDocument.body && depth < 4; depth += 1, context = context.parentElement) {
+      const text = normalizedText(context.innerText || context.textContent, 768) || '';
+      if (/\b(drop|select|choose|upload|add)\b.{0,120}\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(text)
+        || /\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b.{0,120}\b(drop|select|choose|upload|add)\b/i.test(text)
+        || (authoredUploadButton && /\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(text))) return true;
+    }
+    return false;
+  }
+
   function objectId(element) {
-    if (!identities.has(element)) identities.set(element, `object.${documentId}.${++objectSerial}`);
+    // object_id is document-local authority. Every Agent request already has
+    // to carry the exact document_id, so repeating that high-entropy value in
+    // every object wastes model context without adding isolation.
+    if (!identities.has(element)) identities.set(element, `object.${++objectSerial}`);
     return identities.get(element);
   }
 
@@ -347,6 +381,14 @@
     return input;
   }
 
+  function visibleRadioTrigger(input) {
+    if (input.tagName !== 'INPUT' || String(input.type).toLowerCase() !== 'radio') return input;
+    const inputVisibility = visibilityFor(input, boxFor(input));
+    if (inputVisibility === 'visible') return input;
+    const visible = (element) => visibilityFor(element, boxFor(element)) === 'visible';
+    return Array.from(input.labels || []).find(visible) || input;
+  }
+
   function ariaBoolean(element, name) {
     const value = element.getAttribute(`aria-${name}`);
     return value === null ? undefined : value === 'true';
@@ -370,7 +412,9 @@
       const page = element.ownerDocument;
       if (element === page.body && isMouseAccuracyGame(page)) signals.enabled = false;
       const authored = element.getAttribute('data-saccade-reflex-occurrence');
-      signals.occurrence = reflexOccurrence(authored, isMouseAccuracyGame(page) ? page.body?.innerText : '');
+      signals.occurrence = authored || (isMouseAccuracyClassic(page)
+        ? String(mouseAccuracyHitOccurrence)
+        : reflexOccurrence(authored, isMouseAccuracyGame(page) ? page.body?.innerText : ''));
     } else if (role === 'link') {
       signals.current = element.getAttribute('aria-current') || undefined;
       signals.expanded = ariaBoolean(element, 'expanded');
@@ -431,7 +475,9 @@
 
   function observationObject(element, role, frameId) {
     const descriptor = registry.observe(role, signalsFor(element, role));
-    const interactionElement = role === 'file_input' ? visibleFileTrigger(element) : element;
+    const interactionElement = role === 'file_input'
+      ? visibleFileTrigger(element)
+      : role === 'radio' ? visibleRadioTrigger(element) : element;
     const box = boxFor(interactionElement);
     const visibility = visibilityFor(interactionElement, box);
     if (visibility === 'hidden') return null;
@@ -475,7 +521,7 @@
       const token = randomToken('action', 16);
       object.action_token = token;
       tokenTargets.set(token, {
-        element: interactionElement, role, objectId: id, affordances: descriptor.affordances,
+        element: interactionElement, controlElement: element, role, objectId: id, affordances: descriptor.affordances,
         authorityFingerprint: authorityFingerprint(object),
       });
     }
@@ -723,13 +769,42 @@
   }
 
   function isMouseAccuracyGame(doc) {
-    return doc?.location?.hostname === 'mouseaccuracy.com' && doc.location.pathname.startsWith('/game');
+    return doc?.location?.hostname === 'mouseaccuracy.com'
+      && (doc.location.pathname.startsWith('/game') || doc.location.pathname.startsWith('/classic'));
+  }
+
+  function isMouseAccuracyClassic(doc) {
+    return doc?.location?.hostname === 'mouseaccuracy.com' && doc.location.pathname.startsWith('/classic');
+  }
+
+  function updateMouseAccuracyHitOccurrence(doc) {
+    if (!isMouseAccuracyClassic(doc)) return;
+    for (const hit of doc.querySelectorAll('.target.hit')) {
+      recordMouseAccuracyOccurrence(hit);
+    }
+  }
+
+  function recordMouseAccuracyOccurrence(element, softwareDispatchCompleted = false) {
+    if (!isMouseAccuracyClassic(element?.ownerDocument) || seenMouseAccuracyHits.has(element)) return false;
+    // Classic keeps its live score in page-private JavaScript and exposes it
+    // only on the final result screen. Its dedicated bridge therefore counts
+    // the completed exact-target click dispatch as the per-step occurrence;
+    // a retained `.hit` class or synchronous disconnection remains a stronger
+    // page-produced signal when either is available. This is never a reason to
+    // replay an ambiguous dispatch.
+    if (!softwareDispatchCompleted && element.isConnected && !element.classList.contains('hit')) return false;
+    seenMouseAccuracyHits.add(element);
+    mouseAccuracyHitOccurrence += 1;
+    return true;
   }
 
   function observeCurrentGeometry() {
     if (!globalThis.ResizeObserver) return;
     if (!geometryResizeObserver) geometryResizeObserver = new ResizeObserver(scheduleVisual);
-    const currentElements = new Set([...objectTargets.values()].filter((element) => element?.isConnected));
+    const currentElements = new Set([
+      ...[...objectTargets.values()].filter((element) => element?.isConnected),
+      ...[...tokenTargets.values()].map((target) => target.element).filter((element) => element?.isConnected),
+    ]);
     for (const element of geometryObservedElements) {
       if (!currentElements.has(element)) geometryResizeObserver.unobserve(element);
     }
@@ -741,7 +816,11 @@
 
   function currentGeometryIsAnimating() {
     const visited = new Set();
-    for (const element of objectTargets.values()) {
+    const currentElements = new Set([
+      ...objectTargets.values(),
+      ...[...tokenTargets.values()].map((target) => target.element),
+    ]);
+    for (const element of currentElements) {
       let current = element;
       while (current?.nodeType === Node.ELEMENT_NODE) {
         if (!visited.has(current)) {
@@ -766,6 +845,11 @@
     delete contract.object_revision;
     delete contract.document_bounds;
     delete contract.viewport_bounds;
+    // Visibility and transition are local actionability inputs, not semantic
+    // authority identity. Scrolling the same live element into view must not
+    // rotate its token; prepare() rechecks both immediately before dispatch.
+    delete contract.visibility;
+    delete contract.transition;
     return JSON.stringify(contract);
   }
 
@@ -792,6 +876,7 @@
 
   function collect({ forceSnapshot = false } = {}) {
     if (!config) return null;
+    updateMouseAccuracyHitOccurrence(document);
     const hadCompiledObjects = compiledObjects !== null;
     const previousTokenTargets = new Map(tokenTargets);
     const previousObjectTargets = new Map(objectTargets);
@@ -888,19 +973,14 @@
         if (truncated) break;
       }
     }
-    if (document.readyState === 'loading') {
-      for (const object of objects) {
-        object.affordances = [];
-        delete object.action_token;
-      }
-      tokenTargets.clear();
-    } else {
-      // Authority is bound to the stable object identity and exact current DOM
-      // element, role, and affordances. Unrelated semantic churn must not make
-      // read-then-act impossible on live pages. Replacement, role/affordance
-      // changes, navigation, and disconnect still invalidate it immediately.
-      reuseStableAuthorities(objects, previousTokenTargets);
-    }
+    // Authority is bound to the stable object identity and exact current DOM
+    // element, role, and affordances. Do not wait for document readiness: live
+    // applications can intentionally keep the document in "loading" while
+    // their controls are already usable. Per-action local preflight owns
+    // connectedness, visibility, enabledness, geometry, and topmost checks.
+    // Replacement, role/affordance changes, navigation, and disconnect still
+    // invalidate authority immediately.
+    reuseStableAuthorities(objects, previousTokenTargets);
     const changes = compileChanges(compiledObjects, objects);
     // Bounds come from getBoundingClientRect, so the layout viewport is the
     // space they are expressed in. device_pixel_ratio is descriptive only.
@@ -1024,20 +1104,21 @@
   function prepare(request) {
     if (!config || request.browser_instance_id !== config.browserInstanceId || request.tab_id !== config.tabId
       || request.document_id !== documentId || request.basis_revision !== revision) {
-      throw actionFailure('prepare', 'stale_action_basis', false, 'stale action basis');
+      throw actionFailure('prepare', 'stale_action_basis', true, 'stale action basis');
     }
     const target = tokenTargets.get(request.action_token);
     if (!target || !target.element.isConnected || !target.affordances.includes(request.operation)) {
-      throw actionFailure('prepare', 'stale_action_token', false, 'action token is not current for operation');
+      throw actionFailure('prepare', 'stale_action_token', true, 'action token is not current for operation');
     }
     // A preflight may defer scrolling. The dispatch pass scrolls and acts in
     // the same task while identity, token, document, revision, and affordance
     // checks remain mandatory.
     const deferred = request.defer_scroll === true;
+    const focusElement = target.controlElement || target.element;
     if (!deferred) {
       target.element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
       if (request.operation === 'type' || request.operation === 'select') {
-        target.element.focus({ preventScroll: true });
+        focusElement.focus({ preventScroll: true });
       }
     }
     const box = boxFor(target.element);
@@ -1049,9 +1130,8 @@
       action_token: request.action_token, operation: request.operation,
       screen_bounds: { x: screenOrigin.x + topBox.x, y: screenOrigin.y + topBox.y, width: topBox.width, height: topBox.height },
       visible: visibilityFor(target.element, box) === 'visible', topmost: isTopmost(target.element, box),
-      focus_verified: (request.operation === 'type' || request.operation === 'select')
-        ? target.element.ownerDocument.activeElement === target.element
-        : top.document.hasFocus(),
+      focus_verified: target.role === 'reflex_target'
+        || focusElement.ownerDocument.activeElement === focusElement,
     };
     if (request.operation === 'select') {
       const optionId = request.payload?.kind === 'select' ? request.payload.option_object_id : '';
@@ -1066,11 +1146,6 @@
         throw actionFailure('prepare', 'select_option_not_current', false, 'select option has no enabled option position');
       }
     }
-    if (request.operation === 'upload' && target.role === 'file_input') {
-      activeFileTrigger = target.element;
-      const expectedTrigger = activeFileTrigger;
-      setTimeout(() => { if (activeFileTrigger === expectedTrigger) activeFileTrigger = null; }, 10000);
-    }
     return prepared;
   }
 
@@ -1083,7 +1158,8 @@
   }
 
   function targetEnabled(target) {
-    return !target.element.disabled && target.element.getAttribute('aria-disabled') !== 'true';
+    const control = target.controlElement || target.element;
+    return !control.disabled && control.getAttribute('aria-disabled') !== 'true';
   }
 
   function targetGeometryIsAnimating(element) {
@@ -1098,12 +1174,13 @@
 
   function softwarePreparationPolicy(request, target) {
     const reflexClick = request.operation === 'click' && target.role === 'reflex_target';
+    const focusRequired = request.operation === 'type' || request.operation === 'select';
     return {
       // Software reflex input targets this exact authorized DOM object. It
       // does not aim a physical pointer, so continuous movement, browser
       // focus, and coordinate hit testing are not preparation gates.
       require_topmost: !reflexClick,
-      require_focus: !reflexClick,
+      require_focus: focusRequired,
       require_stable_geometry: !reflexClick,
     };
   }
@@ -1208,6 +1285,7 @@
     const box = boxFor(target.element);
     const clientX = box.x + box.width / 2;
     const clientY = box.y + box.height / 2;
+    let clickDispatchCompleted = false;
     for (const [type, EventClass, buttons] of [
       ['pointermove', PointerEvent, 0], ['mousemove', MouseEvent, 0],
       ['pointerdown', PointerEvent, 1], ['mousedown', MouseEvent, 1],
@@ -1217,7 +1295,11 @@
         bubbles: true, cancelable: true, composed: true, clientX, clientY,
         button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true,
       }));
+      if (type === 'click') clickDispatchCompleted = true;
     }
+    const recordedReflexOccurrence = target.role === 'reflex_target'
+      && recordMouseAccuracyOccurrence(target.element, clickDispatchCompleted);
+    if (recordedReflexOccurrence) collect();
     requestAnimationFrame(collect);
     return {
       accepted: true, local_wait_ms: prepared.local_wait_ms,
@@ -1265,9 +1347,238 @@
     };
   }
 
+  function linkedFileInput(target) {
+    const direct = [target.controlElement, target.element].find((element) => (
+      element?.tagName === 'INPUT' && String(element.type).toLowerCase() === 'file'
+    ));
+    if (direct) return direct;
+    const trigger = target.element;
+    const ids = String(trigger.getAttribute('aria-controls') || '').split(/\s+/).filter(Boolean);
+    for (const id of ids) {
+      const candidate = trigger.ownerDocument.getElementById(id);
+      if (candidate?.tagName === 'INPUT' && String(candidate.type).toLowerCase() === 'file') return candidate;
+    }
+    return null;
+  }
+
+  function dispatchUploadTriggerClick(trigger) {
+    const view = trigger.ownerDocument.defaultView;
+    const box = boxFor(trigger);
+    const clientX = box.x + box.width / 2;
+    const clientY = box.y + box.height / 2;
+    for (const [type, EventClass, buttons] of [
+      ['pointermove', view.PointerEvent, 0], ['mousemove', view.MouseEvent, 0],
+      ['pointerdown', view.PointerEvent, 1], ['mousedown', view.MouseEvent, 1],
+      ['pointerup', view.PointerEvent, 0], ['mouseup', view.MouseEvent, 0], ['click', view.MouseEvent, 0],
+    ]) {
+      const event = new EventClass(type, {
+        bubbles: true, cancelable: true, composed: true, clientX, clientY,
+        button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+      });
+      if (type !== 'click') {
+        trigger.dispatchEvent(event);
+        continue;
+      }
+      // Let the trigger's already-registered page listeners observe an
+      // uncancelled click first. Cancel at the end of the target phase so the
+      // synthetic bridge does not also submit an empty form or open a native
+      // chooser. Pre-cancelling the event makes some generic upload widgets
+      // abandon their own file-input setup.
+      const preventNativeDefault = (clickEvent) => clickEvent.preventDefault();
+      trigger.addEventListener('click', preventNativeDefault, { once: true });
+      trigger.dispatchEvent(event);
+      trigger.removeEventListener('click', preventNativeDefault);
+    }
+  }
+
+  async function captureDynamicFileInput(trigger) {
+    const document = trigger.ownerDocument;
+    let captured = null;
+    let resolveCapture;
+    const capture = new Promise((resolve) => { resolveCapture = resolve; });
+    const use = (candidate) => {
+      if (captured || candidate?.tagName !== 'INPUT' || String(candidate.type).toLowerCase() !== 'file') return;
+      captured = candidate;
+      resolveCapture(candidate);
+    };
+    const onClick = (event) => {
+      const candidate = event.target;
+      if (candidate?.tagName !== 'INPUT' || String(candidate.type).toLowerCase() !== 'file') return;
+      // The authorized upload supplies the FileList itself. Suppress only the
+      // native chooser default; page click/change listeners still run.
+      event.preventDefault();
+      use(candidate);
+    };
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          use(node.matches?.('input[type="file"]') ? node : node.querySelector?.('input[type="file"]'));
+        }
+      }
+    });
+    // Observe after the input's own target listeners. They must see an
+    // uncancelled click, while this bubble listener still suppresses the
+    // native chooser default action.
+    document.addEventListener('click', onClick);
+    observer.observe(document.documentElement, { subtree: true, childList: true });
+    try {
+      dispatchUploadTriggerClick(trigger);
+      return await Promise.race([
+        capture,
+        new Promise((resolve) => setTimeout(() => resolve(null), 1000)),
+      ]);
+    } finally {
+      document.removeEventListener('click', onClick);
+      observer.disconnect();
+    }
+  }
+
+  function uploadFileFromPayload(payload, view) {
+    const source = payload?.kind === 'file' ? payload.file : null;
+    if (!source || typeof source.name !== 'string' || !source.name
+      || source.name.length > 255 || /[\\/\u0000-\u001f\u007f]/.test(source.name)
+      || typeof source.mime_type !== 'string' || source.mime_type.length > 127
+      || !Number.isSafeInteger(source.size_bytes) || source.size_bytes < 1
+      || source.size_bytes > MAX_UPLOAD_BYTES || typeof source.content_base64 !== 'string'
+      || source.content_base64.length > Math.ceil(MAX_UPLOAD_BYTES / 3) * 4 + 4) {
+      throw actionFailure('prepare', 'upload_payload_invalid', true, 'upload payload is invalid');
+    }
+    let binary;
+    try { binary = view.atob(source.content_base64); }
+    catch (_error) {
+      throw actionFailure('prepare', 'upload_payload_invalid', true, 'upload payload encoding is invalid');
+    }
+    if (binary.length !== source.size_bytes) {
+      throw actionFailure('prepare', 'upload_payload_invalid', true, 'upload payload size does not match');
+    }
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return new view.File([bytes], source.name, { type: source.mime_type, lastModified: Date.now() });
+  }
+
+  function fileAcceptedByInput(file, input) {
+    const accepts = String(input.accept || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (!accepts.length) return true;
+    const name = file.name.toLowerCase();
+    const type = file.type.toLowerCase();
+    return accepts.some((accept) => (
+      accept.startsWith('.') ? name.endsWith(accept)
+        : accept.endsWith('/*') ? type.startsWith(accept.slice(0, -1))
+          : type === accept
+    ));
+  }
+
+  function uploadDropTarget(trigger) {
+    let context = trigger;
+    for (let depth = 0; context && context !== trigger.ownerDocument.body && depth < 5; depth += 1, context = context.parentElement) {
+      const text = normalizedText(context.innerText || context.textContent, 1024) || '';
+      if (/\bdrag\s+(?:and\s+)?drop\b.{0,160}\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b/i.test(text)
+        || /\b(files?|documents?|attachments?|images?|covers?|screenshots?)\b.{0,160}\bdrag\s+(?:and\s+)?drop\b/i.test(text)) return context;
+    }
+    return null;
+  }
+
+  function dispatchFileDrop(trigger, file) {
+    const view = trigger.ownerDocument.defaultView;
+    const transfer = new view.DataTransfer();
+    transfer.items.add(file);
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      trigger.dispatchEvent(new view.DragEvent(type, {
+        bubbles: true, cancelable: true, composed: true, dataTransfer: transfer,
+      }));
+    }
+  }
+
+  async function softUpload(request, preflight) {
+    const prepared = preflight || await waitForSoftwarePreparation(request);
+    const target = tokenTargets.get(request.action_token);
+    if (!target || !target.element.isConnected || target.role !== 'file_input') {
+      throw actionFailure('dispatch', 'operation_not_registered', false, 'upload is not registered for the current control');
+    }
+    const view = target.element.ownerDocument.defaultView;
+    const file = uploadFileFromPayload(request.payload, view);
+    const nativeChooserButton = target.element.tagName === 'BUTTON'
+      || (target.element.tagName === 'INPUT'
+        && ['button', 'submit', 'reset'].includes(String(target.element.type || '').toLowerCase()));
+    const dropTarget = nativeChooserButton ? null : uploadDropTarget(target.element);
+    if (dropTarget) {
+      dispatchFileDrop(dropTarget, file);
+      fileTriggerHasValue.add(target.element);
+      collect();
+      return {
+        accepted: true, local_wait_ms: prepared.local_wait_ms,
+        dispatch_document_id: prepared.document_id,
+        dispatch_basis_revision: prepared.basis_revision,
+        upload_dispatch: 'drop',
+      };
+    }
+    let input = linkedFileInput(target);
+    const triggerDispatched = !input;
+    if (triggerDispatched) input = await captureDynamicFileInput(target.element);
+    if (!input) {
+      throw actionFailure('dispatch', 'file_input_not_captured', false, 'the upload trigger did not expose one file input');
+    }
+    if (input.disabled || input.getAttribute('aria-disabled') === 'true' || input.webkitdirectory) {
+      throw actionFailure('prepare', 'file_input_unavailable', !triggerDispatched, 'the current file input cannot accept one file');
+    }
+    if (!fileAcceptedByInput(file, input)) {
+      throw actionFailure('prepare', 'file_type_rejected', !triggerDispatched, 'the file does not match the input accept policy');
+    }
+    const transfer = new view.DataTransfer();
+    transfer.items.add(file);
+    try { input.files = transfer.files; }
+    catch (_error) {
+      throw actionFailure('dispatch', 'file_list_assignment_failed', false, 'the browser rejected the selected file');
+    }
+    activeFileTrigger = target.element;
+    const expectedTrigger = activeFileTrigger;
+    setTimeout(() => { if (activeFileTrigger === expectedTrigger) activeFileTrigger = null; }, 10000);
+    input.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
+    input.dispatchEvent(new view.Event('change', { bubbles: true }));
+    collect();
+    return {
+      accepted: true, local_wait_ms: prepared.local_wait_ms,
+      dispatch_document_id: prepared.document_id,
+      dispatch_basis_revision: prepared.basis_revision,
+      upload_dispatch: 'file_input',
+    };
+  }
+
+  async function waitForSelectOption(request, target) {
+    const startedAt = performance.now();
+    const original = objectTargets.get(request.payload.option_object_id);
+    const timeoutMs = Math.max(1, Math.min(30000, Number(request.timeout_ms) || 5000));
+    const deadline = performance.now() + timeoutMs;
+    let lastIssue = 'not_visible';
+    while (performance.now() < deadline) {
+      const option = objectTargets.get(request.payload.option_object_id);
+      if (!option || option !== original || !option.isConnected || choiceOwner(option) !== target) {
+        throw actionFailure('prepare', 'select_option_stale', false, 'select option was replaced before dispatch');
+      }
+      if (!optionEnabled(option, target)) {
+        throw actionFailure('prepare', 'select_option_disabled', true, 'select option is not enabled');
+      }
+      const box = boxFor(option);
+      lastIssue = visibilityFor(option, box) !== 'visible' ? 'not_visible'
+        : !isTopmost(option, box) ? 'not_topmost'
+          : targetGeometryIsAnimating(option) ? 'geometry_unstable' : null;
+      if (!lastIssue) {
+        return { option, box, local_wait_ms: Math.max(0, performance.now() - startedAt) };
+      }
+      if (!await waitForPreparationFrame(deadline)) break;
+      collect();
+    }
+    throw actionFailure(
+      'prepare', `select_option_actionability_timeout_${lastIssue}`, true,
+      `select option actionability timed out: ${lastIssue}`,
+    );
+  }
+
   async function softAction(request, preflight) {
     if (request.operation === 'click') return softClick(request, preflight);
     if (request.operation === 'type') return softType(request, preflight);
+    if (request.operation === 'upload') return softUpload(request, preflight);
     const prepared = preflight || await waitForSoftwarePreparation(request);
     if (request.operation !== 'select' || request.payload?.kind !== 'select') {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software action is not registered for the current operation');
@@ -1282,10 +1593,22 @@
       target.dispatchEvent(new Event('input', { bubbles: true }));
       target.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      for (const key of ['Home', ...Array(prepared.selection_index).fill('ArrowDown'), 'Enter']) {
-        target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      const current = await waitForSelectOption(request, target);
+      const clientX = current.box.x + current.box.width / 2;
+      const clientY = current.box.y + current.box.height / 2;
+      for (const [type, EventClass, buttons] of [
+        ['pointermove', PointerEvent, 0], ['mousemove', MouseEvent, 0],
+        ['pointerdown', PointerEvent, 1], ['mousedown', MouseEvent, 1],
+        ['pointerup', PointerEvent, 0], ['mouseup', MouseEvent, 0], ['click', MouseEvent, 0],
+      ]) {
+        current.option.dispatchEvent(new EventClass(type, {
+          bubbles: true, cancelable: true, composed: true, clientX, clientY,
+          button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+        }));
       }
+      prepared.local_wait_ms += current.local_wait_ms;
     }
+    requestAnimationFrame(collect);
     return {
       accepted: true, local_wait_ms: prepared.local_wait_ms,
       dispatch_document_id: prepared.document_id,
@@ -1313,18 +1636,49 @@
       const remaining = Math.max(1, deadline - performance.now());
       prepared.push(await waitForSoftwarePreparation({ ...step, timeout_ms: remaining }));
     }
+    // The first pass proves the whole batch is safe to begin. Revalidate each
+    // exact token again immediately before dispatch because controlled inputs
+    // may synchronously rerender another field after a preceding input event.
+    // Replacement remains stale: this never rebinds an old token to a new DOM
+    // object.
     const receipts = [];
     for (let index = 0; index < request.steps.length; index += 1) {
       const step = request.steps[index];
-      const result = await softAction(step, prepared[index]);
-      receipts.push({ object_id: step.object_id, operation: step.operation, accepted: result.accepted === true });
+      try {
+        if (index > 0) collect();
+        const remaining = Math.max(1, deadline - performance.now());
+        const result = await softAction({ ...step, timeout_ms: remaining });
+        receipts.push({
+          object_id: step.object_id, operation: step.operation,
+          accepted: result.accepted === true,
+          dispatch_document_id: result.dispatch_document_id,
+          dispatch_basis_revision: result.dispatch_basis_revision,
+        });
+      } catch (error) {
+        return {
+          accepted: false,
+          partial_dispatch: receipts.length > 0,
+          steps: [...receipts, {
+            object_id: step.object_id, operation: step.operation, accepted: false,
+            code: error.saccadeCode || 'software_action_rejected',
+          }],
+          failure_stage: error.saccadeStage || 'dispatch',
+          failure_code: error.saccadeCode || 'software_action_rejected',
+          retry_safe: receipts.length === 0 && error.saccadeRetrySafe === true,
+          dispatch_document_id: receipts.at(-1)?.dispatch_document_id || prepared[0]?.document_id,
+          dispatch_basis_revision: Math.max(
+            ...receipts.map((receipt) => receipt.dispatch_basis_revision),
+            ...prepared.map((item) => item.basis_revision),
+          ),
+        };
+      }
     }
     requestAnimationFrame(collect);
     return {
       accepted: receipts.every((receipt) => receipt.accepted),
       steps: receipts,
-      dispatch_document_id: prepared[0]?.document_id,
-      dispatch_basis_revision: Math.max(...prepared.map((item) => item.basis_revision)),
+      dispatch_document_id: receipts.at(-1)?.dispatch_document_id || prepared[0]?.document_id,
+      dispatch_basis_revision: Math.max(...receipts.map((receipt) => receipt.dispatch_basis_revision)),
     };
   }
 

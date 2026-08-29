@@ -27,7 +27,9 @@ test('a live MCP adapter resumes its exact session after Broker process replacem
     }
     if (route === '/v1/sessions' && options.method === 'POST') {
       resumeCalls += 1;
-      assert.deepEqual(JSON.parse(options.body), { resume_token: 'resume_in-memory-proof' });
+      assert.deepEqual(JSON.parse(options.body), {
+        resume_token: 'resume_in-memory-proof', upload_root: process.cwd(),
+      });
       return response({
         agent_session_id: 'agent_original', broker_epoch: 'broker_new',
         resume_token: 'resume_rotated-proof', resumed: true, resumed_tabs: 1,

@@ -15,10 +15,8 @@ function tools() {
       claim: { type: 'string', enum: ['arm', 'confirm', 'shared'] },
       claim_id: { type: 'string', minLength: 1 },
       tab_id: { type: 'string', minLength: 1 },
-    }, [], [
-      { required: ['url'] },
-      { required: ['claim', 'tab_id'] },
-    ]),
+      browser_instance_id: { type: 'string', minLength: 1, maxLength: 256 },
+    }),
     tool('saccade.tabs.close', 'Close one tab leased to this Agent session.', {
       tab_id: { type: 'string', minLength: 1 },
     }, ['tab_id']),
@@ -26,24 +24,33 @@ function tools() {
       tab_id: { type: 'string', minLength: 1 },
       mode: { type: 'string', enum: ['full', 'delta'] },
       after_revision: { type: 'integer', minimum: 0 },
+      min_objects: { type: 'integer', minimum: 1, maximum: 32 },
+      timeout_ms: { type: 'integer', minimum: 1, maximum: 30000 },
       query: {
         type: 'object', additionalProperties: false,
         properties: {
           text: { type: 'string', minLength: 1, maxLength: 256 },
           roles: { type: 'array', maxItems: 32, uniqueItems: true, items: { type: 'string' } },
+          affordances: { type: 'array', maxItems: 8, uniqueItems: true, items: { type: 'string' } },
+          visibility: { type: 'array', maxItems: 4, uniqueItems: true, items: { type: 'string' } },
+          object_ids: { type: 'array', maxItems: 32, uniqueItems: true, items: { type: 'string', minLength: 1 } },
           max_objects: { type: 'integer', minimum: 1, maximum: 32 },
         },
       },
     }, ['tab_id', 'mode']),
-    tool('saccade.act', 'Execute one current object-addressed Extension software action in a leased tab.', {
+    tool('saccade.act', 'Execute one current object-addressed Extension software action, or one bounded local reflex loop, in a leased tab.', {
       tab_id: { type: 'string', minLength: 1 },
       document_id: { type: 'string', minLength: 1 },
       basis_revision: { type: 'integer', minimum: 1 },
       object_id: { type: 'string', minLength: 1 },
-      operation: { type: 'string', enum: ['click', 'type', 'select'] },
+      operation: { type: 'string', enum: ['click', 'type', 'select', 'upload'] },
       text: { type: 'string', maxLength: 8192 },
       value: { type: 'string', maxLength: 8192 },
       option_object_id: { type: 'string', minLength: 1 },
+      file_path: { type: 'string', minLength: 1, maxLength: 4096 },
+      file_sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+      max_actions: { type: 'integer', minimum: 1, maximum: 1000 },
+      start_object_id: { type: 'string', minLength: 1 },
       steps: {
         type: 'array', minItems: 1, maxItems: 32,
         items: {
@@ -58,8 +65,8 @@ function tools() {
           },
         },
       },
-      timeout_ms: { type: 'integer', minimum: 1, maximum: 30000 },
-    }, ['tab_id', 'document_id', 'basis_revision'], [{ required: ['object_id'] }, { required: ['steps'] }]),
+      timeout_ms: { type: 'integer', minimum: 1, maximum: 60000 },
+    }, ['tab_id', 'document_id', 'basis_revision']),
   ];
 }
 
@@ -94,6 +101,79 @@ function write(output, id, result, error) {
   output.write(`${JSON.stringify(error
     ? { jsonrpc: '2.0', id, error: { code: -32000, message: error.message, data } }
     : { jsonrpc: '2.0', id, result })}\n`);
+}
+
+const COMPACT_OBJECT_FIELDS = Object.freeze([
+  'object_id', 'object_revision', 'frame', 'kind', 'role', 'name', 'text',
+  'description', 'affordances', 'state', 'protected', 'document_bounds_xywh',
+  'viewport_bounds_xywh', 'visibility', 'transition', 'actionable',
+  'continuous', 'extra',
+]);
+
+function boundsRow(bounds) {
+  if (!bounds || typeof bounds !== 'object') return null;
+  return [bounds.x, bounds.y, bounds.width, bounds.height];
+}
+
+function compactTruthForAgent(result) {
+  const frameIndexes = new Map((result.frames || []).map((frame, index) => [frame.frame_id, index]));
+  const common = new Set([
+    'object_id', 'object_revision', 'frame_id', 'kind', 'role', 'name', 'text',
+    'description', 'affordances', 'state', 'protected', 'document_bounds',
+    'viewport_bounds', 'visibility', 'transition', 'action_token', 'loop_class_token',
+  ]);
+  const objects = (result.objects || []).map((object) => {
+    const extra = Object.fromEntries(Object.entries(object).filter(([key]) => !common.has(key)));
+    return [
+      object.object_id, object.object_revision, frameIndexes.get(object.frame_id) ?? object.frame_id,
+      object.kind, object.role, object.name ?? null, object.text ?? null,
+      object.description ?? null, object.affordances || [], object.state || {},
+      object.protected === true, boundsRow(object.document_bounds),
+      boundsRow(object.viewport_bounds), object.visibility, object.transition,
+      typeof object.action_token === 'string', typeof object.loop_class_token === 'string',
+      Object.keys(extra).length ? extra : null,
+    ];
+  });
+  const changes = (result.changes || []).map((change) => [
+    change.kind, change.object_id, change.object_revision,
+  ]);
+  return {
+    schema: result.schema,
+    encoding: 'compact_rows/1',
+    tab_id: result.tab_id,
+    document_id: result.document_id,
+    revision: result.revision,
+    mode: result.mode,
+    complete: result.complete,
+    next_basis_revision: result.next_basis_revision,
+    ...(result.base_revision !== undefined ? { base_revision: result.base_revision } : {}),
+    ...(result.reset_required !== undefined ? { reset_required: result.reset_required } : {}),
+    ...(result.timed_out !== undefined ? { timed_out: result.timed_out } : {}),
+    ...(result.match_count !== undefined ? { match_count: result.match_count } : {}),
+    ...(result.working_set !== undefined ? { working_set: result.working_set } : {}),
+    ...(result.catalog !== undefined ? { catalog: result.catalog } : {}),
+    ...(result.object_count !== undefined ? { object_count: result.object_count } : {}),
+    frames: result.frames || [],
+    geometry: result.geometry,
+    object_fields: COMPACT_OBJECT_FIELDS,
+    objects,
+    change_fields: ['kind', 'object_id', 'object_revision'],
+    changes,
+    coverage: result.coverage,
+    limitations: result.limitations || [],
+    gap: result.gap === true,
+  };
+}
+
+function agentResult(result) {
+  if (result?.schema === 'saccade.agent-truth/2') {
+    return compactTruthForAgent(result);
+  }
+  return result;
+}
+
+function agentText(result) {
+  return JSON.stringify(agentResult(result));
 }
 
 async function serveMcp({ input = process.stdin, output = process.stdout } = {}) {
@@ -132,9 +212,13 @@ async function serveMcp({ input = process.stdin, output = process.stdout } = {})
         const args = request.params?.arguments || {};
         const timeoutMs = Number.isSafeInteger(args.timeout_ms) ? args.timeout_ms : method === 'tabs.open' ? 25_000 : 10_000;
         const result = await rpc(session, method, args, timeoutMs, request.id);
-        if (!cancelled.has(key)) write(output, request.id, {
-          content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result,
-        });
+        if (!cancelled.has(key)) {
+          const projected = agentResult(result);
+          write(output, request.id, {
+            content: [{ type: 'text', text: JSON.stringify(projected) }],
+            structuredContent: projected,
+          });
+        }
       } else {
         throw Object.assign(new Error(`unsupported MCP method ${request.method}`), { code: 'METHOD_UNKNOWN' });
       }
@@ -160,4 +244,6 @@ async function serveMcp({ input = process.stdin, output = process.stdout } = {})
   }
 }
 
-module.exports = { MCP_VERSION, methodForTool, serveMcp, tools };
+module.exports = {
+  MCP_VERSION, agentResult, agentText, compactTruthForAgent, methodForTool, serveMcp, tools,
+};

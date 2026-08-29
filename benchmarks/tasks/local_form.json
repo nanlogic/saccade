@@ -1,0 +1,19 @@
+{
+  "schema": "saccade-agent-benchmark-task/1",
+  "name": "local-fair-form",
+  "url": "http://127.0.0.1:8765/fixtures/benchmarks/form.html",
+  "task": "Complete the form. Enter FAIR-TEXT-OMEGA in Text input, enter FAIR LINE ONE then FAIR LINE TWO on a new line in Textarea, choose Two in Dropdown, select Confirm choice and Express, then submit the benchmark form.",
+  "success": {
+    "tool_output_contains": [
+      "BENCHMARK-COMPLETE",
+      "choice=Two",
+      "confirmed=on",
+      "delivery=Express"
+    ]
+  },
+  "redact": [
+    "FAIR-TEXT-OMEGA",
+    "FAIR LINE ONE\nFAIR LINE TWO"
+  ],
+  "timeout_seconds": 180
+}

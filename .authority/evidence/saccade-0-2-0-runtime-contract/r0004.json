@@ -1,0 +1,310 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 4,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "5a6ba0f9bd25c0e1b17fd4328e450340fe3e31a99fa63470daf291eb8192a2cc",
+  "baseCurrentSha256": "74607bd0d19dd09d998a4b0021618e06990927254845ed43b8903674d508fb01",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0003.md",
+  "previousEvidenceSha256": "b1479e33b9840f8ecfb55a0ece6932c364cbeeed6b4e355c9dadde27839de70f",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0003.json",
+  "previousEvidenceDataSha256": "92839bc316cfde32d754122f0f6fce4b933f649e050ef60051025da8e30c44d4",
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The implementation is Node.js plus the shared Chrome/Edge Extension; no Rust or platform-specific local driver remains.",
+      "previousText": "The implementation is Node.js plus the shared Chrome/Edge Extension;"
+    },
+    {
+      "item": "R-002",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "One long-lived Node Broker multiplexes Extension connections and MCP sessions. MCP stdio adapters reconnect to the Broker without owning browser state themselves.",
+      "previousText": "One long-lived Node Broker multiplexes Extension connections and MCP"
+    },
+    {
+      "item": "R-003",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The Broker queue uses unique command IDs, bounded delivery, explicit acknowledgement, one in-flight delivery per command, and connection epochs.",
+      "previousText": "The Broker queue uses unique command IDs, bounded delivery, explicit"
+    },
+    {
+      "item": "R-004",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A command not delivered before cancellation is removed. A delivered action is never replayed; disconnect before acknowledgement yields `outcome_unknown` and `retry_safe:false`.",
+      "previousText": "A command not delivered before cancellation is removed. A delivered"
+    },
+    {
+      "item": "R-005",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Idempotent read commands may be redelivered only inside the same request deadline and only when no response was acknowledged.",
+      "previousText": "Idempotent read commands may be redelivered only inside the same"
+    },
+    {
+      "item": "R-006",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Extension reconnect publishes its browser identity, current lease metadata, and a fresh full Truth snapshot for every still-authorized tab. Broker gaps never fabricate deltas.",
+      "previousText": "Extension reconnect publishes its browser identity, current lease"
+    },
+    {
+      "item": "R-007",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`tabs.open` records the calling `agent_session_id` in the command; the returned tab is atomically leased to that session before it is visible through MCP.",
+      "previousText": "`tabs.open` records the calling `agent_session_id` in the command;"
+    },
+    {
+      "item": "R-008",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`tabs.list`, `tabs.close`, `truth.read`, and `saccade.act` expose or operate only tabs leased to the calling session. No all-tabs Truth method exists.",
+      "previousText": "`tabs.list`, `tabs.close`, `truth.read`, and `saccade.act` expose or"
+    },
+    {
+      "item": "R-009",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`truth.read` requires `tab_id` and an explicit `mode` of `full` or `delta`. Delta reads also carry `after_revision`; unavailable continuity returns `reset_required` and current revision rather than silently sending a full page.",
+      "previousText": "`truth.read` requires `tab_id` and an explicit `mode` of `full` or"
+    },
+    {
+      "item": "R-010",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Full reads return the bounded canonical Truth for exactly one tab. Delta reads return only source-declared changes after the requested revision. Optional semantic queries further bound either response without changing canonical collection.",
+      "previousText": "Full reads return the bounded canonical Truth for exactly one tab."
+    },
+    {
+      "item": "R-011",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Agent responses always identify `tab_id`, `document_id`, revision, mode, completeness, and the next revision basis so the Agent knows exactly what it owns and what it has read.",
+      "previousText": "Agent responses always identify `tab_id`, `document_id`, revision,"
+    },
+    {
+      "item": "R-012",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "One monotonic request deadline covers MCP → Broker → Extension → Collector. No layer restarts a timeout, and a disconnected Extension fails immediately when no reconnect is already active.",
+      "previousText": "One monotonic request deadline covers MCP → Broker → Extension →"
+    },
+    {
+      "item": "R-013",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Diagnostics are a bounded metadata-only ring: session/tab/document, command stage, timestamps, sizes, reconnect reason, and failure code. It never stores editable/protected values, tokens, credentials, cookies, storage, full DOM, or screenshots.",
+      "previousText": "Diagnostics are a bounded metadata-only ring: session/tab/document,"
+    },
+    {
+      "item": "R-014",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Chrome and Edge run the identical Extension and Node Broker candidate for full, delta, reconnect/reset, open/close, stale replacement, action, Broker restart, and concurrent Agent-session conformance.",
+      "previousText": "Chrome and Edge run the identical Extension and Node Broker candidate"
+    },
+    {
+      "item": "R-015",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "The Broker keeps an atomic, bounded recovery journal containing only hashed session proofs, exact Tab lease metadata, and value-free command occurrence metadata. Canonical Truth, deltas, action payloads, editable or protected values, action tokens, credentials, cookies, and storage are never persisted.",
+      "previousText": "The Broker keeps an atomic, bounded recovery journal containing only"
+    },
+    {
+      "item": "R-016",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A usable session-resume proof exists only in the live MCP adapter's memory. Session-scoped loopback requests require that proof as well as the `agent_session_id`; the Broker stores only its hash and rotates the proof after every successful resume.",
+      "previousText": "A usable session-resume proof exists only in the live MCP adapter's"
+    },
+    {
+      "item": "R-017",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "After Broker restart, previously active leases are recoverable but unavailable. The same still-running MCP connection may prove and resume its exact `agent_session_id`, atomically reactivating only that session's leases. This recovery does not create a new MCP connection or assign a new session.",
+      "previousText": "After Broker restart, previously active leases are recoverable but"
+    },
+    {
+      "item": "R-018",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A new MCP connection never receives another session's recovery proof. Without valid proof, a recoverable or orphaned lease is not exposed, closed, reassigned, or transferred.",
+      "previousText": "A new MCP connection never receives another session's recovery proof."
+    },
+    {
+      "item": "R-019",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Truth is always empty after Broker restart and becomes readable only after the Extension reconnects and supplies a fresh exact-tab full snapshot. A persisted lease never implies persisted action authority.",
+      "previousText": "Truth is always empty after Broker restart and becomes readable only"
+    },
+    {
+      "item": "R-020",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A command recorded as dispatched when the Broker stops becomes `outcome_unknown` with `retry_safe:false` on recovery and is never placed back in the delivery queue.",
+      "previousText": "A command recorded as dispatched when the Broker stops becomes"
+    },
+    {
+      "item": "R-021",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "After proven recovery, only idempotent reads and requests rejected before dispatch may be retried automatically. `tabs.open`, `tabs.close`, and `saccade.act` are never retried after an ambiguous transport failure.",
+      "previousText": "After proven recovery, only idempotent reads and requests rejected"
+    },
+    {
+      "item": "R-022",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`truth.read` may declare `min_objects` and `timeout_ms`. The Broker waits on browser-pushed Truth events until the bounded semantic condition is satisfied; the Agent does not poll or sleep."
+    },
+    {
+      "item": "R-023",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A semantic working set filters its related authorities and changes to the returned object identities. Known `object_ids`, roles, affordances, visibility, and safe text are bounded projection inputs, never selectors or execution authority."
+    },
+    {
+      "item": "R-024",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Public MCP schemas avoid top-level `oneOf`, `anyOf`, and `allOf`; strict mutually-exclusive request validation remains Broker-owned so incompatible Agent registries do not lose the tool."
+    },
+    {
+      "item": "R-025",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Action receipts project a compact relevant delta for the acted object identities and selected options. Canonical Truth retains unrelated geometry and page churn for later explicit reads."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/node-truth-efficiency-runtime-contract.md",
+      "archivePath": ".authority/archive/proposals/1787817015644-node-truth-efficiency-runtime-contract.md",
+      "sha256": "cc7024378f14a7cb81133764868d2f3b1597cd47ccaaf429fcbda490f3bdef8d",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-27T07:50:15.673Z"
+}

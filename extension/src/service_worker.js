@@ -508,6 +508,12 @@ function remainingCommandMs(deadlineAt) {
   return Math.min(30_000, Number(deadlineAt) - Date.now());
 }
 
+function scrubUploadPayload(payload) {
+  if (payload?.operation === 'upload' && payload.payload?.file) {
+    delete payload.payload.file.content_base64;
+  }
+}
+
 async function activateTabForAction(tabId, deadlineAt) {
   const tab = await chrome.tabs.get(tabId);
   const browserWindow = await chrome.windows.get(tab.windowId);
@@ -645,9 +651,14 @@ async function handleHostCommand(command) {
     payload.timeout_ms = Math.min(
       payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
     );
-    const result = await chrome.tabs.sendMessage(
-      tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 },
-    );
+    let result;
+    try {
+      result = await chrome.tabs.sendMessage(
+        tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 },
+      );
+    } finally {
+      scrubUploadPayload(payload);
+    }
     if (!result?.ok) throw collectorActionError(result, 'software action failed');
     reply(command, result.result || { accepted: true });
   } else if (command.kind === 'act.batch') {

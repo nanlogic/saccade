@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 10,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "0e218e8199365e0d101d395327efbce3d84d858a486fa40b257be07899fad1b7",
+  "baseCurrentSha256": "f70e1d6f35d06ddddb05271f081411f7a1aaf454d597709777fb4643430faf41",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0009.md",
+  "previousEvidenceSha256": "f10f11991210f0f1800d925025f06eaee789c41c3f6855e8e400c73a6f23a441",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0009.json",
+  "previousEvidenceDataSha256": "a5def34f0465d00ed4e7e0342ae5702dfcc5777eb6580ab396adbd6a132895b1",
+  "changes": [
+    {
+      "item": "R-029",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`tabs.open` accepts an exact `browser_instance_id` returned by current capabilities and routes the command only to that online Extension connection. When more than one browser instance is online, omitting it fails before dispatch with `AMBIGUOUS_BROWSER` and a bounded value-free candidate list; connection recency is never execution authority. The resulting lease records the chosen browser instance, and every later tab command follows that exact lease route."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/saccade-runtime-contract-r10.md",
+      "archivePath": ".authority/archive/proposals/1787876168062-saccade-runtime-contract-r10.md",
+      "sha256": "0e218e8199365e0d101d395327efbce3d84d858a486fa40b257be07899fad1b7",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-28T00:16:08.089Z"
+}

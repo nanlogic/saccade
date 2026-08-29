@@ -15,6 +15,7 @@ except ModuleNotFoundError:  # Direct `python scripts/...` execution.
     from extension_candidate import candidate_id
 
 STORE_EXCLUDED_PREFIXES = ("tests/",)
+ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 
 def include_in_store(relative: str) -> bool:
@@ -28,6 +29,14 @@ def store_manifest(extension_root: Path) -> bytes:
     # unpacked development Extension identity stable.
     manifest.pop("key", None)
     return (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+
+
+def archive_info(relative: str) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(relative, date_time=ZIP_TIMESTAMP)
+    info.create_system = 3
+    info.external_attr = 0o100644 << 16
+    info.compress_type = zipfile.ZIP_DEFLATED
+    return info
 
 
 def package(extension_root: Path, output_dir: Path) -> Path:
@@ -51,10 +60,13 @@ def package(extension_root: Path, output_dir: Path) -> Path:
             for path in sorted(item for item in extension_root.rglob("*") if item.is_file()):
                 relative = path.relative_to(extension_root).as_posix()
                 if include_in_store(relative):
-                    if relative == "manifest.json":
-                        archive.writestr(relative, store_manifest(extension_root))
-                    else:
-                        archive.write(path, relative)
+                    contents = store_manifest(extension_root) if relative == "manifest.json" else path.read_bytes()
+                    archive.writestr(
+                        archive_info(relative),
+                        contents,
+                        compress_type=zipfile.ZIP_DEFLATED,
+                        compresslevel=9,
+                    )
         temporary_path.replace(target)
     finally:
         temporary_path.unlink(missing_ok=True)

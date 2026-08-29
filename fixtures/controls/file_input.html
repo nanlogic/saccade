@@ -7,3 +7,65 @@
 </div>
 <button type="button" onclick="document.getElementById('ephemeral-upload').click()">Upload files</button>
 <input id="ephemeral-upload" type="file" hidden>
+<div id="dynamic-upload-zone">
+  <span>Drop images here to upload</span>
+  <div id="dynamic-upload" class="drag_and_drop_upload_button" tabindex="0">Upload</div>
+  <output id="dynamic-upload-status">Waiting</output>
+</div>
+<div id="context-upload-zone">
+  <span>Manage screenshots and images for this game.</span>
+  <div id="context-upload" class="drag_and_drop_upload_button" tabindex="0">Manage media</div>
+  <output id="context-upload-status">Waiting</output>
+</div>
+<div id="unnamed-upload-zone">
+  <span>Upload screenshots and images for this game.</span>
+  <input id="unnamed-upload" type="button" value="">
+  <output id="unnamed-upload-status">Waiting</output>
+</div>
+<div id="drop-upload-zone">
+  <span>Drag and drop screenshots or images here.</span>
+  <div id="drop-upload" role="button" tabindex="0"></div>
+  <output id="drop-upload-status">Waiting</output>
+</div>
+<script>
+  document.getElementById('dynamic-upload').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.hidden = true;
+    input.addEventListener('change', () => {
+      document.getElementById('dynamic-upload-status').textContent = input.files.length ? 'Selected' : 'Waiting';
+      input.remove();
+    });
+    document.body.append(input);
+    input.click();
+  });
+  document.getElementById('context-upload').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.hidden = true;
+    input.addEventListener('change', () => {
+      document.getElementById('context-upload-status').textContent = input.files.length ? 'Selected' : 'Waiting';
+      input.remove();
+    });
+    document.body.append(input);
+    input.click();
+  });
+  document.getElementById('unnamed-upload').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.hidden = true;
+    input.addEventListener('change', () => {
+      document.getElementById('unnamed-upload-status').textContent = input.files.length ? 'Selected' : 'Waiting';
+      input.remove();
+    });
+    document.body.append(input);
+    input.click();
+  });
+  document.getElementById('drop-upload-zone').addEventListener('drop', (event) => {
+    event.preventDefault();
+    document.getElementById('drop-upload-status').textContent = event.dataTransfer.files.length ? 'Selected' : 'Waiting';
+  });
+</script>

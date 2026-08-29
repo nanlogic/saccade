@@ -66,6 +66,8 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   assert.match(worker, /reloadIfCandidateChanged/);
   assert.match(worker, /sameCandidate\(ping\.extension_candidate\)/);
   assert.match(collector, /extension_candidate: globalThis\.SaccadeCandidate/);
+  assert.match(collector, /identities\.set\(element, `object\.\$\{\+\+objectSerial\}`\)/);
+  assert.doesNotMatch(collector, /`object\.\$\{documentId\}/);
   assert.doesNotMatch(worker, /chrome\.(downloads|debugger|scripting)/);
   assert.doesNotMatch(worker, /Playwright|CDP|protected_fill|loop\.start/);
 });
@@ -126,6 +128,8 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /spin_button/);
   assert.match(collector, /content_editable/);
   assert.match(collector, /visibleFileTrigger/);
+  assert.match(collector, /visibleRadioTrigger/);
+  assert.match(collector, /OBSERVED_SELECTOR = `\$\{CONTROL_SELECTOR\},label,/);
   assert.match(collector, /function navigationTargetFor/);
   assert.match(collector, /\['http:', 'https:'\]/);
   assert.match(collector, /object\.navigation_target = navigationTarget/);
@@ -154,6 +158,78 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /browser_restricted_page/);
 });
 
+test('object-addressed upload captures dynamic choosers and supplies one bounded FileList', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/file_input.html'), 'utf8');
+  assert.match(collector, /function isFileUploadTrigger/);
+  assert.match(collector, /data-saccade-file-upload/);
+  assert.match(collector, /authoredUploadLike/);
+  assert.match(collector, /authoredUploadButton/);
+  assert.match(collector, /unnamedButton/);
+  assert.match(collector, /class\*="upload" i/);
+  assert.match(collector, /Drop|drop/);
+  assert.match(collector, /function captureDynamicFileInput/);
+  const uploadClick = collector.slice(
+    collector.indexOf('function dispatchUploadTriggerClick('),
+    collector.indexOf('async function captureDynamicFileInput('),
+  );
+  assert.match(uploadClick, /trigger\.addEventListener\('click', preventNativeDefault, \{ once: true \}\)/);
+  assert.match(uploadClick, /trigger\.dispatchEvent\(event\)/);
+  assert.doesNotMatch(uploadClick, /if \(type === 'click'\) event\.preventDefault\(\)/);
+  assert.match(collector, /document\.addEventListener\('click', onClick\)/);
+  assert.doesNotMatch(collector, /document\.addEventListener\('click', onClick, true\)/);
+  assert.match(collector, /event\.preventDefault\(\)/);
+  assert.match(collector, /function uploadFileFromPayload/);
+  assert.match(collector, /function uploadDropTarget/);
+  assert.match(collector, /function dispatchFileDrop/);
+  assert.match(collector, /nativeChooserButton/);
+  const linkedInput = collector.slice(
+    collector.indexOf('function linkedFileInput('),
+    collector.indexOf('function dispatchUploadTriggerClick('),
+  );
+  assert.doesNotMatch(linkedInput, /parentElement|querySelectorAll/);
+  assert.match(collector, /new view\.DragEvent/);
+  assert.match(collector, /MAX_UPLOAD_BYTES/);
+  assert.match(collector, /new view\.File/);
+  assert.match(collector, /new view\.DataTransfer\(\)/);
+  assert.match(collector, /transfer\.items\.add\(file\)/);
+  assert.match(collector, /input\.files = transfer\.files/);
+  assert.match(collector, /new view\.Event\('input'/);
+  assert.match(collector, /new view\.Event\('change'/);
+  assert.match(collector, /if \(request\.operation === 'upload'\) return softUpload/);
+  assert.doesNotMatch(collector, /showOpenFilePicker|webkitRelativePath/);
+  assert.match(worker, /function scrubUploadPayload/);
+  assert.match(worker, /delete payload\.payload\.file\.content_base64/);
+  assert.match(fixture, /id="dynamic-upload"/);
+  assert.match(fixture, /id="context-upload"/);
+  assert.match(fixture, /id="unnamed-upload"/);
+  assert.match(fixture, /id="drop-upload"/);
+  assert.match(fixture, />Manage media</);
+  assert.match(fixture, /document\.createElement\('input'\)/);
+  assert.match(fixture, /input\.click\(\)/);
+});
+
+test('visually hidden native radios keep native identity and state while using their visible label for actionability', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/segmented_radio.html'), 'utf8');
+  const trigger = collector.slice(
+    collector.indexOf('function visibleRadioTrigger('),
+    collector.indexOf('function ariaBoolean('),
+  );
+  assert.match(trigger, /inputVisibility === 'visible'/);
+  assert.match(trigger, /Array\.from\(input\.labels \|\| \[\]\)\.find\(visible\) \|\| input/);
+  assert.match(collector, /role === 'radio' \? visibleRadioTrigger\(element\) : element/);
+  assert.match(collector, /element: interactionElement, controlElement: element, role/);
+  assert.match(collector, /const control = target\.controlElement \|\| target\.element/);
+  assert.match(collector, /tokenTargets\.values\(\)\]\.map\(\(target\) => target\.element\)/);
+  assert.match(fixture, /clip-path: inset\(50%\)/);
+  assert.match(fixture, /for="speed-epic">Epic/);
+  assert.match(fixture, /for="size-tiny">Tiny/);
+});
+
 test('collector projects bounded structural text without actions or editable descendants', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /MAX_STRUCTURAL_TEXT_BYTES = 256 \* 1024/);
@@ -177,10 +253,10 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /kind: 'text', role, text, state, affordances: \[\], protected: false/);
   assert.match(collector, /element\.closest\(CONTROL_SELECTOR\)/);
   assert.match(collector, /TextEncoder/);
-  assert.match(collector, /document\.readyState === 'loading'/);
   assert.match(collector, /document\.readyState === 'loading'\) \{\s*schedule\(\);\s*document\.addEventListener\('DOMContentLoaded', collect/s);
   assert.doesNotMatch(collector, /function collect\(\) \{\s*if \(!config\) return null;\s*if \(document\.readyState === 'loading'\) return null;/s);
-  assert.match(collector, /document\.readyState === 'loading'\) \{\s*for \(const object of objects\).*object\.affordances = \[\].*delete object\.action_token.*tokenTargets\.clear\(\)/s);
+  assert.doesNotMatch(collector, /object\.affordances = \[\].*delete object\.action_token.*tokenTargets\.clear\(\)/s);
+  assert.match(collector, /Per-action local preflight owns/);
   assert.match(collector, /DOMContentLoaded.*collect/s);
   assert.match(collector, /schedule\(\);\s*return null;/);
 });
@@ -195,6 +271,10 @@ test('unrelated page mutations do not churn current control tokens', () => {
 
 test('semantic page churn preserves authority only for the same live object contract', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fingerprint = collector.slice(
+    collector.indexOf('function authorityFingerprint('),
+    collector.indexOf('function reuseStableAuthorities('),
+  );
   const reuse = collector.slice(
     collector.indexOf('function reuseStableAuthorities('),
     collector.indexOf('function collect('),
@@ -203,6 +283,8 @@ test('semantic page churn preserves authority only for the same live object cont
   assert.match(reuse, /previous\.target\.role !== current\.role/);
   assert.match(reuse, /previous\.target\.affordances\.join/);
   assert.match(reuse, /object\.action_token = previous\.token/);
+  assert.match(fingerprint, /delete contract\.visibility/);
+  assert.match(fingerprint, /delete contract\.transition/);
   assert.ok(collector.indexOf('reuseStableAuthorities(objects, previousTokenTargets)') < collector.indexOf('const changes = compileChanges'));
 });
 
@@ -218,6 +300,26 @@ test('semantic mutations are not gated by rendering frames', () => {
   assert.match(collector, /function currentGeometryIsAnimating/);
   assert.match(collector, /getAnimations\?\.\(\).*playState === 'running'/s);
   assert.match(collector, /transitionrun.*animationstart/s);
+});
+
+test('the bounded MouseAccuracy reflex bridge covers both current and Classic game lifecycles', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const bridge = collector.slice(
+    collector.indexOf('function isMouseAccuracyGame('),
+    collector.indexOf('function observeCurrentGeometry('),
+  );
+  assert.match(bridge, /pathname\.startsWith\('\/game'\)/);
+  assert.match(bridge, /pathname\.startsWith\('\/classic'\)/);
+  assert.match(bridge, /function updateMouseAccuracyHitOccurrence/);
+  assert.match(bridge, /querySelectorAll\('\.target\.hit'\)/);
+  assert.match(bridge, /function recordMouseAccuracyOccurrence/);
+  assert.match(bridge, /!softwareDispatchCompleted && element\.isConnected && !element\.classList\.contains\('hit'\)/);
+  assert.match(collector, /isMouseAccuracyClassic\(page\)[\s\S]*String\(mouseAccuracyHitOccurrence\)/);
+  assert.ok(collector.indexOf('updateMouseAccuracyHitOccurrence(document)') < collector.indexOf('const hadCompiledObjects'));
+  const softClick = collector.slice(collector.indexOf('async function softClick('), collector.indexOf('async function softType('));
+  assert.match(softClick, /if \(type === 'click'\) clickDispatchCompleted = true/);
+  assert.match(softClick, /target\.role === 'reflex_target'[\s\S]*recordMouseAccuracyOccurrence\(target\.element, clickDispatchCompleted\)/);
+  assert.match(softClick, /if \(recordedReflexOccurrence\) collect\(\)/);
 });
 
 test('editable placeholders are explicitly distinguished from current values', () => {
@@ -437,10 +539,21 @@ test('software action bridge is token-bound and limited to Registry roles', () =
   assert.match(worker, /command\.kind === 'soft_action'/);
   assert.match(collector, /choiceOwner\(option\) !== target/);
   assert.match(collector, /option\.selected = true/);
-  assert.match(collector, /Array\(prepared\.selection_index\)\.fill\('ArrowDown'\)/);
+  assert.match(collector, /function waitForSelectOption/);
+  assert.match(collector, /option !== original/);
+  assert.match(collector, /select_option_stale/);
+  assert.match(collector, /select_option_actionability_timeout_/);
+  assert.match(collector, /current\.option\.dispatchEvent/);
+  assert.doesNotMatch(collector, /Array\(prepared\.selection_index\)\.fill\('ArrowDown'\)/);
   assert.match(collector, /requestAnimationFrame\(collect\)/);
   assert.match(worker, /command\.kind === 'soft_click'/);
   assert.match(worker, /collector\.soft_click/);
+});
+
+test('prepare-stage stale authority is explicitly retry safe because nothing dispatched', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /actionFailure\('prepare', 'stale_action_basis', true/);
+  assert.match(collector, /actionFailure\('prepare', 'stale_action_token', true/);
 });
 
 test('Chrome and Edge share one loopback Broker protocol', () => {
@@ -612,11 +725,17 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   const prepare = collector.slice(collector.indexOf('function prepare('), collector.indexOf('function softClick('));
   assert.match(prepare, /request\.defer_scroll === true/);
   assert.match(prepare, /scrollIntoView/);
+  assert.match(prepare, /const focusElement = target\.controlElement \|\| target\.element/);
+  assert.match(prepare, /request\.operation === 'type' \|\| request\.operation === 'select'/);
+  assert.match(prepare, /focusElement\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(prepare, /focusElement\.ownerDocument\.activeElement === focusElement/);
+  assert.doesNotMatch(prepare, /top\.document\.hasFocus\(\)/);
   assert.match(prepare, /function waitForSoftwarePreparation/);
   assert.match(prepare, /function softwarePreparationPolicy/);
   assert.match(prepare, /request\.operation === 'click' && target\.role === 'reflex_target'/);
+  assert.match(prepare, /const focusRequired = request\.operation === 'type' \|\| request\.operation === 'select'/);
   assert.match(prepare, /require_topmost: !reflexClick/);
-  assert.match(prepare, /require_focus: !reflexClick/);
+  assert.match(prepare, /require_focus: focusRequired/);
   assert.match(prepare, /require_stable_geometry: !reflexClick/);
   assert.match(prepare, /!policy\.require_stable_geometry \|\| !targetGeometryIsAnimating/);
   assert.match(prepare, /function currentSoftwareRequest\(request\)/);
@@ -643,6 +762,21 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   assert.match(collector, /dispatch_basis_revision: prepared\.basis_revision/);
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /saccade_action_error\|\$\{stage\}\|\$\{code\}\|\$\{retrySafe\}/);
+});
+
+test('form batch preflights all steps then revalidates each exact token before dispatch', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const batch = collector.slice(
+    collector.indexOf('async function softActionBatch('),
+    collector.indexOf('function schedule()'),
+  );
+  const preflight = batch.indexOf('prepared.push(await waitForSoftwarePreparation');
+  const dispatch = batch.indexOf('const result = await softAction({ ...step, timeout_ms: remaining })');
+  assert.ok(preflight >= 0 && preflight < dispatch, 'the complete batch must preflight before dispatch');
+  assert.match(batch, /if \(index > 0\) collect\(\)/);
+  assert.match(batch, /partial_dispatch: receipts\.length > 0/);
+  assert.match(batch, /retry_safe: receipts\.length === 0/);
+  assert.doesNotMatch(batch, /softAction\(step, prepared\[index\]\)/);
 });
 
 test('native preparation removes symmetric window borders from the content origin', () => {

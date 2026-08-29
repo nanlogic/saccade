@@ -63,6 +63,12 @@ waiting handles visibility, enabled state, stable geometry, focus/topmost state,
 and bounded timeout. Replacement objects remain stale. A dispatched action with
 an ambiguous outcome returns `outcome_unknown` and `retry_safe: false`.
 
+Object-addressed uploads can supply a bounded workspace file to standard file
+inputs and software upload widgets. A site that requires a browser-trusted
+native file selection remains `external_execution_required`; Saccade does not
+silently add CDP, a Native Host, a platform driver, or a site-specific upload
+API, and it never reports remote persistence without a page-owned transition.
+
 ## Install
 
 Node.js 18 or newer is the only local runtime requirement.
@@ -100,12 +106,19 @@ Uninstall preserves the Profile unless `--purge` is supplied.
 The release checks are:
 
 ```sh
-node --test packages/setup/test/*.test.js
-node --test extension/tests/*.test.js
-python3 scripts/check_single_architecture.py
-python3 scripts/package_extension_release.py --extension-root extension --output /tmp/saccade-extension
-npm pack ./packages/setup --dry-run
+node scripts/gate_node_release_candidate.js \
+  --base-url=http://127.0.0.1:8765 \
+  --browsers=chrome,edge \
+  --include-public \
+  --output=/tmp/saccade-release-gate.json
 ```
+
+The gate runs the static package checks and then requires exactly one connected
+Chrome and one connected Edge carrying the exact digest in
+`extension/candidate.json`. Every live `tabs.open` is routed with the selected
+`browser_instance_id`; a missing, duplicate, or mismatched candidate fails
+before browser work is dispatched. The gate starts and cleans up its own local
+fixture server when port 8765 is not already serving the repository fixtures.
 
 The [product boundary](docs/current/product-execution-boundary.md),
 [Node Broker contract](docs/current/saccade-0-2-0-runtime-contract.md),

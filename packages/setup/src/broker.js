@@ -17,6 +17,14 @@ const COMMAND_LIMIT = 1024;
 const EXTENSION_POLL_HEARTBEAT_MS = 2_000;
 const STATE_SCHEMA = 'saccade.node-broker-state/1';
 const OCCURRENCE_LIMIT = 256;
+const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
+const UPLOAD_MIME_TYPES = new Map([
+  ['.avif', 'image/avif'], ['.gif', 'image/gif'], ['.jpeg', 'image/jpeg'],
+  ['.jpg', 'image/jpeg'], ['.png', 'image/png'], ['.webp', 'image/webp'],
+  ['.mp4', 'video/mp4'], ['.webm', 'video/webm'], ['.mov', 'video/quicktime'],
+  ['.pdf', 'application/pdf'], ['.csv', 'text/csv'], ['.json', 'application/json'],
+  ['.txt', 'text/plain'], ['.zip', 'application/zip'],
+]);
 
 function opaque(prefix) {
   return `${prefix}_${crypto.randomBytes(24).toString('base64url')}`;
@@ -28,6 +36,21 @@ function cleanId(value, field) {
   return value;
 }
 
+function cleanBrowserFamily(value) {
+  if (!['chrome', 'edge'].includes(value)) throw new Error('browser_family is invalid');
+  return value;
+}
+
+function cleanExtensionCandidate(value) {
+  if (!value || value.schema !== 'saccade.extension-candidate/1'
+      || typeof value.id !== 'string' || !/^[a-f0-9]{64}$/.test(value.id)
+      || typeof value.version !== 'string' || value.version.length < 1 || value.version.length > 64
+      || /[\u0000-\u001f\u007f]/.test(value.version)) {
+    throw new Error('extension_candidate is invalid');
+  }
+  return { schema: value.schema, id: value.id, version: value.version };
+}
+
 function boundedTimeout(value, fallback = 10_000) {
   const timeout = Number.isSafeInteger(value) ? value : fallback;
   if (timeout < 1 || timeout > 60_000) throw new Error('timeout_ms must be between 1 and 60000');
@@ -36,6 +59,80 @@ function boundedTimeout(value, fallback = 10_000) {
 
 function jsonSize(value) {
   return Buffer.byteLength(JSON.stringify(value));
+}
+
+function withinPathRoot(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function normalizeUploadRoots(values) {
+  const roots = [];
+  for (const value of values || []) {
+    try {
+      const resolved = fs.realpathSync.native(path.resolve(String(value)));
+      if (fs.statSync(resolved).isDirectory() && !roots.includes(resolved)) roots.push(resolved);
+    } catch (_error) { /* Missing roots grant no authority. */ }
+  }
+  return roots;
+}
+
+function materializeUploadFile(filePath, expectedSha256, roots) {
+  if (typeof filePath !== 'string' || !path.isAbsolute(filePath)
+      || filePath.length < 1 || filePath.length > 4096
+      || /[\u0000-\u001f\u007f]/.test(filePath)) {
+    throw new BrokerError('UPLOAD_PATH_INVALID', 'file_path must be one absolute local path', { retry_safe: true });
+  }
+  let resolved;
+  let stats;
+  try {
+    const supplied = fs.lstatSync(filePath);
+    if (supplied.isSymbolicLink()) {
+      throw new BrokerError('UPLOAD_PATH_DENIED', 'Symbolic-link uploads are not allowed', { retry_safe: true });
+    }
+    resolved = fs.realpathSync.native(filePath);
+    stats = fs.statSync(resolved);
+  } catch (error) {
+    if (error instanceof BrokerError) throw error;
+    throw new BrokerError('UPLOAD_FILE_UNAVAILABLE', 'The upload file is unavailable', { retry_safe: true });
+  }
+  if (!roots.some((root) => withinPathRoot(resolved, root))) {
+    throw new BrokerError('UPLOAD_PATH_DENIED', 'The upload file is outside the configured workspace roots', { retry_safe: true });
+  }
+  if (!stats.isFile()) {
+    throw new BrokerError('UPLOAD_FILE_INVALID', 'The upload target must be one regular file', { retry_safe: true });
+  }
+  if (stats.size < 1 || stats.size > MAX_UPLOAD_BYTES) {
+    throw new BrokerError('UPLOAD_FILE_SIZE', `The upload file must be between 1 byte and ${MAX_UPLOAD_BYTES} bytes`, { retry_safe: true });
+  }
+  let content;
+  try { content = fs.readFileSync(resolved); }
+  catch (_error) {
+    throw new BrokerError('UPLOAD_FILE_UNAVAILABLE', 'The upload file could not be read', { retry_safe: true });
+  }
+  const sha256 = crypto.createHash('sha256').update(content).digest('hex');
+  if (expectedSha256 !== undefined && expectedSha256 !== sha256) {
+    throw new BrokerError('UPLOAD_HASH_MISMATCH', 'The upload file changed before dispatch', { retry_safe: true });
+  }
+  const name = path.basename(resolved);
+  if (!name || name.length > 255 || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw new BrokerError('UPLOAD_FILE_INVALID', 'The upload filename is invalid', { retry_safe: true });
+  }
+  return {
+    kind: 'file',
+    file: {
+      name,
+      mime_type: UPLOAD_MIME_TYPES.get(path.extname(name).toLowerCase()) || 'application/octet-stream',
+      size_bytes: content.length,
+      sha256,
+      content_base64: content.toString('base64'),
+    },
+  };
+}
+
+function scrubCommandPayload(command) {
+  const file = command?.payload?.payload?.file;
+  if (file && typeof file.content_base64 === 'string') delete file.content_base64;
 }
 
 function defaultStatePath(environment = process.env) {
@@ -63,7 +160,7 @@ class BrokerError extends Error {
 }
 
 class BrokerState extends EventEmitter {
-  constructor({ now = () => Date.now(), statePath = null } = {}) {
+  constructor({ now = () => Date.now(), statePath = null, uploadRoots = [process.cwd()] } = {}) {
     super();
     this.now = now;
     this.statePath = statePath;
@@ -76,6 +173,7 @@ class BrokerState extends EventEmitter {
     this.cancelledRequests = new Set();
     this.diagnostics = [];
     this.occurrences = [];
+    this.defaultUploadRoots = normalizeUploadRoots(uploadRoots);
     this.loadState();
   }
 
@@ -164,7 +262,9 @@ class BrokerState extends EventEmitter {
     }
   }
 
-  createSession({ resume_token: resumeProof } = {}) {
+  createSession({ resume_token: resumeProof, upload_root: uploadRoot } = {}) {
+    const uploadRoots = uploadRoot === undefined
+      ? this.defaultUploadRoots : normalizeUploadRoots([uploadRoot]);
     if (resumeProof !== undefined) {
       const hash = resumeHash(resumeProof);
       const session = [...this.sessions.values()].find((candidate) => (
@@ -175,8 +275,10 @@ class BrokerState extends EventEmitter {
       if (session.state === 'online') throw new BrokerError('SESSION_ALREADY_ONLINE', 'Agent session is already online');
       const previousState = session.state;
       const previousHash = session.resume_token_hash;
+      const previousUploadRoots = session.upload_roots;
       session.state = 'online';
       session.last_seen_at = this.now();
+      session.upload_roots = uploadRoots;
       const rotatedToken = opaque('resume');
       session.resume_token_hash = resumeHash(rotatedToken);
       const resumedLeases = [];
@@ -190,6 +292,7 @@ class BrokerState extends EventEmitter {
       catch (error) {
         session.state = previousState;
         session.resume_token_hash = previousHash;
+        session.upload_roots = previousUploadRoots;
         for (const lease of resumedLeases) lease.state = 'recoverable';
         throw error;
       }
@@ -208,6 +311,7 @@ class BrokerState extends EventEmitter {
       connected_at: this.now(),
       last_seen_at: this.now(),
       resume_token_hash: resumeHash(resumeToken),
+      upload_roots: uploadRoots,
       state: 'online',
     });
     try { this.persistState(); }
@@ -243,6 +347,7 @@ class BrokerState extends EventEmitter {
     if (!session) return { orphaned_tabs: 0 };
     session.state = 'offline';
     session.resume_token_hash = null;
+    session.upload_roots = [];
     let orphaned = 0;
     for (const lease of this.leases.values()) {
       if (lease.agent_session_id === agentSessionId && lease.state === 'active') {
@@ -265,6 +370,10 @@ class BrokerState extends EventEmitter {
 
   connectExtension(payload) {
     const browserInstanceId = cleanId(payload.browser_instance_id, 'browser_instance_id');
+    const browserFamily = payload.browser_family === undefined
+      ? undefined : cleanBrowserFamily(payload.browser_family);
+    const extensionCandidate = payload.extension_candidate === undefined
+      ? undefined : cleanExtensionCandidate(payload.extension_candidate);
     const browserSessionId = typeof payload.browser_session_id === 'string'
       ? cleanId(payload.browser_session_id, 'browser_session_id') : undefined;
     const workerInstanceId = typeof payload.worker_instance_id === 'string'
@@ -283,10 +392,10 @@ class BrokerState extends EventEmitter {
     this.connections.set(connectionId, {
       connection_id: connectionId,
       browser_instance_id: browserInstanceId,
-      browser_family: payload.browser_family,
+      browser_family: browserFamily,
       browser_session_id: browserSessionId,
       worker_instance_id: workerInstanceId,
-      extension_candidate: payload.extension_candidate,
+      extension_candidate: extensionCandidate,
       authorized_tabs: Array.isArray(payload.authorized_tabs) ? payload.authorized_tabs.slice(0, 256) : [],
       state: 'online',
       connected_at: this.now(),
@@ -526,6 +635,7 @@ class BrokerState extends EventEmitter {
       );
       this.updateOccurrence(command, 'outcome_unknown', error);
     }
+    scrubCommandPayload(command);
     command.state = error ? 'failed' : 'complete';
     this.record({
       command_id: command.command_id,
@@ -656,9 +766,13 @@ class BrokerState extends EventEmitter {
       .filter((lease) => lease.agent_session_id === agentSessionId && lease.state === 'active')
       .map((lease) => {
         const truth = this.truth.get(lease.tab_id);
+        const browserInstanceId = lease.browser_instance_id || truth?.full?.browser_instance_id;
+        const connection = this.activeConnection(browserInstanceId);
         return {
           tab_id: lease.tab_id,
-          browser_instance_id: lease.browser_instance_id || truth?.full?.browser_instance_id,
+          browser_instance_id: browserInstanceId,
+          browser_family: connection?.browser_family,
+          extension_candidate: connection?.extension_candidate,
           ownership: lease.ownership || 'agent',
           document_id: truth?.document_id,
           revision: truth?.revision,
@@ -707,8 +821,17 @@ class BrokerState extends EventEmitter {
   async readTruth(agentSessionId, params, deadlineAt) {
     const tabId = cleanId(params.tab_id, 'tab_id');
     this.requireLease(tabId, agentSessionId);
+    const minObjects = params.min_objects;
+    if (minObjects !== undefined && (!Number.isSafeInteger(minObjects) || minObjects < 1 || minObjects > 32)) {
+      throw new BrokerError('INVALID_REQUEST', 'min_objects must be an integer from 1 to 32');
+    }
+    if (minObjects !== undefined && !params.query) {
+      throw new BrokerError('INVALID_REQUEST', 'min_objects requires a semantic query');
+    }
+    const queryReady = (truth) => minObjects === undefined
+      || matchingObjects(truth.full?.objects || [], params.query).length >= minObjects;
     if (!this.truth.get(tabId)) {
-      const available = await this.waitForTruth(tabId, () => true, deadlineAt);
+      const available = await this.waitForTruth(tabId, queryReady, deadlineAt);
       if (!available) throw new BrokerError(
         'TRUTH_TIMEOUT', 'Canonical Truth did not arrive before the request deadline',
         { stage: 'broker_truth_wait', retry_safe: true },
@@ -718,7 +841,8 @@ class BrokerState extends EventEmitter {
       const current = this.truth.get(tabId);
       if (current && current.revision === params.after_revision) {
         const changed = await this.waitForTruth(tabId, (truth) => (
-          truth.document_id !== current.document_id || truth.revision > params.after_revision
+          (truth.document_id !== current.document_id || truth.revision > params.after_revision)
+          && queryReady(truth)
         ), deadlineAt);
         if (!changed) return {
           schema: 'saccade.agent-truth/2', mode: 'delta', tab_id: tabId,
@@ -728,7 +852,241 @@ class BrokerState extends EventEmitter {
         };
       }
     }
+    if (!queryReady(this.truth.get(tabId))) {
+      const matched = await this.waitForTruth(tabId, queryReady, deadlineAt);
+      if (!matched) throw new BrokerError(
+        'TRUTH_TIMEOUT', 'Semantic Truth condition did not arrive before the request deadline',
+        { stage: 'broker_truth_wait', retry_safe: true, current_revision: this.truth.get(tabId)?.revision },
+      );
+    }
     return this.readTruthNow(agentSessionId, params);
+  }
+
+  async runReflex(agentSessionId, params, deadlineAt, clientRequestId) {
+    this.requireLease(params.tab_id, agentSessionId);
+    if (params.steps || (params.operation && params.operation !== 'click')) {
+      throw new BrokerError('INVALID_REQUEST', 'bounded reflex execution requires one click object');
+    }
+    if (!Number.isSafeInteger(params.max_actions) || params.max_actions < 1 || params.max_actions > 1000) {
+      throw new BrokerError('INVALID_REQUEST', 'max_actions must be an integer from 1 to 1000');
+    }
+    const launchOnly = params.object_id === undefined && params.start_object_id !== undefined;
+    if (params.object_id === undefined && !launchOnly) {
+      throw new BrokerError('INVALID_REQUEST', 'bounded reflex execution requires a current controller or explicit start_object_id');
+    }
+    const initial = this.truth.get(params.tab_id);
+    // A reflex controller carries no action token. Its document-local object
+    // identity and loop-class authority can remain current while moving
+    // targets advance unrelated geometry revisions every frame. Rebase only
+    // this dedicated controller form onto the current canonical Truth; a
+    // missing/replaced controller, document change, or future basis is stale.
+    if (!initial || initial.document_id !== params.document_id
+      || !Number.isSafeInteger(params.basis_revision)
+      || params.basis_revision > initial.revision
+      || (launchOnly && params.basis_revision !== initial.revision)) {
+      throw new BrokerError('STALE_AUTHORITY', 'Action document or revision is stale', {
+        retry_safe: true, current_revision: initial?.revision,
+      });
+    }
+    let controller;
+    if (!launchOnly) {
+      const controllers = (initial.full.objects || []).filter((object) => object.object_id === params.object_id);
+      if (controllers.length !== 1) {
+        throw new BrokerError(controllers.length ? 'AMBIGUOUS_OBJECT' : 'OBJECT_UNKNOWN', 'object_id must resolve exactly once');
+      }
+      [controller] = controllers;
+      if (controller.role !== 'reflex_target' || typeof controller.loop_class_token !== 'string') {
+        throw new BrokerError('AFFORDANCE_MISMATCH', 'max_actions is limited to a current reflex loop authority');
+      }
+    }
+
+    let startTarget;
+    if (params.start_object_id !== undefined) {
+      const starts = (initial.full.objects || []).filter((object) => object.object_id === params.start_object_id);
+      if (starts.length !== 1) {
+        throw new BrokerError(starts.length ? 'AMBIGUOUS_OBJECT' : 'OBJECT_UNKNOWN', 'start_object_id must resolve exactly once');
+      }
+      startTarget = starts[0];
+      const rootFrame = (initial.full.frames || []).find((frame) => (
+        frame.document_id === initial.document_id && !frame.parent_frame_id
+      ));
+      let sameOriginNavigation = false;
+      try {
+        sameOriginNavigation = startTarget.role === 'link'
+          && !startTarget.navigation_disposition
+          && new URL(startTarget.navigation_target).origin === new URL(rootFrame?.document_url).origin;
+      } catch (_error) {
+        sameOriginNavigation = false;
+      }
+      if (!startTarget.action_token || !(startTarget.affordances || []).includes('click')
+        || (startTarget.role !== 'button' && !sameOriginNavigation)
+        || (launchOnly && !sameOriginNavigation)) {
+        throw new BrokerError(
+          'AFFORDANCE_MISMATCH',
+          'start_object_id must be one current clickable button or same-origin navigation link',
+        );
+      }
+    }
+
+    const startedAt = this.now();
+    let documentId = initial.document_id;
+    let loopClass = controller?.loop_class_token;
+    let cursorRevision = initial.revision;
+    let attemptedToken;
+    let actions = 0;
+    let staleRetries = 0;
+    let stopReason = 'deadline';
+    const receipts = [];
+    const occurrenceFor = (truth) => (truth?.full?.objects || []).find((object) => (
+      object.role === 'reflex_target' && object.loop_class_token === loopClass
+    ))?.state?.reflex_occurrence;
+
+    if (startTarget) {
+      const remainingMs = Math.max(1, deadlineAt - this.now());
+      const startReceipt = await this.rpc(agentSessionId, 'act', {
+        tab_id: params.tab_id,
+        document_id: initial.document_id,
+        basis_revision: initial.revision,
+        object_id: startTarget.object_id,
+        operation: 'click',
+        timeout_ms: remainingMs,
+      }, remainingMs, clientRequestId);
+      if (startReceipt.outcome !== 'accepted' || startReceipt.semantic_postcondition?.verified !== true) {
+        return {
+          schema: 'saccade.reflex-report/1',
+          outcome: startReceipt.outcome,
+          occurrence: startReceipt.occurrence,
+          semantic_postcondition: { code: 'start_not_verified', verified: false },
+          document_id: startReceipt.document_id || documentId,
+          final_revision: startReceipt.final_revision || cursorRevision,
+          next_basis_revision: startReceipt.next_basis_revision || cursorRevision,
+          actions: 0, stale_retries: 0, duration_ms: this.now() - startedAt,
+          stop_reason: 'start_not_verified', receipts: [], retry_safe: false,
+          external_execution_required: false,
+        };
+      }
+      cursorRevision = startReceipt.next_basis_revision;
+      if (launchOnly) {
+        const launched = await this.waitForTruth(params.tab_id, (truth) => {
+          if (truth.document_id === params.document_id && truth.revision <= params.basis_revision) return false;
+          const controllers = (truth.full.objects || []).filter((object) => (
+            object.role === 'reflex_target'
+            && typeof object.loop_class_token === 'string'
+            && !object.action_token
+          ));
+          return controllers.length === 1;
+        }, deadlineAt);
+        if (!launched) {
+          const current = this.truth.get(params.tab_id);
+          return {
+            schema: 'saccade.reflex-report/1', outcome: 'accepted', occurrence: 'not_observed',
+            semantic_postcondition: { code: 'start_controller_unavailable', verified: false },
+            document_id: current?.document_id || startReceipt.document_id,
+            final_revision: current?.revision || startReceipt.final_revision,
+            next_basis_revision: current?.revision || startReceipt.next_basis_revision,
+            actions: 0, stale_retries: 0, duration_ms: this.now() - startedAt,
+            stop_reason: 'start_controller_unavailable', receipts: [], retry_safe: false,
+            external_execution_required: false,
+          };
+        }
+        const controllers = (launched.full.objects || []).filter((object) => (
+          object.role === 'reflex_target'
+          && typeof object.loop_class_token === 'string'
+          && !object.action_token
+        ));
+        [controller] = controllers;
+        documentId = launched.document_id;
+        loopClass = controller.loop_class_token;
+        cursorRevision = launched.revision;
+      }
+    }
+
+    while (this.now() < deadlineAt && actions < params.max_actions) {
+      const current = this.truth.get(params.tab_id);
+      if (!current || current.document_id !== documentId) {
+        stopReason = 'document_changed';
+        break;
+      }
+      cursorRevision = Math.max(cursorRevision, current.revision);
+      const target = [...(current.full.objects || [])].reverse().find((object) => (
+        object.role === 'reflex_target'
+        && object.loop_class_token === loopClass
+        && object.action_token
+        && (object.affordances || []).includes('click')
+        && object.state?.enabled === 'true'
+        && object.action_token !== attemptedToken
+      ));
+      if (!target) {
+        const next = await this.waitForTruth(params.tab_id, (truth) => (
+          truth.document_id !== documentId || truth.revision > cursorRevision
+        ), Math.min(deadlineAt, this.now() + 50));
+        if (next) cursorRevision = next.revision;
+        continue;
+      }
+
+      attemptedToken = target.action_token;
+      const beforeOccurrence = target.state?.reflex_occurrence ?? occurrenceFor(current);
+      try {
+        const remainingMs = Math.max(1, deadlineAt - this.now());
+        const receipt = await this.rpc(agentSessionId, 'act', {
+          tab_id: params.tab_id,
+          document_id: current.document_id,
+          basis_revision: current.revision,
+          object_id: target.object_id,
+          operation: 'click',
+          timeout_ms: remainingMs,
+        }, remainingMs, clientRequestId);
+        if (receipt.outcome !== 'accepted' || receipt.semantic_postcondition?.verified !== true) {
+          stopReason = receipt.outcome === 'outcome_unknown' ? 'outcome_unknown' : 'unverified';
+          receipts.push({ object_id: target.object_id, outcome: receipt.outcome, before_occurrence: beforeOccurrence });
+          break;
+        }
+        const verifiedTruth = await this.waitForTruth(params.tab_id, (truth) => (
+          truth.document_id !== documentId || occurrenceFor(truth) !== beforeOccurrence
+        ), Math.min(deadlineAt, this.now() + 250));
+        if (!verifiedTruth || verifiedTruth.document_id !== documentId) {
+          stopReason = 'occurrence_unverified';
+          receipts.push({ object_id: target.object_id, outcome: 'outcome_unknown', before_occurrence: beforeOccurrence });
+          break;
+        }
+        actions += 1;
+        cursorRevision = verifiedTruth.revision;
+        receipts.push({
+          object_id: target.object_id,
+          outcome: 'accepted',
+          before_occurrence: beforeOccurrence,
+          after_occurrence: occurrenceFor(verifiedTruth),
+          final_revision: verifiedTruth.revision,
+        });
+      } catch (error) {
+        if (['STALE_AUTHORITY', 'OBJECT_UNKNOWN', 'ACTION_UNAVAILABLE', 'AFFORDANCE_MISMATCH'].includes(error.code)) {
+          staleRetries += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (actions >= params.max_actions) stopReason = 'max_actions';
+    const finalTruth = this.truth.get(params.tab_id);
+    return {
+      schema: 'saccade.reflex-report/1',
+      outcome: stopReason === 'outcome_unknown' || stopReason === 'occurrence_unverified' ? 'outcome_unknown' : 'accepted',
+      occurrence: actions ? 'observed' : 'not_observed',
+      semantic_postcondition: {
+        code: actions ? 'reflex_occurrences_verified' : stopReason,
+        verified: actions > 0 && !['outcome_unknown', 'occurrence_unverified'].includes(stopReason),
+      },
+      document_id: finalTruth?.document_id || documentId,
+      final_revision: finalTruth?.revision || cursorRevision,
+      next_basis_revision: finalTruth?.revision || cursorRevision,
+      actions,
+      stale_retries: staleRetries,
+      duration_ms: this.now() - startedAt,
+      stop_reason: stopReason,
+      receipts: receipts.slice(-16),
+      retry_safe: false,
+      external_execution_required: false,
+    };
   }
 
   async rpc(agentSessionId, method, params = {}, timeoutMs = 10_000, clientRequestId) {
@@ -737,10 +1095,22 @@ class BrokerState extends EventEmitter {
     const remaining = () => Math.max(1, deadlineAt - this.now());
     if (method === 'system.capabilities') {
       const tabs = this.listTabs(agentSessionId);
+      const connectedExtensions = [...this.connections.values()]
+        .filter((connection) => connection.state === 'online')
+        .sort((left, right) => left.connected_at - right.connected_at)
+        .map((connection) => ({
+          browser_instance_id: connection.browser_instance_id,
+          browser_family: connection.browser_family,
+          extension_candidate: connection.extension_candidate,
+        }));
+      const attached = connectedExtensions.length === 1 ? connectedExtensions[0] : undefined;
       return {
-        schema: 'saccade.capabilities/7', runtime: 'node', broker_schema: BROKER_SCHEMA,
+        schema: 'saccade.capabilities/8', runtime: 'node', broker_schema: BROKER_SCHEMA,
         broker_epoch: this.epoch, agent_session_id: agentSessionId,
-        extension_connected: Boolean(this.activeConnection()),
+        extension_connected: connectedExtensions.length > 0,
+        browser_family: attached?.browser_family,
+        extension_candidate: attached?.extension_candidate,
+        connected_extensions: connectedExtensions,
         browser_support: ['chrome', 'edge'], native_host: false, rust: false,
         truth_modes: ['full', 'delta'], exact_tab_routing: true,
         leased_tabs: tabs, current_tab_id: tabs.length === 1 ? tabs[0].tab_id : null,
@@ -749,13 +1119,36 @@ class BrokerState extends EventEmitter {
     if (method === 'tabs.list') return { tabs: this.listTabs(agentSessionId) };
     if (method === 'truth.read') return this.readTruth(agentSessionId, params, deadlineAt);
     if (method === 'tabs.open') {
+      const hasUrl = typeof params.url === 'string' && params.url.length > 0;
+      const hasClaim = typeof params.claim === 'string' && typeof params.tab_id === 'string';
+      if (hasUrl === hasClaim) {
+        throw new BrokerError('INVALID_REQUEST', 'tabs.open requires either url or claim with tab_id');
+      }
       if (params.tab_id && params.claim !== 'arm') {
         const existingLease = this.leases.get(cleanId(params.tab_id, 'tab_id'));
         if (existingLease && (existingLease.agent_session_id !== agentSessionId || existingLease.state !== 'active')) {
           throw new BrokerError('TAB_ALREADY_LEASED', 'Tab already has a writer');
         }
       }
-      const result = await this.enqueueCommand(agentSessionId, 'tabs.open', params, remaining(), { clientRequestId });
+      const requestedBrowserInstanceId = params.browser_instance_id === undefined
+        ? undefined : cleanId(params.browser_instance_id, 'browser_instance_id');
+      const onlineConnections = [...this.connections.values()]
+        .filter((connection) => connection.state === 'online');
+      if (!requestedBrowserInstanceId && onlineConnections.length > 1) {
+        throw new BrokerError('AMBIGUOUS_BROWSER', 'tabs.open requires browser_instance_id when multiple browsers are connected', {
+          retry_safe: true,
+          candidates: onlineConnections.slice(0, 8).map((connection) => ({
+            browser_instance_id: connection.browser_instance_id,
+            browser_family: connection.browser_family,
+            extension_candidate: connection.extension_candidate,
+          })),
+        });
+      }
+      const browserInstanceId = requestedBrowserInstanceId
+        || onlineConnections[0]?.browser_instance_id;
+      const result = await this.enqueueCommand(agentSessionId, 'tabs.open', params, remaining(), {
+        clientRequestId, browserInstanceId,
+      });
       if (params.claim === 'arm') {
         return { ...result, agent_session_id: agentSessionId, lease: 'pending_claim' };
       }
@@ -798,7 +1191,13 @@ class BrokerState extends EventEmitter {
       return result;
     }
     if (method === 'act') {
+      if (params.max_actions !== undefined) {
+        return this.runReflex(agentSessionId, params, deadlineAt, clientRequestId);
+      }
       this.requireLease(params.tab_id, agentSessionId);
+      if (Boolean(params.steps) === Boolean(params.object_id)) {
+        throw new BrokerError('INVALID_REQUEST', 'act requires exactly one of object_id or steps');
+      }
       const current = this.truth.get(params.tab_id);
       if (!current || current.document_id !== params.document_id || current.revision !== params.basis_revision) {
         throw new BrokerError('STALE_AUTHORITY', 'Action document or revision is stale', { retry_safe: true, current_revision: current?.revision });
@@ -827,11 +1226,19 @@ class BrokerState extends EventEmitter {
         if (params.steps && !['click', 'type', 'select'].includes(operation)) {
           throw new BrokerError('BATCH_BOUNDARY', 'submit, navigation, and upload are not allowed in a form batch');
         }
+        if (operation !== 'upload' && (step.file_path !== undefined || step.file_sha256 !== undefined)) {
+          throw new BrokerError('INVALID_REQUEST', 'file_path is valid only for an upload action', { retry_safe: true });
+        }
         const payload = operation === 'type'
           ? { kind: 'text', text: String(step.text ?? step.value ?? '') }
           : operation === 'select'
             ? { kind: 'select', option_object_id: step.option_object_id }
-            : { kind: 'none' };
+            : operation === 'upload'
+              ? materializeUploadFile(
+                step.file_path, step.file_sha256,
+                this.sessions.get(agentSessionId)?.upload_roots || [],
+              )
+              : { kind: 'none' };
         return {
           browser_instance_id: current.full.browser_instance_id,
           tab_id: params.tab_id, document_id: params.document_id,
@@ -849,44 +1256,58 @@ class BrokerState extends EventEmitter {
       const result = await this.enqueueCommand(agentSessionId, batch ? 'act.batch' : 'act', command, remaining(), {
         clientRequestId, browserInstanceId: current.full.browser_instance_id,
       });
+      const partialDispatch = result.partial_dispatch === true;
       const dispatchDocumentId = typeof result.dispatch_document_id === 'string'
         ? result.dispatch_document_id : basisDocumentId;
       const dispatchBasisRevision = Number.isSafeInteger(result.dispatch_basis_revision)
         && result.dispatch_basis_revision >= basisRevision
         ? result.dispatch_basis_revision : basisRevision;
-      const finalTruth = result.accepted
+      const finalTruth = result.accepted || partialDispatch
         ? await this.waitForTruth(params.tab_id, (truth) => (
           truth.document_id !== dispatchDocumentId || truth.revision > dispatchBasisRevision
         ), deadlineAt)
         : null;
       const verified = Boolean(finalTruth);
+      const upload = !batch && steps[0].operation === 'upload' ? {
+        size_bytes: steps[0].payload.file.size_bytes,
+        mime_type: steps[0].payload.file.mime_type,
+        sha256: steps[0].payload.file.sha256,
+      } : undefined;
       const transition = verified && finalTruth.document_id === dispatchDocumentId
-        ? this.readTruthNow(agentSessionId, {
+        ? projectTruthToObjectIds(this.readTruthNow(agentSessionId, {
           tab_id: params.tab_id, mode: 'delta', after_revision: dispatchBasisRevision,
-          query: params.query,
-        })
+        }), new Set(steps.flatMap((step) => [step.object_id, step.payload?.option_object_id].filter(Boolean))))
+        : undefined;
+      const batchTransition = batch && transition
+        ? compactBatchTransition(transition, steps, dispatchBasisRevision)
         : undefined;
       return {
         command_id: result.command_id,
-        outcome: !result.accepted ? 'rejected' : verified ? 'accepted' : 'outcome_unknown',
-        occurrence: result.accepted ? (verified ? 'observed' : 'dispatched') : 'not_dispatched',
+        outcome: partialDispatch ? 'outcome_unknown' : !result.accepted ? 'rejected' : verified ? 'accepted' : 'outcome_unknown',
+        occurrence: partialDispatch ? 'partially_dispatched' : result.accepted ? (verified ? 'observed' : 'dispatched') : 'not_dispatched',
         semantic_postcondition: {
-          code: !result.accepted ? 'rejected' : verified ? 'truth_transition_observed' : 'verification_timeout',
-          verified,
+          code: partialDispatch ? (result.failure_code || 'partial_batch')
+            : !result.accepted ? (result.failure_code || 'rejected')
+              : verified ? (upload
+                ? result.upload_dispatch === 'drop' ? 'file_drop_dispatched' : 'file_selection_observed'
+                : 'truth_transition_observed') : 'verification_timeout',
+          stage: !result.accepted ? result.failure_stage : undefined,
+          verified: partialDispatch ? false : verified,
         },
         document_id: finalTruth?.document_id || basisDocumentId,
         dispatch_basis_revision: dispatchBasisRevision,
         final_revision: finalTruth?.revision || basisRevision,
         next_basis_revision: finalTruth?.revision || basisRevision,
-        relevant_delta: transition,
+        relevant_delta: batch ? batchTransition : transition,
         steps: batch ? steps.map((step, index) => ({
-          object_id: step.object_id,
+          step_index: index,
           operation: step.operation,
           accepted: result.steps?.[index]?.accepted === true,
           verified: Boolean(transition?.changes?.some((change) => change.object_id === step.object_id)),
         })) : undefined,
-        retry_safe: !result.accepted,
-        external_execution_required: false,
+        upload,
+        retry_safe: partialDispatch ? false : !result.accepted ? result.retry_safe === true : false,
+        external_execution_required: Boolean(upload),
       };
     }
     throw new BrokerError('METHOD_UNKNOWN', `Unknown Broker method ${method}`);
@@ -961,18 +1382,65 @@ function materializeDelta(full, delta) {
   return { ...full, ...delta, objects: [...objects.values()], changes: delta.changes || [] };
 }
 
+function matchingObjects(objects, query) {
+  const roles = new Set(query?.roles || []);
+  const affordances = new Set(query?.affordances || []);
+  const visibility = new Set(query?.visibility || []);
+  const objectIds = new Set(query?.object_ids || []);
+  const terms = String(query?.text || '').toLowerCase().split(/\s+/).filter(Boolean);
+  return objects.filter((object) => {
+    if (objectIds.size && !objectIds.has(object.object_id)) return false;
+    if (roles.size && !roles.has(object.role)) return false;
+    if (affordances.size && ![...affordances].every((item) => (object.affordances || []).includes(item))) return false;
+    if (visibility.size && !visibility.has(object.visibility)) return false;
+    const haystack = [object.name, object.text, object.description].filter(Boolean).join(' ').toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function retainRelatedCollections(projected, objectIds) {
+  if (Array.isArray(projected.authorities)) {
+    projected.authorities = projected.authorities.filter((authority) => objectIds.has(authority.object_id));
+  }
+  if (Array.isArray(projected.changes)) {
+    projected.changes = projected.changes.filter((change) => objectIds.has(change.object_id));
+  }
+  return projected;
+}
+
+function projectTruthToObjectIds(value, objectIds) {
+  const projected = structuredClone(value);
+  if (Array.isArray(projected.objects)) {
+    projected.objects = projected.objects.filter((object) => objectIds.has(object.object_id));
+  }
+  return retainRelatedCollections(projected, objectIds);
+}
+
+function compactBatchTransition(value, steps, baseRevision) {
+  const changedIds = new Set((value.changes || []).map((change) => change.object_id));
+  const changedSteps = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    if (changedIds.has(step.object_id) || changedIds.has(step.payload?.option_object_id)) {
+      changedSteps.push(index);
+    }
+  }
+  return {
+    schema: 'saccade.action-delta/1',
+    base_revision: baseRevision,
+    revision: value.revision,
+    next_basis_revision: value.next_basis_revision,
+    changed_steps: changedSteps,
+  };
+}
+
 function projectTruth(value, query, envelope) {
   const projected = structuredClone(value);
   if (query && Array.isArray(projected.objects)) {
-    const roles = new Set(query.roles || []);
-    const terms = String(query.text || '').toLowerCase().split(/\s+/).filter(Boolean);
     const limit = Math.min(Number(query.max_objects) || 32, 32);
-    const matches = projected.objects.filter((object) => {
-      if (roles.size && !roles.has(object.role)) return false;
-      const haystack = [object.name, object.text, object.description].filter(Boolean).join(' ').toLowerCase();
-      return terms.every((term) => haystack.includes(term));
-    });
+    const matches = matchingObjects(projected.objects, query);
     projected.objects = matches.slice(0, limit);
+    retainRelatedCollections(projected, new Set(projected.objects.map((object) => object.object_id)));
     projected.match_count = matches.length;
     projected.working_set = 'semantic';
   } else if (envelope.mode === 'full' && Array.isArray(projected.objects) && projected.objects.length > 64) {

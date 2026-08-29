@@ -1,0 +1,159 @@
+{
+  "schema": "saccade.release-conformance/1",
+  "release": "0.2.0",
+  "candidate_policy": {
+    "browsers": ["chrome", "edge"],
+    "same_extension_candidate_required": true,
+    "production_route": "extension_node_broker_mcp",
+    "forbidden_routes": [
+      "rust",
+      "native_host",
+      "platform_driver",
+      "playwright",
+      "cdp",
+      "selector",
+      "arbitrary_coordinate"
+    ]
+  },
+  "suites": [
+    {
+      "id": "local-controls-and-forms",
+      "class": "deterministic",
+      "requirements": [
+        "all_catalog_controls",
+        "independent_form_batch",
+        "submit_is_separate",
+        "replacement_is_stale",
+        "value_free_verification"
+      ]
+    },
+    {
+      "id": "local-tables",
+      "class": "deterministic",
+      "requirements": [
+        "semantic_table_projection",
+        "table_reorder_delta",
+        "stable_identity_across_reorder"
+      ]
+    },
+    {
+      "id": "local-frames",
+      "class": "deterministic",
+      "requirements": [
+        "same_origin_iframe_truth",
+        "nested_geometry",
+        "iframe_navigation_delta",
+        "restricted_cross_origin_frame",
+        "open_shadow_truth",
+        "closed_shadow_opaque"
+      ]
+    },
+    {
+      "id": "local-mouse-accuracy",
+      "class": "deterministic",
+      "requirements": [
+        "normal_control_stable_geometry",
+        "normal_control_topmost",
+        "viewport_geometry_updates",
+        "continuous_reflex_target_policy",
+        "bounded_end_to_end_latency"
+      ]
+    },
+    {
+      "id": "public-framework-forms",
+      "class": "public_unauthenticated",
+      "blocking": false,
+      "cases": [
+        "angular-material-public-select",
+        "demoqa-react-practice-form",
+        "selenium-official-web-form"
+      ],
+      "requirements": [
+        "semantic_working_set",
+        "framework_input_events",
+        "action_receipt_verification",
+        "delta_after_action"
+      ]
+    },
+    {
+      "id": "public-heavy-pages",
+      "class": "public_unauthenticated",
+      "blocking": false,
+      "cases": [
+        "bestbuy_homepage_navigation",
+        "nanmesh_homepage_identity",
+        "nanlogic_homepage_product",
+        "mythcastera_homepage_navigation"
+      ],
+      "requirements": [
+        "bounded_first_read",
+        "semantic_query",
+        "tab_scoped_truth",
+        "no_repeated_full_without_request"
+      ]
+    },
+    {
+      "id": "local-standard-upload",
+      "class": "deterministic",
+      "blocking": true,
+      "requirements": [
+        "exact_leased_tab",
+        "file_input_value_free_truth",
+        "object_addressed_file_upload",
+        "workspace_bounded_absolute_path",
+        "dynamic_file_chooser_capture",
+        "file_selection_observed",
+        "no_automatic_replay"
+      ]
+    },
+    {
+      "id": "authenticated-steamworks-upload",
+      "class": "authenticated_human_authorized",
+      "blocking": false,
+      "expected_outcome": "external_execution_required_when_native_trust_is_required",
+      "requirements": [
+        "exact_leased_tab",
+        "truthful_unsupported_or_external_execution_required",
+        "no_false_persistence_claim",
+        "no_automatic_replay"
+      ],
+      "limitations": [
+        "native_trusted_file_selection_is_outside_the_extension_software_bridge",
+        "no_cdp_native_host_platform_driver_or_site_specific_api"
+      ],
+      "stopping_points": [
+        "password",
+        "otp",
+        "captcha",
+        "payment",
+        "contract_acceptance",
+        "publish",
+        "production_submission"
+      ]
+    },
+    {
+      "id": "transport-and-isolation",
+      "class": "deterministic",
+      "requirements": [
+        "first_full",
+        "continuous_delta",
+        "reconnect_full_reset",
+        "tabs_open_close",
+        "broker_restart",
+        "mcp_restart",
+        "multiple_agent_sessions",
+        "orphaned_lease",
+        "one_writer_per_tab",
+        "ambiguous_action_not_replayed"
+      ]
+    }
+  ],
+  "evidence_policy": {
+    "fresh_candidate_evidence_only": true,
+    "historical_reports_are_not_release_proof": true,
+    "editable_values_retained": false,
+    "screenshots_retained": false,
+    "credentials_retained": false,
+    "non_blocking_compatibility_suites_cannot_fail_the_release": true
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 5,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "acb5ecb6c0266b2b8f7f0759ed27338c56d6552610c57bb9e065e04bfb3084d9",
+  "baseCurrentSha256": "5a6ba0f9bd25c0e1b17fd4328e450340fe3e31a99fa63470daf291eb8192a2cc",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0004.md",
+  "previousEvidenceSha256": "ff29768d41bfdf66048e3d3805c2c3ff1804f1caf34bed357891c18bc66a908e",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0004.json",
+  "previousEvidenceDataSha256": "1244987ba49a3e1df8b1c001c38a48ae0757e63d5367487dbe000204c208ec4c",
+  "changes": [
+    {
+      "item": "R-026",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`saccade.act` may authorize a bounded continuous run only from one current `reflex_target` object carrying the current loop-class authority. The Node Broker, under the original request deadline and cancellation identity, repeatedly selects only current same-document targets with the same loop class, dispatches each exact current action token once, and requires the safe occurrence to advance before continuing. Pre-dispatch stale work may be skipped; any ambiguous or occurrence-unverified dispatch stops the loop with `outcome_unknown` and is never replayed. The report is bounded and value-free. This adds no seventh tool, Agent polling, arbitrary coordinate authority, native backend, or Rust route."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/saccade-runtime-contract-r5.md",
+      "archivePath": ".authority/archive/proposals/1787858160623-saccade-runtime-contract-r5.md",
+      "sha256": "acb5ecb6c0266b2b8f7f0759ed27338c56d6552610c57bb9e065e04bfb3084d9",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-27T19:16:00.714Z"
+}

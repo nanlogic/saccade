@@ -4,7 +4,7 @@
     "name": "SACCADE-CONTROL-RUNTIME",
     "owner": "human-owner"
   },
-  "revision": 10,
+  "revision": 18,
   "topics": {
     "truth-observation-contract": {
       "title": "Browser Truth observation contract",
@@ -12,23 +12,23 @@
       "scope": ".",
       "status": "current",
       "path": "docs/current/truth-observation-contract.md",
-      "revision": 2,
-      "sha256": "32a590084c8cc5a3ffcbd28a0d5fa4c33decd415ea9a6f9db12befab5df77bf2",
-      "evidencePath": ".authority/evidence/truth-observation-contract/r0002.md",
-      "evidenceSha256": "ae97be560c5e257ccc0283bfd5487127fb6d1619ddcef92adc7ff3aaa41d7c55",
-      "evidenceDataPath": ".authority/evidence/truth-observation-contract/r0002.json",
-      "evidenceDataSha256": "f7109ed7eaaa7cbb01c46354762f7def351765a9a3be1141d0d7e7179af2c219",
+      "revision": 3,
+      "sha256": "5152fd9823802aded930a509c1cd35aab432aa48efcdc64f314f5abd160d2cce",
+      "evidencePath": ".authority/evidence/truth-observation-contract/r0003.md",
+      "evidenceSha256": "2b51aa343f0ef8814f38ef52611c2d897ff978df67bff99258c826f408f89d7b",
+      "evidenceDataPath": ".authority/evidence/truth-observation-contract/r0003.json",
+      "evidenceDataSha256": "7951eaab4c14c815090da487075d2f2fd60ec5838ef5e2644547f05b8ce1854f",
       "evidenceStatus": "complete",
       "owner": "human-owner",
-      "updatedAt": "2026-08-26T01:16:32.778Z",
+      "updatedAt": "2026-08-27T07:50:15.780Z",
       "adoptionRun": null,
       "decisionId": null,
       "supersedes": {
         "path": "docs/current/truth-observation-contract.md",
-        "revision": 1,
-        "sha256": "52230f279566fb26d2769a557708281e8eb9f48b69ef2e0e6701382ecdaffec2",
-        "evidencePath": ".authority/evidence/truth-observation-contract/r0001.md",
-        "evidenceSha256": "bf37d9d1276ecf975ad0f68258916b95eb05d8621339fa46536c3b44abbeac6c"
+        "revision": 2,
+        "sha256": "32a590084c8cc5a3ffcbd28a0d5fa4c33decd415ea9a6f9db12befab5df77bf2",
+        "evidencePath": ".authority/evidence/truth-observation-contract/r0002.md",
+        "evidenceSha256": "ae97be560c5e257ccc0283bfd5487127fb6d1619ddcef92adc7ff3aaa41d7c55"
       }
     },
     "profile-boundary": {
@@ -106,25 +106,25 @@
       "scope": ".",
       "status": "current",
       "path": "docs/current/saccade-0-2-0-runtime-contract.md",
-      "revision": 3,
-      "sha256": "74607bd0d19dd09d998a4b0021618e06990927254845ed43b8903674d508fb01",
-      "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0003.md",
-      "evidenceSha256": "b1479e33b9840f8ecfb55a0ece6932c364cbeeed6b4e355c9dadde27839de70f",
-      "evidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0003.json",
-      "evidenceDataSha256": "92839bc316cfde32d754122f0f6fce4b933f649e050ef60051025da8e30c44d4",
+      "revision": 10,
+      "sha256": "0e218e8199365e0d101d395327efbce3d84d858a486fa40b257be07899fad1b7",
+      "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0010.md",
+      "evidenceSha256": "827b4f9691102ef25a90e3f9d6d5184eb52a1a03b58a5f1020e004f6505fa2bd",
+      "evidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0010.json",
+      "evidenceDataSha256": "07be1522418d6364ea6b585b5e1cc7b1db4a6b84eb304941b470557cf62cea14",
       "evidenceStatus": "complete",
       "owner": "human-owner",
-      "updatedAt": "2026-08-26T13:37:02.568Z",
+      "updatedAt": "2026-08-28T00:16:08.090Z",
       "adoptionRun": null,
       "decisionId": null,
       "supersedes": {
         "path": "docs/current/saccade-0-2-0-runtime-contract.md",
-        "revision": 2,
-        "sha256": "bad39793e098ea9d1d16c4b23aa2e489b668711b4bce46d6ac8ca28436bd1de9",
-        "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0002.md",
-        "evidenceSha256": "7dfa04d75da7691e1b1d8c438c5b30737ad397f4341f5c2b27f8e8e1f8345d22"
+        "revision": 9,
+        "sha256": "f70e1d6f35d06ddddb05271f081411f7a1aaf454d597709777fb4643430faf41",
+        "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0009.md",
+        "evidenceSha256": "f10f11991210f0f1800d925025f06eaee789c41c3f6855e8e400c73a6f23a441"
       }
     }
   },
-  "updatedAt": "2026-08-26T13:37:02.568Z"
+  "updatedAt": "2026-08-28T00:16:08.090Z"
 }

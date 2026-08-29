@@ -9,6 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  node-compatibility:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Node Broker, MCP, and Extension tests
+        run: |
+          node --test packages/setup/test/*.test.js
+          node --test extension/tests/*.test.js
+          npm pack ./packages/setup --dry-run
+
   checks:
     runs-on: ubuntu-latest
     steps:
@@ -16,12 +34,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Extension tests
-        run: node --test extension/tests/*.test.js
-      - name: Setup package tests
-        run: |
-          node --test packages/setup/test/*.test.js
-          npm pack ./packages/setup --dry-run
       - name: Reference harness syntax
         run: node --check tests/reference/playwright/oracle.cjs
       - name: Development script syntax

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "truth-observation-contract",
+  "scope": ".",
+  "title": "Browser Truth observation contract",
+  "revision": 3,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "5152fd9823802aded930a509c1cd35aab432aa48efcdc64f314f5abd160d2cce",
+  "baseCurrentSha256": "32a590084c8cc5a3ffcbd28a0d5fa4c33decd415ea9a6f9db12befab5df77bf2",
+  "previousEvidencePath": ".authority/evidence/truth-observation-contract/r0002.md",
+  "previousEvidenceSha256": "ae97be560c5e257ccc0283bfd5487127fb6d1619ddcef92adc7ff3aaa41d7c55",
+  "previousEvidenceDataPath": ".authority/evidence/truth-observation-contract/r0002.json",
+  "previousEvidenceDataSha256": "f7109ed7eaaa7cbb01c46354762f7def351765a9a3be1141d0d7e7179af2c219",
+  "changes": [
+    {
+      "item": "R-010",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`min_objects` is an explicit bounded hydration condition evaluated against canonical current Truth. It waits on Extension-pushed revisions and never causes model polling or fixed sleep."
+    },
+    {
+      "item": "R-011",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Working-set projection scopes related authority and change collections to returned identities while preserving complete canonical Truth locally."
+    },
+    {
+      "item": "R-012",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "A form batch performs a complete preflight before dispatch, then revalidates every exact current token immediately before its step. Framework rerender may preserve the same live object authority; DOM replacement remains stale and is never rebound."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/node-truth-efficiency-observation-contract.md",
+      "archivePath": ".authority/archive/proposals/1787817015751-node-truth-efficiency-observation-contract.md",
+      "sha256": "0c8b0f73934cd0b2c54a9c5f059d3a9425c7e146b49133eea0a352412a8b6b70",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-27T07:50:15.779Z"
+}
