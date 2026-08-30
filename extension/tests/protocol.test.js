@@ -6,6 +6,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
+
+// Chrome and Edge expose Web Crypto globally. Node 18 exposes the same API
+// through node:crypto, but not through globalThis in every supported build.
+if (!globalThis.crypto) globalThis.crypto = crypto.webcrypto;
+
 const { BROKER_PROTOCOL, OBSERVATION_SCHEMA, randomToken } = require('../src/protocol.js');
 const { normalizeOrigin, isProtectedFieldType, redactProtectedText } = require('../src/consent.js');
 const { compileChanges, compactTransport } = require('../src/truth_delta.js');
