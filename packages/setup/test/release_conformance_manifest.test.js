@@ -30,7 +30,8 @@ test('0.2.0 release matrix contains every required product lane', () => {
     'public-framework-forms',
     'public-heavy-pages',
     'local-standard-upload',
-    'authenticated-steamworks-upload',
+    'local-legacy-admin-workflow',
+    'authenticated-steamworks-workflows',
     'transport-and-isolation',
   ]) {
     assert.ok(suites.has(id), `missing release suite ${id}`);
@@ -43,8 +44,14 @@ test('0.2.0 release matrix contains every required product lane', () => {
   assert.equal(suites.get('public-heavy-pages').blocking, false);
 });
 
-test('standard upload is blocking while trusted Steamworks upload is a truthful limitation', () => {
+test('legacy admin mechanics are blocking while authenticated Steamworks remains truthful', () => {
   const suites = new Map(manifest.suites.map((suite) => [suite.id, suite]));
+  const legacyAdmin = suites.get('local-legacy-admin-workflow');
+  assert.equal(legacyAdmin.class, 'deterministic');
+  assert.equal(legacyAdmin.blocking, true);
+  assert.ok(legacyAdmin.requirements.includes('same_origin_iframe_rich_text'));
+  assert.ok(legacyAdmin.requirements.includes('save_is_separate_from_form_batch'));
+
   const standard = suites.get('local-standard-upload');
   assert.equal(standard.class, 'deterministic');
   assert.equal(standard.blocking, true);
@@ -53,15 +60,24 @@ test('standard upload is blocking while trusted Steamworks upload is a truthful 
   assert.ok(standard.requirements.includes('dynamic_file_chooser_capture'));
   assert.ok(standard.requirements.includes('file_selection_observed'));
 
-  const steamworks = manifest.suites.find((suite) => suite.id === 'authenticated-steamworks-upload');
+  const steamworks = suites.get('authenticated-steamworks-workflows');
   assert.equal(steamworks.class, 'authenticated_human_authorized');
   assert.equal(steamworks.blocking, false);
   assert.equal(steamworks.expected_outcome,
-    'external_execution_required_when_native_trust_is_required');
+    'generic_controls_execute_and_verify_or_truthfully_stop_at_boundary');
+  for (const requirement of [
+    'same_origin_iframe_rich_text',
+    'dynamic_choice_refresh_without_rebinding',
+    'object_addressed_upload',
+    'save_submit_navigation_are_separate_actions',
+    'page_owned_postcondition_or_outcome_unknown',
+  ]) assert.ok(steamworks.requirements.includes(requirement));
   assert.ok(steamworks.requirements.includes('truthful_unsupported_or_external_execution_required'));
   assert.ok(steamworks.requirements.includes('no_false_persistence_claim'));
   assert.ok(steamworks.requirements.includes('no_automatic_replay'));
   assert.ok(steamworks.limitations.includes('no_cdp_native_host_platform_driver_or_site_specific_api'));
+  assert.ok(steamworks.cases.includes('builds_depots_packages_and_branches'));
+  assert.ok(steamworks.cases.includes('checklist_save_review_and_publish_transitions'));
   for (const boundary of ['password', 'otp', 'captcha', 'payment', 'publish']) {
     assert.ok(steamworks.stopping_points.includes(boundary));
   }

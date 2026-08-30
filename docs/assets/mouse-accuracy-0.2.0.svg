@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Saccade 0.2.0 Mouse Accuracy release-gate results</title>
+  <desc id="desc">Chrome and Edge each hit 48 of 48 exact targets with zero misses.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10131f"/>
+      <stop offset="1" stop-color="#17283a"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#78f6c6" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#78f6c6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" rx="28" fill="url(#bg)"/>
+  <circle cx="1030" cy="92" r="250" fill="url(#glow)"/>
+  <g fill="none" stroke="#78f6c6" opacity=".28">
+    <circle cx="1040" cy="105" r="44"/>
+    <circle cx="1040" cy="105" r="76"/>
+    <path d="M936 105h208M1040 1v208"/>
+  </g>
+  <text x="72" y="82" fill="#78f6c6" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="24" font-weight="700">SACCADE 0.2.0 · RELEASE GATE</text>
+  <text x="72" y="164" fill="#f6f8fb" font-family="Inter, system-ui, sans-serif" font-size="56" font-weight="750">Mouse Accuracy</text>
+  <text x="72" y="224" fill="#aebbd0" font-family="Inter, system-ui, sans-serif" font-size="28">Exact object actions · same Extension candidate</text>
+
+  <g transform="translate(72 288)">
+    <rect width="500" height="184" rx="22" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".12"/>
+    <text x="30" y="48" fill="#d7e2f2" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="650">Chrome</text>
+    <text x="30" y="119" fill="#78f6c6" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="54" font-weight="800">48 / 48</text>
+    <text x="30" y="157" fill="#aebbd0" font-family="Inter, system-ui, sans-serif" font-size="21">24 buttons + 24 canvas targets · 0 misses</text>
+  </g>
+  <g transform="translate(628 288)">
+    <rect width="500" height="184" rx="22" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".12"/>
+    <text x="30" y="48" fill="#d7e2f2" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="650">Edge</text>
+    <text x="30" y="119" fill="#78f6c6" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="54" font-weight="800">48 / 48</text>
+    <text x="30" y="157" fill="#aebbd0" font-family="Inter, system-ui, sans-serif" font-size="21">24 buttons + 24 canvas targets · 0 misses</text>
+  </g>
+
+  <text x="72" y="536" fill="#f6f8fb" font-family="Inter, system-ui, sans-serif" font-size="25" font-weight="650">Mean exact-target action latency: 7.22–8.50 ms</text>
+  <text x="72" y="580" fill="#8f9db3" font-family="Inter, system-ui, sans-serif" font-size="19">Candidate 2d4f7cdc… · Chrome + Edge · 2026-08-30</text>
+</svg>

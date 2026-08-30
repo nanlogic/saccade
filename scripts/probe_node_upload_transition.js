@@ -112,7 +112,7 @@ async function main() {
     }
     if (!receipt) throw new Error(`upload target remained stale across ${prepareAttempts} fresh resolutions`);
     if (receipt.outcome !== 'accepted'
-      || !['file_selection_observed', 'file_drop_dispatched'].includes(receipt.semantic_postcondition?.code)
+      || !['file_selection_observed', 'file_drop_response_observed'].includes(receipt.semantic_postcondition?.code)
       || receipt.semantic_postcondition?.verified !== true) {
       throw new Error(`upload selection was not verified: ${receipt.outcome}`);
     }

@@ -197,6 +197,116 @@ async function main() {
       await close(opened.tab_id);
     }
 
+    {
+      currentStage = 'iframe-rich-text';
+      const opened = await open('/fixtures/controls/content_editable.html?release-smoke=iframe-rich-text');
+      const view = await waitForQuery(opened.tab_id, {
+        text: 'Long description',
+        roles: ['content_editable'],
+        max_objects: 16,
+      }, 1);
+      const editor = uniqueObject(view, 'content_editable', 'Long description');
+      assert(editor.frame_id !== '0', 'rich-text editor was not composed from its same-origin frame');
+      const receipt = await call('act', {
+        tab_id: String(opened.tab_id),
+        document_id: view.document_id,
+        basis_revision: view.revision,
+        object_id: editor.object_id,
+        operation: 'type',
+        text: 'release-smoke-frame-rich-text',
+        timeout_ms: 10_000,
+      }, 10_000);
+      assert(receipt.outcome === 'accepted', `iframe rich-text outcome was ${receipt.outcome}`);
+      assert(receipt.semantic_postcondition?.code === 'editable_content_observed',
+        `unexpected iframe rich-text postcondition ${receipt.semantic_postcondition?.code}`);
+      assert(receipt.semantic_postcondition?.verified === true, 'iframe rich-text was not verified');
+      report.suites.iframe_rich_text = {
+        passed: true,
+        frame_local: true,
+        value_free_postcondition: receipt.semantic_postcondition.code,
+        final_revision: receipt.final_revision,
+      };
+      await close(opened.tab_id);
+    }
+
+    {
+      currentStage = 'legacy-admin-workflow';
+      const opened = await open('/fixtures/conformance/legacy_admin_workflow.html');
+      await waitForQuery(opened.tab_id, {
+        text: 'About this item', roles: ['content_editable'], max_objects: 8,
+      }, 1);
+      const view = await waitForQuery(opened.tab_id, {
+        roles: ['text_area', 'text_field', 'select', 'option', 'checkbox'],
+        max_objects: 32,
+      }, 7);
+      const shortDescription = uniqueObject(view, 'text_area', 'Short description');
+      const releaseDate = uniqueObject(view, 'text_field', 'Planned release date');
+      const visibility = uniqueObject(view, 'select', 'Release visibility');
+      const comingSoon = uniqueObject(view, 'option', 'Coming Soon');
+      const actionTag = uniqueObject(view, 'checkbox', 'Action');
+      const singlePlayerTag = uniqueObject(view, 'checkbox', 'Single-player');
+      const batchReceipt = await call('act', {
+        tab_id: String(opened.tab_id),
+        document_id: view.document_id,
+        basis_revision: view.revision,
+        steps: [
+          { object_id: shortDescription.object_id, operation: 'type', text: 'A bounded legacy administration fixture.' },
+          { object_id: releaseDate.object_id, operation: 'type', text: '2026-09-20' },
+          { object_id: visibility.object_id, operation: 'select', option_object_id: comingSoon.object_id },
+          { object_id: actionTag.object_id, operation: 'click' },
+          { object_id: singlePlayerTag.object_id, operation: 'click' },
+        ],
+        timeout_ms: 10_000,
+      }, 10_000);
+      assert(batchReceipt.outcome === 'accepted',
+        `legacy admin batch outcome was ${batchReceipt.outcome}: ${JSON.stringify(batchReceipt)}`);
+      assert(batchReceipt.semantic_postcondition?.verified === true, 'legacy admin batch was not verified');
+      assert(batchReceipt.steps?.every((step) => step.accepted && step.verified),
+        'legacy admin batch omitted a verified step receipt');
+
+      const editorView = await waitForQuery(opened.tab_id, {
+        text: 'About this item', roles: ['content_editable'], max_objects: 8,
+      }, 1);
+      const editor = uniqueObject(editorView, 'content_editable', 'About this item');
+      const editorReceipt = await call('act', {
+        tab_id: String(opened.tab_id),
+        document_id: editorView.document_id,
+        basis_revision: editorView.revision,
+        object_id: editor.object_id,
+        operation: 'type',
+        text: 'Legacy iframe rich text.',
+        timeout_ms: 10_000,
+      }, 10_000);
+      assert(editorReceipt.outcome === 'accepted', `legacy admin editor outcome was ${editorReceipt.outcome}`);
+      assert(editorReceipt.semantic_postcondition?.code === 'editable_content_observed',
+        'legacy admin editor was not verified locally');
+
+      const saveView = await read(opened.tab_id, { roles: ['button'], max_objects: 8 });
+      const save = uniqueObject(saveView, 'button', 'Save changes');
+      const saveReceipt = await call('act', {
+        tab_id: String(opened.tab_id),
+        document_id: saveView.document_id,
+        basis_revision: saveView.revision,
+        object_id: save.object_id,
+        operation: 'click',
+        timeout_ms: 10_000,
+      }, 10_000);
+      assert(saveReceipt.outcome === 'accepted', `legacy admin save outcome was ${saveReceipt.outcome}`);
+      assert(saveReceipt.semantic_postcondition?.verified === true, 'legacy admin save transition was not observed');
+      const savedView = await read(opened.tab_id, { text: 'Saved', max_objects: 8 });
+      assert((savedView.objects || []).some((object) => objectLabel(object) === 'Saved'),
+        'legacy admin saved state was absent from Truth');
+      report.suites.legacy_admin_workflow = {
+        passed: true,
+        batch_steps: batchReceipt.steps.length,
+        iframe_rich_text: true,
+        save_separate: true,
+        save_transition_observed: true,
+        value_free_receipts: true,
+      };
+      await close(opened.tab_id);
+    }
+
     for (const layout of ['buttons', 'canvas']) {
       currentStage = `mouse-accuracy-${layout}`;
       const role = layout === 'canvas' ? 'reflex_target' : 'button';

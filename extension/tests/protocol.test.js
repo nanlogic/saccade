@@ -189,8 +189,16 @@ test('object-addressed upload captures dynamic choosers and supplies one bounded
     collector.indexOf('function linkedFileInput('),
     collector.indexOf('function dispatchUploadTriggerClick('),
   );
-  assert.doesNotMatch(linkedInput, /parentElement|querySelectorAll/);
+  assert.match(linkedInput, /for \(let depth = 0;[\s\S]*depth < 5/);
+  assert.match(linkedInput, /querySelectorAll\('input\[type="file"\]'\)/);
+  assert.match(linkedInput, /if \(candidates\.length === 1\) return candidates\[0\]/);
   assert.match(collector, /new view\.DragEvent/);
+  assert.match(collector, /function waitForUploadResponse/);
+  assert.match(collector, /new view\.MutationObserver/);
+  assert.match(collector, /file_drop_response_observed/);
+  assert.match(collector, /file_selection_observed/);
+  assert.match(collector, /verified: responseObserved/);
+  assert.match(collector, /verified: selectionObserved/);
   assert.match(collector, /MAX_UPLOAD_BYTES/);
   assert.match(collector, /new view\.File/);
   assert.match(collector, /new view\.DataTransfer\(\)/);
@@ -245,6 +253,7 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /\.\.\.genericTexts/);
   assert.match(collector, /visibilityFor\(element, boxFor\(element\)\) === 'hidden'/);
   assert.match(collector, /element\.hasAttribute\('aria-live'\)\) return 'status'/);
+  assert.match(collector, /tag === 'OUTPUT'\) return 'status'/);
   assert.match(collector, /\(dialogText \|\| genericText\) \? 'text'/);
   assert.match(collector, /state\.modal = String\(element\.getAttribute\('aria-modal'\) === 'true'\)/);
   assert.match(collector, /deferred_content_possible/);
@@ -692,8 +701,8 @@ test('software typing sets a value through the native setter and never reaches p
   // or React and Angular never observe the change.
   assert.match(collector, /Object\.getOwnPropertyDescriptor\(prototype, 'value'\)\?\.set/);
   assert.match(collector, /element\.isContentEditable/);
-  assert.match(collector, /new InputEvent\('input'/);
-  assert.match(collector, /new Event\('change'/);
+  assert.match(collector, /new view\.InputEvent\('input'/);
+  assert.match(collector, /new view\.Event\('change'/);
   // A protected field carries no type affordance, so prepare() refuses it
   // before any software typing can run.
   const textField = fs.readFileSync(path.join(__dirname, '../src/controls/text_field.js'), 'utf8');
@@ -708,16 +717,39 @@ test('software typing dispatches a cancelable beforeinput before any mutation an
   assert.ok(!/\.focus\(/.test(softType), 'softType must not call focus itself — prepare() already did');
   // beforeinput must be dispatched, cancelable, and its result checked before
   // any value or DOM mutation runs.
-  const beforeinputIndex = softType.indexOf("new InputEvent('beforeinput'");
+  const beforeinputIndex = softType.indexOf("new view.InputEvent('beforeinput'");
   const cancelableIndex = softType.indexOf('cancelable: true');
   const checkIndex = softType.indexOf('if (!proceed)');
-  const mutationIndex = softType.indexOf('element.textContent = text');
+  const mutationIndex = softType.indexOf('replaceContentEditable(element, text)');
   assert.ok(beforeinputIndex >= 0, 'beforeinput must be dispatched');
   assert.ok(cancelableIndex >= 0 && cancelableIndex < mutationIndex, 'beforeinput must be cancelable');
   assert.ok(checkIndex >= 0 && checkIndex < mutationIndex,
     'the dispatchEvent result must be checked before any mutation');
-  assert.match(softType, /const proceed = element\.dispatchEvent\(new InputEvent\('beforeinput'/);
+  assert.match(softType, /const proceed = element\.dispatchEvent\(new view\.InputEvent\('beforeinput'/);
   assert.match(softType, /if \(!proceed\) throw actionFailure\('dispatch', 'page_canceled_beforeinput', false/);
+});
+
+test('software typing is frame-realm safe and verifies rich text without returning its contents', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const softType = collector.slice(collector.indexOf('function normalizedEditableValue('), collector.indexOf('function linkedFileInput('));
+  assert.match(softType, /const view = element\.ownerDocument\.defaultView/);
+  assert.match(softType, /view\.HTMLTextAreaElement\.prototype/);
+  assert.match(softType, /view\.HTMLInputElement\.prototype/);
+  assert.match(softType, /document\.createRange\(\)/);
+  assert.match(softType, /document\.execCommand\('insertText', false, text\)/);
+  assert.match(softType, /await waitForEditableValue\(element, text, request\.timeout_ms\)/);
+  assert.match(softType, /code: element\.isContentEditable \? 'editable_content_observed' : 'field_value_observed'/);
+  assert.match(softType, /verified: locallyVerified/);
+  assert.doesNotMatch(softType, /semantic_postcondition[\s\S]{0,200}(?:text|value): text/);
+});
+
+test('form toggles and choices return value-free local semantic postconditions', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /code: 'toggle_state_observed'/);
+  assert.match(collector, /verified: toggleAfter !== toggleBefore/);
+  assert.match(collector, /code: 'selection_state_observed'/);
+  assert.match(collector, /option\.selected === true && target\.selectedIndex === option\.index/);
+  assert.doesNotMatch(collector, /semantic_postcondition:\s*\{[^}]*value:/);
 });
 
 test('software preparation keeps a zero-wait fast path and bounds local actionability waiting', () => {
@@ -799,17 +831,17 @@ test('the browser harness edits through the same statements as the collector', (
   const harness = fs.readFileSync(
     path.join(__dirname, '../../fixtures/controls/software_type_harness.html'), 'utf8');
   const shared = [
-    "const proceed = element.dispatchEvent(new InputEvent('beforeinput', {",
+    'const view = element.ownerDocument.defaultView;',
+    "const proceed = element.dispatchEvent(new view.InputEvent('beforeinput', {",
     "bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: text,",
     'if (element.isContentEditable) {',
-    'element.textContent = text;',
-    "const prototype = element instanceof HTMLTextAreaElement",
-    "? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;",
+    'replaceContentEditable(element, text);',
+    "const prototype = element.tagName === 'TEXTAREA'",
+    '? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype;',
     "const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;",
     'if (setter) setter.call(element, text); else element.value = text;',
-    "element.dispatchEvent(new InputEvent('input', {",
-    "bubbles: true, composed: true, inputType: 'insertText', data: text,",
-    "element.dispatchEvent(new Event('change', { bubbles: true }));",
+    "element.dispatchEvent(new view.InputEvent('input', {",
+    "element.dispatchEvent(new view.Event('change', { bubbles: true }));",
   ];
   for (const statement of shared) {
     assert.ok(collector.includes(statement), `collector must contain: ${statement}`);

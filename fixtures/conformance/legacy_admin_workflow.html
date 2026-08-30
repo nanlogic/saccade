@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Legacy administration workflow</title>
+<style>
+  body { font: 16px sans-serif; margin: 24px; max-width: 760px; }
+  label, fieldset { display: block; margin: 12px 0; }
+  input, textarea, select, button { font: inherit; }
+  textarea, input[type="text"] { box-sizing: border-box; width: 100%; }
+  iframe { border: 1px solid #777; display: block; height: 140px; width: 100%; }
+</style>
+
+<form id="admin-form">
+  <label>Short description
+    <textarea id="short-description" required></textarea>
+  </label>
+
+  <label>Planned release date
+    <input id="release-date" type="text" placeholder="YYYY-MM-DD" required>
+  </label>
+
+  <label>Release visibility
+    <select id="release-visibility">
+      <option>Coming Soon</option>
+      <option selected>Released</option>
+    </select>
+  </label>
+
+  <fieldset>
+    <legend>Descriptive tags</legend>
+    <label><input type="checkbox" name="tag" value="action"> Action</label>
+    <label><input type="checkbox" name="tag" value="single-player"> Single-player</label>
+  </fieldset>
+
+  <label for="long-description-frame">About this item</label>
+  <iframe id="long-description-frame" title="About this item editor"
+    srcdoc="<!doctype html><body style='min-height:110px;font:16px sans-serif'></body>"></iframe>
+  <textarea id="long-description-backing" hidden aria-hidden="true"></textarea>
+
+  <button id="save" type="submit">Save changes</button>
+  <output id="save-status">Not saved</output>
+</form>
+
+<script>
+  const frame = document.getElementById('long-description-frame');
+  frame.addEventListener('load', () => {
+    const editor = frame.contentDocument.body;
+    editor.contentEditable = 'true';
+    editor.setAttribute('role', 'textbox');
+    editor.setAttribute('aria-label', 'About this item');
+    editor.addEventListener('input', () => {
+      document.getElementById('long-description-backing').value = editor.innerText;
+    });
+  });
+
+  document.getElementById('admin-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    document.getElementById('save-status').textContent = 'Saved';
+  });
+</script>

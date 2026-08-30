@@ -1,98 +1,142 @@
-# Saccade 0.2.0
+# Saccade
 
-Saccade is a Node.js semantic Truth Layer for authorized Chrome and Edge tabs.
-It exposes six MCP tools and one production route:
+Saccade gives browser agents a small, current semantic view of one authorized
+Chrome or Edge tab—and exact actions that return their own verification.
 
-```text
-authorized tab → Extension → loopback Node Broker → MCP adapter → Agent
-```
+It is built for real browser work: signed-in admin pages, long forms, dynamic
+controls, iframes, rich text, uploads, and pages that change while an Agent is
+working. The Agent reads semantic objects instead of repeatedly transferring a
+whole page, and the browser waits locally before an action is dispatched.
 
-There is no Rust runtime, Native Messaging Host, platform driver, bundled test
-browser, hidden profile, signing pipeline, or Playwright fallback.
+> Release candidate: `@nanlogic/saccade` **0.2.0** with Extension **0.4.0**.
+> The same Extension candidate passed the release gate in Chrome and Edge.
+> [Release notes](docs/releases/0.2.0.md) · [Evidence](docs/reports/2026-08-30-saccade-0.2.0-release-gate.md)
 
-## Why the Broker exists
+## What it solves
 
-The Broker is a small Node.js process shared by local MCP connections and the
-browser Extension. It behaves like a bounded message broker:
+- **One exact tab per request.** Every read and action names a leased `tab_id`;
+  each tab has one writer and stays isolated from other Agent sessions.
+- **Current page state without polling.** Ask for a bounded full view once,
+  then read browser-pushed deltas after a known revision.
+- **Actions that wait and verify locally.** Visibility, enabled state, stable
+  geometry, topmost state, and current action authority are checked under one
+  deadline. The receipt includes the resulting semantic transition.
+- **Safe recovery.** A replaced object stays stale. An action with an ambiguous
+  side effect is not replayed automatically.
+- **Less model work on forms.** Independent fields can be preflighted and sent
+  as one batch; submit, navigation, and upload remain explicit actions.
 
-- every MCP connection receives an opaque `agent_session_id`;
-- every tab has at most one active writer lease;
-- `tabs.open` creates and leases the tab atomically;
-- an Agent disconnect leaves its leases `orphaned`; tabs are not closed or
-  reassigned;
-- a live MCP adapter can prove and resume its exact session after a Broker
-  restart; the proof is rotated after use;
-- commands have IDs, one end-to-end deadline, dispatch state, and receipts;
-- an action delivered before a disconnect is never replayed automatically;
-- the Broker keeps canonical current Truth and bounded revision history;
-- reconnecting Extensions must push a fresh full snapshot before deltas resume.
-
-The Broker persists only bounded recovery metadata in
-`~/.saccade/broker-state.json`: hashed session proofs, Tab lease identity, and
-value-free command occurrence. Canonical Truth, deltas, action payloads,
-editable values, tokens, and credentials are never written there. After a
-restart, leases remain unavailable until the same live MCP adapter proves its
-session; otherwise they remain recoverable/orphaned and are never transferred.
-
-## Six tools
-
-| Tool | Purpose |
-| --- | --- |
-| `saccade.system.capabilities` | Return Node Broker, Extension, and session readiness. |
-| `saccade.tabs.list` | List only tabs leased to this Agent session. |
-| `saccade.tabs.open` | Open and atomically lease one Chrome/Edge tab. |
-| `saccade.tabs.close` | Close one tab owned by this Agent session. |
-| `saccade.truth.read` | Explicitly request `full` or `delta` Truth for one exact `tab_id`. |
-| `saccade.act` | Run one strict object-addressed software action and verify its transition. |
-
-`truth.read` never selects a tab implicitly. Delta reads require
-`after_revision`; the Broker waits locally for browser-pushed change until the
-request deadline. If bounded history cannot prove continuity it returns
-`reset_required` instead of silently substituting a full page.
-
-## Truth and action boundary
-
-Agents receive semantic objects, safe state, affordances, stable document-local
-identity, current geometry, and limitations. They do not receive selectors,
-DOM paths, editable values, protected values, cookies, browser storage,
-screenshots as Truth, arbitrary JavaScript, or arbitrary-coordinate authority.
-
-An action must match the leased tab, current document, basis revision, unique
-object ID, current action token, and registered affordance. Local Extension
-waiting handles visibility, enabled state, stable geometry, focus/topmost state,
-and bounded timeout. Replacement objects remain stale. A dispatched action with
-an ambiguous outcome returns `outcome_unknown` and `retry_safe: false`.
-
-Object-addressed uploads can supply a bounded workspace file to standard file
-inputs and software upload widgets. A site that requires a browser-trusted
-native file selection remains `external_execution_required`; Saccade does not
-silently add CDP, a Native Host, a platform driver, or a site-specific upload
-API, and it never reports remote persistence without a page-owned transition.
+The result is a browser interface designed around what an Agent needs to know:
+*which tab, which document, which revision, which object, and what changed*.
 
 ## Install
 
-Node.js 18 or newer is the only local runtime requirement.
+Saccade requires Node.js 18 or newer and the Saccade Extension in Chrome or
+Edge.
 
 ```sh
 npx -y @nanlogic/saccade install
+npx -y @nanlogic/saccade doctor
 ```
 
-Install the same Saccade Extension candidate in Chrome or Edge, then start a new
-Agent task. Setup adds this MCP entry without a `postinstall` hook:
+During prerelease development, load the [`extension/`](extension/) directory as
+an unpacked extension. The setup command adds the Saccade MCP server to
+supported local Agent clients. Start a new Agent task after installation.
+
+The configured MCP command is:
 
 ```text
 npx -y @nanlogic/saccade mcp
 ```
 
-Useful commands:
+## The six MCP tools
 
-```sh
-npx -y @nanlogic/saccade doctor
-npx -y @nanlogic/saccade uninstall
-npx -y @nanlogic/saccade uninstall --purge
-```
+| Tool | What the Agent gets |
+| --- | --- |
+| `saccade.system.capabilities` | Live Broker, Extension, browser, and session readiness |
+| `saccade.tabs.list` | Only the tabs leased to the current Agent session |
+| `saccade.tabs.open` | A new authorized tab and its initial document identity |
+| `saccade.tabs.close` | A bounded close of one session-owned tab |
+| `saccade.truth.read` | A full semantic working set or a delta after one revision |
+| `saccade.act` | One exact object action—or an independent form batch—with verification |
 
-Uninstall preserves the Profile unless `--purge` is supplied.
+A typical task uses one capability check, one tab open, one useful first read,
+then action receipts and deltas. The Agent does not need to re-read the full
+page after every field.
+
+## Controls in 0.2.0
+
+| Family | Current semantic support |
+| --- | --- |
+| Text entry | text fields, search fields, text areas, number inputs, contenteditable and same-origin iframe editors |
+| Choice | checkboxes, radios, switches, native selects, ARIA listboxes and comboboxes |
+| Navigation | buttons, links, tabs and menu items |
+| Files | standard file inputs and software upload triggers with value-free verification |
+| Fast targets | exact moving `reflex_target` objects under a bounded local loop |
+| Page structure | headings, paragraphs, lists, tables, rows, cells, status, alerts, images and frames |
+| Composition | same-origin iframes and open shadow roots; restricted or opaque regions remain explicit in Truth |
+
+The 0.2.0 release candidate passed deterministic controls, semantic tables,
+same-origin iframe rich text, a five-step legacy administration form, standard
+upload, replacement-stale handling, and Agent session isolation in both Chrome
+and Edge. It also passed non-blocking compatibility checks on Selenium's web
+form, DemoQA React, Angular Material, BestBuy, NaNMesh, NaNLogic, and Mythcast
+Era. See the [release-gate report](docs/reports/2026-08-30-saccade-0.2.0-release-gate.md)
+for the exact scope and limitations.
+
+## Mouse Accuracy: 96/96 in the release gate
+
+[![Saccade 0.2.0 Mouse Accuracy release-gate results](docs/assets/mouse-accuracy-0.2.0.svg)](docs/evidence/release-0.2.0-mouse-accuracy.json)
+
+The same Extension candidate hit 24/24 ordinary targets and 24/24 canvas
+reflex targets in each browser, with zero misses in this run. Mean exact-target
+action latency ranged from 7.22 ms to 8.50 ms. This is an object-addressed
+software path: the Agent never guesses a screen coordinate.
+
+The [machine-readable result](docs/evidence/release-0.2.0-mouse-accuracy.json),
+the [test fixture](fixtures/conformance/mouse_accuracy.html), and the
+[release report](docs/reports/2026-08-30-saccade-0.2.0-release-gate.md) are kept
+together so the claim stays tied to its candidate and test conditions.
+
+## Saccade and Playwright
+
+Playwright is an excellent browser-testing and scripted-automation tool.
+Saccade serves a different job: live Agent work in an authorized user tab.
+
+| | Saccade | Playwright |
+| --- | --- | --- |
+| Best fit | Agent work in a current, authorized Chrome or Edge tab | Reproducible browser tests and scripted automation |
+| Primary handle | Document-local semantic object identity and current action authority | Locators that resolve page elements |
+| State flow | Canonical current Truth plus browser-pushed revision deltas | Page and locator queries plus assertions |
+| Waiting | Local actionability checks and a semantic postcondition in the action receipt | Locator actionability checks and auto-retrying assertions |
+| Isolation | Session-owned tab leases; one writer per tab | Clean browser contexts, commonly one per test |
+
+The latest controlled same-model form comparison did **not** produce a blanket
+winner. Saccade used 8 browser tool calls versus 10 and spent 1.52 s versus
+6.88 s inside the browser MCP path. Playwright completed the full Agent task in
+26.20 s versus Saccade's 38.78 s. The benchmark, prompt, caveats, and payload
+measurements are in the [comparison report](docs/reports/2026-08-28-current-saccade-playwright-speed.md).
+
+Use Playwright when the goal is a deterministic test suite. Use Saccade when an
+Agent must stay attached to a user's current browser state, consume small
+semantic updates, and know whether each action actually took effect.
+
+Playwright's own documentation describes its
+[actionability checks](https://playwright.dev/docs/actionability),
+[locator strictness](https://playwright.dev/docs/locators#strictness), and
+[browser-context isolation](https://playwright.dev/docs/browser-contexts).
+
+## Truth and privacy
+
+Saccade gives the Agent semantic roles, safe state, affordances, stable
+document-local identity, current geometry, and explicit limitations. Protected
+fields expose only protected state. Diagnostics retain bounded command and
+failure metadata, not page contents, screenshots, cookies, credentials, or
+editable values.
+
+The Broker stores only bounded recovery metadata needed to preserve session and
+tab ownership across a restart. A disconnected Agent's lease becomes orphaned;
+the tab is neither closed nor transferred automatically.
 
 ## Development
 
@@ -103,7 +147,7 @@ Uninstall preserves the Profile unless `--purge` is supplied.
 ./scripts/dev.sh pack
 ```
 
-The release checks are:
+Run the Chrome and Edge release gate against the exact connected candidate:
 
 ```sh
 node scripts/gate_node_release_candidate.js \
@@ -113,16 +157,10 @@ node scripts/gate_node_release_candidate.js \
   --output=/tmp/saccade-release-gate.json
 ```
 
-The gate runs the static package checks and then requires exactly one connected
-Chrome and one connected Edge carrying the exact digest in
-`extension/candidate.json`. Every live `tabs.open` is routed with the selected
-`browser_instance_id`; a missing, duplicate, or mismatched candidate fails
-before browser work is dispatched. The gate starts and cleans up its own local
-fixture server when port 8765 is not already serving the repository fixtures.
+The current product contracts live in [`docs/current/`](docs/current/). The
+machine-readable control inventory is rendered in
+[`docs/generated/control_coverage.md`](docs/generated/control_coverage.md).
 
-The [product boundary](docs/current/product-execution-boundary.md),
-[Node Broker contract](docs/current/saccade-0-2-0-runtime-contract.md),
-[Truth contract](docs/current/truth-observation-contract.md), and
-[Profile boundary](docs/current/profile-boundary.md) define the current product.
-Older architecture documents and benchmark reports remain evidence, not
-production routes.
+## License
+
+[Apache-2.0](LICENSE)

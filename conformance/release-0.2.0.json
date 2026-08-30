@@ -107,18 +107,52 @@
       ]
     },
     {
-      "id": "authenticated-steamworks-upload",
+      "id": "local-legacy-admin-workflow",
+      "class": "deterministic",
+      "blocking": true,
+      "requirements": [
+        "legacy_text_and_textarea",
+        "same_origin_iframe_rich_text",
+        "hidden_backing_field_synchronization",
+        "native_select",
+        "independent_checkbox_batch",
+        "save_is_separate_from_form_batch",
+        "save_transition_observed",
+        "value_free_verification"
+      ]
+    },
+    {
+      "id": "authenticated-steamworks-workflows",
       "class": "authenticated_human_authorized",
       "blocking": false,
-      "expected_outcome": "external_execution_required_when_native_trust_is_required",
+      "expected_outcome": "generic_controls_execute_and_verify_or_truthfully_stop_at_boundary",
+      "cases": [
+        "store_text_and_localization",
+        "planned_release_and_visibility",
+        "tags_and_dynamic_choices",
+        "media_upload_reorder_and_delete",
+        "capsules_library_assets_and_video",
+        "builds_depots_packages_and_branches",
+        "achievements_inventory_and_community_configuration",
+        "checklist_save_review_and_publish_transitions"
+      ],
       "requirements": [
         "exact_leased_tab",
+        "semantic_working_set",
+        "legacy_and_framework_form_controls",
+        "same_origin_iframe_rich_text",
+        "dynamic_choice_refresh_without_rebinding",
+        "object_addressed_upload",
+        "save_submit_navigation_are_separate_actions",
+        "page_owned_postcondition_or_outcome_unknown",
         "truthful_unsupported_or_external_execution_required",
         "no_false_persistence_claim",
         "no_automatic_replay"
       ],
       "limitations": [
         "native_trusted_file_selection_is_outside_the_extension_software_bridge",
+        "cross_origin_or_opaque_editors_require_a_semantic_bridge",
+        "canvas_only_media_editors_remain_opaque_without_a_semantic_bridge",
         "no_cdp_native_host_platform_driver_or_site_specific_api"
       ],
       "stopping_points": [

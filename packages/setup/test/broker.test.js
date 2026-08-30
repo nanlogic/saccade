@@ -519,7 +519,11 @@ test('single-file upload is workspace-bounded, hash-pinned, and absent from the 
 
   broker.acceptExtensionEvents(connection.connection_id, [{
     kind: 'response', command_id: command.command_id,
-    result: { accepted: true, dispatch_document_id: 'document-1', dispatch_basis_revision: 1 },
+    result: {
+      accepted: true, dispatch_document_id: 'document-1', dispatch_basis_revision: 1,
+      upload_dispatch: 'file_input',
+      semantic_postcondition: { code: 'file_selection_observed', verified: true },
+    },
   }, {
     kind: 'observation.delta', payload: {
       tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
@@ -603,18 +607,63 @@ test('form batch preflights every independent object before one dispatch', async
     kind: 'observation.delta', payload: {
       tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
       viewport_revision: 1, objects: [], authorities: [],
-      changes: [{ kind: 'updated', object_id: 'name', object_revision: 2 }],
+      changes: [
+        { kind: 'updated', object_id: 'name', object_revision: 2 },
+        { kind: 'updated', object_id: 'country', object_revision: 2 },
+        { kind: 'updated', object_id: 'us', object_revision: 2 },
+      ],
     },
   }]);
   const receipt = await pending;
   assert.equal(receipt.outcome, 'accepted');
   assert.deepEqual(receipt.steps.map((step) => step.step_index), [0, 1]);
-  assert.deepEqual(receipt.relevant_delta.changed_steps, [0]);
+  assert.deepEqual(receipt.relevant_delta.changed_steps, [0, 1]);
   assert.equal(receipt.relevant_delta.schema, 'saccade.action-delta/1');
   assert.equal(receipt.relevant_delta.base_revision, 1);
   assert.equal(receipt.relevant_delta.objects, undefined);
   assert.doesNotMatch(JSON.stringify(receipt), /document_bounds|viewport_bounds|action_token/);
   assert.doesNotMatch(JSON.stringify(receipt), /secret-not-in-receipt/);
+});
+
+test('form batch stays outcome_unknown until every accepted step has a relevant Truth change', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  const full = observation();
+  full.objects = [
+    { object_id: 'name', role: 'text_field', affordances: ['type'], action_token: 'token-name' },
+    { object_id: 'newsletter', role: 'checkbox', affordances: ['click'], action_token: 'token-newsletter' },
+  ];
+  broker.acceptTruth('observation', full);
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const pending = broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1, timeout_ms: 200,
+    steps: [
+      { object_id: 'name', operation: 'type', text: 'not-returned' },
+      { object_id: 'newsletter', operation: 'click' },
+    ],
+  }, 200, 29);
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+  broker.acceptExtensionEvents(connection.connection_id, [{
+    kind: 'response', command_id: command.command_id,
+    result: { accepted: true, steps: [{ accepted: true }, { accepted: true }] },
+  }, {
+    kind: 'observation.delta', payload: {
+      tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
+      viewport_revision: 1, objects: [], authorities: [],
+      changes: [{ kind: 'updated', object_id: 'name', object_revision: 2 }],
+    },
+  }]);
+
+  const receipt = await pending;
+  assert.equal(receipt.outcome, 'outcome_unknown');
+  assert.equal(receipt.occurrence, 'dispatched');
+  assert.deepEqual(receipt.semantic_postcondition, {
+    code: 'batch_verification_incomplete', stage: undefined, verified: false,
+  });
+  assert.deepEqual(receipt.steps.map((step) => step.verified), [true, false]);
+  assert.equal(receipt.retry_safe, false);
+  assert.doesNotMatch(JSON.stringify(receipt), /not-returned/);
 });
 
 test('partially dispatched batch is outcome_unknown and never retry-safe', async () => {
@@ -754,6 +803,41 @@ test('action verification starts after the Extension dispatch basis', async () =
   assert.equal(receipt.final_revision, 3);
   assert.equal(receipt.relevant_delta.next_basis_revision, 3);
   assert.deepEqual(receipt.relevant_delta.changes.map((change) => change.object_id), ['object-1']);
+});
+
+test('a value-free Extension postcondition verifies typing without exposing editable contents', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  const full = observation();
+  full.objects = [{
+    object_id: 'editor', role: 'content_editable', affordances: ['type'],
+    action_token: 'editor-token', state: { has_value: 'true' },
+  }];
+  broker.acceptTruth('observation', full);
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const pending = broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1,
+    object_id: 'editor', operation: 'type', text: 'never-return-this', timeout_ms: 200,
+  }, 200, 30);
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+  broker.acceptExtensionEvents(connection.connection_id, [{
+    kind: 'response', command_id: command.command_id,
+    result: {
+      accepted: true, dispatch_document_id: 'document-1', dispatch_basis_revision: 1,
+      semantic_postcondition: { code: 'editable_content_observed', verified: true },
+    },
+  }]);
+
+  const receipt = await pending;
+  assert.equal(receipt.outcome, 'accepted');
+  assert.equal(receipt.occurrence, 'observed');
+  assert.deepEqual(receipt.semantic_postcondition, {
+    code: 'editable_content_observed', stage: undefined, verified: true,
+  });
+  assert.equal(receipt.final_revision, 1);
+  assert.equal(receipt.relevant_delta, undefined);
+  assert.doesNotMatch(JSON.stringify(receipt), /never-return-this/);
 });
 
 test('bounded reflex execution stays inside one act request and verifies each occurrence', async () => {

@@ -9,7 +9,7 @@
   const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
   const CONTROL_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="menuitem"],[role="textbox"],[role="listbox"],[role="combobox"],[contenteditable],[data-saccade-reflex-target],[data-saccade-label],[data-saccade-generic-control],[data-saccade-file-upload],[id*="upload" i][class*="button" i],[class*="upload" i][class*="button" i],.target';
   const IMAGE_SELECTOR = 'img[alt],img[aria-label],img[data-saccade-image-identity],svg[aria-label],svg[data-saccade-image-identity]';
-  const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,table,tr,th,td,[role="text"],[role="heading"],[role="paragraph"],[role="list"],[role="listitem"],[role="table"],[role="row"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"],[aria-live]';
+  const STRUCTURAL_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,table,tr,th,td,output,[role="text"],[role="heading"],[role="paragraph"],[role="list"],[role="listitem"],[role="table"],[role="row"],[role="cell"],[role="columnheader"],[role="rowheader"],[role="alert"],[role="status"],[aria-live]';
   const GENERIC_TEXT_SELECTOR = 'div,span,section,article,main,aside';
   const SURFACE_SELECTOR = 'canvas,video,embed[type="application/pdf"],object[type="application/pdf"],[data-saccade-restricted-document]';
   const DIALOG_SELECTOR = '[role="dialog"],[aria-modal="true"]';
@@ -638,6 +638,7 @@
     if (role === 'alert') return 'alert';
     if (role === 'status') return 'status';
     if (element.hasAttribute('aria-live')) return 'status';
+    if (tag === 'OUTPUT') return 'status';
     if (/^H[1-6]$/.test(tag)) return 'heading';
     if (tag === 'P') return 'paragraph';
     if (tag === 'UL' || tag === 'OL') return 'list';
@@ -1283,13 +1284,17 @@
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software click is not registered for the current control');
     }
     const box = boxFor(target.element);
+    const view = target.element.ownerDocument.defaultView;
+    const toggleBefore = ['checkbox', 'radio', 'switch'].includes(target.role)
+      ? Boolean(target.element.checked ?? ariaBoolean(target.element, 'checked'))
+      : undefined;
     const clientX = box.x + box.width / 2;
     const clientY = box.y + box.height / 2;
     let clickDispatchCompleted = false;
     for (const [type, EventClass, buttons] of [
-      ['pointermove', PointerEvent, 0], ['mousemove', MouseEvent, 0],
-      ['pointerdown', PointerEvent, 1], ['mousedown', MouseEvent, 1],
-      ['pointerup', PointerEvent, 0], ['mouseup', MouseEvent, 0], ['click', MouseEvent, 0],
+      ['pointermove', view.PointerEvent, 0], ['mousemove', view.MouseEvent, 0],
+      ['pointerdown', view.PointerEvent, 1], ['mousedown', view.MouseEvent, 1],
+      ['pointerup', view.PointerEvent, 0], ['mouseup', view.MouseEvent, 0], ['click', view.MouseEvent, 0],
     ]) {
       target.element.dispatchEvent(new EventClass(type, {
         bubbles: true, cancelable: true, composed: true, clientX, clientY,
@@ -1299,13 +1304,66 @@
     }
     const recordedReflexOccurrence = target.role === 'reflex_target'
       && recordMouseAccuracyOccurrence(target.element, clickDispatchCompleted);
+    const toggleAfter = toggleBefore === undefined
+      ? undefined : Boolean(target.element.checked ?? ariaBoolean(target.element, 'checked'));
     if (recordedReflexOccurrence) collect();
     requestAnimationFrame(collect);
     return {
       accepted: true, local_wait_ms: prepared.local_wait_ms,
       dispatch_document_id: prepared.document_id,
       dispatch_basis_revision: prepared.basis_revision,
+      semantic_postcondition: toggleBefore === undefined ? undefined : {
+        code: 'toggle_state_observed',
+        verified: toggleAfter !== toggleBefore,
+      },
     };
+  }
+
+  function normalizedEditableValue(value) {
+    return String(value ?? '').replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ');
+  }
+
+  function currentEditableValue(element) {
+    if (!element.isContentEditable) return normalizedEditableValue(element.value);
+    return normalizedEditableValue(element.innerText ?? element.textContent);
+  }
+
+  function selectEditableContents(element) {
+    const document = element.ownerDocument;
+    const selection = document.defaultView.getSelection?.();
+    if (!selection) return false;
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  function replaceContentEditable(element, text) {
+    const document = element.ownerDocument;
+    const selected = selectEditableContents(element);
+    let edited = false;
+    if (selected && typeof document.execCommand === 'function') {
+      try { edited = document.execCommand('insertText', false, text) === true; }
+      catch (_error) { edited = false; }
+    }
+    if (!edited || currentEditableValue(element) !== normalizedEditableValue(text)) {
+      element.replaceChildren(document.createTextNode(text));
+    }
+  }
+
+  async function waitForEditableValue(element, text, timeoutMs) {
+    const deadline = performance.now() + Math.max(1, Math.min(500, Number(timeoutMs) || 250));
+    const expected = normalizedEditableValue(text);
+    let stableFrames = 0;
+    while (performance.now() < deadline) {
+      if (!element.isConnected) return false;
+      if (currentEditableValue(element) === expected) stableFrames += 1;
+      else stableFrames = 0;
+      if (stableFrames >= 2) return true;
+      if (!await waitForPreparationFrame(deadline)) break;
+    }
+    return false;
   }
 
   async function softType(request, preflight) {
@@ -1315,35 +1373,46 @@
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software typing is not registered for the current control');
     }
     const element = target.element;
+    const view = element.ownerDocument.defaultView;
     const text = String(request.payload?.text ?? '');
     // The generic editing sequence a real edit produces, in order. No control is
     // special-cased and no framework is detected: a page listening for any of
     // these sees the same order it would see from a person. prepare() already
     // focused the element for the 'type' operation, so this does not repeat it.
-    const proceed = element.dispatchEvent(new InputEvent('beforeinput', {
+    const proceed = element.dispatchEvent(new view.InputEvent('beforeinput', {
       bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: text,
     }));
     if (!proceed) throw actionFailure('dispatch', 'page_canceled_beforeinput', false, 'software type was canceled by the page');
+    let inputObserved = false;
+    const observeInput = () => { inputObserved = true; };
+    element.addEventListener('input', observeInput, { once: true });
     if (element.isContentEditable) {
-      element.textContent = text;
+      replaceContentEditable(element, text);
     } else {
       // Assign through the prototype setter. A framework tracking a controlled
       // value installs its own accessor on the element, so assigning the
       // property directly is swallowed and the framework never re-renders.
-      const prototype = element instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const prototype = element.tagName === 'TEXTAREA'
+        ? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
       if (setter) setter.call(element, text); else element.value = text;
     }
-    element.dispatchEvent(new InputEvent('input', {
-      bubbles: true, composed: true, inputType: 'insertText', data: text,
-    }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
+    if (!inputObserved) {
+      element.dispatchEvent(new view.InputEvent('input', {
+        bubbles: true, composed: true, inputType: 'insertText', data: text,
+      }));
+    }
+    element.dispatchEvent(new view.Event('change', { bubbles: true }));
+    const locallyVerified = await waitForEditableValue(element, text, request.timeout_ms);
     requestAnimationFrame(collect);
     return {
       accepted: true, local_wait_ms: prepared.local_wait_ms,
       dispatch_document_id: prepared.document_id,
       dispatch_basis_revision: prepared.basis_revision,
+      semantic_postcondition: {
+        code: element.isContentEditable ? 'editable_content_observed' : 'field_value_observed',
+        verified: locallyVerified,
+      },
     };
   }
 
@@ -1357,6 +1426,11 @@
     for (const id of ids) {
       const candidate = trigger.ownerDocument.getElementById(id);
       if (candidate?.tagName === 'INPUT' && String(candidate.type).toLowerCase() === 'file') return candidate;
+    }
+    let ancestor = trigger.parentElement;
+    for (let depth = 0; ancestor && ancestor !== trigger.ownerDocument.body && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
+      const candidates = ancestor.querySelectorAll('input[type="file"]');
+      if (candidates.length === 1) return candidates[0];
     }
     return null;
   }
@@ -1479,15 +1553,40 @@
     return null;
   }
 
-  function dispatchFileDrop(trigger, file) {
+  function waitForUploadResponse(context, dispatch, timeoutMs) {
+    const view = context.ownerDocument.defaultView;
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer;
+      const finish = (observed) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        observer.disconnect();
+        resolve(observed);
+      };
+      const observer = new view.MutationObserver((records) => {
+        if (records.some((record) => record.type === 'characterData'
+          || record.type === 'childList'
+          || (record.type === 'attributes' && record.attributeName !== 'style'))) finish(true);
+      });
+      observer.observe(context, { subtree: true, childList: true, characterData: true, attributes: true });
+      timer = setTimeout(() => finish(false), Math.max(1, Math.min(1000, Number(timeoutMs) || 500)));
+      dispatch();
+    });
+  }
+
+  async function dispatchFileDrop(trigger, file, timeoutMs) {
     const view = trigger.ownerDocument.defaultView;
     const transfer = new view.DataTransfer();
     transfer.items.add(file);
-    for (const type of ['dragenter', 'dragover', 'drop']) {
-      trigger.dispatchEvent(new view.DragEvent(type, {
-        bubbles: true, cancelable: true, composed: true, dataTransfer: transfer,
-      }));
-    }
+    return waitForUploadResponse(trigger, () => {
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        trigger.dispatchEvent(new view.DragEvent(type, {
+          bubbles: true, cancelable: true, composed: true, dataTransfer: transfer,
+        }));
+      }
+    }, timeoutMs);
   }
 
   async function softUpload(request, preflight) {
@@ -1503,14 +1602,17 @@
         && ['button', 'submit', 'reset'].includes(String(target.element.type || '').toLowerCase()));
     const dropTarget = nativeChooserButton ? null : uploadDropTarget(target.element);
     if (dropTarget) {
-      dispatchFileDrop(dropTarget, file);
-      fileTriggerHasValue.add(target.element);
-      collect();
+      const responseObserved = await dispatchFileDrop(dropTarget, file, request.timeout_ms);
+      if (responseObserved) {
+        fileTriggerHasValue.add(target.element);
+        collect();
+      }
       return {
         accepted: true, local_wait_ms: prepared.local_wait_ms,
         dispatch_document_id: prepared.document_id,
         dispatch_basis_revision: prepared.basis_revision,
         upload_dispatch: 'drop',
+        semantic_postcondition: { code: 'file_drop_response_observed', verified: responseObserved },
       };
     }
     let input = linkedFileInput(target);
@@ -1536,12 +1638,14 @@
     setTimeout(() => { if (activeFileTrigger === expectedTrigger) activeFileTrigger = null; }, 10000);
     input.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
     input.dispatchEvent(new view.Event('change', { bubbles: true }));
+    const selectionObserved = input.files?.length === 1 && input.files[0]?.size === file.size;
     collect();
     return {
       accepted: true, local_wait_ms: prepared.local_wait_ms,
       dispatch_document_id: prepared.document_id,
       dispatch_basis_revision: prepared.basis_revision,
       upload_dispatch: 'file_input',
+      semantic_postcondition: { code: 'file_selection_observed', verified: selectionObserved },
     };
   }
 
@@ -1589,17 +1693,19 @@
       throw actionFailure('dispatch', 'select_option_not_current', false, 'software select option is not bound and enabled for this control');
     }
     if (target.matches('select') && option.matches('option')) {
+      const view = target.ownerDocument.defaultView;
       option.selected = true;
-      target.dispatchEvent(new Event('input', { bubbles: true }));
-      target.dispatchEvent(new Event('change', { bubbles: true }));
+      target.dispatchEvent(new view.Event('input', { bubbles: true }));
+      target.dispatchEvent(new view.Event('change', { bubbles: true }));
     } else {
       const current = await waitForSelectOption(request, target);
       const clientX = current.box.x + current.box.width / 2;
       const clientY = current.box.y + current.box.height / 2;
+      const view = current.option.ownerDocument.defaultView;
       for (const [type, EventClass, buttons] of [
-        ['pointermove', PointerEvent, 0], ['mousemove', MouseEvent, 0],
-        ['pointerdown', PointerEvent, 1], ['mousedown', MouseEvent, 1],
-        ['pointerup', PointerEvent, 0], ['mouseup', MouseEvent, 0], ['click', MouseEvent, 0],
+        ['pointermove', view.PointerEvent, 0], ['mousemove', view.MouseEvent, 0],
+        ['pointerdown', view.PointerEvent, 1], ['mousedown', view.MouseEvent, 1],
+        ['pointerup', view.PointerEvent, 0], ['mouseup', view.MouseEvent, 0], ['click', view.MouseEvent, 0],
       ]) {
         current.option.dispatchEvent(new EventClass(type, {
           bubbles: true, cancelable: true, composed: true, clientX, clientY,
@@ -1608,11 +1714,19 @@
       }
       prepared.local_wait_ms += current.local_wait_ms;
     }
+    const selectionObserved = target.matches('select') && option.matches('option')
+      ? option.selected === true && target.selectedIndex === option.index
+      : option.getAttribute('aria-selected') === 'true'
+        || target.getAttribute('aria-activedescendant') === option.id;
     requestAnimationFrame(collect);
     return {
       accepted: true, local_wait_ms: prepared.local_wait_ms,
       dispatch_document_id: prepared.document_id,
       dispatch_basis_revision: prepared.basis_revision,
+      semantic_postcondition: {
+        code: 'selection_state_observed',
+        verified: selectionObserved,
+      },
     };
   }
 
@@ -1653,6 +1767,7 @@
           accepted: result.accepted === true,
           dispatch_document_id: result.dispatch_document_id,
           dispatch_basis_revision: result.dispatch_basis_revision,
+          semantic_postcondition: result.semantic_postcondition,
         });
       } catch (error) {
         return {

@@ -1262,18 +1262,27 @@ class BrokerState extends EventEmitter {
       const dispatchBasisRevision = Number.isSafeInteger(result.dispatch_basis_revision)
         && result.dispatch_basis_revision >= basisRevision
         ? result.dispatch_basis_revision : basisRevision;
+      const extensionSemanticVerified = batch
+        ? result.steps?.length === steps.length
+          && result.steps.every((step) => step.accepted === true
+            && step.semantic_postcondition?.verified === true)
+        : result.semantic_postcondition?.verified === true;
       const finalTruth = result.accepted || partialDispatch
-        ? await this.waitForTruth(params.tab_id, (truth) => (
-          truth.document_id !== dispatchDocumentId || truth.revision > dispatchBasisRevision
-        ), deadlineAt)
+        ? extensionSemanticVerified
+          ? this.truth.get(params.tab_id)?.full
+          : await this.waitForTruth(params.tab_id, (truth) => (
+            truth.document_id !== dispatchDocumentId || truth.revision > dispatchBasisRevision
+          ), deadlineAt)
         : null;
-      const verified = Boolean(finalTruth);
+      const truthAdvanced = Boolean(finalTruth && (
+        finalTruth.document_id !== dispatchDocumentId || finalTruth.revision > dispatchBasisRevision
+      ));
       const upload = !batch && steps[0].operation === 'upload' ? {
         size_bytes: steps[0].payload.file.size_bytes,
         mime_type: steps[0].payload.file.mime_type,
         sha256: steps[0].payload.file.sha256,
       } : undefined;
-      const transition = verified && finalTruth.document_id === dispatchDocumentId
+      const transition = truthAdvanced && finalTruth.document_id === dispatchDocumentId
         ? projectTruthToObjectIds(this.readTruthNow(agentSessionId, {
           tab_id: params.tab_id, mode: 'delta', after_revision: dispatchBasisRevision,
         }), new Set(steps.flatMap((step) => [step.object_id, step.payload?.option_object_id].filter(Boolean))))
@@ -1281,30 +1290,40 @@ class BrokerState extends EventEmitter {
       const batchTransition = batch && transition
         ? compactBatchTransition(transition, steps, dispatchBasisRevision)
         : undefined;
+      const verifiedStepIds = new Set(transition?.changes?.map((change) => change.object_id) || []);
+      const stepReceipts = batch ? steps.map((step, index) => ({
+        step_index: index,
+        operation: step.operation,
+        accepted: result.steps?.[index]?.accepted === true,
+        verified: result.steps?.[index]?.semantic_postcondition?.verified === true
+          || verifiedStepIds.has(step.object_id)
+          || verifiedStepIds.has(step.payload?.option_object_id),
+      })) : undefined;
+      const semanticVerified = partialDispatch ? false : batch
+        ? stepReceipts.every((step) => step.accepted && step.verified)
+        : extensionSemanticVerified || truthAdvanced;
       return {
         command_id: result.command_id,
-        outcome: partialDispatch ? 'outcome_unknown' : !result.accepted ? 'rejected' : verified ? 'accepted' : 'outcome_unknown',
-        occurrence: partialDispatch ? 'partially_dispatched' : result.accepted ? (verified ? 'observed' : 'dispatched') : 'not_dispatched',
+        outcome: partialDispatch ? 'outcome_unknown' : !result.accepted ? 'rejected' : semanticVerified ? 'accepted' : 'outcome_unknown',
+        occurrence: partialDispatch ? 'partially_dispatched' : result.accepted ? (semanticVerified ? 'observed' : 'dispatched') : 'not_dispatched',
         semantic_postcondition: {
           code: partialDispatch ? (result.failure_code || 'partial_batch')
             : !result.accepted ? (result.failure_code || 'rejected')
-              : verified ? (upload
-                ? result.upload_dispatch === 'drop' ? 'file_drop_dispatched' : 'file_selection_observed'
-                : 'truth_transition_observed') : 'verification_timeout',
+              : semanticVerified ? (upload
+                ? result.semantic_postcondition?.code
+                  || (result.upload_dispatch === 'drop' ? 'file_drop_dispatched' : 'file_selection_observed')
+                : result.semantic_postcondition?.code || 'truth_transition_observed')
+                : batch && (truthAdvanced || extensionSemanticVerified)
+                  ? 'batch_verification_incomplete' : 'verification_timeout',
           stage: !result.accepted ? result.failure_stage : undefined,
-          verified: partialDispatch ? false : verified,
+          verified: semanticVerified,
         },
         document_id: finalTruth?.document_id || basisDocumentId,
         dispatch_basis_revision: dispatchBasisRevision,
         final_revision: finalTruth?.revision || basisRevision,
         next_basis_revision: finalTruth?.revision || basisRevision,
         relevant_delta: batch ? batchTransition : transition,
-        steps: batch ? steps.map((step, index) => ({
-          step_index: index,
-          operation: step.operation,
-          accepted: result.steps?.[index]?.accepted === true,
-          verified: Boolean(transition?.changes?.some((change) => change.object_id === step.object_id)),
-        })) : undefined,
+        steps: stepReceipts,
         upload,
         retry_safe: partialDispatch ? false : !result.accepted ? result.retry_safe === true : false,
         external_execution_required: Boolean(upload),
