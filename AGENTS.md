@@ -1,7 +1,8 @@
 # Saccade contributor instructions
 
-Read `docs/FINAL_ARCHITECTURE.md` and
-`docs/extension_observation_contract.md` before changing browser, Host,
+Read `docs/current/product-execution-boundary.md`,
+`docs/current/saccade-0-2-0-runtime-contract.md`, and
+`docs/current/truth-observation-contract.md` before changing browser, Broker,
 protocol, MCP, control-module, input, download, or packaging behavior. Read
 `docs/current/profile-boundary.md` before changing Profile loading or filtering.
 
@@ -9,18 +10,17 @@ protocol, MCP, control-module, input, download, or packaging behavior. Read
 
 Saccade is a live semantic Truth Layer for the web. Its Extension continuously
 compiles an authorized page into structured objects and browser-pushed deltas
-for any Agent. The Agent client's own web-act or computer-use tool owns
-execution in the same browser tab; Saccade observes the resulting semantic
-transition. Every core change must preserve fast interaction, low model-token
-cost, easy maintenance and extension, trustworthy observation, and model
-independence. Do not turn Saccade into a browser-testing framework, coordinate
-clicker, execution harness, or model-specific plugin.
+for any Agent. Registry-approved `saccade.act` owns bounded object-addressed
+software execution. Every core change must preserve fast interaction, low
+model-token cost, easy maintenance, trustworthy observation, and model
+independence. Do not turn Saccade into a browser-testing framework,
+coordinate clicker, or model-specific plugin.
 
 ## One production route
 
-Chrome/Edge Extension → Native Messaging Host mode → owner-only local IPC →
-MCP mode. Do not add CEF, Servo, Playwright, CDP, visual-coordinate, or other
-fallback execution routes.
+Chrome/Edge Extension → loopback Node Broker → MCP adapter. The npm package and
+Extension are the complete product. Do not add a compiled runtime, platform
+driver, CEF, Servo, Playwright, CDP, visual-coordinate, or other fallback route.
 
 ## Required Agent browser routing
 
@@ -45,25 +45,20 @@ fallback execution routes.
   protocol semantics cannot depend on one LLM, vendor, prompt, or Agent stack.
 - Prefer browser-pushed semantic deltas and bounded local loops over repeated
   full-page transfer, model polling, or model replanning.
-- Keep wire schemas at `saccade.observation/1` and
-  `saccade-extension-host/1` until an explicit version decision lands.
-- Ship one browser-store Extension plus `npx -y @nanlogic/saccade`. Setup installs
-  the headless local MCP and Native Host for supported local Agent clients. The
-  first release has no DMG, visible Runtime app, or Windows Setup.
-- Keep Native Host and MCP modes separate in framing, lifecycle, and
-  protected-data boundaries even when one executable supplies both.
+- Keep observation schema `saccade.observation/1`; Broker transport uses
+  `saccade.node-broker/1`.
+- Ship one browser-store Extension plus `npx -y @nanlogic/saccade`. Setup only
+  configures the Node MCP command and Profile; it installs no binaries or OS
+  registrations.
 - Every supported control has truthful recognition, stable identity, bounded
   state, affordances, and browser-pushed changes. Registry-approved,
-  object-addressed `saccade.act` software execution is preferred when the
-  affordance is supported; the Agent client's own same-tab execution is the
-  fallback when that bounded route is unavailable, rejected, or unverified.
+  object-addressed `saccade.act` software execution is the only product action
+  route when the affordance is supported.
 - Agents receive current document- and viewport-relative bounds for every
   projected object, with geometry changes pushed under the same stable
   identity. They never receive locators, DOM paths, editable values, protected
   values, cookies, browser storage, or authority to issue arbitrary-coordinate
   actions.
-- The optional Reference Actuator may request finite input primitives and
-  declarative verification rules. It is not part of the default product.
 - Profile filtering stays outside control modules and cannot change their
   recognition or projection semantics.
 - Common controls require current Chrome and Edge proof for the same release
@@ -84,9 +79,8 @@ and path. Do not copy the old tree or its monolithic classifiers.
 - Keep the Control Catalog machine-readable and regenerate the public coverage
   table after each Catalog change.
 - Treat `docs/current/profile-boundary.md` as normative. A Profile boundary change
-  must update `docs/FINAL_ARCHITECTURE.md`,
-  `docs/extension_observation_contract.md`, and `docs/decisions.md` in the same
-  review.
+  must publish matching revisions of the current product, Broker, and Truth
+  authority topics in the same review.
 - Add one focused fixture and Truth projection/delta test for each control behavior.
 - Run the narrowest checks while editing. Run the complete list from
   `README.md` before merging a control family or changing a contract.

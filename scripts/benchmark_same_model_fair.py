@@ -167,45 +167,34 @@ def load_playwright_lock(path: Path = PLAYWRIGHT_LOCK) -> dict[str, Any]:
     return lock
 
 
-def prompt_for(task: dict[str, Any], lane: str) -> str:
+def prompt_for(task: dict[str, Any], lane: str, browser: str = "chrome") -> str:
     """Identical URL, goal and success condition; only the route sentence differs."""
     if lane == "saccade":
         route = (
             "Wayne authorizes exactly one browser route for this lane: the connected Saccade MCP. "
-            "Open the URL with saccade.tabs.open. If the goal names one explicitly labeled target, make the first "
-            "saccade.truth.read exactly query={text:<its label words>,roles:[<narrow role>],"
-            "visible_only:false,frame_scope:root,min_objects:1,max_objects:8}. If it names a section/example "
-            "rather than the control label, use those exact section/example words as text with the narrow role; semantic query "
-            "includes bounded nearby-heading context for each control. For a multi-field "
-            "form, extract one exact visible label or placeholder phrase per required control from the task, "
-            "then query text_any:[<those phrases>] with roles:[text_field,text_area,search_field,"
-            "content_editable,spin_button,select,option,checkbox,radio,switch,button], "
-            "visible_only:false, frame_scope:root, min_objects:<number of required matching controls>, "
-            "and max_objects=32. Do not include unrelated controls merely because they share a role. For radio "
-            "and checkbox targets, use the actual desired choice label (for example Male), not only its group "
-            "heading (for example Gender). For a select, include both the parent label and desired option in text_any; "
-            "min_objects still counts required controls. If that option is returned without click while its parent exposes "
-            "select, batch select directly with option_object_id; do not click the parent first. Plan from "
-            "that working_set. The text query requires every whitespace-separated word across "
-            "name/text/description; use section context plus label to disambiguate duplicates. "
-            "After clicking a dynamic select or menu, query the exact named "
-            "option with roles:[option] and visible_only:false; do not drain ambient geometry deltas. "
-            "If a non-query read returns full, plan from it. If it returns catalog, treat it as the complete compact "
-            "directory, choose only task-relevant stable object_ids, and request those details once "
-            "with the exact document_id and revision as basis_revision. Never fetch every object's "
-            "details, resync because a catalog was returned, or repeat the initial read. Perform "
-            "every action with saccade.act, naming the object_id you read from Truth. When that "
-            "working_set exposes multiple independent editable/select/checkable form controls, send "
-            "those planned edits once in saccade.act actions; a type action uses value, never text. "
-            "Never batch submit or navigation. all_verified=true is complete proof: use "
-            "next_basis_revision for the next separate action and never read queued ambient churn afterward. "
+            f"Call saccade.system.capabilities once, choose the single attached browser_family={browser}, "
+            "then open the URL with saccade.tabs.open and that exact browser_instance_id. "
+            "For one explicitly labeled target, make the first saccade.truth.read use mode=full, "
+            "top-level min_objects=1 and timeout_ms, and query={text:<exact label words>,"
+            "roles:[<narrow role>],max_objects:8}. For a multi-field form, make one mode=full "
+            "working-set read with top-level min_objects equal to the required controls and "
+            "query={roles:[text_field,text_area,search_field,content_editable,spin_button,select,"
+            "option,checkbox,radio,switch,button],max_objects:32}. Resolve every required object "
+            "from compact_rows/1 by mapping object_fields to each objects row. "
+            "strictly by its exact semantic name, description, role, and affordance; if more than "
+            "one candidate remains, fail instead of guessing. A select uses the returned exact "
+            "option_object_id. Execute independent editable/select/checkable controls in one "
+            "saccade.act steps batch; a type step uses value. Never include submit or navigation "
+            "in that batch. If every returned step has verified=true, use next_basis_revision for "
+            "the separate submit action without rereading the page. Only if the success marker is "
+            "not already present in that action transition, make one bounded mode=full semantic "
+            "read for the exact marker text. Do not poll, sleep, reread the full page, or drain "
+            "ambient geometry deltas. A prepare-stage stale error may be resolved by one fresh "
+            "semantic read because nothing dispatched; never retry an ambiguous side effect. "
             "Never pass a coordinate, never take a screenshot, and never read the page with any "
             "other tool. If saccade.act returns external_execution_required for a control, say so "
-            "and stop rather than reaching for another route. Truth delivery is automatic: every "
-            "later ordinary read is only the delta from the Agent cursor, and "
-            "saccade.act may return that revision-bound delta as transition. Fold each delta or "
-            "transition into the cached Truth; never reread a full page. Close the Agent-owned tab "
-            "through Saccade when you finish."
+            "and stop rather than reaching for another route. Close the Agent-owned tab through "
+            "Saccade when you finish."
         )
     else:
         route = (
@@ -252,7 +241,7 @@ def lane_command(lane: str, task: dict[str, Any], model: str | None, runtime: Pa
                  effort: str | None = None, browser: str = "chrome") -> list[str]:
     allowed_mcp = f"mcp__{lane}__*"
     command = [
-        "claude", "-p", prompt_for(task, lane),
+        "claude", "-p", prompt_for(task, lane, browser),
         "--output-format", "stream-json", "--verbose",
         "--no-session-persistence", "--strict-mcp-config",
         "--mcp-config", mcp_config(lane, runtime, runtime_dir, playwright_package, browser),
@@ -357,8 +346,9 @@ def carries_truth_transition(tool: str, content: Any) -> bool:
         return compact(value)
 
     body = readable(content)
-    return (re.search(r'"transition"\s*:', body) is not None
-            and re.search(r'"mode"\s*:\s*"(?:delta|full)"', body) is not None)
+    return (re.search(r'"relevant_delta"\s*:', body) is not None
+            and (re.search(r'"mode"\s*:\s*"(?:delta|full)"', body) is not None
+                 or re.search(r'"schema"\s*:\s*"saccade\.action-delta/1"', body) is not None))
 
 
 def route_proof(trace: list[dict[str, Any]]) -> dict[str, Any]:

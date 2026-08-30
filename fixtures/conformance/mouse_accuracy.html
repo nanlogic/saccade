@@ -70,14 +70,17 @@
           button.style.top = `${top}px`;
         }
         button.addEventListener('click', () => {
-          button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
+          const pressed = button.getAttribute('aria-pressed') !== 'true';
+          button.setAttribute('aria-pressed', String(pressed));
           if (isCanvas) {
+            button.setAttribute('data-saccade-reflex-occurrence', pressed ? '1' : '0');
             paint();
           }
         });
         if (isCanvas) {
           button.className = 'scene-hitbox';
           button.setAttribute('data-saccade-reflex-target', '');
+          button.setAttribute('data-saccade-reflex-occurrence', '0');
           button.dataset.targetX = Number.isFinite(left) ? String(left) : '0';
           button.dataset.targetY = Number.isFinite(top) ? String(top) : '0';
           button.setAttribute('aria-label', name);

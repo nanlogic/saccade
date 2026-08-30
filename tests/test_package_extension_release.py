@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import shutil
 import tempfile
@@ -47,7 +48,7 @@ class PackageExtensionReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             archive = MODULE.package(ROOT / "extension", Path(directory))
             self.assertTrue(archive.is_file())
-            self.assertEqual(archive.name, "saccade-extension-0.3.24.zip")
+            self.assertEqual(archive.name, "saccade-extension-0.4.0.zip")
             with zipfile.ZipFile(archive) as packaged:
                 names = packaged.namelist()
                 manifest = json.loads(packaged.read("manifest.json"))
@@ -56,6 +57,19 @@ class PackageExtensionReleaseTests(unittest.TestCase):
             self.assertIn("src/candidate_identity.js", names)
             self.assertNotIn("key", manifest)
             self.assertIn("key", json.loads((ROOT / "extension/manifest.json").read_text()))
+
+    def test_store_archive_is_reproducible_and_has_normalized_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = MODULE.package(ROOT / "extension", root / "first")
+            second = MODULE.package(ROOT / "extension", root / "second")
+            first_digest = hashlib.sha256(first.read_bytes()).hexdigest()
+            second_digest = hashlib.sha256(second.read_bytes()).hexdigest()
+            self.assertEqual(first_digest, second_digest)
+            with zipfile.ZipFile(first) as packaged:
+                for info in packaged.infolist():
+                    self.assertEqual(info.date_time, MODULE.ZIP_TIMESTAMP)
+                    self.assertEqual((info.external_attr >> 16) & 0o777, 0o644)
 
     def test_exact_production_candidate_is_packaged(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Saccade fair form benchmark</title>
+    <style>
+      body { font: 16px system-ui; margin: 40px; }
+      form { display: grid; gap: 16px; max-width: 520px; }
+      label { display: grid; gap: 6px; }
+      input, textarea, select, button { font: inherit; min-height: 40px; }
+      fieldset { display: grid; gap: 8px; }
+      #result { margin-top: 24px; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Fair form benchmark</h1>
+      <form id="benchmark-form">
+        <label>Text input <input name="text" type="text" required></label>
+        <label>Textarea <textarea name="notes" required></textarea></label>
+        <label>Dropdown
+          <select name="choice" required>
+            <option value="one">One</option>
+            <option value="two">Two</option>
+          </select>
+        </label>
+        <label><input name="confirmed" type="checkbox" required> Confirm choice</label>
+        <fieldset>
+          <legend>Delivery</legend>
+          <label><input name="delivery" type="radio" value="standard"> Standard</label>
+          <label><input name="delivery" type="radio" value="express" required> Express</label>
+        </fieldset>
+        <button type="submit">Submit benchmark</button>
+      </form>
+      <div id="result" role="status" aria-live="polite">Benchmark not submitted</div>
+    </main>
+    <script>
+      document.getElementById('benchmark-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        const complete = data.get('choice') === 'two'
+          && data.get('confirmed') === 'on'
+          && data.get('delivery') === 'express';
+        document.getElementById('result').textContent = complete
+          ? 'BENCHMARK-COMPLETE choice=Two confirmed=on delivery=Express'
+          : 'BENCHMARK-INCOMPLETE';
+      });
+    </script>
+  </body>
+</html>

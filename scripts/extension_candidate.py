@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 EXCLUDED = {"candidate.json", "src/candidate_identity.js"}
+EXCLUDED_PREFIXES = ("tests/",)
 TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".md", ".svg", ".txt"}
 
 
@@ -21,7 +22,7 @@ def candidate_id(extension_root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(item for item in extension_root.rglob("*") if item.is_file()):
         relative = path.relative_to(extension_root).as_posix()
-        if relative in EXCLUDED:
+        if relative in EXCLUDED or relative.startswith(EXCLUDED_PREFIXES):
             continue
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")

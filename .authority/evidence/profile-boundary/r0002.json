@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "profile-boundary",
+  "scope": ".",
+  "title": "Profile architecture",
+  "revision": 2,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "685e0f89a96eb4f8cab50f8e958a8e0d1fc8d429d5b4f5fc5784623748ec27b1",
+  "baseCurrentSha256": "2877406baa1b181abe2251b47ad12c1b8e490eeebb8ffe5dd48805ce4c28a6c6",
+  "previousEvidencePath": ".authority/evidence/profile-boundary/r0001.md",
+  "previousEvidenceSha256": "47a12945b958efd13cf548f6c4efdf61511eeddb424415dad643605b16ba4d58",
+  "previousEvidenceDataPath": ".authority/evidence/profile-boundary/r0001.json",
+  "previousEvidenceDataSha256": "17cd7949669e0b3584cef5ad3e69871fcc8243697f7ba5bb63364c16f8a48081",
+  "changes": [
+    {
+      "item": "R-001",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Profiles are strict Node Broker inputs that contain Agent-facing behavior and bounded filtering policy.",
+      "previousText": "Profiles are strict runtime inputs that contain Agent-facing behavior and bounded filtering policy."
+    },
+    {
+      "item": "R-006",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "Setup creates the default Profile only when absent; update and ordinary uninstall preserve user customization."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/node-profile-boundary.md",
+      "archivePath": ".authority/archive/proposals/1787706992885-node-profile-boundary.md",
+      "sha256": "faab0c869a3736168e38db7dd5761e5a77aeead90512d4365218bbbf72485e4c",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-26T01:16:32.908Z"
+}

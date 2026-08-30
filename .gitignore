@@ -14,10 +14,11 @@ node_modules/
 *.pfx
 *.mobileprovision
 
-/target/
 /build/
 /runs/*
 !/runs/.gitkeep
 /dist/
+*.crx
+/tmp/
 /.saccade-source-install/
 /packaging/out/

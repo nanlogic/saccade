@@ -1,0 +1,193 @@
+{
+  "schema": "saccade.release-conformance/1",
+  "release": "0.2.0",
+  "candidate_policy": {
+    "browsers": ["chrome", "edge"],
+    "same_extension_candidate_required": true,
+    "production_route": "extension_node_broker_mcp",
+    "forbidden_routes": [
+      "rust",
+      "native_host",
+      "platform_driver",
+      "playwright",
+      "cdp",
+      "selector",
+      "arbitrary_coordinate"
+    ]
+  },
+  "suites": [
+    {
+      "id": "local-controls-and-forms",
+      "class": "deterministic",
+      "requirements": [
+        "all_catalog_controls",
+        "independent_form_batch",
+        "submit_is_separate",
+        "replacement_is_stale",
+        "value_free_verification"
+      ]
+    },
+    {
+      "id": "local-tables",
+      "class": "deterministic",
+      "requirements": [
+        "semantic_table_projection",
+        "table_reorder_delta",
+        "stable_identity_across_reorder"
+      ]
+    },
+    {
+      "id": "local-frames",
+      "class": "deterministic",
+      "requirements": [
+        "same_origin_iframe_truth",
+        "nested_geometry",
+        "iframe_navigation_delta",
+        "restricted_cross_origin_frame",
+        "open_shadow_truth",
+        "closed_shadow_opaque"
+      ]
+    },
+    {
+      "id": "local-mouse-accuracy",
+      "class": "deterministic",
+      "requirements": [
+        "normal_control_stable_geometry",
+        "normal_control_topmost",
+        "viewport_geometry_updates",
+        "continuous_reflex_target_policy",
+        "bounded_end_to_end_latency"
+      ]
+    },
+    {
+      "id": "public-framework-forms",
+      "class": "public_unauthenticated",
+      "blocking": false,
+      "cases": [
+        "angular-material-public-select",
+        "demoqa-react-practice-form",
+        "selenium-official-web-form"
+      ],
+      "requirements": [
+        "semantic_working_set",
+        "framework_input_events",
+        "action_receipt_verification",
+        "delta_after_action"
+      ]
+    },
+    {
+      "id": "public-heavy-pages",
+      "class": "public_unauthenticated",
+      "blocking": false,
+      "cases": [
+        "bestbuy_homepage_navigation",
+        "nanmesh_homepage_identity",
+        "nanlogic_homepage_product",
+        "mythcastera_homepage_navigation"
+      ],
+      "requirements": [
+        "bounded_first_read",
+        "semantic_query",
+        "tab_scoped_truth",
+        "no_repeated_full_without_request"
+      ]
+    },
+    {
+      "id": "local-standard-upload",
+      "class": "deterministic",
+      "blocking": true,
+      "requirements": [
+        "exact_leased_tab",
+        "file_input_value_free_truth",
+        "object_addressed_file_upload",
+        "workspace_bounded_absolute_path",
+        "dynamic_file_chooser_capture",
+        "file_selection_observed",
+        "no_automatic_replay"
+      ]
+    },
+    {
+      "id": "local-legacy-admin-workflow",
+      "class": "deterministic",
+      "blocking": true,
+      "requirements": [
+        "legacy_text_and_textarea",
+        "same_origin_iframe_rich_text",
+        "hidden_backing_field_synchronization",
+        "native_select",
+        "independent_checkbox_batch",
+        "save_is_separate_from_form_batch",
+        "save_transition_observed",
+        "value_free_verification"
+      ]
+    },
+    {
+      "id": "authenticated-steamworks-workflows",
+      "class": "authenticated_human_authorized",
+      "blocking": false,
+      "expected_outcome": "generic_controls_execute_and_verify_or_truthfully_stop_at_boundary",
+      "cases": [
+        "store_text_and_localization",
+        "planned_release_and_visibility",
+        "tags_and_dynamic_choices",
+        "media_upload_reorder_and_delete",
+        "capsules_library_assets_and_video",
+        "builds_depots_packages_and_branches",
+        "achievements_inventory_and_community_configuration",
+        "checklist_save_review_and_publish_transitions"
+      ],
+      "requirements": [
+        "exact_leased_tab",
+        "semantic_working_set",
+        "legacy_and_framework_form_controls",
+        "same_origin_iframe_rich_text",
+        "dynamic_choice_refresh_without_rebinding",
+        "object_addressed_upload",
+        "save_submit_navigation_are_separate_actions",
+        "page_owned_postcondition_or_outcome_unknown",
+        "truthful_unsupported_or_external_execution_required",
+        "no_false_persistence_claim",
+        "no_automatic_replay"
+      ],
+      "limitations": [
+        "native_trusted_file_selection_is_outside_the_extension_software_bridge",
+        "cross_origin_or_opaque_editors_require_a_semantic_bridge",
+        "canvas_only_media_editors_remain_opaque_without_a_semantic_bridge",
+        "no_cdp_native_host_platform_driver_or_site_specific_api"
+      ],
+      "stopping_points": [
+        "password",
+        "otp",
+        "captcha",
+        "payment",
+        "contract_acceptance",
+        "publish",
+        "production_submission"
+      ]
+    },
+    {
+      "id": "transport-and-isolation",
+      "class": "deterministic",
+      "requirements": [
+        "first_full",
+        "continuous_delta",
+        "reconnect_full_reset",
+        "tabs_open_close",
+        "broker_restart",
+        "mcp_restart",
+        "multiple_agent_sessions",
+        "orphaned_lease",
+        "one_writer_per_tab",
+        "ambiguous_action_not_replayed"
+      ]
+    }
+  ],
+  "evidence_policy": {
+    "fresh_candidate_evidence_only": true,
+    "historical_reports_are_not_release_proof": true,
+    "editable_values_retained": false,
+    "screenshots_retained": false,
+    "credentials_retained": false,
+    "non_blocking_compatibility_suites_cannot_fail_the_release": true
+  }
+}

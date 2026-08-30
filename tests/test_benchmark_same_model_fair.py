@@ -18,6 +18,8 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 TASK = ROOT / "benchmarks/tasks/selenium_web_form.json"
+LOCAL_TASK = ROOT / "benchmarks/tasks/local_form.json"
+LOCAL_FIXTURE = ROOT / "fixtures/benchmarks/form.html"
 
 
 def assistant(identifier: str, name: str, payload: dict | None = None) -> str:
@@ -39,6 +41,14 @@ def final(completed: bool = True, summary: str = "done", usage: dict | None = No
 
 
 class SameModelDriver(unittest.TestCase):
+    def test_local_form_comparison_has_no_external_submission(self) -> None:
+        task = MODULE.load_task(LOCAL_TASK)
+        fixture = LOCAL_FIXTURE.read_text(encoding="utf-8")
+        self.assertTrue(task["url"].startswith("http://127.0.0.1:8765/"))
+        self.assertIn("BENCHMARK-COMPLETE", task["success"]["tool_output_contains"])
+        self.assertIn("event.preventDefault()", fixture)
+        self.assertIn("BENCHMARK-COMPLETE", fixture)
+
     def test_both_lanes_use_one_claude_binary_and_one_model(self) -> None:
         task = MODULE.load_task(TASK)
         common = dict(task=task, model="claude-opus-5", runtime=Path("/rt"),
@@ -89,18 +99,18 @@ class SameModelDriver(unittest.TestCase):
 
     def test_saccade_prompt_uses_working_set_then_delta(self) -> None:
         prompt = MODULE.prompt_for(MODULE.load_task(TASK), "saccade")
-        self.assertIn("saccade.truth.read exactly query=", prompt)
-        self.assertIn("nearby-heading context", prompt)
-        self.assertIn("visible_only:false", prompt)
-        self.assertIn("frame_scope:root", prompt)
-        self.assertIn("Plan from that working_set", prompt)
-        self.assertIn("text_any:[<those phrases>]", prompt)
-        self.assertIn("min_objects:<number of required matching controls>", prompt)
-        self.assertIn("If a non-query read returns full", prompt)
-        self.assertIn("If it returns catalog", prompt)
-        self.assertIn("every later ordinary read is only the delta", prompt)
-        self.assertIn("never reread a full page", prompt)
+        self.assertIn("saccade.system.capabilities once", prompt)
+        self.assertIn("browser_family=chrome", prompt)
+        self.assertIn("mode=full", prompt)
+        self.assertIn("top-level min_objects", prompt)
+        self.assertIn("query={roles:", prompt)
+        self.assertIn("compact_rows/1", prompt)
+        self.assertIn("saccade.act steps batch", prompt)
         self.assertIn("next_basis_revision", prompt)
+        self.assertIn("never retry an ambiguous side effect", prompt)
+        self.assertNotIn("text_any", prompt)
+        self.assertNotIn("visible_only", prompt)
+        self.assertNotIn("frame_scope", prompt)
         self.assertNotIn("view_mode", prompt)
 
     def test_wrapper_timestamps_every_request_and_return(self) -> None:
@@ -160,14 +170,20 @@ class SameModelDriver(unittest.TestCase):
     def test_saccade_act_inline_transition_is_detected_without_an_extra_read(self) -> None:
         content = {
             "verified": False,
-            "transition": {"schema": "saccade.agent-view/1", "mode": "delta",
-                           "changes": [{"kind": "appeared"}]},
+            "relevant_delta": {"schema": "saccade.action-delta/1",
+                               "changed_steps": [0]},
         }
         self.assertTrue(MODULE.carries_truth_transition(
             "mcp__saccade__saccade_act", content
         ))
         self.assertFalse(MODULE.carries_truth_transition(
             "mcp__playwright__browser_click", content
+        ))
+
+    def test_object_transition_metadata_is_not_mistaken_for_inline_truth(self) -> None:
+        content = {"objects": [{"transition": "none"}], "mode": "delta"}
+        self.assertFalse(MODULE.carries_truth_transition(
+            "mcp__saccade__saccade_act", content
         ))
 
     def test_classify_recognises_real_mcp_prefixed_tool_names(self) -> None:
@@ -330,8 +346,7 @@ class EngineRouteContract(unittest.TestCase):
         prompt = MODULE.prompt_for(self.task, "saccade")
         for needle in ("saccade.truth.read", "saccade.act", "object_id",
                        "Never pass a coordinate", "never take a screenshot",
-                       "external_execution_required", "returns catalog",
-                       "Never fetch every object's details"):
+                       "external_execution_required", "strictly"):
             self.assertIn(needle, prompt)
 
     def test_saccade_lane_has_no_claude_browser_or_chrome_flag(self):

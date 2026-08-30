@@ -2,15 +2,31 @@
 authority-topic: product-execution-boundary
 authority-scope: .
 authority-owner: human-owner
-authority-revision: 1
+authority-revision: 2
 ---
 
-# Saccade product and execution boundary
+# Node-only product and execution boundary
 
-- R-001 — Saccade is a model-independent live semantic Truth Layer for authorized Chrome and Edge tabs.
-- R-002 — The production route is Extension → Native Messaging Host → owner-only local IPC → MCP.
-- R-003 — Registry-approved, object-addressed `saccade.act` software execution is the preferred bounded action path when the target exposes a supported affordance.
-- R-004 — The Agent client's own same-tab execution is the fallback when bounded software execution is unavailable, rejected, or cannot verify the requested transition.
-- R-005 — Playwright, CDP, screenshots, selectors, and arbitrary coordinates are not product fallback routes.
-- R-006 — The optional Reference Actuator remains development-only and is not a default product dependency.
-- R-007 — Software execution never receives arbitrary coordinates, DOM locators, or protected values; it binds the object, document, and revision and must report verified, accepted-but-unverified, or explicit handoff truthfully.
+- R-001 — Saccade 0.2.0 ships exactly one browser-store Extension and one
+  Node.js package, `@nanlogic/saccade`.
+- R-002 — The production route is authorized Chrome/Edge tab → Extension →
+  loopback Node Broker → MCP adapter → Agent.
+- R-003 — Rust, Cargo workspaces, Native Messaging Hosts, owner-IPC drivers,
+  platform input drivers, platform-specific Runtime binaries, code signing,
+  notarization, DMG, and Windows Setup are removed from the product and build.
+- R-004 — The Node Broker is transport and state coordination, not a browser
+  driver. It accepts no selectors, arbitrary JavaScript, screenshots, CDP, or
+  arbitrary coordinates.
+- R-005 — Registry-approved object-addressed software actions execute only in
+  the Extension. Unsupported or unverifiable execution is handed explicitly to
+  the Agent client's same-tab browser capability and is never retried
+  automatically.
+- R-006 — The Extension and Broker use one versioned loopback protocol with
+  bounded messages, acknowledgements, heartbeats, reconnect epochs, and exact
+  tab routing.
+- R-007 — Every MCP connection has a fresh `agent_session_id`. A tab has at
+  most one active Agent lease, and all Truth/action requests require both the
+  session and exact `tab_id`.
+- R-008 — Tabs opened by an Agent are leased automatically to that Agent.
+  User-shared tabs are assigned explicitly. Lost sessions leave orphaned
+  leases; tabs are not closed, transferred, exposed, or replayed automatically.

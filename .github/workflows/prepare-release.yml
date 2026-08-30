@@ -1,25 +1,18 @@
-name: Prepare signed Runtime release
+name: Prepare Node-only release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing immutable release tag, for example v0.1.1
+        description: Existing immutable release tag, for example v0.2.0
         required: true
-        default: v0.1.1
-      extension_id:
-        description: Final Chrome Web Store Extension ID (32 letters a-p)
-        required: true
-
-concurrency:
-  group: prepare-release-${{ inputs.tag }}
-  cancel-in-progress: false
+        default: v0.2.0
 
 permissions:
   contents: read
 
 jobs:
-  gates:
+  release-gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -28,128 +21,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Validate frozen release identity
+      - name: Validate tag and package version
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          EXTENSION_ID: ${{ inputs.extension_id }}
         run: |
-          python3 - <<'PY'
-          import json, os, re, subprocess
-          package = json.load(open("packages/setup/package.json", encoding="utf-8"))
-          if os.environ["RELEASE_TAG"] != f"v{package['version']}":
-              raise SystemExit("tag must exactly match the setup package version")
-          if not re.fullmatch(r"[a-p]{32}", os.environ["EXTENSION_ID"]):
-              raise SystemExit("extension_id must contain exactly 32 letters a-p")
-          if subprocess.check_output(["git", "tag", "--points-at", "HEAD"], text=True).splitlines().count(os.environ["RELEASE_TAG"]) != 1:
-              raise SystemExit("workflow must run from the exact existing release tag")
-          PY
-      - name: Rust gates
+          node -e "const p=require('./packages/setup/package.json'); if(process.env.RELEASE_TAG !== 'v'+p.version) process.exit(1)"
+          test "$(git tag --points-at HEAD | grep -cx "$RELEASE_TAG")" = 1
+      - name: Node, Extension, and architecture gates
         run: |
-          cargo fmt --all -- --check
-          cargo test --workspace --locked
-          cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Extension and setup gates
-        run: |
-          node --test extension/tests/*.test.js
           node --test packages/setup/test/*.test.js
+          node --test extension/tests/*.test.js
           npm pack ./packages/setup --dry-run
-      - name: Script and architecture gates
-        run: |
-          python3 -m py_compile scripts/*.py
-          python3 -m unittest discover -s tests -p 'test_*.py'
-          python3 scripts/generate_control_matrix.py
-          python3 scripts/generate_public_truth_cases.py
           python3 scripts/check_single_architecture.py
-          git diff --exit-code -- docs/generated/control_coverage.md catalog/public_truth_cases.json
-      - name: Require a production store package
-        run: python3 scripts/package_extension_release.py --extension-root extension --output dist/extension
-
-  runtime:
-    needs: gates
-    environment: release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            platform: darwin-arm64
-          - runner: macos-15-intel
-            platform: darwin-x64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.tag }}
-      - name: Build release Runtime
-        run: cargo build --release --locked --bin saccade-runtime
-      - name: Sign and notarize headless Runtime
-        env:
-          APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
-          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
-          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-        run: scripts/sign_notarize_runtime.sh target/release/saccade-runtime
-      - name: Build signed architecture draft
-        run: |
-          python3 scripts/build_setup_release.py \
-            --runtime target/release/saccade-runtime \
-            --platform '${{ matrix.platform }}' \
-            --output 'dist/${{ matrix.platform }}' \
-            --signed
+          python3 scripts/package_extension_release.py --extension-root extension --output dist/extension
       - uses: actions/upload-artifact@v4
         with:
-          name: runtime-${{ matrix.platform }}
-          path: dist/${{ matrix.platform }}
+          name: saccade-node-${{ inputs.tag }}
+          path: dist/extension
           if-no-files-found: error
-          retention-days: 7
-
-  draft-release:
-    needs: runtime
-    runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.tag }}
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: runtime-*
-          path: dist/runtime-drafts
-      - name: Assemble exact setup manifest
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          EXTENSION_ID: ${{ inputs.extension_id }}
-        run: |
-          python3 scripts/assemble_setup_release.py \
-            --draft dist/runtime-drafts/runtime-darwin-arm64/release.json \
-            --draft dist/runtime-drafts/runtime-darwin-x64/release.json \
-            --output dist/release \
-            --base-url "https://github.com/nanlogic/saccade/releases/download/$RELEASE_TAG" \
-            --allowed-origin "chrome-extension://$EXTENSION_ID/"
-          python3 scripts/verify_published_setup_release.py \
-            --release dist/release/release.json \
-            --tag "$RELEASE_TAG" \
-            --artifact-dir dist/release
-          (cd dist/release && sha256sum --check SHA256SUMS)
-          python3 scripts/package_extension_release.py \
-            --extension-root extension \
-            --output dist/release
-      - name: Create one draft GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
-            exit 1
-          fi
-          gh release create "$RELEASE_TAG" \
-            dist/release/* \
-            --repo nanlogic/saccade \
-            --draft \
-            --verify-tag \
-            --title "Saccade ${RELEASE_TAG#v} Developer Preview" \
-            --notes-file "docs/releases/${RELEASE_TAG#v}.md"

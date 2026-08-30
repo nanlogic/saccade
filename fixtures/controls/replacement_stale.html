@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Replacement stale authority</title>
+</head>
+<body>
+  <h1>Replacement stale authority</h1>
+  <button id="replace" type="button">Replace target</button>
+  <button id="target" type="button" aria-pressed="false">Target action</button>
+  <p id="status" role="status">not clicked</p>
+  <script>
+    const status = document.getElementById('status');
+    function bind(target) {
+      target.addEventListener('click', () => {
+        target.setAttribute('aria-pressed', 'true');
+        status.textContent = 'replacement target clicked';
+      });
+    }
+    let target = document.getElementById('target');
+    bind(target);
+    document.getElementById('replace').addEventListener('click', () => {
+      const replacement = target.cloneNode(true);
+      replacement.id = 'replacement-target';
+      replacement.setAttribute('aria-pressed', 'false');
+      target.replaceWith(replacement);
+      target = replacement;
+      bind(target);
+      status.textContent = 'target replaced';
+    });
+  </script>
+</body>
+</html>

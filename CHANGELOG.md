@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0
+
+- Replaced the compiled runtime and all platform-specific installation paths
+  with a platform-independent Node Broker and stdio MCP adapter.
+- Moved Extension transport to authenticated-origin loopback HTTP with bounded
+  command queues, connection epochs, full reset after reconnect, and no action
+  replay after ambiguous dispatch.
+- Added per-MCP-session exclusive tab leases, orphan handling, exact-tab full or
+  delta reads, local semantic waits, and action-plus-verification receipts.
+- Removed Cargo, OS input backends, binary signing, platform installers, and
+  platform artifact release jobs.
+- Kept the MV3 command channel alive with a bounded two-second local heartbeat,
+  removed expired long-poll waiters before dispatch, and made the Extension own
+  exactly one generation-checked command loop per Broker connection.
+
+## Historical previews
+
 - Added a gated Windows x64 candidate path for 0.1.2: one headless Runtime,
   current-user Chrome and Edge Native Messaging registration, MCP/client setup,
   exact-checksum rollback, and a Windows Actions install/MCP/uninstall smoke.

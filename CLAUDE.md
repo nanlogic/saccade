@@ -6,7 +6,7 @@
 This project dogfoods Markdown Gatekeeper. Before planning or implementation:
 
 1. Read `PROJECT_AUTHORITY.md` and the current sources it names.
-2. Run `mdg status .`. Only if the global command is unavailable, first verify that `./bin/mdg.mjs` exists and then use `node ./bin/mdg.mjs`; do not run a predictable failing command to probe availability.
+2. Run `mdg status .`. If the global command is unavailable, use the managed launcher at `<Codex home>/bin/mdg` (or `mdg.cmd` on Windows). Only if that launcher is unavailable, first verify that `./bin/mdg.mjs` exists and then use `node ./bin/mdg.mjs`; do not run a predictable failing command to probe availability.
 3. Treat unregistered Markdown as a proposal, never as current authority.
 4. Put competing designs in `docs/proposals/`; do not create a second canonical source.
 5. Never edit `PROJECT_AUTHORITY.md`, `.authority/registry.json`, or `docs/current/**` directly. Use the publisher command.

@@ -1,0 +1,55 @@
+{
+  "schema": "saccade.mouse-accuracy-evidence/1",
+  "generated_at": "2026-08-30",
+  "release": "0.2.0",
+  "extension_candidate": {
+    "version": "0.4.0",
+    "id": "2d4f7cdcdd04480aa09cab964d7718126a6dcc8667b1629359d709436cad0999"
+  },
+  "conditions": {
+    "fixture": "fixtures/conformance/mouse_accuracy.html",
+    "browsers": ["chrome", "edge"],
+    "target_classes": ["ordinary_button", "canvas_reflex_target"],
+    "actions_per_target_class": 24,
+    "coordinate_input_from_agent": false
+  },
+  "results": {
+    "chrome": {
+      "ordinary_button": {
+        "hits": 24,
+        "misses": 0,
+        "mean_ms": 8.5,
+        "p95_ms": 13.553,
+        "max_ms": 18.608
+      },
+      "canvas_reflex_target": {
+        "hits": 24,
+        "misses": 0,
+        "mean_ms": 7.469,
+        "p95_ms": 9.157,
+        "max_ms": 11.883
+      }
+    },
+    "edge": {
+      "ordinary_button": {
+        "hits": 24,
+        "misses": 0,
+        "mean_ms": 8.483,
+        "p95_ms": 17.437,
+        "max_ms": 28.919
+      },
+      "canvas_reflex_target": {
+        "hits": 24,
+        "misses": 0,
+        "mean_ms": 7.217,
+        "p95_ms": 10.294,
+        "max_ms": 17.244
+      }
+    }
+  },
+  "totals": {
+    "hits": 96,
+    "misses": 0
+  },
+  "source_report": "docs/reports/2026-08-30-saccade-0.2.0-release-gate.md"
+}

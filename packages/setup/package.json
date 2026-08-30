@@ -1,24 +1,27 @@
 {
   "name": "@nanlogic/saccade",
-  "version": "0.1.2",
-  "description": "Install the local Saccade Truth Layer Runtime and MCP configuration.",
+  "version": "0.2.0",
+  "description": "Node-only Saccade Truth Broker and MCP adapter.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/nanlogic/saccade.git"
   },
   "bin": {
-    "saccade-setup": "bin/saccade-setup.js"
+    "saccade": "bin/saccade.js",
+    "saccade-setup": "bin/saccade.js"
   },
   "files": [
     "bin",
     "src",
     "README.md",
-    "default-profile.json",
-    "release.json"
+    "default-profile.json"
   ],
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
   },
   "publishConfig": {
     "access": "public",

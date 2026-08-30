@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Segmented radio fixture</title>
+<style>
+  .choice-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+  }
+  .choice-label {
+    display: inline-block;
+    padding: 8px 12px;
+    border: 1px solid currentColor;
+  }
+</style>
+<fieldset>
+  <legend>Target Spawn Speed</legend>
+  <input class="choice-input" id="speed-slow" type="radio" name="speed">
+  <label class="choice-label" for="speed-slow">Slow</label>
+  <input class="choice-input" id="speed-normal" type="radio" name="speed" checked>
+  <label class="choice-label" for="speed-normal">Normal</label>
+  <input class="choice-input" id="speed-fast" type="radio" name="speed">
+  <label class="choice-label" for="speed-fast">Fast</label>
+  <input class="choice-input" id="speed-epic" type="radio" name="speed">
+  <label class="choice-label" for="speed-epic">Epic</label>
+</fieldset>
+<fieldset>
+  <legend>Target Size</legend>
+  <input class="choice-input" id="size-tiny" type="radio" name="size">
+  <label class="choice-label" for="size-tiny">Tiny</label>
+  <input class="choice-input" id="size-medium" type="radio" name="size" checked>
+  <label class="choice-label" for="size-medium">Medium</label>
+</fieldset>
+</html>

@@ -9,24 +9,35 @@ permissions:
   contents: read
 
 jobs:
+  node-compatibility:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: packages/setup/package-lock.json
+      - name: Install Broker dependencies
+        run: npm ci --prefix packages/setup --ignore-scripts
+      - name: Node Broker, MCP, and Extension tests
+        run: |
+          node --test packages/setup/test/*.test.js
+          node --test extension/tests/*.test.js
+          npm pack ./packages/setup --dry-run
+
   checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install Rust components
-        run: rustup component add clippy rustfmt
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Rust tests
-        run: cargo test --workspace --locked
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Extension tests
-        run: node --test extension/tests/*.test.js
-      - name: Setup package tests
-        run: |
-          node --test packages/setup/test/*.test.js
-          npm pack ./packages/setup --dry-run
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Reference harness syntax
         run: node --check tests/reference/playwright/oracle.cjs
       - name: Development script syntax
@@ -42,10 +53,8 @@ jobs:
             tests/test_external_dogfood.py \
             tests/test_public_truth_cases.py
           python3 -m unittest \
-            tests/test_dev_lifecycle.py \
             tests/test_lifecycle_truth.py \
             tests/test_summarize_fair_matrix.py \
-            tests/test_build_setup_release.py \
             tests/test_package_extension_release.py \
             tests/test_audit_public_evidence.py
           python3 -m unittest \

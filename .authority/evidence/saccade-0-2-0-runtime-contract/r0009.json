@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 9,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "f70e1d6f35d06ddddb05271f081411f7a1aaf454d597709777fb4643430faf41",
+  "baseCurrentSha256": "1efd18d1648dbb418f9ab2b4ce99f067514c3ecd6be06d5f182898c3aced7a85",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0008.md",
+  "previousEvidenceSha256": "370aab04fef2a658d83f94643f5ef83cdf35c5ef482eb5e616e2acd9b75421ce",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0008.json",
+  "previousEvidenceDataSha256": "0e5a1c250c5b10f5b2056f26b70ecce16e7eb616cdd109ff5292707d10737c0c",
+  "changes": [
+    {
+      "item": "R-028",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`saccade.system.capabilities` reports bounded, value-free identity for every online Extension connection: `browser_instance_id`, validated `browser_family`, and the exact validated Extension candidate schema, digest, and version. When exactly one Extension is attached, the same browser family and candidate are also exposed at the top level for simple clients. Every leased-tab summary resolves the corresponding live connection identity when available. This metadata is runtime proof for same-candidate Chrome/Edge conformance; declared browser support alone is never proof that a browser family or candidate is attached."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/saccade-runtime-contract-r9.md",
+      "archivePath": ".authority/archive/proposals/1787875205232-saccade-runtime-contract-r9.md",
+      "sha256": "f70e1d6f35d06ddddb05271f081411f7a1aaf454d597709777fb4643430faf41",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-08-28T00:00:05.367Z"
+}

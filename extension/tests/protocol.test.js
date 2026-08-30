@@ -5,20 +5,20 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { HOST_PROTOCOL, OBSERVATION_SCHEMA, envelope, parseHostMessage, randomToken } = require('../src/protocol.js');
+const childProcess = require('node:child_process');
+
+// Chrome and Edge expose Web Crypto globally. Node 18 exposes the same API
+// through node:crypto, but not through globalThis in every supported build.
+if (!globalThis.crypto) globalThis.crypto = crypto.webcrypto;
+
+const { BROKER_PROTOCOL, OBSERVATION_SCHEMA, randomToken } = require('../src/protocol.js');
 const { normalizeOrigin, isProtectedFieldType, redactProtectedText } = require('../src/consent.js');
 const { compileChanges, compactTransport } = require('../src/truth_delta.js');
 const registry = require('../src/controls/registry.js');
 
-test('Native Messaging envelope preserves the v1 wire names', () => {
-  assert.deepEqual(envelope('hello', { browser_instance_id: 'browser.test' }, 7), {
-    protocol: HOST_PROTOCOL, kind: 'hello', payload: { browser_instance_id: 'browser.test' }, request_id: 7,
-  });
-  assert.equal(HOST_PROTOCOL, 'saccade-extension-host/1');
+test('Extension protocol names the Node Broker and observation schema', () => {
+  assert.equal(BROKER_PROTOCOL, 'saccade.node-broker/1');
   assert.equal(OBSERVATION_SCHEMA, 'saccade.observation/1');
-  assert.equal(parseHostMessage({ protocol: 'wrong', kind: 'tabs.list' }), null);
-  assert.equal(parseHostMessage({ protocol: HOST_PROTOCOL, kind: 'tabs.list', request_id: -1 }), null);
-  assert.equal(parseHostMessage({ protocol: HOST_PROTOCOL, kind: 'tabs.list', selector: 'button' }), null);
   assert.match(randomToken('action', 16), /^action\.[0-9a-f]{32}$/);
   assert.throws(() => randomToken('action', 15));
 });
@@ -42,11 +42,12 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, 'Saccade');
-  assert.equal(manifest.version, '0.3.24');
+  assert.equal(manifest.version, '0.4.0');
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
-  assert.deepEqual(manifest.permissions, ['tabs', 'nativeMessaging', 'storage', 'alarms']);
+  assert.deepEqual(manifest.permissions, ['tabs', 'storage', 'alarms']);
+  assert.ok(manifest.host_permissions.includes('http://127.0.0.1:32177/*'));
   assert.deepEqual(manifest.icons, {
     16: 'icons/icon-16.png',
     32: 'icons/icon-32.png',
@@ -64,13 +65,14 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   assert.equal(manifest.content_scripts[0].js.at(-1), 'src/collector.js');
   assert.ok(manifest.content_scripts[0].js.indexOf('src/truth_delta.js') < manifest.content_scripts[0].js.indexOf('src/collector.js'));
   assert.equal(manifest.action.default_popup, 'popup.html');
-  assert.match(worker, /com\.nanlogic\.saccade\.dev/);
-  assert.match(worker, /com\.nanlogic\.saccade'/);
-  assert.match(worker, /getManifest\(\)\.name\.includes\('\(Development\)'\)/);
+  assert.match(worker, /BROKER_ORIGIN = 'http:\/\/127\.0\.0\.1:32177'/);
+  assert.doesNotMatch(worker, /connectNative|nativeMessaging|NATIVE_HOST/);
   assert.match(worker, /extension_candidate: LOADED_CANDIDATE/);
   assert.match(worker, /reloadIfCandidateChanged/);
   assert.match(worker, /sameCandidate\(ping\.extension_candidate\)/);
   assert.match(collector, /extension_candidate: globalThis\.SaccadeCandidate/);
+  assert.match(collector, /identities\.set\(element, `object\.\$\{\+\+objectSerial\}`\)/);
+  assert.doesNotMatch(collector, /`object\.\$\{documentId\}/);
   assert.doesNotMatch(worker, /chrome\.(downloads|debugger|scripting)/);
   assert.doesNotMatch(worker, /Playwright|CDP|protected_fill|loop\.start/);
 });
@@ -131,6 +133,8 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /spin_button/);
   assert.match(collector, /content_editable/);
   assert.match(collector, /visibleFileTrigger/);
+  assert.match(collector, /visibleRadioTrigger/);
+  assert.match(collector, /OBSERVED_SELECTOR = `\$\{CONTROL_SELECTOR\},label,/);
   assert.match(collector, /function navigationTargetFor/);
   assert.match(collector, /\['http:', 'https:'\]/);
   assert.match(collector, /object\.navigation_target = navigationTarget/);
@@ -159,6 +163,86 @@ test('collector routes editable-family controls through the Registry', () => {
   assert.match(collector, /browser_restricted_page/);
 });
 
+test('object-addressed upload captures dynamic choosers and supplies one bounded FileList', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/file_input.html'), 'utf8');
+  assert.match(collector, /function isFileUploadTrigger/);
+  assert.match(collector, /data-saccade-file-upload/);
+  assert.match(collector, /authoredUploadLike/);
+  assert.match(collector, /authoredUploadButton/);
+  assert.match(collector, /unnamedButton/);
+  assert.match(collector, /class\*="upload" i/);
+  assert.match(collector, /Drop|drop/);
+  assert.match(collector, /function captureDynamicFileInput/);
+  const uploadClick = collector.slice(
+    collector.indexOf('function dispatchUploadTriggerClick('),
+    collector.indexOf('async function captureDynamicFileInput('),
+  );
+  assert.match(uploadClick, /trigger\.addEventListener\('click', preventNativeDefault, \{ once: true \}\)/);
+  assert.match(uploadClick, /trigger\.dispatchEvent\(event\)/);
+  assert.doesNotMatch(uploadClick, /if \(type === 'click'\) event\.preventDefault\(\)/);
+  assert.match(collector, /document\.addEventListener\('click', onClick\)/);
+  assert.doesNotMatch(collector, /document\.addEventListener\('click', onClick, true\)/);
+  assert.match(collector, /event\.preventDefault\(\)/);
+  assert.match(collector, /function uploadFileFromPayload/);
+  assert.match(collector, /function uploadDropTarget/);
+  assert.match(collector, /function dispatchFileDrop/);
+  assert.match(collector, /nativeChooserButton/);
+  const linkedInput = collector.slice(
+    collector.indexOf('function linkedFileInput('),
+    collector.indexOf('function dispatchUploadTriggerClick('),
+  );
+  assert.match(linkedInput, /for \(let depth = 0;[\s\S]*depth < 5/);
+  assert.match(linkedInput, /querySelectorAll\('input\[type="file"\]'\)/);
+  assert.match(linkedInput, /if \(candidates\.length === 1\) return candidates\[0\]/);
+  assert.match(collector, /new view\.DragEvent/);
+  assert.match(collector, /function waitForUploadResponse/);
+  assert.match(collector, /new view\.MutationObserver/);
+  assert.match(collector, /file_drop_response_observed/);
+  assert.match(collector, /file_selection_observed/);
+  assert.match(collector, /verified: responseObserved/);
+  assert.match(collector, /verified: selectionObserved/);
+  assert.match(collector, /MAX_UPLOAD_BYTES/);
+  assert.match(collector, /new view\.File/);
+  assert.match(collector, /new view\.DataTransfer\(\)/);
+  assert.match(collector, /transfer\.items\.add\(file\)/);
+  assert.match(collector, /input\.files = transfer\.files/);
+  assert.match(collector, /new view\.Event\('input'/);
+  assert.match(collector, /new view\.Event\('change'/);
+  assert.match(collector, /if \(request\.operation === 'upload'\) return softUpload/);
+  assert.doesNotMatch(collector, /showOpenFilePicker|webkitRelativePath/);
+  assert.match(worker, /function scrubUploadPayload/);
+  assert.match(worker, /delete payload\.payload\.file\.content_base64/);
+  assert.match(fixture, /id="dynamic-upload"/);
+  assert.match(fixture, /id="context-upload"/);
+  assert.match(fixture, /id="unnamed-upload"/);
+  assert.match(fixture, /id="drop-upload"/);
+  assert.match(fixture, />Manage media</);
+  assert.match(fixture, /document\.createElement\('input'\)/);
+  assert.match(fixture, /input\.click\(\)/);
+});
+
+test('visually hidden native radios keep native identity and state while using their visible label for actionability', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/segmented_radio.html'), 'utf8');
+  const trigger = collector.slice(
+    collector.indexOf('function visibleRadioTrigger('),
+    collector.indexOf('function ariaBoolean('),
+  );
+  assert.match(trigger, /inputVisibility === 'visible'/);
+  assert.match(trigger, /Array\.from\(input\.labels \|\| \[\]\)\.find\(visible\) \|\| input/);
+  assert.match(collector, /role === 'radio' \? visibleRadioTrigger\(element\) : element/);
+  assert.match(collector, /element: interactionElement, controlElement: element, role/);
+  assert.match(collector, /const control = target\.controlElement \|\| target\.element/);
+  assert.match(collector, /tokenTargets\.values\(\)\]\.map\(\(target\) => target\.element\)/);
+  assert.match(fixture, /clip-path: inset\(50%\)/);
+  assert.match(fixture, /for="speed-epic">Epic/);
+  assert.match(fixture, /for="size-tiny">Tiny/);
+});
+
 test('collector projects bounded structural text without actions or editable descendants', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /MAX_STRUCTURAL_TEXT_BYTES = 256 \* 1024/);
@@ -174,6 +258,7 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /\.\.\.genericTexts/);
   assert.match(collector, /visibilityFor\(element, boxFor\(element\)\) === 'hidden'/);
   assert.match(collector, /element\.hasAttribute\('aria-live'\)\) return 'status'/);
+  assert.match(collector, /tag === 'OUTPUT'\) return 'status'/);
   assert.match(collector, /\(dialogText \|\| genericText\) \? 'text'/);
   assert.match(collector, /state\.modal = String\(element\.getAttribute\('aria-modal'\) === 'true'\)/);
   assert.match(collector, /deferred_content_possible/);
@@ -182,10 +267,10 @@ test('collector projects bounded structural text without actions or editable des
   assert.match(collector, /kind: 'text', role, text, state, affordances: \[\], protected: false/);
   assert.match(collector, /element\.closest\(CONTROL_SELECTOR\)/);
   assert.match(collector, /TextEncoder/);
-  assert.match(collector, /document\.readyState === 'loading'/);
   assert.match(collector, /document\.readyState === 'loading'\) \{\s*schedule\(\);\s*document\.addEventListener\('DOMContentLoaded', collect/s);
   assert.doesNotMatch(collector, /function collect\(\) \{\s*if \(!config\) return null;\s*if \(document\.readyState === 'loading'\) return null;/s);
-  assert.match(collector, /document\.readyState === 'loading'\) \{\s*for \(const object of objects\).*object\.affordances = \[\].*delete object\.action_token.*tokenTargets\.clear\(\)/s);
+  assert.doesNotMatch(collector, /object\.affordances = \[\].*delete object\.action_token.*tokenTargets\.clear\(\)/s);
+  assert.match(collector, /Per-action local preflight owns/);
   assert.match(collector, /DOMContentLoaded.*collect/s);
   assert.match(collector, /schedule\(\);\s*return null;/);
 });
@@ -200,6 +285,10 @@ test('unrelated page mutations do not churn current control tokens', () => {
 
 test('semantic page churn preserves authority only for the same live object contract', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fingerprint = collector.slice(
+    collector.indexOf('function authorityFingerprint('),
+    collector.indexOf('function reuseStableAuthorities('),
+  );
   const reuse = collector.slice(
     collector.indexOf('function reuseStableAuthorities('),
     collector.indexOf('function collect('),
@@ -208,6 +297,8 @@ test('semantic page churn preserves authority only for the same live object cont
   assert.match(reuse, /previous\.target\.role !== current\.role/);
   assert.match(reuse, /previous\.target\.affordances\.join/);
   assert.match(reuse, /object\.action_token = previous\.token/);
+  assert.match(fingerprint, /delete contract\.visibility/);
+  assert.match(fingerprint, /delete contract\.transition/);
   assert.ok(collector.indexOf('reuseStableAuthorities(objects, previousTokenTargets)') < collector.indexOf('const changes = compileChanges'));
 });
 
@@ -223,6 +314,26 @@ test('semantic mutations are not gated by rendering frames', () => {
   assert.match(collector, /function currentGeometryIsAnimating/);
   assert.match(collector, /getAnimations\?\.\(\).*playState === 'running'/s);
   assert.match(collector, /transitionrun.*animationstart/s);
+});
+
+test('the bounded MouseAccuracy reflex bridge covers both current and Classic game lifecycles', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const bridge = collector.slice(
+    collector.indexOf('function isMouseAccuracyGame('),
+    collector.indexOf('function observeCurrentGeometry('),
+  );
+  assert.match(bridge, /pathname\.startsWith\('\/game'\)/);
+  assert.match(bridge, /pathname\.startsWith\('\/classic'\)/);
+  assert.match(bridge, /function updateMouseAccuracyHitOccurrence/);
+  assert.match(bridge, /querySelectorAll\('\.target\.hit'\)/);
+  assert.match(bridge, /function recordMouseAccuracyOccurrence/);
+  assert.match(bridge, /!softwareDispatchCompleted && element\.isConnected && !element\.classList\.contains\('hit'\)/);
+  assert.match(collector, /isMouseAccuracyClassic\(page\)[\s\S]*String\(mouseAccuracyHitOccurrence\)/);
+  assert.ok(collector.indexOf('updateMouseAccuracyHitOccurrence(document)') < collector.indexOf('const hadCompiledObjects'));
+  const softClick = collector.slice(collector.indexOf('async function softClick('), collector.indexOf('async function softType('));
+  assert.match(softClick, /if \(type === 'click'\) clickDispatchCompleted = true/);
+  assert.match(softClick, /target\.role === 'reflex_target'[\s\S]*recordMouseAccuracyOccurrence\(target\.element, clickDispatchCompleted\)/);
+  assert.match(softClick, /if \(recordedReflexOccurrence\) collect\(\)/);
 });
 
 test('editable placeholders are explicitly distinguished from current values', () => {
@@ -392,22 +503,27 @@ test('tab ownership survives Extension reload but resets at browser startup', ()
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /chrome\.storage\.local\.set\(\{ \[TAB_ACL_KEY\]/);
   assert.match(worker, /chrome\.storage\.local\.get\(TAB_ACL_KEY\)/);
-  assert.match(worker, /chrome\.storage\.session\.get\(BROWSER_SESSION_KEY\)/);
+  assert.match(worker, /chrome\.storage\.session\.get\(\[BROWSER_SESSION_KEY, CONNECTION_SESSION_KEY\]\)/);
   assert.match(worker, /freshBrowserSession \? \{\} : \(storedAcl\[TAB_ACL_KEY\] \|\| \{\}\)/);
   assert.match(worker, /chrome\.storage\.local\.remove\(TAB_ACL_KEY\)/);
-  assert.match(worker, /chrome\.runtime\.onStartup\.addListener\(\(\) => \{\s*connectHost\(\)\.catch\(scheduleReconnect\)/s);
-  assert.match(worker, /connectHost\(\)\.catch\(scheduleReconnect\);\s*$/);
-  assert.doesNotMatch(worker, /bootTimer|setTimeout\(\(\) => \{ connectHost/);
+  assert.match(worker, /chrome\.runtime\.onStartup\.addListener\(\(\) => \{\s*connectBroker\(\)\.catch\(scheduleReconnect\)/s);
+  assert.match(worker, /connectBroker\(\)\.catch\(scheduleReconnect\);\s*$/);
+  assert.doesNotMatch(worker, /bootTimer|setTimeout\(\(\) => \{ connectBroker/);
   assert.doesNotMatch(worker, /chrome\.storage\.session\.(get|set)\(TAB_ACL_KEY/);
 });
 
 test('prepare checks the revision basis after tab activation and focus', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const publicAct = worker.slice(worker.indexOf("command.kind === 'act'"), worker.indexOf("command.kind === 'act.batch'"));
   assert.match(worker, /if \(!browserWindow\.focused\).*chrome\.windows\.update/s);
   assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
-  assert.match(collector, /request\.basis_revision > revision/);
+  assert.match(publicAct, /await activateTabForAction\(tabId, command\.deadline_at\)/);
+  assert.ok(publicAct.indexOf('activateTabForAction') < publicAct.indexOf("kind: 'collector.soft_action'"));
+  assert.match(worker, /ACTION_RESPONSE_RESERVE_MS = 250/);
+  assert.match(worker, /return remainingMs - ACTION_RESPONSE_RESERVE_MS/);
+  assert.match(collector, /request\.basis_revision !== revision/);
   assert.match(collector, /previous\.target\.authorityFingerprint !== current\.authorityFingerprint/);
   assert.match(collector, /authorityFingerprint: authorityFingerprint\(object\)/);
   assert.match(collector, /request\.document_id !== documentId/);
@@ -437,54 +553,70 @@ test('software action bridge is token-bound and limited to Registry roles', () =
   assert.match(worker, /command\.kind === 'soft_action'/);
   assert.match(collector, /choiceOwner\(option\) !== target/);
   assert.match(collector, /option\.selected = true/);
-  assert.match(collector, /Array\(prepared\.selection_index\)\.fill\('ArrowDown'\)/);
+  assert.match(collector, /function waitForSelectOption/);
+  assert.match(collector, /option !== original/);
+  assert.match(collector, /select_option_stale/);
+  assert.match(collector, /select_option_actionability_timeout_/);
+  assert.match(collector, /current\.option\.dispatchEvent/);
+  assert.doesNotMatch(collector, /Array\(prepared\.selection_index\)\.fill\('ArrowDown'\)/);
   assert.match(collector, /requestAnimationFrame\(collect\)/);
   assert.match(worker, /command\.kind === 'soft_click'/);
   assert.match(worker, /collector\.soft_click/);
 });
 
-test('managed Chrome and Edge routes share one protocol and keep browser evidence separate', () => {
-  const dev = fs.readFileSync(path.join(__dirname, '../../scripts/dev.sh'), 'utf8');
-  const probe = fs.readFileSync(path.join(__dirname, '../../scripts/dev_probe.py'), 'utf8');
-  const host = fs.readFileSync(path.join(__dirname, '../../scripts/dev/com.nanlogic.saccade.dev.json.in'), 'utf8');
-  assert.match(dev, /Microsoft Edge\/NativeMessagingHosts/);
-  assert.match(dev, /profile-v\$BROWSER_PROFILE_GENERATION/);
-  assert.match(dev, /--disable-session-crashed-bubble/);
-  assert.match(dev, /--window-size=800,747/);
-  assert.match(dev, /profile\["exit_type"\] = "Normal"/);
-  assert.match(dev, /test \[chrome\|edge\|all\]/);
-  assert.match(dev, /compare \[chrome\|edge\|all\]/);
-  assert.match(dev, /external_dogfood\.py/);
-  assert.match(dev, /reference\/playwright/);
-  assert.match(dev, /accuracy \[chrome\|edge\|all\]/);
-  assert.match(probe, /mouse_accuracy/);
-  assert.match(probe, /ACCURACY_WINDOW_PHASES/);
-  assert.match(dev, /--window-pid/);
-  assert.match(dev, /EVIDENCE_DIR\/\$test_stamp\/\$test_browser/);
-  assert.match(probe, /--browser/);
-  assert.match(probe, /"browser": browser/);
-  assert.match(host, /chrome-extension:\/\/bobfbgjplflcigednmccmbhlgclomgod\//);
+test('prepare-stage stale authority is explicitly retry safe because nothing dispatched', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /actionFailure\('prepare', 'stale_action_basis', true/);
+  assert.match(collector, /actionFailure\('prepare', 'stale_action_token', true/);
 });
 
-test('Native Host ownership conflicts recover without requiring a popup wake-up', () => {
-  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
-  const reconnect = worker.slice(worker.indexOf('function scheduleReconnect'), worker.indexOf('async function connectHost'));
-  assert.match(reconnect, /Math\.min\(250 \* \(2 \*\* reconnectAttempts\+\+\), 4000\)/);
-  assert.doesNotMatch(reconnect, /reconnectAttempts\s*>=/);
-  assert.match(reconnect, /chrome\.alarms\.create\(RECONNECT_ALARM/);
-  assert.match(worker, /RECONNECT_ALARM_DELAY_MS = 30_000/);
-  assert.match(worker, /async function settleReconnect\(port\)/);
-  assert.match(worker, /chrome\.windows\.getAll\(\{ windowTypes: \['normal'\] \}\)/);
-  assert.match(worker, /if \(windows\.length\) chrome\.alarms\.clear\(RECONNECT_ALARM\)/);
-  assert.match(worker, /chrome\.alarms\.onAlarm\.addListener/);
-});
-
-test('Native Host hello supplies a fixed browser lifecycle wake route', () => {
+test('Chrome and Edge share one loopback Broker protocol', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /BROWSER_FAMILY = navigator\.userAgent\.includes\('Edg\/'\) \? 'edge' : 'chrome'/);
   assert.match(worker, /browser_family: BROWSER_FAMILY/);
-  assert.match(worker, /development: NATIVE_HOST\.endsWith\('\.dev'\)/);
-  assert.match(worker, /wake_url: chrome\.runtime\.getURL\('popup\.html'\)/);
+  assert.match(worker, /broker_epoch/);
+  assert.doesNotMatch(worker, /darwin|win32|platform_input|connectNative/);
+});
+
+test('Node Broker reconnect uses bounded backoff without a popup wake-up', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  const reconnect = worker.slice(worker.indexOf('function scheduleReconnect'), worker.indexOf('async function brokerRequest'));
+  assert.match(reconnect, /Math\.min\(250 \* \(2 \*\* reconnectAttempts\+\+\), 4000\)/);
+  assert.doesNotMatch(reconnect, /reconnectAttempts\s*>=/);
+  assert.match(reconnect, /armReconnectAlarm\(\)/);
+  assert.match(worker, /function armReconnectAlarm\(\) \{\s*chrome\.alarms\.create\(RECONNECT_ALARM/s);
+  assert.match(worker, /RECONNECT_ALARM_PERIOD_MINUTES = 0\.5/);
+  assert.match(worker, /periodInMinutes: RECONNECT_ALARM_PERIOD_MINUTES/);
+  assert.match(worker, /async function settleReconnect\(connectionId\)/);
+  assert.match(worker, /armReconnectAlarm\(\);\s*connectBroker\(\)\.catch\(scheduleReconnect\);\s*$/);
+  assert.match(worker, /chrome\.alarms\.onAlarm\.addListener/);
+  assert.match(reconnect, /if \(brokerConnectionId \|\| connectPromise\) return/);
+  assert.match(worker, /function startCommandLoop\(connectionId, generation\)/);
+  assert.match(worker, /commandLoopState !== state[\s\S]*brokerLoopGeneration !== generation/);
+  assert.match(worker, /if \(commandLoopState === state\) commandLoopState = undefined/);
+  assert.match(worker, /brokerRequest\('\/v1\/extension\/commands', \{\s*method: 'POST'/s);
+  assert.doesNotMatch(worker, /extension\/commands\?connection_id/);
+  assert.match(worker, /KEEPALIVE_INTERVAL_MS = 20_000/);
+  assert.match(worker, /new WebSocket\(/);
+  assert.match(worker, /kind: 'heartbeat'/);
+  assert.match(worker, /kind !== 'heartbeat\.ack'/);
+  assert.match(worker, /catch \(error\) \{\s*brokerConnectionId = undefined;\s*brokerEpoch = undefined;\s*throw error;/s);
+});
+
+test('the Extension Service Worker is valid JavaScript', () => {
+  const workerPath = path.join(__dirname, '../src/service_worker.js');
+  const checked = childProcess.spawnSync(process.execPath, ['--check', workerPath], { encoding: 'utf8' });
+  assert.equal(checked.status, 0, checked.stderr || checked.stdout);
+});
+
+test('Broker connect declares browser family and candidate', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
+  assert.match(worker, /BROWSER_FAMILY = navigator\.userAgent\.includes\('Edg\/'\) \? 'edge' : 'chrome'/);
+  assert.match(worker, /browser_family: BROWSER_FAMILY/);
+  assert.match(worker, /extension_candidate: LOADED_CANDIDATE/);
+  assert.match(worker, /browser_session_id: connectionSessionId/);
+  assert.match(worker, /worker_instance_id: WORKER_INSTANCE_ID/);
+  assert.match(worker, /\/v1\/extension\/connect/);
 });
 
 test('Agent tab lifecycle recovers from no current window and survives last-tab close', () => {
@@ -497,10 +629,10 @@ test('Agent tab lifecycle recovers from no current window and survives last-tab 
   assert.match(close, /closesLastWindowTab/);
   assert.ok(close.indexOf("reply(command, { tab_id: String(tabId), closed: true })") < close.indexOf('await chrome.tabs.remove(tabId)'));
   assert.match(worker, /chrome\.windows\.onRemoved\.addListener\(\(\) => \{ reconnectAfterWindowRemoval\(\); \}\)/);
-  const windowReconnect = worker.slice(worker.indexOf('async function reconnectAfterWindowRemoval'), worker.indexOf('async function connectHost'));
-  assert.match(windowReconnect, /if \(nativePort\) return/);
+  const windowReconnect = worker.slice(worker.indexOf('async function reconnectAfterWindowRemoval'), worker.indexOf('async function brokerRequest'));
+  assert.match(windowReconnect, /if \(brokerConnectionId\) return/);
   assert.doesNotMatch(windowReconnect, /\.disconnect\(\)/);
-  assert.match(windowReconnect, /await connectHost\(\)/);
+  assert.match(windowReconnect, /await connectBroker\(\)/);
 });
 
 test('the Collector reads the full document URL in the same collect as the objects', () => {
@@ -569,13 +701,13 @@ test('links declare a disposition only when this document cannot verify them', (
 test('software typing sets a value through the native setter and never reaches protected fields', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /SOFTWARE_TYPE_ROLES/);
-  assert.match(collector, /if \(request\.operation === 'type'\) return softType\(request\);/);
+  assert.match(collector, /if \(request\.operation === 'type'\) return softType\(request, preflight\);/);
   // Frameworks patch the value property, so assign through the prototype setter
   // or React and Angular never observe the change.
   assert.match(collector, /Object\.getOwnPropertyDescriptor\(prototype, 'value'\)\?\.set/);
   assert.match(collector, /element\.isContentEditable/);
-  assert.match(collector, /new InputEvent\('input'/);
-  assert.match(collector, /new Event\('change'/);
+  assert.match(collector, /new view\.InputEvent\('input'/);
+  assert.match(collector, /new view\.Event\('change'/);
   // A protected field carries no type affordance, so prepare() refuses it
   // before any software typing can run.
   const textField = fs.readFileSync(path.join(__dirname, '../src/controls/text_field.js'), 'utf8');
@@ -590,16 +722,39 @@ test('software typing dispatches a cancelable beforeinput before any mutation an
   assert.ok(!/\.focus\(/.test(softType), 'softType must not call focus itself — prepare() already did');
   // beforeinput must be dispatched, cancelable, and its result checked before
   // any value or DOM mutation runs.
-  const beforeinputIndex = softType.indexOf("new InputEvent('beforeinput'");
+  const beforeinputIndex = softType.indexOf("new view.InputEvent('beforeinput'");
   const cancelableIndex = softType.indexOf('cancelable: true');
   const checkIndex = softType.indexOf('if (!proceed)');
-  const mutationIndex = softType.indexOf('element.textContent = text');
+  const mutationIndex = softType.indexOf('replaceContentEditable(element, text)');
   assert.ok(beforeinputIndex >= 0, 'beforeinput must be dispatched');
   assert.ok(cancelableIndex >= 0 && cancelableIndex < mutationIndex, 'beforeinput must be cancelable');
   assert.ok(checkIndex >= 0 && checkIndex < mutationIndex,
     'the dispatchEvent result must be checked before any mutation');
-  assert.match(softType, /const proceed = element\.dispatchEvent\(new InputEvent\('beforeinput'/);
+  assert.match(softType, /const proceed = element\.dispatchEvent\(new view\.InputEvent\('beforeinput'/);
   assert.match(softType, /if \(!proceed\) throw actionFailure\('dispatch', 'page_canceled_beforeinput', false/);
+});
+
+test('software typing is frame-realm safe and verifies rich text without returning its contents', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const softType = collector.slice(collector.indexOf('function normalizedEditableValue('), collector.indexOf('function linkedFileInput('));
+  assert.match(softType, /const view = element\.ownerDocument\.defaultView/);
+  assert.match(softType, /view\.HTMLTextAreaElement\.prototype/);
+  assert.match(softType, /view\.HTMLInputElement\.prototype/);
+  assert.match(softType, /document\.createRange\(\)/);
+  assert.match(softType, /document\.execCommand\('insertText', false, text\)/);
+  assert.match(softType, /await waitForEditableValue\(element, text, request\.timeout_ms\)/);
+  assert.match(softType, /code: element\.isContentEditable \? 'editable_content_observed' : 'field_value_observed'/);
+  assert.match(softType, /verified: locallyVerified/);
+  assert.doesNotMatch(softType, /semantic_postcondition[\s\S]{0,200}(?:text|value): text/);
+});
+
+test('form toggles and choices return value-free local semantic postconditions', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  assert.match(collector, /code: 'toggle_state_observed'/);
+  assert.match(collector, /verified: toggleAfter !== toggleBefore/);
+  assert.match(collector, /code: 'selection_state_observed'/);
+  assert.match(collector, /option\.selected === true && target\.selectedIndex === option\.index/);
+  assert.doesNotMatch(collector, /semantic_postcondition:\s*\{[^}]*value:/);
 });
 
 test('software preparation keeps a zero-wait fast path and bounds local actionability waiting', () => {
@@ -607,16 +762,31 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   const prepare = collector.slice(collector.indexOf('function prepare('), collector.indexOf('function softClick('));
   assert.match(prepare, /request\.defer_scroll === true/);
   assert.match(prepare, /scrollIntoView/);
+  assert.match(prepare, /const focusElement = target\.controlElement \|\| target\.element/);
+  assert.match(prepare, /request\.operation === 'type' \|\| request\.operation === 'select'/);
+  assert.match(prepare, /focusElement\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(prepare, /focusElement\.ownerDocument\.activeElement === focusElement/);
+  assert.doesNotMatch(prepare, /top\.document\.hasFocus\(\)/);
   assert.match(prepare, /function waitForSoftwarePreparation/);
   assert.match(prepare, /function softwarePreparationPolicy/);
   assert.match(prepare, /request\.operation === 'click' && target\.role === 'reflex_target'/);
+  assert.match(prepare, /const focusRequired = request\.operation === 'type' \|\| request\.operation === 'select'/);
   assert.match(prepare, /require_topmost: !reflexClick/);
-  assert.match(prepare, /require_focus: !reflexClick/);
+  assert.match(prepare, /require_focus: focusRequired/);
   assert.match(prepare, /require_stable_geometry: !reflexClick/);
   assert.match(prepare, /!policy\.require_stable_geometry \|\| !targetGeometryIsAnimating/);
-  assert.match(prepare, /await new Promise\(\(resolve\) => requestAnimationFrame\(resolve\)\)/);
+  assert.match(prepare, /function currentSoftwareRequest\(request\)/);
+  assert.match(prepare, /request\.basis_revision < revision/);
+  assert.match(prepare, /request\.document_id === documentId/);
+  assert.match(prepare, /target\.objectId === request\.object_id/);
+  assert.match(prepare, /target\.affordances\.includes\(request\.operation\)/);
+  assert.match(prepare, /activeRequest = currentSoftwareRequest\(activeRequest\)/);
+  assert.match(prepare, /function waitForPreparationFrame\(deadline\)/);
+  assert.match(prepare, /requestAnimationFrame\(\(\) => finish\(true\)\)/);
+  assert.match(prepare, /setTimeout\(\(\) => \{\s*cancelAnimationFrame\(frameId\);\s*finish\(false\);/s);
+  assert.match(prepare, /if \(!await waitForPreparationFrame\(deadline\)\) break/);
   assert.match(prepare, /!policy\.require_stable_geometry \|\| stableFrames >= 2/);
-  assert.match(prepare, /collect\(\);\s+prepared = prepare\(\{ \.\.\.request, basis_revision: revision \}\)/);
+  assert.match(prepare, /collect\(\);\s+activeRequest = currentSoftwareRequest\(activeRequest\);\s+prepared = prepare\(activeRequest\)/);
   assert.match(prepare, /actionability_timeout_/);
   assert.match(prepare, /request\.timeout_ms/);
   assert.match(prepare, /targetEnabled/);
@@ -625,8 +795,25 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   const softType = collector.slice(collector.indexOf('function softType('), collector.indexOf('function softAction('));
   assert.match(softType, /await waitForSoftwarePreparation\(request\)/);
   assert.match(softType, /local_wait_ms: prepared\.local_wait_ms/);
+  assert.match(collector, /dispatch_document_id: prepared\.document_id/);
+  assert.match(collector, /dispatch_basis_revision: prepared\.basis_revision/);
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /saccade_action_error\|\$\{stage\}\|\$\{code\}\|\$\{retrySafe\}/);
+});
+
+test('form batch preflights all steps then revalidates each exact token before dispatch', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const batch = collector.slice(
+    collector.indexOf('async function softActionBatch('),
+    collector.indexOf('function schedule()'),
+  );
+  const preflight = batch.indexOf('prepared.push(await waitForSoftwarePreparation');
+  const dispatch = batch.indexOf('const result = await softAction({ ...step, timeout_ms: remaining })');
+  assert.ok(preflight >= 0 && preflight < dispatch, 'the complete batch must preflight before dispatch');
+  assert.match(batch, /if \(index > 0\) collect\(\)/);
+  assert.match(batch, /partial_dispatch: receipts\.length > 0/);
+  assert.match(batch, /retry_safe: receipts\.length === 0/);
+  assert.doesNotMatch(batch, /softAction\(step, prepared\[index\]\)/);
 });
 
 test('native preparation removes symmetric window borders from the content origin', () => {
@@ -649,17 +836,17 @@ test('the browser harness edits through the same statements as the collector', (
   const harness = fs.readFileSync(
     path.join(__dirname, '../../fixtures/controls/software_type_harness.html'), 'utf8');
   const shared = [
-    "const proceed = element.dispatchEvent(new InputEvent('beforeinput', {",
+    'const view = element.ownerDocument.defaultView;',
+    "const proceed = element.dispatchEvent(new view.InputEvent('beforeinput', {",
     "bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: text,",
     'if (element.isContentEditable) {',
-    'element.textContent = text;',
-    "const prototype = element instanceof HTMLTextAreaElement",
-    "? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;",
+    'replaceContentEditable(element, text);',
+    "const prototype = element.tagName === 'TEXTAREA'",
+    '? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype;',
     "const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;",
     'if (setter) setter.call(element, text); else element.value = text;',
-    "element.dispatchEvent(new InputEvent('input', {",
-    "bubbles: true, composed: true, inputType: 'insertText', data: text,",
-    "element.dispatchEvent(new Event('change', { bubbles: true }));",
+    "element.dispatchEvent(new view.InputEvent('input', {",
+    "element.dispatchEvent(new view.Event('change', { bubbles: true }));",
   ];
   for (const statement of shared) {
     assert.ok(collector.includes(statement), `collector must contain: ${statement}`);

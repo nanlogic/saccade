@@ -2,3 +2,19 @@
 <meta charset="utf-8">
 <div contenteditable="true" role="textbox" aria-label="Draft"></div>
 <div contenteditable="true" role="textbox" aria-label="Read-only draft" aria-readonly="true"></div>
+<label for="rich-frame">Long description</label>
+<iframe id="rich-frame" title="Long description editor" srcdoc="<!doctype html><style>body{min-height:120px;font:16px sans-serif}</style><body></body>"></iframe>
+<textarea id="rich-backing" hidden aria-hidden="true"></textarea>
+<output id="rich-status">Waiting</output>
+<script>
+  document.getElementById('rich-frame').addEventListener('load', (event) => {
+    const editor = event.currentTarget.contentDocument.body;
+    editor.contentEditable = 'true';
+    editor.setAttribute('role', 'textbox');
+    editor.setAttribute('aria-label', 'Long description');
+    editor.addEventListener('input', () => {
+      document.getElementById('rich-backing').value = editor.innerText;
+      document.getElementById('rich-status').textContent = editor.innerText ? 'Synchronized' : 'Waiting';
+    });
+  });
+</script>

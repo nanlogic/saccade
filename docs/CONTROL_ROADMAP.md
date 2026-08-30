@@ -97,12 +97,10 @@ After public evidence is complete:
 - dogfood Codex and Claude against the same browser instance;
 - publish a five-minute README quickstart and reproducible evidence bundle.
 
-The setup package must verify platform Runtime checksums, install only
-user-level Native Messaging and MCP configuration, preserve the Profile during
-updates and ordinary uninstall, and pass install, doctor, update, rollback, and
-uninstall tests. It must not use `postinstall`, add a visible Runtime app, or
-request Accessibility. The target package is not yet published and the npm
-scope is not yet confirmed.
+The Node package configures only MCP and the Profile, preserves the Profile
+during updates and ordinary uninstall, and passes install, doctor, update, and
+uninstall tests. It has no `postinstall`, downloaded binary, OS registration,
+or Accessibility requirement.
 
 Current honest claim: Saccade has a complete local Truth role inventory and a
 two-browser pushed-delta framework gate. Universal modern-web compatibility and

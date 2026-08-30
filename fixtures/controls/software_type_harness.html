@@ -107,22 +107,43 @@
     <script>
       function applyEdit(element, text) {
         element.focus({ preventScroll: true });
-        const proceed = element.dispatchEvent(new InputEvent('beforeinput', {
+        const view = element.ownerDocument.defaultView;
+        const proceed = element.dispatchEvent(new view.InputEvent('beforeinput', {
           bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: text,
         }));
         if (!proceed) throw new Error('software type was canceled by the page');
+        let inputObserved = false;
+        const observeInput = () => { inputObserved = true; };
+        element.addEventListener('input', observeInput, { once: true });
         if (element.isContentEditable) {
-          element.textContent = text;
+          replaceContentEditable(element, text);
         } else {
-          const prototype = element instanceof HTMLTextAreaElement
-            ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const prototype = element.tagName === 'TEXTAREA'
+            ? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype;
           const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
           if (setter) setter.call(element, text); else element.value = text;
         }
-        element.dispatchEvent(new InputEvent('input', {
-          bubbles: true, composed: true, inputType: 'insertText', data: text,
-        }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
+        if (!inputObserved) {
+          element.dispatchEvent(new view.InputEvent('input', {
+            bubbles: true, composed: true, inputType: 'insertText', data: text,
+          }));
+        }
+        element.dispatchEvent(new view.Event('change', { bubbles: true }));
+      }
+
+      function replaceContentEditable(element, text) {
+        const document = element.ownerDocument;
+        const selection = document.defaultView.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        let edited = false;
+        try { edited = document.execCommand('insertText', false, text) === true; }
+        catch (_error) { edited = false; }
+        if (!edited || element.innerText !== text) {
+          element.replaceChildren(document.createTextNode(text));
+        }
       }
       const out = {}; const fail = [];
       const expected = ['beforeinput(insertText)', 'input(insertText)', 'change'];

@@ -31,37 +31,10 @@ jobs:
         run: |
           node --test packages/setup/test/*.test.js
           npm pack ./packages/setup --dry-run
-      - name: Download and verify the GitHub Release manifest
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          mkdir -p dist/npm-release
-          gh release download "$RELEASE_TAG" \
-            --repo nanlogic/saccade \
-            --pattern release.json \
-            --pattern SHA256SUMS \
-            --pattern 'saccade-runtime-*' \
-            --dir dist/npm-release
-          python3 scripts/verify_published_setup_release.py \
-            --release dist/npm-release/release.json \
-            --tag "$RELEASE_TAG" \
-            --artifact-dir dist/npm-release
-          (cd dist/npm-release && sha256sum --check SHA256SUMS)
-          cp dist/npm-release/release.json packages/setup/release.json
       - name: Publish with provenance
         working-directory: packages/setup
         env:
-          # Only the first @nanlogic/saccade publication may use this short-lived
-          # bootstrap credential. Delete it after v0.1.1 and use OIDC thereafter.
-          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ -n "$NPM_BOOTSTRAP_TOKEN" ]; then
-            if [ "$RELEASE_TAG" != "v0.1.1" ]; then
-              echo "bootstrap token is restricted to v0.1.1" >&2
-              exit 1
-            fi
-            export NODE_AUTH_TOKEN="$NPM_BOOTSTRAP_TOKEN"
-          fi
+          node -e "const p=require('./package.json'); if(process.env.RELEASE_TAG !== 'v'+p.version) process.exit(1)"
           npm publish --access public --provenance
