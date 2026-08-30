@@ -21,6 +21,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: packages/setup/package-lock.json
+      - name: Install Broker dependencies
+        run: npm ci --prefix packages/setup --ignore-scripts
       - name: Node Broker, MCP, and Extension tests
         run: |
           node --test packages/setup/test/*.test.js
