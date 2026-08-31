@@ -1,7 +1,20 @@
 # Saccade 0.2.0 launch kit
 
-This file contains drafts. It does not record publication to any external
-platform.
+This file contains the original launch drafts and the final publication record.
+The published article was rewritten after audience research for a less technical,
+sales-and-operations-led story, then reviewed with Stop Slop 2.
+
+## Publication record
+
+- DEV Community — published August 31, 2026:
+  https://dev.to/sacravenger/your-ai-can-write-the-sales-email-can-you-trust-it-to-click-send-2njn
+- Medium — imported through Medium's native story importer and published
+  August 31, 2026:
+  https://medium.com/@wayne.ma/your-ai-can-write-the-sales-email-can-you-trust-it-to-click-send-8b8460a163b9
+- Shared wide cover:
+  `assets/saccade-browser-trust-cover-wide.png`
+- Hacker News — published August 31, 2026:
+  https://news.ycombinator.com/item?id=49516118
 
 ## Short Chinese preview
 
