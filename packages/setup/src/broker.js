@@ -15,6 +15,7 @@ const HISTORY_LIMIT = 256;
 const DIAGNOSTIC_LIMIT = 256;
 const COMMAND_LIMIT = 1024;
 const EXTENSION_POLL_HEARTBEAT_MS = 2_000;
+const EXTENSION_DISPATCH_GRACE_MS = 1_000;
 const STATE_SCHEMA = 'saccade.node-broker-state/1';
 const OCCURRENCE_LIMIT = 256;
 const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
@@ -400,6 +401,7 @@ class BrokerState extends EventEmitter {
       state: 'online',
       connected_at: this.now(),
       last_seen_at: this.now(),
+      last_poll_at: null,
       poll_count: 0,
       keepalive_count: 0,
       keepalive_socket: null,
@@ -410,6 +412,7 @@ class BrokerState extends EventEmitter {
     for (const command of this.commands.values()) {
       if (command.state === 'queued' && command.browser_instance_id === browserInstanceId) {
         connection.queue.push(command.command_id);
+        this.armCommandDispatchGuard(command, connection);
       }
     }
     this.record({ stage: 'extension', code: 'connected', browser_instance_id: browserInstanceId });
@@ -474,9 +477,23 @@ class BrokerState extends EventEmitter {
     });
   }
 
+  connectionDispatchReady(connection) {
+    if (connection.state !== 'online') return false;
+    if (connection.waiters.length > 0) return true;
+    if (this.connectionHasDeliveredCommand(connection)) return true;
+    if (connection.last_poll_at === null) return false;
+    return this.now() - connection.last_poll_at <= EXTENSION_DISPATCH_GRACE_MS;
+  }
+
+  connectionHasDeliveredCommand(connection) {
+    return [...this.commands.values()].some((command) => (
+      command.state === 'delivered' && command.connection_id === connection.connection_id
+    ));
+  }
+
   activeConnection(browserInstanceId) {
     return [...this.connections.values()]
-      .filter((connection) => connection.state === 'online'
+      .filter((connection) => this.connectionDispatchReady(connection)
         && (!browserInstanceId || connection.browser_instance_id === browserInstanceId))
       .sort((left, right) => right.connected_at - left.connected_at)[0];
   }
@@ -485,6 +502,7 @@ class BrokerState extends EventEmitter {
     const connection = this.connections.get(cleanId(connectionId, 'connection_id'));
     if (!connection || connection.state !== 'online') throw new BrokerError('EXTENSION_OFFLINE', 'Extension connection is offline');
     connection.last_seen_at = this.now();
+    connection.last_poll_at = this.now();
     connection.poll_count += 1;
     const immediate = this.takeCommands(connection);
     if (immediate.length) return immediate;
@@ -517,6 +535,8 @@ class BrokerState extends EventEmitter {
         continue;
       }
       command.state = 'delivered';
+      clearTimeout(command.dispatch_timer);
+      command.dispatch_timer = null;
       command.delivered_at = this.now();
       command.connection_id = connection.connection_id;
       this.updateOccurrence(command, 'dispatched');
@@ -537,6 +557,44 @@ class BrokerState extends EventEmitter {
     const waiter = connection.waiters.shift();
     const commands = this.takeCommands(connection);
     waiter.finish(commands);
+  }
+
+  armCommandDispatchGuard(command, connection) {
+    clearTimeout(command.dispatch_timer);
+    command.dispatch_timer = null;
+    if (command.state !== 'queued' || connection.waiters.length > 0
+        || this.connectionHasDeliveredCommand(connection)) return;
+    const remainingConsumerLease = connection.last_poll_at === null
+      ? EXTENSION_DISPATCH_GRACE_MS
+      : Math.max(1, EXTENSION_DISPATCH_GRACE_MS - (this.now() - connection.last_poll_at));
+    command.dispatch_timer = setTimeout(() => {
+      if (command.state !== 'queued') return;
+      const current = this.activeConnection(command.browser_instance_id);
+      if (current) {
+        if (!current.queue.includes(command.command_id)) current.queue.push(command.command_id);
+        this.wakeConnection(current);
+        if (command.state === 'queued') this.armCommandDispatchGuard(command, current);
+        return;
+      }
+      for (const candidate of this.connections.values()) {
+        candidate.queue = candidate.queue.filter((id) => id !== command.command_id);
+      }
+      this.finishCommand(command, null, new BrokerError(
+        'EXTENSION_OFFLINE',
+        'Extension command consumer stopped before dispatch',
+        { stage: 'extension_queue', outcome: 'rejected', retry_safe: true },
+      ));
+    }, remainingConsumerLease);
+    command.dispatch_timer.unref?.();
+  }
+
+  armQueuedCommandGuards(connection) {
+    if (!connection || connection.state !== 'online' || connection.waiters.length > 0
+        || this.connectionHasDeliveredCommand(connection)) return;
+    for (const commandId of connection.queue) {
+      const command = this.commands.get(commandId);
+      if (command?.state === 'queued') this.armCommandDispatchGuard(command, connection);
+    }
   }
 
   enqueueCommand(agentSessionId, kind, payload, timeoutMs, {
@@ -584,6 +642,7 @@ class BrokerState extends EventEmitter {
       }, Math.max(1, deadlineAt - this.now()));
       command.timer = timer;
       this.wakeConnection(connection);
+      if (command.state === 'queued') this.armCommandDispatchGuard(command, connection);
     });
   }
 
@@ -592,8 +651,9 @@ class BrokerState extends EventEmitter {
     const command = this.commands.get(commandId);
     if (!command || command.agent_session_id !== agentSessionId) throw new BrokerError('COMMAND_UNKNOWN', 'Command is unknown');
     if (command.state === 'queued') {
-      const connection = this.connections.get(command.connection_id);
-      if (connection) connection.queue = connection.queue.filter((id) => id !== command.command_id);
+      for (const connection of this.connections.values()) {
+        connection.queue = connection.queue.filter((id) => id !== command.command_id);
+      }
       this.finishCommand(command, null, new BrokerError('CANCELLED', 'Command cancelled before dispatch', { retry_safe: true }));
       return { cancelled: true, dispatched: false };
     }
@@ -620,6 +680,7 @@ class BrokerState extends EventEmitter {
   finishCommand(command, result, error) {
     if (['complete', 'failed'].includes(command.state)) return;
     clearTimeout(command.timer);
+    clearTimeout(command.dispatch_timer);
     command.completed_at = this.now();
     this.updateOccurrence(
       command,
@@ -637,6 +698,9 @@ class BrokerState extends EventEmitter {
     }
     scrubCommandPayload(command);
     command.state = error ? 'failed' : 'complete';
+    const completedConnection = command.connection_id
+      ? this.connections.get(command.connection_id) : null;
+    this.armQueuedCommandGuards(completedConnection);
     this.record({
       command_id: command.command_id,
       agent_session_id: command.agent_session_id,
@@ -659,6 +723,7 @@ class BrokerState extends EventEmitter {
     if (!Array.isArray(events) || events.length > 256) throw new BrokerError('INVALID_MESSAGE', 'events must be a bounded array');
     for (const event of events) {
       if (event.kind === 'response') {
+        connection.last_poll_at = this.now();
         const command = this.commands.get(event.command_id);
         if (!command || command.connection_id !== connectionId || command.state !== 'delivered') continue;
         if (event.error) this.finishCommand(command, null, new BrokerError(
@@ -1096,7 +1161,7 @@ class BrokerState extends EventEmitter {
     if (method === 'system.capabilities') {
       const tabs = this.listTabs(agentSessionId);
       const connectedExtensions = [...this.connections.values()]
-        .filter((connection) => connection.state === 'online')
+        .filter((connection) => this.connectionDispatchReady(connection))
         .sort((left, right) => left.connected_at - right.connected_at)
         .map((connection) => ({
           browser_instance_id: connection.browser_instance_id,
@@ -1133,7 +1198,7 @@ class BrokerState extends EventEmitter {
       const requestedBrowserInstanceId = params.browser_instance_id === undefined
         ? undefined : cleanId(params.browser_instance_id, 'browser_instance_id');
       const onlineConnections = [...this.connections.values()]
-        .filter((connection) => connection.state === 'online');
+        .filter((connection) => this.connectionDispatchReady(connection));
       if (!requestedBrowserInstanceId && onlineConnections.length > 1) {
         throw new BrokerError('AMBIGUOUS_BROWSER', 'tabs.open requires browser_instance_id when multiple browsers are connected', {
           retry_safe: true,
@@ -1361,10 +1426,25 @@ class BrokerState extends EventEmitter {
   doctor() {
     const failures = this.diagnostics.filter((event) => event.code !== 'acknowledged' && event.code !== 'connected').slice(-16);
     const onlineExtensions = [...this.connections.values()].filter((connection) => connection.state === 'online');
+    const dispatchableExtensions = onlineExtensions.filter((connection) => this.connectionDispatchReady(connection));
     return {
       schema: 'saccade.doctor/2', runtime: 'node', broker_epoch: this.epoch,
       extension_connected: Boolean(this.activeConnection()),
       online_extension_connections: onlineExtensions.length,
+      dispatchable_extension_connections: dispatchableExtensions.length,
+      stale_extension_connections: onlineExtensions.length - dispatchableExtensions.length,
+      extension_connections: onlineExtensions.slice(-16).map((connection) => ({
+        browser_instance_id: connection.browser_instance_id,
+        browser_family: connection.browser_family,
+        extension_candidate: connection.extension_candidate,
+        dispatch_state: this.connectionDispatchReady(connection)
+          ? 'dispatchable' : connection.last_poll_at === null ? 'consumer_not_started' : 'consumer_stale',
+        poll_count: connection.poll_count,
+        poll_waiters: connection.waiters.length,
+        keepalive_connected: Boolean(connection.keepalive_socket),
+        ms_since_last_poll: connection.last_poll_at === null
+          ? null : Math.max(0, this.now() - connection.last_poll_at),
+      })),
       extension_polls: onlineExtensions.reduce((total, connection) => total + connection.poll_count, 0),
       extension_poll_waiters: onlineExtensions.reduce((total, connection) => total + connection.waiters.length, 0),
       extension_keepalives: onlineExtensions.reduce((total, connection) => total + connection.keepalive_count, 0),
@@ -1659,7 +1739,9 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
           return undefined;
         });
         webSocket.on('close', () => {
-          if (connection.keepalive_socket === webSocket) connection.keepalive_socket = null;
+          if (connection.keepalive_socket !== webSocket) return;
+          connection.keepalive_socket = null;
+          brokerState.disconnectExtension(connectionId, 'keepalive_closed');
         });
       });
     } catch (_error) {

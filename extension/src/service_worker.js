@@ -11,6 +11,8 @@ const BROWSER_SESSION_KEY = 'saccade.browser_session_initialized';
 const CONNECTION_SESSION_KEY = 'saccade.connection_session_id';
 const WORKER_INSTANCE_ID = randomToken('worker');
 const KEEPALIVE_INTERVAL_MS = 20_000;
+const BROKER_REQUEST_TIMEOUT_MS = 5_000;
+const COLLECTOR_MESSAGE_TIMEOUT_MS = 1_000;
 const ACTION_RESPONSE_RESERVE_MS = 250;
 const CLAIM_TTL_MS = 30_000;
 const agentOwnedTabs = new Set();
@@ -30,6 +32,7 @@ let reconnectAttempts = 0;
 let reconnectTimer;
 let brokerLoopGeneration = 0;
 let commandLoopState;
+let tabRecoveryState;
 let keepaliveSocket;
 let keepaliveTimer;
 const pendingEvents = [];
@@ -44,7 +47,9 @@ function sameCandidate(candidate) {
 async function reloadIfCandidateChanged() {
   try {
     const url = `${chrome.runtime.getURL('candidate.json')}?candidate_check=${Date.now()}`;
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await fetch(url, {
+      cache: 'no-store', signal: AbortSignal.timeout(BROKER_REQUEST_TIMEOUT_MS),
+    });
     const installed = await response.json();
     if (!sameCandidate(installed)) {
       chrome.runtime.reload();
@@ -107,6 +112,32 @@ function activeClaim() {
 
 function isAuthorized(tabId) { return agentOwnedTabs.has(tabId) || userSharedTabs.has(tabId); }
 
+function brokerRuntimePresent() {
+  return Boolean(brokerConnectionId
+    && commandLoopState?.connectionId === brokerConnectionId
+    && keepaliveSocket?.saccadeConnectionId === brokerConnectionId
+    && keepaliveSocket.readyState !== WebSocket.CLOSING
+    && keepaliveSocket.readyState !== WebSocket.CLOSED);
+}
+
+function brokerRuntimeReady() {
+  return brokerRuntimePresent() && keepaliveSocket.readyState === WebSocket.OPEN;
+}
+
+async function ensureBrokerConnection() {
+  if (brokerRuntimePresent() || connectPromise) return;
+  if (brokerConnectionId) {
+    const connectionId = brokerConnectionId;
+    brokerConnectionId = undefined;
+    brokerEpoch = undefined;
+    pendingClaim = undefined;
+    brokerLoopGeneration += 1;
+    commandLoopState = undefined;
+    stopKeepalive(connectionId);
+  }
+  await connectBroker();
+}
+
 async function tabStatus(tabId) {
   const tab = await chrome.tabs.get(tabId);
   const supported = isSupportedUrl(tab.url);
@@ -116,7 +147,7 @@ async function tabStatus(tabId) {
     shared: userSharedTabs.has(tabId), authorized: isAuthorized(tabId),
     provenance: tabProvenance(tabId),
     observation_ready: Boolean(session?.observationReady), collector_error: session?.error,
-    broker_connected: Boolean(brokerConnectionId),
+    broker_connected: brokerRuntimeReady(),
   };
 }
 
@@ -131,7 +162,7 @@ async function revokeTabAccess(tabId) {
   forgetTab(tabId);
   sessions.delete(tabId);
   await persistAcl();
-  try { await chrome.tabs.sendMessage(tabId, { kind: 'collector.deauthorize' }, { frameId: 0 }); } catch (_error) { /* already gone */ }
+  try { await collectorMessage(tabId, { kind: 'collector.deauthorize' }); } catch (_error) { /* already gone */ }
 }
 
 const RECONNECT_ALARM = 'saccade.node-broker-reconnect';
@@ -143,14 +174,25 @@ function armReconnectAlarm() {
 
 function scheduleReconnect(error) {
   if (error) console.error(`Saccade reconnect scheduled: ${String(error.message || error)}`);
-  if (brokerConnectionId || connectPromise) return;
+  if (brokerConnectionId) return;
   if (reconnectTimer) {
     armReconnectAlarm();
     return;
   }
   const delay = Math.min(250 * (2 ** reconnectAttempts++), 4000);
   armReconnectAlarm();
-  reconnectTimer = setTimeout(() => { reconnectTimer = null; connectBroker().catch(scheduleReconnect); }, delay);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (brokerConnectionId) return;
+    if (connectPromise) {
+      const pending = connectPromise;
+      pending.finally(() => {
+        if (!brokerConnectionId && connectPromise !== pending) scheduleReconnect();
+      });
+      return;
+    }
+    connectBroker().catch(scheduleReconnect);
+  }, delay);
 }
 
 async function reconnectAfterWindowRemoval() {
@@ -160,9 +202,11 @@ async function reconnectAfterWindowRemoval() {
 }
 
 async function brokerRequest(path, options = {}) {
+  const { timeoutMs = BROKER_REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
   const response = await fetch(`${BROKER_ORIGIN}${path}`, {
     cache: 'no-store',
-    ...options,
+    ...fetchOptions,
+    signal: fetchOptions.signal || AbortSignal.timeout(timeoutMs),
     headers: { 'content-type': 'application/json', ...(options.headers || {}) },
   });
   const body = await response.json().catch(() => ({}));
@@ -171,9 +215,29 @@ async function brokerRequest(path, options = {}) {
 }
 
 async function settleReconnect(connectionId) {
-  if (brokerConnectionId !== connectionId) return;
+  if (brokerConnectionId !== connectionId || !brokerRuntimeReady()) return;
   reconnectAttempts = 0;
   armReconnectAlarm();
+}
+
+function boundedPromise(promise, timeoutMs, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(message);
+      error.saccadeLocalTimeout = true;
+      reject(error);
+    }, Math.max(1, timeoutMs));
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+
+function collectorMessage(tabId, message, timeoutMs = COLLECTOR_MESSAGE_TIMEOUT_MS) {
+  return boundedPromise(
+    chrome.tabs.sendMessage(tabId, message, { frameId: 0 }),
+    timeoutMs,
+    'Collector message timed out',
+  );
 }
 
 async function flushEvents(connectionId = brokerConnectionId) {
@@ -229,6 +293,7 @@ function startKeepalive(connectionId) {
     if (keepaliveSocket !== socket || brokerConnectionId !== connectionId) return socket.close();
     heartbeat();
     keepaliveTimer = setInterval(heartbeat, KEEPALIVE_INTERVAL_MS);
+    settleReconnect(connectionId).catch(scheduleReconnect);
     return undefined;
   };
   socket.onmessage = (event) => {
@@ -263,6 +328,7 @@ async function commandLoop(connectionId, generation) {
           code: error.saccadeCode || 'EXTENSION_REJECTED',
           message: String(error?.message || error).slice(0, 512),
           stage: error.saccadeStage || 'extension',
+          outcome: error.saccadeOutcome,
           retry_safe: error.saccadeRetrySafe === true,
         } });
       }
@@ -286,6 +352,23 @@ function startCommandLoop(connectionId, generation) {
     if (commandLoopState === state) commandLoopState = undefined;
   });
   commandLoopState = state;
+}
+
+function startTabRecovery(connectionId, requireFullTruth) {
+  const state = { connectionId, promise: null };
+  const tabIds = [...new Set([...agentOwnedTabs, ...userSharedTabs])];
+  state.promise = Promise.allSettled(tabIds.map(async (tabId) => {
+    if (brokerConnectionId !== connectionId) return;
+    try {
+      await authorizeTab(tabId);
+      if (requireFullTruth && brokerConnectionId === connectionId) {
+        await requestCollectorSnapshot(tabId);
+      }
+    } catch (error) { reportAuthorizationFailure(error); }
+  })).finally(() => {
+    if (tabRecoveryState === state) tabRecoveryState = undefined;
+  });
+  tabRecoveryState = state;
 }
 
 async function connectBroker() {
@@ -318,14 +401,8 @@ async function connectBroker() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
     pendingEvents.length = 0;
     const generation = ++brokerLoopGeneration;
-    setTimeout(() => { settleReconnect(connected.connection_id).catch(scheduleReconnect); }, 1000);
-    for (const tabId of new Set([...agentOwnedTabs, ...userSharedTabs])) {
-      try {
-        await authorizeTab(tabId);
-        if (connected.require_full_truth) await requestCollectorSnapshot(tabId);
-      } catch (error) { reportAuthorizationFailure(error); }
-    }
     startCommandLoop(connected.connection_id, generation);
+    startTabRecovery(connected.connection_id, connected.require_full_truth);
   })().finally(() => { connectPromise = undefined; });
   return connectPromise;
 }
@@ -452,7 +529,7 @@ async function authorizeTab(tabId, { recoverStale = false } = {}) {
 async function waitForCurrentCollector(tabId, attempts) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const ping = await chrome.tabs.sendMessage(tabId, { kind: 'collector.ping' }, { frameId: 0 });
+      const ping = await collectorMessage(tabId, { kind: 'collector.ping' }, 100);
       if (ping?.ok === true && sameCandidate(ping.extension_candidate)) return true;
     } catch (_error) { /* static bundle may still be starting */ }
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -475,9 +552,9 @@ async function authorizeTabInner(tabId, expectedUrl, recoverStale) {
   }
   if (!ready) throw new Error('static Collector is unavailable or stale');
   try {
-    const configured = await chrome.tabs.sendMessage(tabId, { kind: 'collector.configure', config: {
+    const configured = await collectorMessage(tabId, { kind: 'collector.configure', config: {
       browserInstanceId, tabId: String(tabId), frameId: `frame.${tabId}.0`,
-    } }, { frameId: 0 });
+    } });
     if (!configured?.ok) throw new Error(configured?.error || 'collector configuration failed');
     const session = sessions.get(tabId);
     if (session?.url === tab.url) { session.configuring = false; session.configured = true; }
@@ -502,6 +579,31 @@ function extensionDeadlineError(message) {
   error.saccadeCode = 'deadline_exceeded';
   error.saccadeRetrySafe = true;
   return error;
+}
+
+function extensionOutcomeUnknownError(message) {
+  const error = new Error(message);
+  error.saccadeStage = 'dispatch';
+  error.saccadeCode = 'OUTCOME_UNKNOWN';
+  error.saccadeOutcome = 'outcome_unknown';
+  error.saccadeRetrySafe = false;
+  return error;
+}
+
+async function collectorCommand(tabId, message, timeoutMs, { sideEffect = true } = {}) {
+  try {
+    return await collectorMessage(tabId, message, timeoutMs);
+  } catch (error) {
+    if (error?.saccadeLocalTimeout) {
+      if (sideEffect) {
+        throw extensionOutcomeUnknownError(
+          'Collector response did not arrive after action dispatch; the outcome is unknown',
+        );
+      }
+      throw extensionDeadlineError('Collector response did not arrive before the command deadline');
+    }
+    throw error;
+  }
 }
 
 function remainingCommandMs(deadlineAt) {
@@ -624,7 +726,10 @@ async function handleHostCommand(command) {
     payload.timeout_ms = Math.min(
       payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
     );
-    const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.prepare_action', request: payload }, { frameId: 0 });
+    const result = await collectorCommand(
+      tabId, { kind: 'collector.prepare_action', request: payload }, payload.timeout_ms,
+      { sideEffect: false },
+    );
     if (!result?.ok) throw collectorActionError(result, 'action preparation failed');
     reply(command, result.prepared);
   } else if (command.kind === 'soft_click') {
@@ -633,7 +738,9 @@ async function handleHostCommand(command) {
     payload.timeout_ms = Math.min(
       payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
     );
-    const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_click', request: payload }, { frameId: 0 });
+    const result = await collectorCommand(
+      tabId, { kind: 'collector.soft_click', request: payload }, payload.timeout_ms,
+    );
     if (!result?.ok) throw collectorActionError(result, 'soft click failed');
     reply(command, result.result);
   } else if (command.kind === 'soft_action') {
@@ -642,7 +749,9 @@ async function handleHostCommand(command) {
     payload.timeout_ms = Math.min(
       payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
     );
-    const result = await chrome.tabs.sendMessage(tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 });
+    const result = await collectorCommand(
+      tabId, { kind: 'collector.soft_action', request: payload }, payload.timeout_ms,
+    );
     if (!result?.ok) throw collectorActionError(result, 'software action failed');
     reply(command, result.result);
   } else if (command.kind === 'act') {
@@ -653,8 +762,8 @@ async function handleHostCommand(command) {
     );
     let result;
     try {
-      result = await chrome.tabs.sendMessage(
-        tabId, { kind: 'collector.soft_action', request: payload }, { frameId: 0 },
+      result = await collectorCommand(
+        tabId, { kind: 'collector.soft_action', request: payload }, payload.timeout_ms,
       );
     } finally {
       scrubUploadPayload(payload);
@@ -668,8 +777,8 @@ async function handleHostCommand(command) {
       payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
     );
     payload.steps = payload.steps.map((step) => ({ ...step, timeout_ms: payload.timeout_ms }));
-    const result = await chrome.tabs.sendMessage(
-      tabId, { kind: 'collector.soft_action_batch', request: payload }, { frameId: 0 },
+    const result = await collectorCommand(
+      tabId, { kind: 'collector.soft_action_batch', request: payload }, payload.timeout_ms,
     );
     if (!result?.ok) throw collectorActionError(result, 'form batch failed');
     reply(command, result.result || { accepted: true, steps: [] });
@@ -696,9 +805,7 @@ function collectorActionError(result, fallback) {
 }
 
 async function requestCollectorSnapshot(tabId) {
-  const result = await chrome.tabs.sendMessage(
-    tabId, { kind: 'collector.snapshot' }, { frameId: 0 },
-  );
+  const result = await collectorMessage(tabId, { kind: 'collector.snapshot' });
   if (!result?.ok) throw new Error(result?.error || 'collector snapshot failed');
 }
 
@@ -737,6 +844,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.kind === 'ui.tab.status' || message.kind === 'ui.tab.share' || message.kind === 'ui.tab.revoke') {
     const run = async () => {
       if (sender.url !== chrome.runtime.getURL('popup.html')) throw new Error('tab access changes require the Saccade popup');
+      if (!brokerRuntimePresent()) {
+        try { await ensureBrokerConnection(); } catch (error) { scheduleReconnect(error); }
+      }
       const tabId = numericTabId(message.tab_id);
       if (message.kind === 'ui.tab.share') {
         const tab = await chrome.tabs.get(tabId);
@@ -777,7 +887,7 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   // history.pushState/replaceState never reach the Collector's isolated world,
   // so same-document URL changes are relayed here instead.
   if (change.url && change.status === undefined) {
-    chrome.tabs.sendMessage(tabId, { kind: 'collector.recollect' }, { frameId: 0 })
+    collectorMessage(tabId, { kind: 'collector.recollect' })
       .catch(() => { /* collector not present in this tab */ });
   }
   if ((change.url || change.status === 'loading' || change.status === 'complete') && isSupportedUrl(tab.url)) {

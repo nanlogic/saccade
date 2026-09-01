@@ -25,6 +25,15 @@ function observation(tabId = '7', revision = 1) {
   };
 }
 
+function connectTestConsumer(broker, payload) {
+  const connected = broker.connectExtension(payload);
+  // Unit tests drive delivery by calling pollCommands after enqueue. Record
+  // the first-poll proof here without creating a waiter that would consume
+  // that command before the test can inspect it.
+  broker.connections.get(connected.connection_id).last_poll_at = broker.now();
+  return connected;
+}
+
 async function deliver(broker, connectionId, promise, result) {
   const [command] = await broker.pollCommands(connectionId, 10);
   broker.acceptExtensionEvents(connectionId, [{
@@ -40,7 +49,7 @@ test('tabs.open atomically leases one tab to one Agent session', async () => {
   const broker = new BrokerState();
   const first = broker.createSession().agent_session_id;
   const second = broker.createSession().agent_session_id;
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const opened = broker.rpc(first, 'tabs.open', { url: 'https://example.test' }, 1000);
   const result = await deliver(broker, connection.connection_id, opened, { tab_id: '7', opened: true });
   assert.equal(result.tab_id, '7');
@@ -63,8 +72,8 @@ test('tabs.open rejects missing or mixed route forms before dispatch', async () 
 test('tabs.open requires and obeys exact browser routing when multiple Extensions are online', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  const chrome = broker.connectExtension({ browser_instance_id: 'browser-chrome' });
-  const edge = broker.connectExtension({ browser_instance_id: 'browser-edge' });
+  const chrome = connectTestConsumer(broker, { browser_instance_id: 'browser-chrome' });
+  const edge = connectTestConsumer(broker, { browser_instance_id: 'browser-edge' });
   await assert.rejects(broker.rpc(session, 'tabs.open', {
     url: 'https://example.test',
   }, 50), (error) => error.code === 'AMBIGUOUS_BROWSER'
@@ -85,7 +94,7 @@ test('a user-shared tab is explicitly assigned to only one online Agent', async 
   const broker = new BrokerState();
   const first = broker.createSession().agent_session_id;
   const second = broker.createSession().agent_session_id;
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(first, 'tabs.open', { claim: 'shared', tab_id: '9' }, 1000);
   const result = await deliver(broker, connection.connection_id, pending, {
     tab_id: '9', opened: false, provenance: 'user_shared',
@@ -236,26 +245,26 @@ test('session IDs alone cannot authorize loopback RPC access', () => {
 test('a delivered action is never replayed after Extension reconnect', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  const first = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const first = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.enqueueCommand(session, 'act', { tab_id: '7' }, 1000);
   const [command] = await broker.pollCommands(first.connection_id, 10);
   assert.equal(command.kind, 'act');
   broker.disconnectExtension(first.connection_id, 'power_loss');
   await assert.rejects(pending, (error) => error.code === 'OUTCOME_UNKNOWN' && error.retry_safe === false);
-  const second = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const second = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   assert.deepEqual(await broker.pollCommands(second.connection_id, 5), []);
 });
 
 test('queued work belongs to the browser and is claimed only on Extension delivery', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  const first = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const first = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.enqueueCommand(session, 'tabs.open', { url: 'https://example.test' }, 1000);
   const queued = [...broker.commands.values()].at(-1);
   assert.equal(queued.browser_instance_id, 'browser-1');
   assert.equal(queued.connection_id, null);
 
-  const second = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const second = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   assert.equal(broker.connections.get(first.connection_id).state, 'offline');
   const [command] = await broker.pollCommands(second.connection_id, 10);
   assert.equal(command.kind, 'tabs.open');
@@ -269,10 +278,74 @@ test('queued work belongs to the browser and is claimed only on Extension delive
   assert.equal(broker.occurrences.at(-1).occurrence, 'acknowledged');
 });
 
+test('queued work behind a delivered action follows the exact browser replacement', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  const first = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
+  const dispatched = broker.enqueueCommand(session, 'act', { tab_id: '7' }, 1_000);
+  const [action] = await broker.pollCommands(first.connection_id, 10);
+  assert.equal(action.kind, 'act');
+
+  const queued = broker.enqueueCommand(session, 'tabs.open', {}, 1_000);
+  const replacement = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
+  await assert.rejects(dispatched, (error) => error.code === 'OUTCOME_UNKNOWN'
+    && error.retry_safe === false);
+  const [open] = await broker.pollCommands(replacement.connection_id, 10);
+  assert.equal(open.kind, 'tabs.open');
+  broker.acceptExtensionEvents(replacement.connection_id, [{
+    kind: 'response', command_id: open.command_id, result: { tab_id: '9' },
+  }]);
+  assert.equal((await queued).tab_id, '9');
+});
+
+test('stale online metadata is not command-dispatch authority', async () => {
+  let clock = 1_000;
+  const broker = new BrokerState({ now: () => clock });
+  const session = broker.createSession().agent_session_id;
+  const connected = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  assert.equal((await broker.rpc(session, 'system.capabilities')).extension_connected, false);
+  assert.equal(broker.doctor().extension_connections[0].dispatch_state, 'consumer_not_started');
+
+  const firstPoll = broker.pollCommands(connected.connection_id, 5);
+  assert.equal((await broker.rpc(session, 'system.capabilities')).extension_connected, true);
+  await firstPoll;
+
+  clock += 1_001;
+  const capabilities = await broker.rpc(session, 'system.capabilities');
+  assert.equal(capabilities.extension_connected, false);
+  assert.deepEqual(capabilities.connected_extensions, []);
+  assert.throws(
+    () => broker.enqueueCommand(session, 'tabs.open', {}, 1_000, { browserInstanceId: 'browser-1' }),
+    (error) => error.code === 'EXTENSION_OFFLINE' && error.retry_safe === true,
+  );
+  assert.equal(broker.doctor().online_extension_connections, 1);
+  assert.equal(broker.doctor().dispatchable_extension_connections, 0);
+  assert.equal(broker.doctor().stale_extension_connections, 1);
+  assert.equal(broker.doctor().extension_connections[0].dispatch_state, 'consumer_stale');
+});
+
+test('a command queued in the poll transition is rejected when the consumer never returns', async () => {
+  let clock = 2_000;
+  const broker = new BrokerState({ now: () => clock });
+  const session = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
+  broker.connections.get(connected.connection_id).last_poll_at = clock - 999;
+
+  const pending = broker.enqueueCommand(session, 'tabs.open', {}, 1_000, {
+    browserInstanceId: 'browser-1',
+  });
+  clock += 2;
+  await assert.rejects(pending, (error) => error.code === 'EXTENSION_OFFLINE'
+    && error.details.stage === 'extension_queue'
+    && error.retry_safe === true);
+  assert.equal(broker.commands.values().next().value.state, 'failed');
+  assert.deepEqual(broker.connections.get(connected.connection_id).queue, []);
+});
+
 test('Extension loss rejects queued work immediately when no reconnect is pending', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.enqueueCommand(session, 'tabs.open', {}, 1000);
   broker.disconnectExtension(connection.connection_id, 'power_loss');
   await assert.rejects(pending, (error) => (
@@ -283,14 +356,14 @@ test('Extension loss rejects queued work immediately when no reconnect is pendin
 test('a renewed consumer cannot claim another browser instance queue', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  broker.connectExtension({ browser_instance_id: 'browser-1' });
-  const other = broker.connectExtension({ browser_instance_id: 'browser-2' });
+  connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
+  const other = connectTestConsumer(broker, { browser_instance_id: 'browser-2' });
   const pending = broker.enqueueCommand(session, 'tabs.open', {}, 1000, {
     browserInstanceId: 'browser-1',
   });
 
   assert.deepEqual(await broker.pollCommands(other.connection_id, 5), []);
-  const renewed = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const renewed = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const [command] = await broker.pollCommands(renewed.connection_id, 10);
   assert.equal(command.kind, 'tabs.open');
   broker.acceptExtensionEvents(renewed.connection_id, [{
@@ -300,12 +373,12 @@ test('a renewed consumer cannot claim another browser instance queue', async () 
 });
 
 test('replacement diagnostics identify browser-family consumer contention', () => {
-  const broker = new BrokerState();
-  broker.connectExtension({
+  const broker = new BrokerState({ now: () => 1_000 });
+  connectTestConsumer(broker, {
     browser_instance_id: 'browser-1', browser_family: 'chrome',
     browser_session_id: 'session-1', worker_instance_id: 'worker-1',
   });
-  broker.connectExtension({
+  connectTestConsumer(broker, {
     browser_instance_id: 'browser-1', browser_family: 'edge',
     browser_session_id: 'session-1', worker_instance_id: 'worker-2',
   });
@@ -327,7 +400,7 @@ test('capabilities prove the attached browser family and exact Extension candida
     id: 'a'.repeat(64),
     version: '0.4.0',
   };
-  broker.connectExtension({
+  connectTestConsumer(broker, {
     browser_instance_id: 'browser-1', browser_family: 'chrome',
     extension_candidate: candidate,
   });
@@ -346,11 +419,11 @@ test('capabilities prove the attached browser family and exact Extension candida
 
 test('Extension handshake rejects unbounded or unrecognized candidate metadata', () => {
   const broker = new BrokerState();
-  assert.throws(() => broker.connectExtension({
+  assert.throws(() => connectTestConsumer(broker, {
     browser_instance_id: 'browser-1', browser_family: 'safari',
     extension_candidate: { schema: 'saccade.extension-candidate/1', id: 'a'.repeat(64), version: '0.4.0' },
   }), /browser_family is invalid/);
-  assert.throws(() => broker.connectExtension({
+  assert.throws(() => connectTestConsumer(broker, {
     browser_instance_id: 'browser-1', browser_family: 'edge',
     extension_candidate: { schema: 'saccade.extension-candidate/1', id: 'not-a-digest', version: '0.4.0' },
   }), /extension_candidate is invalid/);
@@ -359,7 +432,7 @@ test('Extension handshake rejects unbounded or unrecognized candidate metadata',
 test('an expired long-poll waiter cannot swallow the next command', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   assert.deepEqual(await broker.pollCommands(connection.connection_id, 2), []);
   assert.equal(broker.connections.get(connection.connection_id).waiters.length, 0);
 
@@ -417,7 +490,7 @@ test('Broker restart records dispatched work as outcome_unknown and never stores
   const statePath = path.join(directory, 'broker-state.json');
   const firstBroker = new BrokerState({ statePath });
   const session = firstBroker.createSession();
-  const connection = firstBroker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(firstBroker, { browser_instance_id: 'browser-1' });
   const pending = firstBroker.enqueueCommand(session.agent_session_id, 'act', {
     tab_id: '7', text: 'side-effect-secret',
   }, 1000);
@@ -429,7 +502,7 @@ test('Broker restart records dispatched work as outcome_unknown and never stores
   const restarted = new BrokerState({ statePath });
   assert.equal(restarted.commands.size, 0);
   assert.equal(restarted.doctor().outcome_unknown_occurrences, 1);
-  const replacement = restarted.connectExtension({ browser_instance_id: 'browser-1' });
+  const replacement = connectTestConsumer(restarted, { browser_instance_id: 'browser-1' });
   assert.deepEqual(await restarted.pollCommands(replacement.connection_id, 5), []);
 
   firstBroker.disconnectExtension(connection.connection_id, 'test_end');
@@ -439,7 +512,7 @@ test('Broker restart records dispatched work as outcome_unknown and never stores
 test('state write failure never acknowledges a delivered command or leaves a new lease active', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.enqueueCommand(session, 'act', { tab_id: '7' }, 1000);
   const [command] = await broker.pollCommands(connection.connection_id, 10);
   broker.persistState = () => { throw Object.assign(new Error('disk full'), { code: 'STATE_PERSIST_FAILED' }); };
@@ -472,7 +545,7 @@ test('clean Agent close revokes resume proof and preserves an orphaned lease', (
 test('cancellation removes queued commands but never claims to cancel delivered work', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const queued = broker.enqueueCommand(session, 'tabs.open', {}, 1000, { clientRequestId: 11 });
   assert.deepEqual(broker.cancelRequest(session, 11), { cancelled: true, dispatched: false });
   await assert.rejects(queued, (error) => error.code === 'CANCELLED' && error.retry_safe === true);
@@ -503,7 +576,7 @@ test('single-file upload is workspace-bounded, hash-pinned, and absent from the 
     affordances: ['upload'], action_token: 'upload-token', state: { has_value: 'false' },
   }];
   broker.acceptTruth('observation', full);
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'upload-1', operation: 'upload',
@@ -560,7 +633,7 @@ test('upload rejects an unapproved path or changed file before dispatch', async 
     object_id: 'upload-1', role: 'file_input', affordances: ['upload'], action_token: 'upload-token',
   }];
   broker.acceptTruth('observation', full);
-  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const basis = {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'upload-1', operation: 'upload', file_path: deniedPath,
@@ -588,7 +661,7 @@ test('form batch preflights every independent object before one dispatch', async
     { object_id: 'us', role: 'option', affordances: ['click'], action_token: 'token-us' },
   ];
   broker.acceptTruth('observation', full);
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1, timeout_ms: 200,
     steps: [
@@ -644,7 +717,7 @@ test('ordinary action safely rebases across contiguous unrelated Truth changes',
     authorities: [{ object_id: 'object-1', action_token: 'token-1' }],
     changes: [{ kind: 'updated', object_id: 'status', object_revision: 3 }],
   });
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'object-1', operation: 'click', timeout_ms: 200,
@@ -684,7 +757,7 @@ test('ordinary action rejects revision drift when its target changed', async () 
     authorities: [],
     changes: [{ kind: 'updated', object_id: 'object-1', object_revision: 2 }],
   });
-  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   await assert.rejects(broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'object-1', operation: 'click',
@@ -698,7 +771,7 @@ test('ordinary action rejects revision drift across a missing history basis', as
   const session = broker.createSession().agent_session_id;
   broker.leaseTab('7', session);
   broker.acceptTruth('observation', observation('7', 2));
-  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   await assert.rejects(broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'object-1', operation: 'click',
@@ -727,7 +800,7 @@ test('form batch safely rebases when every addressed identity stayed unchanged',
     ],
     changes: [{ kind: 'appeared', object_id: 'status', object_revision: 2 }],
   });
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     steps: [
@@ -773,7 +846,7 @@ test('form batch rejects stale rebase when a selected option changed', async () 
     authorities: [{ object_id: 'country', action_token: 'token-country' }],
     changes: [{ kind: 'updated', object_id: 'us', object_revision: 2 }],
   });
-  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   await assert.rejects(broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     steps: [{ object_id: 'country', operation: 'select', option_object_id: 'us' }],
@@ -791,7 +864,7 @@ test('form batch stays outcome_unknown until every accepted step has a relevant 
     { object_id: 'newsletter', role: 'checkbox', affordances: ['click'], action_token: 'token-newsletter' },
   ];
   broker.acceptTruth('observation', full);
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1, timeout_ms: 200,
     steps: [
@@ -832,7 +905,7 @@ test('partially dispatched batch is outcome_unknown and never retry-safe', async
     { object_id: 'second', role: 'text_field', affordances: ['type'], action_token: 'token-second' },
   ];
   broker.acceptTruth('observation', full);
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1, timeout_ms: 200,
     steps: [
@@ -875,7 +948,7 @@ test('pre-dispatch batch rejection preserves its value-free failure diagnostics'
     object_id: 'first', role: 'text_field', affordances: ['type'], action_token: 'token-first',
   }];
   broker.acceptTruth('observation', full);
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     steps: [{ object_id: 'first', operation: 'type', text: 'not-returned' }],
@@ -929,7 +1002,7 @@ test('action verification starts after the Extension dispatch basis', async () =
   const session = broker.createSession().agent_session_id;
   broker.leaseTab('7', session);
   broker.acceptTruth('observation', observation());
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'object-1', operation: 'click', timeout_ms: 200,
@@ -971,7 +1044,7 @@ test('a value-free Extension postcondition verifies typing without exposing edit
     action_token: 'editor-token', state: { has_value: 'true' },
   }];
   broker.acceptTruth('observation', full);
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'editor', operation: 'type', text: 'never-return-this', timeout_ms: 200,
@@ -1014,7 +1087,7 @@ test('bounded reflex execution stays inside one act request and verifies each oc
       object_id: 'start-1', role: 'button', affordances: ['click'], action_token: 'start-token-1',
     }],
   });
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'loop-controller', operation: 'click', max_actions: 1,
@@ -1090,7 +1163,7 @@ test('bounded reflex controller safely rebases across unrelated moving-target re
       state: { enabled: 'true', reflex_occurrence: '0' },
     }],
   });
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'loop-controller', operation: 'click', max_actions: 1,
@@ -1138,7 +1211,7 @@ test('bounded reflex launch follows one explicit same-origin start navigation th
       action_token: 'start-token', navigation_target: 'https://game.test/game',
     }],
   });
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     max_actions: 1, start_object_id: 'start-link', timeout_ms: 500,
@@ -1208,7 +1281,7 @@ test('bounded reflex launch accepts a newly appeared controller after same-docum
       action_token: 'start-token', navigation_target: 'https://game.test/game',
     }],
   });
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     max_actions: 1, start_object_id: 'start-link', timeout_ms: 500,
@@ -1279,7 +1352,7 @@ test('action receipt excludes unrelated page geometry changes and authorities', 
     affordances: ['click'], action_token: 'other-token',
   });
   broker.acceptTruth('observation', full);
-  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const pending = broker.rpc(session, 'act', {
     tab_id: '7', document_id: 'document-1', basis_revision: 1,
     object_id: 'object-1', operation: 'click', timeout_ms: 200,
@@ -1338,7 +1411,7 @@ test('Extension routes accept only a Chrome-extension origin shape', () => {
 
 test('Extension WebSocket heartbeat is origin-bound and value-free', async (context) => {
   const broker = new BrokerState();
-  const connected = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
   const runtime = createBrokerServer(broker, { port: 0 });
   try { await runtime.listen(); } catch (error) {
     if (error.code === 'EPERM') return context.skip('sandbox forbids loopback listen');
@@ -1360,4 +1433,11 @@ test('Extension WebSocket heartbeat is origin-bound and value-free', async (cont
   assert.equal(broker.doctor().extension_keepalive_connections, 1);
   webSocket.close();
   await once(webSocket, 'close');
+  const closeDeadline = Date.now() + 250;
+  while (broker.connections.get(connected.connection_id).state === 'online'
+      && Date.now() < closeDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(broker.connections.get(connected.connection_id).state, 'offline');
+  assert.equal(broker.doctor().extension_connected, false);
 });

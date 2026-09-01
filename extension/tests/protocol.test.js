@@ -42,7 +42,7 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, 'Saccade');
-  assert.equal(manifest.version, '0.4.0');
+  assert.equal(manifest.version, '0.4.1');
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
@@ -88,6 +88,8 @@ test('popup uses the brand icon and states the exact protected-value boundary', 
   assert.match(popup, /Password, SSN, and EIN values stay protected/);
   assert.doesNotMatch(popup, /Passwords, OTPs, and editable values/);
   assert.match(popup, /name\.includes\('\(Development\)'\)/);
+  assert.match(popup, /status\.broker_connected && status\.observation_ready/);
+  assert.doesNotMatch(popup, /status\.host_connected/);
 });
 
 test('tab sharing UI revokes any authorized tab without closing it', () => {
@@ -590,8 +592,16 @@ test('Node Broker reconnect uses bounded backoff without a popup wake-up', () =>
   assert.match(worker, /async function settleReconnect\(connectionId\)/);
   assert.match(worker, /armReconnectAlarm\(\);\s*connectBroker\(\)\.catch\(scheduleReconnect\);\s*$/);
   assert.match(worker, /chrome\.alarms\.onAlarm\.addListener/);
-  assert.match(reconnect, /if \(brokerConnectionId \|\| connectPromise\) return/);
+  assert.match(worker, /function brokerRuntimeReady\(\)/);
+  assert.match(worker, /broker_connected: brokerRuntimeReady\(\)/);
+  assert.match(worker, /if \(!brokerRuntimePresent\(\)\) \{\s*try \{ await ensureBrokerConnection\(\); \}/s);
+  assert.doesNotMatch(reconnect, /if \(brokerConnectionId \|\| connectPromise\) return/);
+  assert.match(reconnect, /if \(connectPromise\) \{[\s\S]*pending\.finally/);
   assert.match(worker, /function startCommandLoop\(connectionId, generation\)/);
+  assert.match(worker, /function startTabRecovery\(connectionId, requireFullTruth\)/);
+  const connect = worker.slice(worker.indexOf('async function connectBroker'), worker.indexOf('function numericTabId'));
+  assert.ok(connect.indexOf('startCommandLoop(') < connect.indexOf('startTabRecovery('));
+  assert.doesNotMatch(connect, /await authorizeTab/);
   assert.match(worker, /commandLoopState !== state[\s\S]*brokerLoopGeneration !== generation/);
   assert.match(worker, /if \(commandLoopState === state\) commandLoopState = undefined/);
   assert.match(worker, /brokerRequest\('\/v1\/extension\/commands', \{\s*method: 'POST'/s);
@@ -600,6 +610,10 @@ test('Node Broker reconnect uses bounded backoff without a popup wake-up', () =>
   assert.match(worker, /new WebSocket\(/);
   assert.match(worker, /kind: 'heartbeat'/);
   assert.match(worker, /kind !== 'heartbeat\.ack'/);
+  assert.match(worker, /AbortSignal\.timeout\(timeoutMs\)/);
+  assert.match(worker, /Collector response did not arrive before the command deadline/);
+  assert.match(worker, /error\.saccadeCode = 'OUTCOME_UNKNOWN'/);
+  assert.match(worker, /error\.saccadeOutcome = 'outcome_unknown'/);
   assert.match(worker, /catch \(error\) \{\s*brokerConnectionId = undefined;\s*brokerEpoch = undefined;\s*throw error;/s);
 });
 
