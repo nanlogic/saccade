@@ -269,6 +269,26 @@ test('queued work belongs to the browser and is claimed only on Extension delive
   assert.equal(broker.occurrences.at(-1).occurrence, 'acknowledged');
 });
 
+test('stale online metadata is not command-dispatch authority', async () => {
+  let clock = 1_000;
+  const broker = new BrokerState({ now: () => clock });
+  const session = broker.createSession().agent_session_id;
+  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  assert.equal((await broker.rpc(session, 'system.capabilities')).extension_connected, true);
+
+  clock += 1_001;
+  const capabilities = await broker.rpc(session, 'system.capabilities');
+  assert.equal(capabilities.extension_connected, false);
+  assert.deepEqual(capabilities.connected_extensions, []);
+  assert.throws(
+    () => broker.enqueueCommand(session, 'tabs.open', {}, 1_000, { browserInstanceId: 'browser-1' }),
+    (error) => error.code === 'EXTENSION_OFFLINE' && error.retry_safe === true,
+  );
+  assert.equal(broker.doctor().online_extension_connections, 1);
+  assert.equal(broker.doctor().dispatchable_extension_connections, 0);
+  assert.equal(broker.doctor().stale_extension_connections, 1);
+});
+
 test('Extension loss rejects queued work immediately when no reconnect is pending', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;
@@ -300,7 +320,7 @@ test('a renewed consumer cannot claim another browser instance queue', async () 
 });
 
 test('replacement diagnostics identify browser-family consumer contention', () => {
-  const broker = new BrokerState();
+  const broker = new BrokerState({ now: () => 1_000 });
   broker.connectExtension({
     browser_instance_id: 'browser-1', browser_family: 'chrome',
     browser_session_id: 'session-1', worker_instance_id: 'worker-1',
@@ -1360,4 +1380,11 @@ test('Extension WebSocket heartbeat is origin-bound and value-free', async (cont
   assert.equal(broker.doctor().extension_keepalive_connections, 1);
   webSocket.close();
   await once(webSocket, 'close');
+  const closeDeadline = Date.now() + 250;
+  while (broker.connections.get(connected.connection_id).state === 'online'
+      && Date.now() < closeDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(broker.connections.get(connected.connection_id).state, 'offline');
+  assert.equal(broker.doctor().extension_connected, false);
 });

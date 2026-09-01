@@ -20,8 +20,8 @@ function setStatus(primary, secondary, tone) {
 
 function render(status) {
   current = status;
-  host.textContent = `Runtime ${status.host_connected ? 'connected' : 'disconnected'}`;
-  hostDot.classList.toggle('connected', status.host_connected);
+  host.textContent = `Runtime ${status.broker_connected ? 'connected' : 'disconnected'}`;
+  hostDot.classList.toggle('connected', status.broker_connected);
   toggle.classList.remove('danger', 'locked');
   if (!status.supported) {
     setStatus('Agent Off', 'Unsupported', 'off');
@@ -30,11 +30,14 @@ function render(status) {
     toggle.classList.add('locked');
     toggle.disabled = true;
   } else if (status.authorized) {
-    setStatus('Agent On', status.observation_ready ? 'Ready' : 'Starting', status.observation_ready ? 'on' : 'pending');
+    const ready = status.broker_connected && status.observation_ready;
+    const phaseLabel = !status.broker_connected ? 'Reconnecting' : status.observation_ready ? 'Ready' : 'Starting';
+    setStatus('Agent On', phaseLabel, ready ? 'on' : 'pending');
     const source = status.provenance === 'agent_client'
       ? 'An agent claimed this tab for this browser session. Stop sharing at any time without closing it.'
       : 'Saccade access is on for this tab. Stop sharing at any time without closing it.';
-    detail.textContent = status.collector_error || source;
+    detail.textContent = status.collector_error
+      || (!status.broker_connected ? 'Waiting for the local Saccade runtime to reconnect.' : source);
     toggleLabel.textContent = 'Stop sharing';
     toggle.classList.add('danger');
     toggle.disabled = false;

@@ -15,6 +15,7 @@ const HISTORY_LIMIT = 256;
 const DIAGNOSTIC_LIMIT = 256;
 const COMMAND_LIMIT = 1024;
 const EXTENSION_POLL_HEARTBEAT_MS = 2_000;
+const EXTENSION_DISPATCH_GRACE_MS = 1_000;
 const STATE_SCHEMA = 'saccade.node-broker-state/1';
 const OCCURRENCE_LIMIT = 256;
 const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
@@ -310,6 +311,7 @@ class BrokerState extends EventEmitter {
       agent_session_id: agentSessionId,
       connected_at: this.now(),
       last_seen_at: this.now(),
+      last_poll_at: null,
       resume_token_hash: resumeHash(resumeToken),
       upload_roots: uploadRoots,
       state: 'online',
@@ -474,9 +476,20 @@ class BrokerState extends EventEmitter {
     });
   }
 
+  connectionDispatchReady(connection) {
+    if (connection.state !== 'online') return false;
+    if (connection.waiters.length > 0) return true;
+    const delivered = [...this.commands.values()].some((command) => (
+      command.state === 'delivered' && command.connection_id === connection.connection_id
+    ));
+    if (delivered) return true;
+    const lastPollAt = connection.last_poll_at || connection.connected_at;
+    return this.now() - lastPollAt <= EXTENSION_DISPATCH_GRACE_MS;
+  }
+
   activeConnection(browserInstanceId) {
     return [...this.connections.values()]
-      .filter((connection) => connection.state === 'online'
+      .filter((connection) => this.connectionDispatchReady(connection)
         && (!browserInstanceId || connection.browser_instance_id === browserInstanceId))
       .sort((left, right) => right.connected_at - left.connected_at)[0];
   }
@@ -485,6 +498,7 @@ class BrokerState extends EventEmitter {
     const connection = this.connections.get(cleanId(connectionId, 'connection_id'));
     if (!connection || connection.state !== 'online') throw new BrokerError('EXTENSION_OFFLINE', 'Extension connection is offline');
     connection.last_seen_at = this.now();
+    connection.last_poll_at = this.now();
     connection.poll_count += 1;
     const immediate = this.takeCommands(connection);
     if (immediate.length) return immediate;
@@ -659,6 +673,7 @@ class BrokerState extends EventEmitter {
     if (!Array.isArray(events) || events.length > 256) throw new BrokerError('INVALID_MESSAGE', 'events must be a bounded array');
     for (const event of events) {
       if (event.kind === 'response') {
+        connection.last_poll_at = this.now();
         const command = this.commands.get(event.command_id);
         if (!command || command.connection_id !== connectionId || command.state !== 'delivered') continue;
         if (event.error) this.finishCommand(command, null, new BrokerError(
@@ -1096,7 +1111,7 @@ class BrokerState extends EventEmitter {
     if (method === 'system.capabilities') {
       const tabs = this.listTabs(agentSessionId);
       const connectedExtensions = [...this.connections.values()]
-        .filter((connection) => connection.state === 'online')
+        .filter((connection) => this.connectionDispatchReady(connection))
         .sort((left, right) => left.connected_at - right.connected_at)
         .map((connection) => ({
           browser_instance_id: connection.browser_instance_id,
@@ -1133,7 +1148,7 @@ class BrokerState extends EventEmitter {
       const requestedBrowserInstanceId = params.browser_instance_id === undefined
         ? undefined : cleanId(params.browser_instance_id, 'browser_instance_id');
       const onlineConnections = [...this.connections.values()]
-        .filter((connection) => connection.state === 'online');
+        .filter((connection) => this.connectionDispatchReady(connection));
       if (!requestedBrowserInstanceId && onlineConnections.length > 1) {
         throw new BrokerError('AMBIGUOUS_BROWSER', 'tabs.open requires browser_instance_id when multiple browsers are connected', {
           retry_safe: true,
@@ -1361,10 +1376,13 @@ class BrokerState extends EventEmitter {
   doctor() {
     const failures = this.diagnostics.filter((event) => event.code !== 'acknowledged' && event.code !== 'connected').slice(-16);
     const onlineExtensions = [...this.connections.values()].filter((connection) => connection.state === 'online');
+    const dispatchableExtensions = onlineExtensions.filter((connection) => this.connectionDispatchReady(connection));
     return {
       schema: 'saccade.doctor/2', runtime: 'node', broker_epoch: this.epoch,
       extension_connected: Boolean(this.activeConnection()),
       online_extension_connections: onlineExtensions.length,
+      dispatchable_extension_connections: dispatchableExtensions.length,
+      stale_extension_connections: onlineExtensions.length - dispatchableExtensions.length,
       extension_polls: onlineExtensions.reduce((total, connection) => total + connection.poll_count, 0),
       extension_poll_waiters: onlineExtensions.reduce((total, connection) => total + connection.waiters.length, 0),
       extension_keepalives: onlineExtensions.reduce((total, connection) => total + connection.keepalive_count, 0),
@@ -1659,7 +1677,9 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
           return undefined;
         });
         webSocket.on('close', () => {
-          if (connection.keepalive_socket === webSocket) connection.keepalive_socket = null;
+          if (connection.keepalive_socket !== webSocket) return;
+          connection.keepalive_socket = null;
+          brokerState.disconnectExtension(connectionId, 'keepalive_closed');
         });
       });
     } catch (_error) {

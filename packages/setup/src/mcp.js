@@ -198,7 +198,7 @@ async function serveMcp({ input = process.stdin, output = process.stdout } = {})
         write(output, request.id, {
           protocolVersion: MCP_VERSION,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: 'saccade-node', version: '0.2.1' },
+          serverInfo: { name: 'saccade-node', version: '0.2.2' },
           instructions: `This MCP session is ${agentSessionId}. Every browser operation requires an exact leased tab_id. Choose truth.read mode full or delta deliberately.`,
         });
       } else if (request.method === 'ping') {

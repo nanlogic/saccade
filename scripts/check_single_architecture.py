@@ -43,7 +43,7 @@ def main() -> None:
         raise SystemExit("Rust source remains in the production tree")
 
     package = json.loads(text("packages/setup/package.json"))
-    if package.get("name") != "@nanlogic/saccade" or package.get("version") != "0.2.1":
+    if package.get("name") != "@nanlogic/saccade" or package.get("version") != "0.2.2":
         raise SystemExit("Node package identity drifted")
     if set(package.get("bin", {})) != {"saccade", "saccade-setup"}:
         raise SystemExit("Node package must publish only the supported CLI aliases")

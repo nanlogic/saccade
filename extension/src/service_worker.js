@@ -107,6 +107,32 @@ function activeClaim() {
 
 function isAuthorized(tabId) { return agentOwnedTabs.has(tabId) || userSharedTabs.has(tabId); }
 
+function brokerRuntimePresent() {
+  return Boolean(brokerConnectionId
+    && commandLoopState?.connectionId === brokerConnectionId
+    && keepaliveSocket?.saccadeConnectionId === brokerConnectionId
+    && keepaliveSocket.readyState !== WebSocket.CLOSING
+    && keepaliveSocket.readyState !== WebSocket.CLOSED);
+}
+
+function brokerRuntimeReady() {
+  return brokerRuntimePresent() && keepaliveSocket.readyState === WebSocket.OPEN;
+}
+
+async function ensureBrokerConnection() {
+  if (brokerRuntimePresent() || connectPromise) return;
+  if (brokerConnectionId) {
+    const connectionId = brokerConnectionId;
+    brokerConnectionId = undefined;
+    brokerEpoch = undefined;
+    pendingClaim = undefined;
+    brokerLoopGeneration += 1;
+    commandLoopState = undefined;
+    stopKeepalive(connectionId);
+  }
+  await connectBroker();
+}
+
 async function tabStatus(tabId) {
   const tab = await chrome.tabs.get(tabId);
   const supported = isSupportedUrl(tab.url);
@@ -116,7 +142,7 @@ async function tabStatus(tabId) {
     shared: userSharedTabs.has(tabId), authorized: isAuthorized(tabId),
     provenance: tabProvenance(tabId),
     observation_ready: Boolean(session?.observationReady), collector_error: session?.error,
-    broker_connected: Boolean(brokerConnectionId),
+    broker_connected: brokerRuntimeReady(),
   };
 }
 
@@ -737,6 +763,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.kind === 'ui.tab.status' || message.kind === 'ui.tab.share' || message.kind === 'ui.tab.revoke') {
     const run = async () => {
       if (sender.url !== chrome.runtime.getURL('popup.html')) throw new Error('tab access changes require the Saccade popup');
+      if (!brokerRuntimePresent()) {
+        try { await ensureBrokerConnection(); } catch (error) { scheduleReconnect(error); }
+      }
       const tabId = numericTabId(message.tab_id);
       if (message.kind === 'ui.tab.share') {
         const tab = await chrome.tabs.get(tabId);
