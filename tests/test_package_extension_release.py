@@ -48,7 +48,7 @@ class PackageExtensionReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             archive = MODULE.package(ROOT / "extension", Path(directory))
             self.assertTrue(archive.is_file())
-            self.assertEqual(archive.name, "saccade-extension-0.4.2.zip")
+            self.assertEqual(archive.name, "saccade-extension-0.4.7.zip")
             with zipfile.ZipFile(archive) as packaged:
                 names = packaged.namelist()
                 manifest = json.loads(packaged.read("manifest.json"))
