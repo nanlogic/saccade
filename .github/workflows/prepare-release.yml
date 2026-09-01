@@ -21,6 +21,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: packages/setup/package-lock.json
+      - name: Install package dependencies
+        run: npm ci --prefix packages/setup
       - name: Validate tag and package version
         env:
           RELEASE_TAG: ${{ inputs.tag }}
