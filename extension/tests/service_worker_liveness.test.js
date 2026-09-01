@@ -8,7 +8,7 @@ const vm = require('node:vm');
 
 const WORKER = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
 const CANDIDATE = {
-  schema: 'saccade.extension-candidate/1', id: 'a'.repeat(64), version: '0.4.1',
+  schema: 'saccade.extension-candidate/1', id: 'a'.repeat(64), version: '0.4.7',
 };
 
 function eventTarget() {
@@ -166,16 +166,20 @@ test('a keepalive close during connectPromise cannot lose the reconnect request'
 });
 
 test('a missing post-dispatch Collector response is outcome_unknown and never retry-safe', async () => {
-  const runtime = runWorker({ hangCollectorKinds: ['collector.soft_action'] });
+  const runtime = runWorker({ hangCollectorKinds: ['collector.dispatch_software_action'] });
   await assert.rejects(
-    runtime.context.collectorCommand(7, { kind: 'collector.soft_action' }, 1),
+    runtime.context.collectorCommand(7, { kind: 'collector.dispatch_software_action' }, 1),
     (error) => error.saccadeCode === 'OUTCOME_UNKNOWN'
       && error.saccadeOutcome === 'outcome_unknown'
       && error.saccadeRetrySafe === false,
   );
+});
+
+test('a missing preparation response is a safe deadline, not an ambiguous side effect', async () => {
+  const runtime = runWorker({ hangCollectorKinds: ['collector.wait_software_preparation'] });
   await assert.rejects(
     runtime.context.collectorCommand(
-      7, { kind: 'collector.soft_action' }, 1, { sideEffect: false },
+      7, { kind: 'collector.wait_software_preparation' }, 1, { sideEffect: false },
     ),
     (error) => error.saccadeCode === 'deadline_exceeded'
       && error.saccadeRetrySafe === true,

@@ -760,10 +760,24 @@ async function handleHostCommand(command) {
     payload.timeout_ms = Math.min(
       payload.timeout_ms, await activateTabForAction(tabId, command.deadline_at),
     );
+    const preparation = await collectorCommand(
+      tabId, { kind: 'collector.wait_software_preparation', request: payload },
+      Math.max(1, remainingCommandMs(command.deadline_at)), { sideEffect: false },
+    );
+    if (!preparation?.ok) throw collectorActionError(preparation, 'action preparation failed');
+    const dispatchRemainingMs = remainingCommandMs(command.deadline_at);
+    if (dispatchRemainingMs <= ACTION_RESPONSE_RESERVE_MS) {
+      throw extensionDeadlineError('command deadline elapsed after action preparation');
+    }
+    payload.timeout_ms = Math.min(payload.timeout_ms, dispatchRemainingMs - ACTION_RESPONSE_RESERVE_MS);
     let result;
     try {
       result = await collectorCommand(
-        tabId, { kind: 'collector.soft_action', request: payload }, payload.timeout_ms,
+        tabId, {
+          kind: 'collector.dispatch_software_action',
+          request: payload,
+          preflight: preparation.prepared,
+        }, dispatchRemainingMs,
       );
     } finally {
       scrubUploadPayload(payload);

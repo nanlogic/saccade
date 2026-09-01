@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Custom element button activation</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 3rem; }
+    delegating-action { display: inline-block; width: 14rem; height: 3rem; }
+    slotted-action { display: inline-block; width: 14rem; height: 3rem; margin-left: 2rem; }
+    output { display: block; margin-top: 1rem; }
+    a { display: inline-block; margin-left: 2rem; padding: 0.75rem 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Custom element button activation</h1>
+  <delegating-action role="button" aria-label="Create channel"></delegating-action>
+  <output id="status" role="status">Waiting for activation</output>
+  <slotted-action>
+    <button slot="action" type="button" aria-label="Publish slotted video">Publish slotted video</button>
+  </slotted-action>
+  <output id="slot-status" role="status">Waiting for slotted activation</output>
+  <a id="native-route" href="#native-route-observed" aria-label="Open native route">
+    <span>Open native route</span>
+  </a>
+  <output id="route-status" role="status">Waiting for native route</output>
+  <script>
+    customElements.define('delegating-action', class extends HTMLElement {
+      constructor() {
+        super();
+        const root = this.attachShadow({ mode: 'open' });
+        root.innerHTML = `
+          <style>
+            button { width: 100%; height: 100%; font: inherit; }
+            button::before { content: "Create channel"; }
+          </style>
+          <button type="button" tabindex="-1" aria-label="Create channel"></button>
+        `;
+        const button = root.querySelector('button');
+        let pointerCascade = false;
+        this.addEventListener('pointerdown', () => { pointerCascade = true; });
+        button.addEventListener('click', () => {
+          document.querySelector('#status').textContent = pointerCascade
+            ? 'Unexpected pointer cascade'
+            : 'Custom activation observed';
+        });
+      }
+    });
+    customElements.define('slotted-action', class extends HTMLElement {
+      constructor() {
+        super();
+        const root = this.attachShadow({ mode: 'open' });
+        root.innerHTML = `
+          <style>::slotted(button) { width: 100%; height: 100%; font: inherit; }</style>
+          <slot name="action"></slot>
+        `;
+      }
+    });
+    document.querySelector('slotted-action button').addEventListener('click', () => {
+      document.querySelector('#slot-status').textContent = 'Slotted activation observed';
+    });
+    document.querySelector('#native-route').addEventListener('click', (event) => {
+      document.querySelector('#route-status').textContent = event.target.id === 'native-route'
+        ? 'Native authority activated directly'
+        : 'Unexpected descendant activation';
+    });
+  </script>
+</body>
+</html>

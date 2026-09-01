@@ -144,6 +144,76 @@ async function main() {
     }
 
     {
+      currentStage = 'custom-element-activation';
+      const opened = await open('/fixtures/controls/custom_element_button.html');
+      const view = await waitForQuery(opened.tab_id, {
+        text: 'Create channel', roles: ['button'], max_objects: 8,
+      }, 1);
+      const button = uniqueObject(view, 'button', 'Create channel');
+      const receipt = await call('act', {
+        tab_id: String(opened.tab_id),
+        document_id: view.document_id,
+        basis_revision: view.revision,
+        object_id: button.object_id,
+        operation: 'click',
+        timeout_ms: 5_000,
+      }, 5_000);
+      assert(receipt.outcome === 'accepted', `custom element outcome was ${receipt.outcome}`);
+      assert(receipt.semantic_postcondition?.verified === true,
+        'custom element activation was not verified');
+      const result = await waitForQuery(opened.tab_id, {
+        text: 'Custom activation observed', roles: ['status'], max_objects: 4,
+      }, 1);
+      assert((result.objects || []).some((object) => objectLabel(object) === 'Custom activation observed'),
+        'custom element activation did not reach its native inner control');
+      const routeView = await waitForQuery(opened.tab_id, {
+        text: 'Open native route', roles: ['link'], max_objects: 4,
+      }, 1);
+      const route = uniqueObject(routeView, 'link', 'Open native route');
+      const routeReceipt = await call('act', {
+        tab_id: String(opened.tab_id),
+        document_id: routeView.document_id,
+        basis_revision: routeView.revision,
+        object_id: route.object_id,
+        operation: 'click',
+        timeout_ms: 5_000,
+      }, 5_000);
+      assert(routeReceipt.outcome === 'accepted', `native route outcome was ${routeReceipt.outcome}`);
+      const routeResult = await waitForQuery(opened.tab_id, {
+        text: 'Native authority activated directly', roles: ['status'], max_objects: 4,
+      }, 1);
+      assert((routeResult.objects || []).some((object) => objectLabel(object) === 'Native authority activated directly'),
+        'native link activation was retargeted to a framework descendant');
+      const slotView = await waitForQuery(opened.tab_id, {
+        text: 'Publish slotted video', roles: ['button'], max_objects: 4,
+      }, 1);
+      const slotButton = uniqueObject(slotView, 'button', 'Publish slotted video');
+      const slotReceipt = await call('act', {
+        tab_id: String(opened.tab_id),
+        document_id: slotView.document_id,
+        basis_revision: slotView.revision,
+        object_id: slotButton.object_id,
+        operation: 'click',
+        timeout_ms: 5_000,
+      }, 5_000);
+      assert(slotReceipt.outcome === 'accepted', `slotted button outcome was ${slotReceipt.outcome}`);
+      const slotResult = await waitForQuery(opened.tab_id, {
+        text: 'Slotted activation observed', roles: ['status'], max_objects: 4,
+      }, 1);
+      assert((slotResult.objects || []).some((object) => objectLabel(object) === 'Slotted activation observed'),
+        'slotted control activation did not follow the flattened composed tree');
+      report.suites.custom_element_activation = {
+        passed: true,
+        pointer_cascade: false,
+        native_inner_activation: true,
+        native_authority_activation: true,
+        slotted_activation: true,
+        final_revision: slotReceipt.final_revision,
+      };
+      await close(opened.tab_id);
+    }
+
+    {
       currentStage = 'form-batch';
       const opened = await open('/fixtures/controls/software_type.html');
       const view = await read(opened.tab_id, {

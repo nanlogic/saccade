@@ -24,6 +24,21 @@
   const SOFTWARE_CLICK_ROLES = new Set([
     'button', 'link', 'checkbox', 'radio', 'switch', 'select', 'option', 'tab', 'menu_item', 'reflex_target',
   ]);
+  const NATIVE_ACTIVATION_SELECTOR = [
+    'a[href]', 'button', 'input[type="button"]', 'input[type="submit"]',
+    'input[type="reset"]', 'input[type="checkbox"]', 'input[type="radio"]',
+    'summary', '[role="button"]', '[role="checkbox"]', '[role="radio"]',
+    '[role="switch"]', '[role="tab"]', '[role="menuitem"]',
+  ].join(',');
+  const NATIVE_HTML_ACTIVATION_SELECTOR = [
+    'a[href]', 'button', 'input[type="button"]', 'input[type="submit"]',
+    'input[type="reset"]', 'input[type="checkbox"]', 'input[type="radio"]',
+    'summary',
+  ].join(',');
+  // Mutation-heavy applications can update observed attributes continuously.
+  // Keep semantic Truth live while leaving the page a bounded slice of its
+  // own main thread between complete compilations.
+  const SEMANTIC_COLLECTION_INTERVAL_MS = 32;
   const identities = new WeakMap();
   const tokenTargets = new Map();
   const objectTargets = new Map();
@@ -48,6 +63,8 @@
   let config = null;
   let scheduled = false;
   let scheduledFrame = null;
+  let scheduledTimer = null;
+  let lastScheduledCollectionEndedAt = 0;
   let activeFileTrigger = null;
   let repeatedActionKeys = new Set();
   let frameSerial = 0;
@@ -875,6 +892,37 @@
     }
   }
 
+  function dedupeComposedNativeControls(candidates) {
+    const described = candidates.map((candidate) => {
+      const role = roleFor(candidate.element);
+      return {
+        ...candidate,
+        role,
+        name: role ? safeName(candidate.element, role) : undefined,
+      };
+    });
+    const groups = new Map();
+    for (const candidate of described) {
+      const key = candidate.role && candidate.name
+        ? `${candidate.frameId}\0${candidate.role}\0${candidate.name}` : '';
+      if (!key) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(candidate);
+    }
+    return described.filter((candidate) => {
+      if (!['button', 'link'].includes(candidate.role)
+        || candidate.element.matches?.(NATIVE_HTML_ACTIVATION_SELECTOR)) return true;
+      const key = `${candidate.frameId}\0${candidate.role}\0${candidate.name}`;
+      const box = boxFor(candidate.element);
+      return !(groups.get(key) || []).some((other) => (
+        other !== candidate
+        && other.element.matches?.(NATIVE_HTML_ACTIVATION_SELECTOR)
+        && composedDescendantOf(other.element, candidate.element)
+        && sameBox(boxFor(other.element), box)
+      ));
+    });
+  }
+
   function collect({ forceSnapshot = false } = {}) {
     if (!config) return null;
     updateMouseAccuracyHitOccurrence(document);
@@ -893,22 +941,19 @@
       const loopStatus = observationObject(document.body, 'reflex_target', config.frameId);
       if (loopStatus) objects.push(loopStatus);
     }
-    const candidates = frameState.contexts.flatMap((context) => (
+    const candidates = dedupeComposedNativeControls(frameState.contexts.flatMap((context) => (
       composedQuery(context.doc, CONTROL_SELECTOR).map((element) => ({ element, frameId: context.frameId }))
-    ));
+    )));
     const actionNameCounts = new Map();
-    for (const { element } of candidates) {
-      const role = roleFor(element);
+    for (const { element, role, name } of candidates) {
       if (!role || !registry.observe(role, signalsFor(element, role)).affordances.length) continue;
-      const name = safeName(element, role);
       if (!name) continue;
       const key = `${role}\0${name}`;
       actionNameCounts.set(key, (actionNameCounts.get(key) || 0) + 1);
     }
     repeatedActionKeys = new Set([...actionNameCounts].filter(([, count]) => count > 1).map(([key]) => key));
 
-    for (const { element, frameId } of candidates) {
-      const role = roleFor(element);
+    for (const { element, frameId, role } of candidates) {
       if (!role) continue;
       if (role === 'file_input') {
         const trigger = visibleFileTrigger(element);
@@ -1062,7 +1107,9 @@
     let y = box.y + box.height / 2;
     const root = element.getRootNode();
     let hit = root.elementFromPoint?.(x, y) || element.ownerDocument.elementFromPoint(x, y);
-    if (hit !== element && !element.contains(hit)) return false;
+    if (hit !== element
+      && !composedDescendantOf(hit, element)
+      && !composedDescendantOf(element, hit)) return false;
     while (view !== view.top) {
       const frame = view.frameElement;
       if (!frame) return false;
@@ -1071,7 +1118,7 @@
       y += frameBox.y + frame.clientTop;
       view = view.parent;
       hit = view.document.elementFromPoint(x, y);
-      if (hit !== frame && !frame.contains(hit)) return false;
+      if (hit !== frame && !composedDescendantOf(hit, frame)) return false;
     }
     return true;
   }
@@ -1232,6 +1279,96 @@
       && left.width === right.width && left.height === right.height);
   }
 
+  function revalidateSoftwarePreparation(request, preflight) {
+    const activeRequest = currentSoftwareRequest({
+      ...request,
+      basis_revision: preflight.basis_revision,
+    });
+    const prepared = prepare(activeRequest);
+    const target = tokenTargets.get(request.action_token);
+    const policy = softwarePreparationPolicy(activeRequest, target);
+    const issue = preparationIssue(prepared, target, policy);
+    if (issue) {
+      throw actionFailure(
+        'prepare', `actionability_changed_${issue}`, true,
+        `software actionability changed before dispatch: ${issue}`,
+      );
+    }
+    if (policy.require_stable_geometry
+      && !sameBox(prepared.screen_bounds, preflight.screen_bounds)) {
+      throw actionFailure(
+        'prepare', 'actionability_changed_geometry', true,
+        'software action geometry changed before dispatch',
+      );
+    }
+    prepared.local_wait_ms = preflight.local_wait_ms;
+    return prepared;
+  }
+
+  function softwarePreparation(request, preflight) {
+    return preflight
+      ? Promise.resolve(revalidateSoftwarePreparation(request, preflight))
+      : waitForSoftwarePreparation(request);
+  }
+
+  function composedParent(element) {
+    if (!element) return null;
+    const root = element.getRootNode?.();
+    // A slotted node's rendered parent is its assigned <slot>, not its light-DOM
+    // parent. Follow the flattened composed tree so hit testing and activation
+    // agree on Web Components that expose controls through slots.
+    return element.assignedSlot || element.parentElement || root?.host || null;
+  }
+
+  function composedDescendantOf(element, ancestor) {
+    for (let current = element; current; current = composedParent(current)) {
+      if (current === ancestor) return true;
+    }
+    return false;
+  }
+
+  function deepestElementFromPoint(element, x, y) {
+    let hit = element.ownerDocument.elementFromPoint(x, y);
+    const visited = new Set();
+    while (hit?.shadowRoot?.elementFromPoint && !visited.has(hit)) {
+      visited.add(hit);
+      const nested = hit.shadowRoot.elementFromPoint(x, y);
+      if (!nested || nested === hit) break;
+      hit = nested;
+    }
+    return hit;
+  }
+
+  function activationElementFor(target) {
+    // Native controls own their activation behavior. Activating a child of an
+    // anchor/button changes event.target and can put framework routers on a
+    // private, unsupported path. Custom ARIA wrappers are the only controls
+    // for which we descend to a current native control at the hit point.
+    if (target.element.matches?.(NATIVE_HTML_ACTIVATION_SELECTOR)) return target.element;
+    const box = boxFor(target.element);
+    const hit = deepestElementFromPoint(
+      target.element, box.x + box.width / 2, box.y + box.height / 2,
+    );
+    if (!hit || !composedDescendantOf(hit, target.element)) return target.element;
+    for (let current = hit; current; current = composedParent(current)) {
+      if (current.matches?.(NATIVE_ACTIVATION_SELECTOR)) return current;
+      if (current === target.element) break;
+    }
+    return target.element;
+  }
+
+  function dispatchOrdinaryActivation(target) {
+    const element = activationElementFor(target);
+    const view = element.ownerDocument.defaultView;
+    if (element instanceof view.HTMLElement) {
+      view.HTMLElement.prototype.click.call(element);
+      return true;
+    }
+    return element.dispatchEvent(new view.MouseEvent('click', {
+      bubbles: true, cancelable: true, composed: true,
+    }));
+  }
+
   async function waitForSoftwarePreparation(request) {
     const startedAt = performance.now();
     let activeRequest = currentSoftwareRequest(request);
@@ -1278,34 +1415,39 @@
   }
 
   async function softClick(request, preflight) {
-    const prepared = preflight || await waitForSoftwarePreparation(request);
+    const prepared = await softwarePreparation(request, preflight);
     const target = tokenTargets.get(request.action_token);
     if (!target || !target.element.isConnected || !SOFTWARE_CLICK_ROLES.has(target.role)) {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software click is not registered for the current control');
     }
-    const box = boxFor(target.element);
-    const view = target.element.ownerDocument.defaultView;
+    const stateElement = target.controlElement || target.element;
     const toggleBefore = ['checkbox', 'radio', 'switch'].includes(target.role)
-      ? Boolean(target.element.checked ?? ariaBoolean(target.element, 'checked'))
+      ? Boolean(stateElement.checked ?? ariaBoolean(stateElement, 'checked'))
       : undefined;
-    const clientX = box.x + box.width / 2;
-    const clientY = box.y + box.height / 2;
     let clickDispatchCompleted = false;
-    for (const [type, EventClass, buttons] of [
-      ['pointermove', view.PointerEvent, 0], ['mousemove', view.MouseEvent, 0],
-      ['pointerdown', view.PointerEvent, 1], ['mousedown', view.MouseEvent, 1],
-      ['pointerup', view.PointerEvent, 0], ['mouseup', view.MouseEvent, 0], ['click', view.MouseEvent, 0],
-    ]) {
-      target.element.dispatchEvent(new EventClass(type, {
-        bubbles: true, cancelable: true, composed: true, clientX, clientY,
-        button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true,
-      }));
-      if (type === 'click') clickDispatchCompleted = true;
+    if (target.role === 'reflex_target') {
+      const box = boxFor(target.element);
+      const view = target.element.ownerDocument.defaultView;
+      const clientX = box.x + box.width / 2;
+      const clientY = box.y + box.height / 2;
+      for (const [type, EventClass, buttons] of [
+        ['pointermove', view.PointerEvent, 0], ['mousemove', view.MouseEvent, 0],
+        ['pointerdown', view.PointerEvent, 1], ['mousedown', view.MouseEvent, 1],
+        ['pointerup', view.PointerEvent, 0], ['mouseup', view.MouseEvent, 0], ['click', view.MouseEvent, 0],
+      ]) {
+        target.element.dispatchEvent(new EventClass(type, {
+          bubbles: true, cancelable: true, composed: true, clientX, clientY,
+          button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+        }));
+        if (type === 'click') clickDispatchCompleted = true;
+      }
+    } else {
+      clickDispatchCompleted = dispatchOrdinaryActivation(target);
     }
     const recordedReflexOccurrence = target.role === 'reflex_target'
       && recordMouseAccuracyOccurrence(target.element, clickDispatchCompleted);
     const toggleAfter = toggleBefore === undefined
-      ? undefined : Boolean(target.element.checked ?? ariaBoolean(target.element, 'checked'));
+      ? undefined : Boolean(stateElement.checked ?? ariaBoolean(stateElement, 'checked'));
     if (recordedReflexOccurrence) collect();
     requestAnimationFrame(collect);
     return {
@@ -1367,7 +1509,7 @@
   }
 
   async function softType(request, preflight) {
-    const prepared = preflight || await waitForSoftwarePreparation(request);
+    const prepared = await softwarePreparation(request, preflight);
     const target = tokenTargets.get(request.action_token);
     if (!target || !target.element.isConnected || !SOFTWARE_TYPE_ROLES.has(target.role)) {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'software typing is not registered for the current control');
@@ -1590,7 +1732,7 @@
   }
 
   async function softUpload(request, preflight) {
-    const prepared = preflight || await waitForSoftwarePreparation(request);
+    const prepared = await softwarePreparation(request, preflight);
     const target = tokenTargets.get(request.action_token);
     if (!target || !target.element.isConnected || target.role !== 'file_input') {
       throw actionFailure('dispatch', 'operation_not_registered', false, 'upload is not registered for the current control');
@@ -1798,13 +1940,24 @@
   }
 
   function schedule() {
-    if (scheduled || !config) return;
+    if (scheduled || scheduledTimer !== null || !config) return;
     scheduled = true;
-    queueMicrotask(() => { scheduled = false; collect(); });
+    const elapsed = performance.now() - lastScheduledCollectionEndedAt;
+    const delay = Math.max(0, SEMANTIC_COLLECTION_INTERVAL_MS - elapsed);
+    scheduledTimer = setTimeout(() => {
+      scheduledTimer = null;
+      scheduled = false;
+      collect();
+      lastScheduledCollectionEndedAt = performance.now();
+    }, delay);
   }
 
   function scheduleVisual() {
-    if (scheduled || scheduledFrame !== null || !config) return;
+    if (!isMouseAccuracyGame(document)) {
+      schedule();
+      return;
+    }
+    if (scheduled || scheduledTimer !== null || scheduledFrame !== null || !config) return;
     scheduledFrame = requestAnimationFrame(() => {
       scheduledFrame = null;
       collect();
@@ -1828,6 +1981,9 @@
   function configure(next) {
     config = next;
     compiledObjects = null;
+    if (scheduledTimer !== null) clearTimeout(scheduledTimer);
+    scheduledTimer = null;
+    scheduled = false;
     connectWorkerPort();
     for (const observer of observers.splice(0)) observer.disconnect();
     observedRoots = new WeakSet();
@@ -1852,6 +2008,8 @@
     workerPort = null;
     if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
     scheduledFrame = null;
+    if (scheduledTimer !== null) clearTimeout(scheduledTimer);
+    scheduledTimer = null;
     scheduled = false;
     tokenTargets.clear();
     objectTargets.clear();
@@ -1866,11 +2024,25 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+    if (message.kind === 'collector.wait_software_preparation') {
+      waitForSoftwarePreparation(message.request)
+        .then((prepared) => respond({ ok: true, prepared })).catch((error) => {
+          respond({
+            ok: false,
+            error: String(error.message || error),
+            failure_stage: error.saccadeStage || 'prepare',
+            failure_code: error.saccadeCode || 'software_preparation_rejected',
+            retry_safe: error.saccadeRetrySafe === true,
+          });
+        });
+      return true;
+    }
     if (message.kind === 'collector.soft_click' || message.kind === 'collector.soft_action'
+      || message.kind === 'collector.dispatch_software_action'
       || message.kind === 'collector.soft_action_batch') {
       const action = message.kind === 'collector.soft_click'
         ? softClick : message.kind === 'collector.soft_action_batch' ? softActionBatch : softAction;
-      action(message.request).then((result) => respond({ ok: true, result })).catch((error) => {
+      action(message.request, message.preflight).then((result) => respond({ ok: true, result })).catch((error) => {
         respond({
           ok: false,
           error: String(error.message || error),
