@@ -595,8 +595,13 @@ test('Node Broker reconnect uses bounded backoff without a popup wake-up', () =>
   assert.match(worker, /function brokerRuntimeReady\(\)/);
   assert.match(worker, /broker_connected: brokerRuntimeReady\(\)/);
   assert.match(worker, /if \(!brokerRuntimePresent\(\)\) \{\s*try \{ await ensureBrokerConnection\(\); \}/s);
-  assert.match(reconnect, /if \(brokerConnectionId \|\| connectPromise\) return/);
+  assert.doesNotMatch(reconnect, /if \(brokerConnectionId \|\| connectPromise\) return/);
+  assert.match(reconnect, /if \(connectPromise\) \{[\s\S]*pending\.finally/);
   assert.match(worker, /function startCommandLoop\(connectionId, generation\)/);
+  assert.match(worker, /function startTabRecovery\(connectionId, requireFullTruth\)/);
+  const connect = worker.slice(worker.indexOf('async function connectBroker'), worker.indexOf('function numericTabId'));
+  assert.ok(connect.indexOf('startCommandLoop(') < connect.indexOf('startTabRecovery('));
+  assert.doesNotMatch(connect, /await authorizeTab/);
   assert.match(worker, /commandLoopState !== state[\s\S]*brokerLoopGeneration !== generation/);
   assert.match(worker, /if \(commandLoopState === state\) commandLoopState = undefined/);
   assert.match(worker, /brokerRequest\('\/v1\/extension\/commands', \{\s*method: 'POST'/s);
@@ -605,6 +610,10 @@ test('Node Broker reconnect uses bounded backoff without a popup wake-up', () =>
   assert.match(worker, /new WebSocket\(/);
   assert.match(worker, /kind: 'heartbeat'/);
   assert.match(worker, /kind !== 'heartbeat\.ack'/);
+  assert.match(worker, /AbortSignal\.timeout\(timeoutMs\)/);
+  assert.match(worker, /Collector response did not arrive before the command deadline/);
+  assert.match(worker, /error\.saccadeCode = 'OUTCOME_UNKNOWN'/);
+  assert.match(worker, /error\.saccadeOutcome = 'outcome_unknown'/);
   assert.match(worker, /catch \(error\) \{\s*brokerConnectionId = undefined;\s*brokerEpoch = undefined;\s*throw error;/s);
 });
 
