@@ -223,5 +223,18 @@
     "publishedAt": "2026-08-28T00:16:08.090Z",
     "publishedRevision": 10,
     "archivePath": ".authority/archive/proposals/1787876168062-saccade-runtime-contract-r10.md"
+  },
+  {
+    "id": "1788227705237-saccade-0-2-0-node-broker-contract",
+    "path": "docs/proposals/saccade-runtime-contract-r11.md",
+    "title": "Saccade 0.2.0 Node Broker contract",
+    "topic": "saccade-0-2-0-runtime-contract",
+    "baseRevision": 10,
+    "status": "published",
+    "sha256": "22a1e37bd539658c9e4c68e85ff05e078c73d3b5ab216c73297e6f5fe53605de",
+    "createdAt": "2026-09-01T01:55:05.239Z",
+    "publishedAt": "2026-09-01T01:55:05.333Z",
+    "publishedRevision": 11,
+    "archivePath": ".authority/archive/proposals/1788227705298-saccade-runtime-contract-r11.md"
   }
 ]

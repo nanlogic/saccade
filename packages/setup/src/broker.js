@@ -1199,15 +1199,16 @@ class BrokerState extends EventEmitter {
         throw new BrokerError('INVALID_REQUEST', 'act requires exactly one of object_id or steps');
       }
       const current = this.truth.get(params.tab_id);
-      if (!current || current.document_id !== params.document_id || current.revision !== params.basis_revision) {
-        throw new BrokerError('STALE_AUTHORITY', 'Action document or revision is stale', { retry_safe: true, current_revision: current?.revision });
-      }
-      const basisDocumentId = current.document_id;
-      const basisRevision = current.revision;
       const inputSteps = params.steps || [params];
       if (!Array.isArray(inputSteps) || inputSteps.length < 1 || inputSteps.length > 32) {
         throw new BrokerError('INVALID_BATCH', 'steps must contain 1 to 32 independent form actions');
       }
+      if (!current || current.document_id !== params.document_id) {
+        throw new BrokerError('STALE_AUTHORITY', 'Action document or revision is stale', { retry_safe: true, current_revision: current?.revision });
+      }
+      const requestedBasisRevision = params.basis_revision;
+      const basisRevision = rebaseOrdinaryActionBasis(current, requestedBasisRevision, inputSteps);
+      const basisDocumentId = current.document_id;
       const seen = new Set();
       const steps = inputSteps.map((step) => {
         const matches = (current.full.objects || []).filter((object) => object.object_id === step.object_id);
@@ -1242,7 +1243,7 @@ class BrokerState extends EventEmitter {
         return {
           browser_instance_id: current.full.browser_instance_id,
           tab_id: params.tab_id, document_id: params.document_id,
-          basis_revision: params.basis_revision, object_id: target.object_id,
+          basis_revision: basisRevision, object_id: target.object_id,
           action_token: target.action_token, operation, payload,
           timeout_ms: Math.min(boundedTimeout(params.timeout_ms, 5_000), remaining()),
         };
@@ -1250,7 +1251,7 @@ class BrokerState extends EventEmitter {
       const batch = Boolean(params.steps);
       const command = batch ? {
         tab_id: params.tab_id, document_id: params.document_id,
-        basis_revision: params.basis_revision, timeout_ms: Math.min(boundedTimeout(params.timeout_ms, 5_000), remaining()),
+        basis_revision: basisRevision, timeout_ms: Math.min(boundedTimeout(params.timeout_ms, 5_000), remaining()),
         steps,
       } : steps[0];
       const result = await this.enqueueCommand(agentSessionId, batch ? 'act.batch' : 'act', command, remaining(), {
@@ -1325,6 +1326,7 @@ class BrokerState extends EventEmitter {
         relevant_delta: batch ? batchTransition : transition,
         steps: stepReceipts,
         upload,
+        rebased_from_revision: requestedBasisRevision < basisRevision ? requestedBasisRevision : undefined,
         retry_safe: partialDispatch ? false : !result.accepted ? result.retry_safe === true : false,
         external_execution_required: Boolean(upload),
       };
@@ -1386,6 +1388,42 @@ function inferOperation(params, target) {
   const affordances = target.affordances || [];
   if (affordances.length !== 1) throw new BrokerError('AMBIGUOUS_OPERATION', 'operation is ambiguous');
   return affordances[0];
+}
+
+function rebaseOrdinaryActionBasis(current, requestedBasisRevision, inputSteps) {
+  const stale = () => {
+    throw new BrokerError('STALE_AUTHORITY', 'Action document or revision is stale', {
+      retry_safe: true, current_revision: current?.revision,
+    });
+  };
+  if (!Number.isSafeInteger(requestedBasisRevision) || requestedBasisRevision < 1
+      || requestedBasisRevision > current.revision) stale();
+  if (requestedBasisRevision === current.revision) return current.revision;
+
+  const protectedIds = new Set();
+  for (const step of inputSteps) {
+    if (typeof step?.object_id !== 'string') stale();
+    protectedIds.add(step.object_id);
+    if (step.option_object_id !== undefined) {
+      if (typeof step.option_object_id !== 'string') stale();
+      protectedIds.add(step.option_object_id);
+    }
+  }
+  const deltas = (current.history || []).filter((delta) => delta.revision > requestedBasisRevision);
+  if (!deltas.length || deltas[0].base_revision !== requestedBasisRevision
+      || deltas.at(-1).revision !== current.revision) stale();
+  let expectedBase = requestedBasisRevision;
+  for (const delta of deltas) {
+    if (delta.document_id !== current.document_id || delta.base_revision !== expectedBase
+        || delta.revision !== expectedBase + 1) stale();
+    if ((delta.changes || []).some((change) => protectedIds.has(change.object_id))) stale();
+    expectedBase = delta.revision;
+  }
+  for (const objectId of protectedIds) {
+    const matches = (current.full.objects || []).filter((object) => object.object_id === objectId);
+    if (matches.length !== 1) stale();
+  }
+  return current.revision;
 }
 
 function materializeDelta(full, delta) {

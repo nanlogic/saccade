@@ -625,6 +625,162 @@ test('form batch preflights every independent object before one dispatch', async
   assert.doesNotMatch(JSON.stringify(receipt), /secret-not-in-receipt/);
 });
 
+test('ordinary action safely rebases across contiguous unrelated Truth changes', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  broker.acceptTruth('observation', observation());
+  broker.acceptTruth('observation.delta', {
+    tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
+    viewport_revision: 1,
+    objects: [{ object_id: 'status', role: 'status', text: 'Cycle 1', affordances: [] }],
+    authorities: [{ object_id: 'object-1', action_token: 'token-1' }],
+    changes: [{ kind: 'appeared', object_id: 'status', object_revision: 2 }],
+  });
+  broker.acceptTruth('observation.delta', {
+    tab_id: '7', document_id: 'document-1', base_revision: 2, revision: 3,
+    viewport_revision: 1,
+    objects: [{ object_id: 'status', role: 'status', text: 'Cycle 2', affordances: [] }],
+    authorities: [{ object_id: 'object-1', action_token: 'token-1' }],
+    changes: [{ kind: 'updated', object_id: 'status', object_revision: 3 }],
+  });
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const pending = broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1,
+    object_id: 'object-1', operation: 'click', timeout_ms: 200,
+  }, 200, 31);
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+  assert.equal(command.kind, 'act');
+  assert.equal(command.payload.basis_revision, 3);
+  assert.equal(command.payload.object_id, 'object-1');
+  assert.equal(command.payload.action_token, 'token-1');
+  broker.acceptExtensionEvents(connection.connection_id, [{
+    kind: 'response', command_id: command.command_id,
+    result: {
+      accepted: true, dispatch_document_id: 'document-1', dispatch_basis_revision: 3,
+      semantic_postcondition: { code: 'click_dispatched', verified: true },
+    },
+  }]);
+  const receipt = await pending;
+  assert.equal(receipt.outcome, 'accepted');
+  assert.equal(receipt.rebased_from_revision, 1);
+  assert.equal(receipt.dispatch_basis_revision, 3);
+  assert.equal(receipt.final_revision, 3);
+  assert.equal(receipt.retry_safe, false);
+});
+
+test('ordinary action rejects revision drift when its target changed', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  broker.acceptTruth('observation', observation());
+  broker.acceptTruth('observation.delta', {
+    tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
+    viewport_revision: 1,
+    objects: [{
+      object_id: 'object-1', role: 'button', name: 'Continue', state: { enabled: 'false' },
+      affordances: ['click'], action_token: 'token-2',
+    }],
+    authorities: [],
+    changes: [{ kind: 'updated', object_id: 'object-1', object_revision: 2 }],
+  });
+  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  await assert.rejects(broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1,
+    object_id: 'object-1', operation: 'click',
+  }, 50, 32), (error) => error.code === 'STALE_AUTHORITY'
+    && error.retry_safe === true && error.current_revision === 2);
+  assert.equal(broker.commands.size, 0);
+});
+
+test('ordinary action rejects revision drift across a missing history basis', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  broker.acceptTruth('observation', observation('7', 2));
+  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  await assert.rejects(broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1,
+    object_id: 'object-1', operation: 'click',
+  }, 50, 33), (error) => error.code === 'STALE_AUTHORITY'
+    && error.retry_safe === true && error.current_revision === 2);
+  assert.equal(broker.commands.size, 0);
+});
+
+test('form batch safely rebases when every addressed identity stayed unchanged', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  const full = observation();
+  full.objects = [
+    { object_id: 'name', role: 'text_field', affordances: ['type'], action_token: 'token-name' },
+    { object_id: 'newsletter', role: 'checkbox', affordances: ['click'], action_token: 'token-newsletter' },
+  ];
+  broker.acceptTruth('observation', full);
+  broker.acceptTruth('observation.delta', {
+    tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
+    viewport_revision: 1,
+    objects: [{ object_id: 'status', role: 'status', text: 'Ambient update', affordances: [] }],
+    authorities: [
+      { object_id: 'name', action_token: 'token-name' },
+      { object_id: 'newsletter', action_token: 'token-newsletter' },
+    ],
+    changes: [{ kind: 'appeared', object_id: 'status', object_revision: 2 }],
+  });
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const pending = broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1,
+    steps: [
+      { object_id: 'name', operation: 'type', text: 'not-returned' },
+      { object_id: 'newsletter', operation: 'click' },
+    ],
+  }, 200, 35);
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+  assert.equal(command.kind, 'act.batch');
+  assert.equal(command.payload.basis_revision, 2);
+  assert.deepEqual(command.payload.steps.map((step) => step.basis_revision), [2, 2]);
+  broker.acceptExtensionEvents(connection.connection_id, [{
+    kind: 'response', command_id: command.command_id,
+    result: {
+      accepted: true, dispatch_document_id: 'document-1', dispatch_basis_revision: 2,
+      steps: [
+        { accepted: true, semantic_postcondition: { verified: true } },
+        { accepted: true, semantic_postcondition: { verified: true } },
+      ],
+    },
+  }]);
+  const receipt = await pending;
+  assert.equal(receipt.outcome, 'accepted');
+  assert.equal(receipt.rebased_from_revision, 1);
+  assert.deepEqual(receipt.steps.map((step) => step.verified), [true, true]);
+  assert.doesNotMatch(JSON.stringify(receipt), /not-returned/);
+});
+
+test('form batch rejects stale rebase when a selected option changed', async () => {
+  const broker = new BrokerState();
+  const session = broker.createSession().agent_session_id;
+  broker.leaseTab('7', session);
+  const full = observation();
+  full.objects = [
+    { object_id: 'country', role: 'select', affordances: ['select'], action_token: 'token-country' },
+    { object_id: 'us', role: 'option', affordances: ['click'], action_token: 'token-us' },
+  ];
+  broker.acceptTruth('observation', full);
+  broker.acceptTruth('observation.delta', {
+    tab_id: '7', document_id: 'document-1', base_revision: 1, revision: 2,
+    viewport_revision: 1,
+    objects: [{ object_id: 'us', role: 'option', state: { enabled: 'false' }, affordances: [] }],
+    authorities: [{ object_id: 'country', action_token: 'token-country' }],
+    changes: [{ kind: 'updated', object_id: 'us', object_revision: 2 }],
+  });
+  broker.connectExtension({ browser_instance_id: 'browser-1' });
+  await assert.rejects(broker.rpc(session, 'act', {
+    tab_id: '7', document_id: 'document-1', basis_revision: 1,
+    steps: [{ object_id: 'country', operation: 'select', option_object_id: 'us' }],
+  }, 50, 34), (error) => error.code === 'STALE_AUTHORITY' && error.retry_safe === true);
+  assert.equal(broker.commands.size, 0);
+});
+
 test('form batch stays outcome_unknown until every accepted step has a relevant Truth change', async () => {
   const broker = new BrokerState();
   const session = broker.createSession().agent_session_id;

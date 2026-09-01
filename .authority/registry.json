@@ -4,7 +4,7 @@
     "name": "SACCADE-CONTROL-RUNTIME",
     "owner": "human-owner"
   },
-  "revision": 18,
+  "revision": 19,
   "topics": {
     "truth-observation-contract": {
       "title": "Browser Truth observation contract",
@@ -106,25 +106,25 @@
       "scope": ".",
       "status": "current",
       "path": "docs/current/saccade-0-2-0-runtime-contract.md",
-      "revision": 10,
-      "sha256": "0e218e8199365e0d101d395327efbce3d84d858a486fa40b257be07899fad1b7",
-      "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0010.md",
-      "evidenceSha256": "827b4f9691102ef25a90e3f9d6d5184eb52a1a03b58a5f1020e004f6505fa2bd",
-      "evidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0010.json",
-      "evidenceDataSha256": "07be1522418d6364ea6b585b5e1cc7b1db4a6b84eb304941b470557cf62cea14",
+      "revision": 11,
+      "sha256": "22a1e37bd539658c9e4c68e85ff05e078c73d3b5ab216c73297e6f5fe53605de",
+      "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0011.md",
+      "evidenceSha256": "e890bced5800deacd7efb51a51d5a7c183121187332945a411a20ade6fe53e76",
+      "evidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0011.json",
+      "evidenceDataSha256": "32b5d696c324c170f5b315ce59a14cab1e090c581a11263909e94134b128091f",
       "evidenceStatus": "complete",
       "owner": "human-owner",
-      "updatedAt": "2026-08-28T00:16:08.090Z",
+      "updatedAt": "2026-09-01T01:55:05.333Z",
       "adoptionRun": null,
       "decisionId": null,
       "supersedes": {
         "path": "docs/current/saccade-0-2-0-runtime-contract.md",
-        "revision": 9,
-        "sha256": "f70e1d6f35d06ddddb05271f081411f7a1aaf454d597709777fb4643430faf41",
-        "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0009.md",
-        "evidenceSha256": "f10f11991210f0f1800d925025f06eaee789c41c3f6855e8e400c73a6f23a441"
+        "revision": 10,
+        "sha256": "0e218e8199365e0d101d395327efbce3d84d858a486fa40b257be07899fad1b7",
+        "evidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0010.md",
+        "evidenceSha256": "827b4f9691102ef25a90e3f9d6d5184eb52a1a03b58a5f1020e004f6505fa2bd"
       }
     }
   },
-  "updatedAt": "2026-08-28T00:16:08.090Z"
+  "updatedAt": "2026-09-01T01:55:05.333Z"
 }

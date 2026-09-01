@@ -1,6 +1,6 @@
 {
   "name": "@nanlogic/saccade",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Node-only Saccade Truth Broker and MCP adapter.",
   "license": "Apache-2.0",
   "repository": {

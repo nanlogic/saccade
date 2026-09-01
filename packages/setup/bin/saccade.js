@@ -16,7 +16,7 @@ async function main(argv = process.argv.slice(2)) {
   }
   if (command === 'mcp') return serveMcp();
   if (command === '--version' || command === '-V') {
-    console.log('saccade 0.2.0');
+    console.log('saccade 0.2.1');
     return;
   }
   return setup.main(argv);

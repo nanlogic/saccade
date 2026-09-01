@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "documentRole": "authority-evidence",
+  "normative": false,
+  "mode": "delta",
+  "topic": "saccade-0-2-0-runtime-contract",
+  "scope": ".",
+  "title": "Saccade 0.2.0 Node Broker contract",
+  "revision": 11,
+  "approvedBy": "human-owner",
+  "actor": {
+    "name": "Wayne Ma",
+    "email": "wayne.maq@gmail.com"
+  },
+  "decision": "owner-approved publish",
+  "reviewer": "none",
+  "publisherVersion": "markdown-gatekeeper/0.4",
+  "adoptionRun": null,
+  "decisionId": null,
+  "currentSha256": "22a1e37bd539658c9e4c68e85ff05e078c73d3b5ab216c73297e6f5fe53605de",
+  "baseCurrentSha256": "0e218e8199365e0d101d395327efbce3d84d858a486fa40b257be07899fad1b7",
+  "previousEvidencePath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0010.md",
+  "previousEvidenceSha256": "827b4f9691102ef25a90e3f9d6d5184eb52a1a03b58a5f1020e004f6505fa2bd",
+  "previousEvidenceDataPath": ".authority/evidence/saccade-0-2-0-runtime-contract/r0010.json",
+  "previousEvidenceDataSha256": "07be1522418d6364ea6b585b5e1cc7b1db4a6b84eb304941b470557cf62cea14",
+  "changes": [
+    {
+      "item": "R-026",
+      "change": "modified",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Changed by an owner-approved revision.",
+      "confidence": "high",
+      "text": "`saccade.act` may authorize a bounded continuous run only from one current `reflex_target` object carrying the current loop-class authority. Because moving targets may advance unrelated geometry revisions every frame, only this non-actionable controller request may rebase an older basis onto current canonical Truth, and only when the same `document_id` and exact document-local controller `object_id` still resolve uniquely with a current loop-class token; a future basis, document change, missing or replaced identity, wrong role, or absent loop authority remains stale. The Node Broker, under the original request deadline and cancellation identity, repeatedly selects only current same-document targets with that loop class, dispatches each exact current action token once, and requires the safe occurrence to advance before continuing. A registered bridge may define that occurrence as a completed exact-target Extension software dispatch only when the page exposes no live semantic counter; its release conformance must reconcile the final page-owned aggregate with the dispatch count. Pre-dispatch stale target work may be skipped; any ambiguous or occurrence-unverified dispatch stops the loop with `outcome_unknown` and is never replayed. The report is bounded and value-free. Ordinary actions may use only the bounded same-object revision-drift rule in R-030. This adds no seventh tool, Agent polling, arbitrary coordinate authority, native backend, or Rust route.",
+      "previousText": "`saccade.act` may authorize a bounded continuous run only from one current `reflex_target` object carrying the current loop-class authority. Because moving targets may advance unrelated geometry revisions every frame, only this non-actionable controller request may rebase an older basis onto current canonical Truth, and only when the same `document_id` and exact document-local controller `object_id` still resolve uniquely with a current loop-class token; a future basis, document change, missing or replaced identity, wrong role, or absent loop authority remains stale. The Node Broker, under the original request deadline and cancellation identity, repeatedly selects only current same-document targets with that loop class, dispatches each exact current action token once, and requires the safe occurrence to advance before continuing. A registered bridge may define that occurrence as a completed exact-target Extension software dispatch only when the page exposes no live semantic counter; its release conformance must reconcile the final page-owned aggregate with the dispatch count. Pre-dispatch stale target work may be skipped; any ambiguous or occurrence-unverified dispatch stops the loop with `outcome_unknown` and is never replayed. The report is bounded and value-free. Ordinary actions retain strict revision matching. This adds no seventh tool, Agent polling, arbitrary coordinate authority, native backend, or Rust route."
+    },
+    {
+      "item": "R-030",
+      "change": "added",
+      "sources": [
+        "S-001"
+      ],
+      "reason": "Added by an owner-approved revision.",
+      "confidence": "high",
+      "text": "An ordinary single action or independent form batch may arrive with an older `basis_revision` after unrelated same-document Truth changes. The Broker may advance that one request to current canonical Truth only when it retains a complete contiguous delta history from the requested basis, the `document_id` is unchanged, and none of the addressed object identities or selected option identities appeared, updated, or disappeared in that history. Every addressed identity must still resolve exactly once with its current action authority and requested affordance. A future basis, snapshot/reset boundary, history gap, document change, missing or changed identity, replacement, option change, or authority loss fails before dispatch as stale and remains `retry_safe:true`. The Extension revalidates the exact current token, identity, affordance, visibility, enabled state, focus, topmost state, and required geometry immediately before its sole dispatch. Advancing the pre-dispatch basis is part of the original command under its original deadline; it is neither a retry nor permission to replay an ambiguous side effect."
+    }
+  ],
+  "sources": [
+    {
+      "id": "S-001",
+      "path": "docs/proposals/saccade-runtime-contract-r11.md",
+      "archivePath": ".authority/archive/proposals/1788227705298-saccade-runtime-contract-r11.md",
+      "sha256": "22a1e37bd539658c9e4c68e85ff05e078c73d3b5ab216c73297e6f5fe53605de",
+      "git": "owner-approved publish"
+    }
+  ],
+  "unresolved": [],
+  "createdAt": "2026-09-01T01:55:05.332Z"
+}

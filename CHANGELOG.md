@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+- Let one ordinary action or independent form batch advance to current Truth
+  when the Broker retains complete contiguous deltas proving every addressed
+  object and selected option stayed unchanged.
+- Keep navigation, replacement, target or option changes, authority loss,
+  future revisions, resets, and history gaps stale before dispatch.
+- Preserve one request deadline and one dispatch: the bounded basis advance is
+  pre-dispatch validation, never an action retry or side-effect replay.
+
 ## 0.2.0
 
 - Replaced the compiled runtime and all platform-specific installation paths
