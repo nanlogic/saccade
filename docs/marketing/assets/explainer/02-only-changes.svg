@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fbfcff"/><stop offset="1" stop-color="#eef5ff"/></linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0d5fe8"/><stop offset="1" stop-color="#2687ff"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#18345d" flood-opacity=".16"/></filter>
+  </defs>
+  <rect width="1280" height="800" fill="url(#paper)"/>
+  <image href="saccade-icon.png" x="56" y="45" width="50" height="50"/>
+  <text x="122" y="80" fill="#0a2147" font-family="Arial, sans-serif" font-size="27" font-weight="700">Saccade</text>
+  <rect x="1052" y="52" width="168" height="40" rx="20" fill="#e7effc"/>
+  <text x="1136" y="78" text-anchor="middle" fill="#37618f" font-family="Arial, sans-serif" font-size="15" font-weight="700">LIVE PAGE TRUTH</text>
+
+  <text x="58" y="176" fill="#0a2147" font-family="Arial, sans-serif" font-size="58" font-weight="750" letter-spacing="-1.4">Read what changed.</text>
+  <text x="58" y="238" fill="#1b6ee8" font-family="Arial, sans-serif" font-size="58" font-weight="750" letter-spacing="-1.4">Skip the page-sized repeat.</text>
+  <text x="61" y="296" fill="#536a88" font-family="Arial, sans-serif" font-size="23">Start with one semantic view. After that, the browser pushes small deltas.</text>
+
+  <g transform="translate(62 352)" filter="url(#shadow)">
+    <rect width="430" height="310" rx="28" fill="#ffffff" stroke="#dbe6f4"/>
+    <rect width="430" height="60" rx="28" fill="#f1f5fb"/>
+    <rect y="34" width="430" height="26" fill="#f1f5fb"/>
+    <circle cx="30" cy="30" r="7" fill="#ff6b6b"/><circle cx="53" cy="30" r="7" fill="#ffca45"/><circle cx="76" cy="30" r="7" fill="#45d786"/>
+    <text x="110" y="37" fill="#49637f" font-family="Arial, sans-serif" font-size="16" font-weight="700">FIRST READ · REVISION 42</text>
+    <text x="25" y="99" fill="#18345d" font-family="Arial, sans-serif" font-size="18" font-weight="700">Current working set</text>
+    <g fill="#dce7f7">
+      <rect x="25" y="122" width="350" height="16" rx="8"/><rect x="25" y="151" width="300" height="16" rx="8"/><rect x="25" y="180" width="368" height="16" rx="8"/><rect x="25" y="209" width="260" height="16" rx="8"/><rect x="25" y="238" width="335" height="16" rx="8"/>
+    </g>
+    <text x="25" y="289" fill="#69829f" font-family="Arial, sans-serif" font-size="16">Fields · choices · buttons · tables</text>
+  </g>
+
+  <g transform="translate(535 484)">
+    <path d="M0 0h112" stroke="#1b6ee8" stroke-width="7" stroke-linecap="round"/>
+    <path d="M91 -17l23 17-23 17" fill="none" stroke="#1b6ee8" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="17" y="-62" width="80" height="33" rx="16" fill="#dbeaff"/>
+    <text x="57" y="-40" text-anchor="middle" fill="#1460c9" font-family="Arial, sans-serif" font-size="14" font-weight="700">PUSH</text>
+  </g>
+
+  <g transform="translate(686 389)" filter="url(#shadow)">
+    <rect width="532" height="238" rx="30" fill="url(#blue)"/>
+    <text x="30" y="49" fill="#dcecff" font-family="Arial, sans-serif" font-size="15" font-weight="700">DELTA · REVISION 43</text>
+    <rect x="30" y="75" width="472" height="105" rx="21" fill="#ffffff" opacity=".98"/>
+    <circle cx="69" cy="127" r="22" fill="#dcf8ed"/>
+    <path d="M58 127l8 8 16-19" fill="none" stroke="#0ba36a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="105" y="119" fill="#13335b" font-family="Arial, sans-serif" font-size="18" font-weight="700">Save button</text>
+    <text x="105" y="148" fill="#49637f" font-family="Arial, sans-serif" font-size="17">enabled: false → true</text>
+    <text x="30" y="214" fill="#dcecff" font-family="Arial, sans-serif" font-size="17">Only the relevant change reaches the Agent.</text>
+  </g>
+
+  <rect x="61" y="704" width="465" height="48" rx="24" fill="#e3efff"/>
+  <text x="294" y="735" text-anchor="middle" fill="#145bc1" font-family="Arial, sans-serif" font-size="18" font-weight="700">LESS PAGE DATA · FEWER TOOL CALLS</text>
+  <text x="60" y="774" fill="#8296ae" font-family="Arial, sans-serif" font-size="17">02 / 05</text>
+  <text x="1220" y="774" text-anchor="end" fill="#8296ae" font-family="Arial, sans-serif" font-size="17">github.com/nanlogic/saccade</text>
+</svg>

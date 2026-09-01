@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#06142e"/><stop offset="1" stop-color="#103c79"/></linearGradient>
+    <linearGradient id="button" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1668ed"/><stop offset="1" stop-color="#2d8cff"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#020814" flood-opacity=".42"/></filter>
+  </defs>
+  <rect width="1280" height="800" fill="url(#bg)"/>
+  <circle cx="1070" cy="165" r="280" fill="#2f7ff0" opacity=".12"/>
+  <image href="saccade-icon.png" x="56" y="45" width="50" height="50"/>
+  <text x="122" y="80" fill="#ffffff" font-family="Arial, sans-serif" font-size="27" font-weight="700">Saccade</text>
+  <rect x="1058" y="52" width="162" height="40" rx="20" fill="#ffffff" opacity=".10"/>
+  <text x="1139" y="78" text-anchor="middle" fill="#d6e6ff" font-family="Arial, sans-serif" font-size="15" font-weight="700">LOCAL CHECKS</text>
+
+  <text x="58" y="184" fill="#ffffff" font-family="Arial, sans-serif" font-size="59" font-weight="750" letter-spacing="-1.5">The target is current</text>
+  <text x="58" y="248" fill="#69aaff" font-family="Arial, sans-serif" font-size="59" font-weight="750" letter-spacing="-1.5">when the action happens.</text>
+  <text x="61" y="309" fill="#c5d7f1" font-family="Arial, sans-serif" font-size="23">Checks happen locally, right before the click.</text>
+
+  <g transform="translate(61 380)">
+    <g>
+      <circle cx="19" cy="19" r="19" fill="#183d73"/><path d="M10 19l7 7 13-16" fill="none" stroke="#65ddae" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="55" y="26" fill="#ffffff" font-family="Arial, sans-serif" font-size="21" font-weight="700">Visible and enabled</text>
+    </g>
+    <g transform="translate(0 68)">
+      <circle cx="19" cy="19" r="19" fill="#183d73"/><path d="M10 19l7 7 13-16" fill="none" stroke="#65ddae" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="55" y="26" fill="#ffffff" font-family="Arial, sans-serif" font-size="21" font-weight="700">Still the same object</text>
+    </g>
+    <g transform="translate(0 136)">
+      <circle cx="19" cy="19" r="19" fill="#183d73"/><path d="M10 19l7 7 13-16" fill="none" stroke="#65ddae" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="55" y="26" fill="#ffffff" font-family="Arial, sans-serif" font-size="21" font-weight="700">Stable and ready</text>
+    </g>
+    <g transform="translate(0 204)">
+      <circle cx="19" cy="19" r="19" fill="#183d73"/><path d="M10 19l7 7 13-16" fill="none" stroke="#65ddae" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="55" y="26" fill="#ffffff" font-family="Arial, sans-serif" font-size="21" font-weight="700">On top and focusable</text>
+    </g>
+  </g>
+
+  <g transform="translate(675 294) scale(.84)" filter="url(#shadow)">
+    <rect width="635" height="485" rx="32" fill="#ffffff"/>
+    <rect width="635" height="64" rx="32" fill="#eef4fb"/>
+    <rect y="36" width="635" height="28" fill="#eef4fb"/>
+    <circle cx="31" cy="31" r="8" fill="#ff6b6b"/><circle cx="57" cy="31" r="8" fill="#ffca45"/><circle cx="83" cy="31" r="8" fill="#45d786"/>
+    <rect x="122" y="18" width="345" height="27" rx="13" fill="#dce7f4"/>
+    <text x="35" y="111" fill="#18345d" font-family="Arial, sans-serif" font-size="20" font-weight="700">Update customer</text>
+    <text x="35" y="156" fill="#58708c" font-family="Arial, sans-serif" font-size="15" font-weight="700">COMPANY</text>
+    <rect x="35" y="171" width="565" height="62" rx="14" fill="#f7f9fc" stroke="#ccd9ea" stroke-width="2"/>
+    <rect x="35" y="266" width="270" height="54" rx="13" fill="#f7f9fc" stroke="#dbe4ef"/>
+    <rect x="330" y="266" width="270" height="54" rx="13" fill="#f7f9fc" stroke="#dbe4ef"/>
+    <rect x="365" y="376" width="235" height="68" rx="18" fill="url(#button)"/>
+    <text x="482" y="419" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="23" font-weight="700">Save changes</text>
+    <rect x="307" y="351" width="323" height="118" rx="24" fill="none" stroke="#60a2ff" stroke-width="5" stroke-dasharray="11 9"/>
+    <g transform="translate(337 326)">
+      <rect width="242" height="45" rx="22" fill="#0f2e5b"/>
+      <circle cx="24" cy="22" r="8" fill="#56dca7"/>
+      <text x="44" y="29" fill="#ffffff" font-family="Arial, sans-serif" font-size="16" font-weight="700">SAVE BUTTON · CURRENT</text>
+    </g>
+  </g>
+
+  <rect x="61" y="694" width="436" height="48" rx="24" fill="#173a70"/>
+  <text x="279" y="725" text-anchor="middle" fill="#d9e8ff" font-family="Arial, sans-serif" font-size="18" font-weight="700">WAITING HAPPENS HERE, NOT IN THE MODEL</text>
+  <text x="60" y="775" fill="#7795c0" font-family="Arial, sans-serif" font-size="17">03 / 05</text>
+  <text x="1220" y="775" text-anchor="end" fill="#7795c0" font-family="Arial, sans-serif" font-size="17">github.com/nanlogic/saccade</text>
+</svg>
