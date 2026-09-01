@@ -8,7 +8,7 @@ controls, iframes, rich text, uploads, and pages that change while an Agent is
 working. The Agent reads semantic objects instead of repeatedly transferring a
 whole page, and the browser waits locally before an action is dispatched.
 
-> Latest release: `@nanlogic/saccade` **0.2.2** with Extension **0.4.1**.
+> Latest release: `@nanlogic/saccade` **0.2.2** with Extension **0.4.7**.
 > This patch restores truthful runtime readiness and rejects stale Extension connections before command dispatch.
 > [Release notes](docs/releases/0.2.2.md) · [0.2.0 Extension evidence](docs/reports/2026-08-30-saccade-0.2.0-release-gate.md)
 

@@ -9,7 +9,7 @@ const {
 const candidate = {
   schema: 'saccade.extension-candidate/1',
   id: 'a'.repeat(64),
-  version: '0.4.1',
+  version: '0.4.2',
 };
 
 test('release target options accept explicit browser forms', () => {

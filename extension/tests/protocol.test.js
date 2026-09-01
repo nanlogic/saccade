@@ -42,7 +42,7 @@ test('production manifest preserves identity and excludes out-of-scope capabilit
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, 'Saccade');
-  assert.equal(manifest.version, '0.4.1');
+  assert.equal(manifest.version, '0.4.7');
   const digest = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
   const extensionId = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
   assert.equal(extensionId, 'bobfbgjplflcigednmccmbhlgclomgod');
@@ -304,14 +304,18 @@ test('semantic page churn preserves authority only for the same live object cont
   assert.ok(collector.indexOf('reuseStableAuthorities(objects, previousTokenTargets)') < collector.indexOf('const changes = compileChanges'));
 });
 
-test('semantic mutations are not gated by rendering frames', () => {
+test('semantic mutations are coalesced without starving ordinary page rendering', () => {
   const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
   assert.match(collector, /if \(!records\.some\(mutationCanChangeObservation\)\) return/);
   assert.match(collector, /if \(isMouseAccuracyGame\(document\)\) scheduleVisual\(\);\s*else schedule\(\)/);
-  assert.match(collector, /function schedule\(\).*queueMicrotask/s);
+  assert.match(collector, /function schedule\(\).*setTimeout/s);
+  assert.doesNotMatch(
+    collector.slice(collector.indexOf('function schedule()'), collector.indexOf('function scheduleVisual()')),
+    /queueMicrotask/,
+  );
   assert.match(collector, /addEventListener\('scroll', scheduleVisual/);
   assert.match(collector, /addEventListener\('resize', scheduleVisual/);
-  assert.match(collector, /function scheduleVisual\(\).*requestAnimationFrame/s);
+  assert.match(collector, /function scheduleVisual\(\).*isMouseAccuracyGame.*requestAnimationFrame/s);
   assert.match(collector, /ResizeObserver\(scheduleVisual\)/);
   assert.match(collector, /function currentGeometryIsAnimating/);
   assert.match(collector, /getAnimations\?\.\(\).*playState === 'running'/s);
@@ -522,7 +526,12 @@ test('prepare checks the revision basis after tab activation and focus', () => {
   assert.match(worker, /if \(!tab\.active\).*chrome\.tabs\.update/s);
   assert.ok(worker.indexOf('chrome.windows.update') < worker.indexOf("kind: 'collector.prepare_action'"));
   assert.match(publicAct, /await activateTabForAction\(tabId, command\.deadline_at\)/);
-  assert.ok(publicAct.indexOf('activateTabForAction') < publicAct.indexOf("kind: 'collector.soft_action'"));
+  assert.ok(publicAct.indexOf('activateTabForAction')
+    < publicAct.indexOf("kind: 'collector.wait_software_preparation'"));
+  assert.ok(publicAct.indexOf("kind: 'collector.wait_software_preparation'")
+    < publicAct.indexOf("kind: 'collector.dispatch_software_action'"));
+  assert.match(publicAct, /\{ sideEffect: false \}/);
+  assert.match(publicAct, /preflight: preparation\.prepared/);
   assert.match(worker, /ACTION_RESPONSE_RESERVE_MS = 250/);
   assert.match(worker, /return remainingMs - ACTION_RESPONSE_RESERVE_MS/);
   assert.match(collector, /request\.basis_revision !== revision/);
@@ -548,10 +557,17 @@ test('software action bridge is token-bound and limited to Registry roles', () =
   assert.match(collector, /const interactionElement = clickable \? option : owner/);
   assert.match(collector, /role: 'option'.*affordances: descriptor\.affordances/s);
   assert.match(collector, /software click is not registered for the current control/);
-  assert.ok(collector.indexOf('prepare(request);') < collector.indexOf('target.element.dispatchEvent'));
+  assert.match(collector, /function revalidateSoftwarePreparation/);
+  assert.match(collector, /actionability_changed_geometry/);
+  assert.match(collector, /function activationElementFor/);
+  assert.match(collector, /deepestElementFromPoint/);
+  assert.match(collector, /HTMLElement\.prototype\.click\.call\(element\)/);
+  assert.match(collector, /if \(target\.role === 'reflex_target'\)/);
   assert.match(collector, /reflexOccurrence/);
   assert.match(collector, /isMouseAccuracyGame\(document\).*scheduleVisual/s);
-  assert.match(collector, /target\.element\.dispatchEvent/);
+  const softClick = collector.slice(collector.indexOf('async function softClick('), collector.indexOf('function normalizedEditableValue'));
+  assert.match(softClick, /target\.role === 'reflex_target'/);
+  assert.match(softClick, /dispatchOrdinaryActivation\(target\)/);
   assert.match(worker, /command\.kind === 'soft_action'/);
   assert.match(collector, /choiceOwner\(option\) !== target/);
   assert.match(collector, /option\.selected = true/);
@@ -807,12 +823,89 @@ test('software preparation keeps a zero-wait fast path and bounds local actionab
   assert.match(prepare, /prepared\.local_wait_ms = 0/);
   assert.match(prepare, /performance\.now\(\) - startedAt/);
   const softType = collector.slice(collector.indexOf('function softType('), collector.indexOf('function softAction('));
-  assert.match(softType, /await waitForSoftwarePreparation\(request\)/);
+  assert.match(softType, /await softwarePreparation\(request, preflight\)/);
   assert.match(softType, /local_wait_ms: prepared\.local_wait_ms/);
   assert.match(collector, /dispatch_document_id: prepared\.document_id/);
   assert.match(collector, /dispatch_basis_revision: prepared\.basis_revision/);
   const worker = fs.readFileSync(path.join(__dirname, '../src/service_worker.js'), 'utf8');
   assert.match(worker, /saccade_action_error\|\$\{stage\}\|\$\{code\}\|\$\{retrySafe\}/);
+});
+
+test('ordinary custom controls use one native activation while reflex targets retain pointer events', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/custom_element_button.html'), 'utf8');
+  const ordinary = collector.slice(
+    collector.indexOf('function deepestElementFromPoint('),
+    collector.indexOf('async function softClick('),
+  );
+  const click = collector.slice(
+    collector.indexOf('async function softClick('),
+    collector.indexOf('function normalizedEditableValue'),
+  );
+  assert.match(ordinary, /deepestElementFromPoint/);
+  assert.match(ordinary, /NATIVE_HTML_ACTIVATION_SELECTOR/);
+  assert.match(ordinary, /return target\.element/);
+  assert.match(ordinary, /HTMLElement\.prototype\.click\.call\(element\)/);
+  assert.doesNotMatch(ordinary, /pointerdown|mousedown|pointerup|mouseup/);
+  assert.match(click, /target\.role === 'reflex_target'/);
+  assert.match(click, /\['pointerdown', view\.PointerEvent, 1\]/);
+  assert.match(fixture, /customElements\.define\('delegating-action'/);
+  assert.match(fixture, /Unexpected pointer cascade/);
+  assert.match(fixture, /Custom activation observed/);
+  assert.match(fixture, /Native authority activated directly/);
+  assert.match(fixture, /Unexpected descendant activation/);
+});
+
+test('topmost actionability follows the composed tree across open shadow controls', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/custom_element_button.html'), 'utf8');
+  const topmost = collector.slice(
+    collector.indexOf('function isTopmost('),
+    collector.indexOf('function topViewportBox('),
+  );
+  assert.match(topmost, /composedDescendantOf\(hit, element\)/);
+  assert.match(topmost, /composedDescendantOf\(element, hit\)/);
+  assert.match(topmost, /composedDescendantOf\(hit, frame\)/);
+  assert.doesNotMatch(topmost, /element\.contains\(hit\)/);
+  assert.match(collector, /element\.assignedSlot \|\| element\.parentElement/);
+  assert.match(fixture, /<slot name="action"><\/slot>/);
+  assert.match(fixture, /Slotted activation observed/);
+});
+
+test('one composed control does not project both its semantic wrapper and native inner control', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const fixture = fs.readFileSync(
+    path.join(__dirname, '../../fixtures/controls/custom_element_button.html'), 'utf8');
+  const dedupe = collector.slice(
+    collector.indexOf('function dedupeComposedNativeControls('),
+    collector.indexOf('function collect('),
+  );
+  assert.match(dedupe, /NATIVE_HTML_ACTIVATION_SELECTOR/);
+  assert.match(dedupe, /composedDescendantOf\(other\.element, candidate\.element\)/);
+  assert.match(dedupe, /sameBox\(boxFor\(other\.element\), box\)/);
+  assert.match(collector, /const candidates = dedupeComposedNativeControls/);
+  assert.match(fixture, /<delegating-action role="button" aria-label="Create channel"/);
+  assert.match(fixture, /<button type="button" tabindex="-1" aria-label="Create channel"/);
+});
+
+test('mutation-driven collection is bounded instead of chaining full compiles in microtasks', () => {
+  const collector = fs.readFileSync(path.join(__dirname, '../src/collector.js'), 'utf8');
+  const schedule = collector.slice(
+    collector.indexOf('function schedule()'),
+    collector.indexOf('function scheduleVisual()'),
+  );
+  assert.match(collector, /SEMANTIC_COLLECTION_INTERVAL_MS = 32/);
+  assert.match(schedule, /setTimeout/);
+  assert.match(schedule, /lastScheduledCollectionEndedAt/);
+  assert.doesNotMatch(schedule, /queueMicrotask/);
+  const visual = collector.slice(
+    collector.indexOf('function scheduleVisual()'),
+    collector.indexOf('function mutationCanChangeObservation('),
+  );
+  assert.match(visual, /if \(!isMouseAccuracyGame\(document\)\)/);
+  assert.match(visual, /schedule\(\)/);
 });
 
 test('form batch preflights all steps then revalidates each exact token before dispatch', () => {
