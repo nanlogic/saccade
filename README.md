@@ -1,16 +1,48 @@
 # Saccade
 
-Saccade gives browser agents a small, current semantic view of one authorized
-Chrome or Edge tab—and exact actions that return their own verification.
+## Give an AI agent one browser tab it can safely own
 
-It is built for real browser work: signed-in admin pages, long forms, dynamic
-controls, iframes, rich text, uploads, and pages that change while an Agent is
-working. The Agent reads semantic objects instead of repeatedly transferring a
-whole page, and the browser waits locally before an action is dispatched.
+Saccade connects a compatible MCP agent to one Chrome or Edge tab you
+authorize. The browser keeps a current semantic model of that tab, pushes only
+meaningful changes, and verifies each supported action locally.
+
+Use it for the browser work that becomes fragile after the first click:
+signed-in admin pages, long or dynamic forms, iframe editors, uploads, and
+workflows where the page can change while the Agent is still working.
+
+[**Watch the 44-second overview**](https://www.youtube.com/watch?v=aEr8-0KYuvQ)
+· [**Install the Extension**](https://chromewebstore.google.com/detail/saccade/gbjapdcoclbdjpcaogmjdbpmnmfgombn)
+· [**View the npm package**](https://www.npmjs.com/package/@nanlogic/saccade)
+
+[![Computer Use handles a short visible task. Saccade keeps a live contract with one authorized browser tab.](docs/marketing/assets/workflow-proof/08-the-difference.png)](https://www.youtube.com/watch?v=aEr8-0KYuvQ)
+
+Desktop control is often enough for a short visible task. Saccade is for the
+longer job: keeping the same tab, document, revision, and objects straight as
+the page changes—and returning evidence instead of making the Agent guess what
+happened.
 
 > Latest release: `@nanlogic/saccade` **0.2.2** with Extension **0.4.7**.
 > This patch restores truthful runtime readiness and rejects stale Extension connections before command dispatch.
 > [Release notes](docs/releases/0.2.2.md) · [0.2.0 Extension evidence](docs/reports/2026-08-30-saccade-0.2.0-release-gate.md)
+
+## Start in two minutes
+
+1. Install the Extension from the Chrome Web Store.
+2. Configure Saccade and check the connection:
+
+   ```sh
+   npx -y @nanlogic/saccade install
+   npx -y @nanlogic/saccade doctor
+   ```
+
+3. Restart the Agent client, open the tab you want it to use, and turn
+   **Saccade Agent On** for that tab.
+
+The setup command adds this MCP command to supported local Agent clients:
+
+```text
+npx -y @nanlogic/saccade mcp
+```
 
 ## What it solves
 
@@ -28,26 +60,6 @@ whole page, and the browser waits locally before an action is dispatched.
 
 The result is a browser interface designed around what an Agent needs to know:
 *which tab, which document, which revision, which object, and what changed*.
-
-## Install
-
-Saccade requires Node.js 18 or newer and the Saccade Extension in Chrome or
-Edge.
-
-```sh
-npx -y @nanlogic/saccade install
-npx -y @nanlogic/saccade doctor
-```
-
-During prerelease development, load the [`extension/`](extension/) directory as
-an unpacked extension. The setup command adds the Saccade MCP server to
-supported local Agent clients. Start a new Agent task after installation.
-
-The configured MCP command is:
-
-```text
-npx -y @nanlogic/saccade mcp
-```
 
 ## The six MCP tools
 
