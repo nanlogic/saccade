@@ -25,6 +25,24 @@ happened.
 > This patch restores truthful runtime readiness and rejects stale Extension connections before command dispatch.
 > [Release notes](docs/releases/0.2.2.md) · [0.2.0 Extension evidence](docs/reports/2026-08-30-saccade-0.2.0-release-gate.md)
 
+## Development preview: debugging a moving 3D character
+
+[![Mythcastera's town, built and reviewed in our development workflow](docs/showcase/2026-09-16/media/town-overview.png)](docs/showcase/2026-09-16/README.md)
+
+We are testing Saccade on Mythcastera, our browser-based 3D world. The
+development build pairs sampled WebGL frames with application-reported
+animation state, so an Agent can compare a visible problem with the state
+that produced it. Structured scene information requires an application bridge;
+it is not automatically recovered from arbitrary WebGL pixels.
+
+[Read the development story](docs/showcase/2026-09-16/README.md)
+· [20-second town tour](docs/showcase/2026-09-16/media/town-tour.mp4)
+· [15-second character reel](docs/showcase/2026-09-16/media/mythcastera-residents.mp4)
+
+The clips are manually staged development demonstrations. These visual and
+scene-inspection capabilities are **not in the published 0.2.2 / 0.4.7 release**.
+They do not establish full motion coverage or general-purpose WebGL diagnosis.
+
 ## Start in two minutes
 
 1. Install the Extension from the Chrome Web Store.
