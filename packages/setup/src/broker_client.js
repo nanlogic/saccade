@@ -96,12 +96,18 @@ async function resumeSession(session, { force = false } = {}) {
   return session;
 }
 
-async function rpc(session, method, params, timeoutMs, requestId) {
+async function rpc(session, method, params, timeoutMs, requestId, inheritedDeadline) {
+  const observation = method.startsWith('media.') || method.startsWith('visual.');
+  // Authorization keeps the original human-confirmation budget; only snapshot
+  // execution is shortened to ten seconds, never past the inherited deadline.
+  const executionLimit = method === 'visual.read' && params.mode !== 'sequence' ? 10000 : 30000;
+  const mediaDeadline = observation ? Math.min(inheritedDeadline ?? Infinity, Date.now() + Math.min(timeoutMs || 30000, executionLimit)) : undefined;
   const invoke = () => request('/v1/rpc', {
     method: 'POST',
     headers: typeof session === 'string' ? undefined : { 'x-saccade-session-token': session.resume_token },
-    body: { agent_session_id: sessionId(session), method, params, timeout_ms: timeoutMs, request_id: requestId },
-    timeoutMs: Math.min((timeoutMs || 10_000) + 250, 60_000),
+    body: { agent_session_id: sessionId(session), method, params, timeout_ms: timeoutMs, request_id: requestId,
+      ...(mediaDeadline ? { deadline_at: mediaDeadline } : {}) },
+    timeoutMs: mediaDeadline ? Math.max(1, mediaDeadline - Date.now()) : Math.min((timeoutMs || 10_000) + 250, 60_000),
   });
   try {
     return (await invoke()).result;
@@ -109,6 +115,16 @@ async function rpc(session, method, params, timeoutMs, requestId) {
     const rejectedBeforeDispatch = error.code === 'SESSION_OFFLINE';
     const transportFailure = ['BROKER_TIMEOUT', 'BROKER_UNREACHABLE'].includes(error.code);
     if (!rejectedBeforeDispatch && !transportFailure) throw error;
+    if (observation) {
+      // Do not spend a fresh reconnect timeout or replay sampling under stale consent.
+      if (transportFailure) {
+        cancel(session, requestId).catch(() => {});
+        throw Object.assign(new Error('Media outcome is unknown after transport loss; sampling is not replayed'), {
+          code: 'OUTCOME_UNKNOWN', stage: 'broker_transport', outcome: 'outcome_unknown', retry_safe: false,
+        });
+      }
+      throw error;
+    }
     let recovered = false;
     try {
       const before = typeof session === 'string' ? null : session.broker_epoch;

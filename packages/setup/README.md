@@ -38,3 +38,20 @@ saccade uninstall [--purge]
 
 Requires Node.js 18 or newer. Chrome and Edge use the same package and Extension
 candidate.
+
+## Experimental observation in 0.2.3
+
+Use with Saccade Extension 0.4.16 for screenshots, sampled video frames and
+loaded captions, and short 3D sequences from applications using the Saccade
+scene bridge. One observation approval covers this Agent's authorized tabs
+for its live session. Other Agents and unshared tabs are excluded; Stop sharing
+revokes access to a tab.
+
+Video sampling may pause or seek playback. Sparse frames can miss brief events;
+audio is not transcribed. Scene state is application-reported, not independent
+proof of a correct animation. Screenshots and frames can contain personal
+information and are not persisted in Saccade diagnostics.
+
+Video and 3D observation are experimental. Comparative visual-accuracy
+evaluation is incomplete; no accuracy, speed advantage or token savings are
+claimed. Low-level WebGL rendering diagnostics remain a separate prototype.

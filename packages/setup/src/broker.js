@@ -7,10 +7,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { WebSocketServer } = require('ws');
+const { readSceneOrigins } = require('./scene_access');
 
 const BROKER_SCHEMA = 'saccade.node-broker/1';
 const DEFAULT_PORT = 32177;
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_MEDIA_DURATION_S = 3600;
 const HISTORY_LIMIT = 256;
 const DIAGNOSTIC_LIMIT = 256;
 const COMMAND_LIMIT = 1024;
@@ -161,17 +163,21 @@ class BrokerError extends Error {
 }
 
 class BrokerState extends EventEmitter {
-  constructor({ now = () => Date.now(), statePath = null, uploadRoots = [process.cwd()] } = {}) {
+  constructor({ now = () => Date.now(), statePath = null, uploadRoots = [process.cwd()], scenePolicyPath = null } = {}) {
     super();
     this.now = now;
     this.statePath = statePath;
+    this.scenePolicyPath = scenePolicyPath;
     this.epoch = opaque('broker');
     this.sessions = new Map();
+    this.sharingRequests = new Map(); // Transient UI invitations, never leases or journal data.
     this.leases = new Map();
     this.truth = new Map();
     this.connections = new Map();
     this.commands = new Map();
     this.cancelledRequests = new Set();
+    this.mediaReads = new Map();
+    this.mediaExpiry = new Map();
     this.diagnostics = [];
     this.occurrences = [];
     this.defaultUploadRoots = normalizeUploadRoots(uploadRoots);
@@ -358,6 +364,8 @@ class BrokerState extends EventEmitter {
       }
     }
     for (const command of this.commands.values()) {
+      if (command.agent_session_id === agentSessionId && ((['media.read', 'visual.read'].includes(command.kind) && command.state === 'delivered')
+        || (/^(media|visual)\.authorization\./.test(command.kind) && command.state !== 'queued'))) this.signalMediaCancellation(command);
       if (command.agent_session_id !== agentSessionId || command.state !== 'queued') continue;
       const connection = this.connections.get(command.connection_id);
       if (connection) connection.queue = connection.queue.filter((id) => id !== command.command_id);
@@ -365,11 +373,12 @@ class BrokerState extends EventEmitter {
         'CANCELLED', 'Agent disconnected before command dispatch', { retry_safe: true },
       ));
     }
+    this.clearMediaHistory((key) => JSON.parse(key)[0] === agentSessionId);
     this.persistState();
     return { orphaned_tabs: orphaned };
   }
 
-  connectExtension(payload) {
+  connectExtension(payload, origin = null) {
     const browserInstanceId = cleanId(payload.browser_instance_id, 'browser_instance_id');
     const browserFamily = payload.browser_family === undefined
       ? undefined : cleanBrowserFamily(payload.browser_family);
@@ -392,11 +401,21 @@ class BrokerState extends EventEmitter {
     }
     this.connections.set(connectionId, {
       connection_id: connectionId,
+      extension_origin: origin,
       browser_instance_id: browserInstanceId,
       browser_family: browserFamily,
       browser_session_id: browserSessionId,
       worker_instance_id: workerInstanceId,
       extension_candidate: extensionCandidate,
+      media_version: payload.media_version === 1 ? 1 : 0,
+      visual_version: payload.visual_version === 1 ? 1 : 0,
+      scene_version: payload.scene_version === 1 ? 1 : 0,
+      scene_access_version: [1,2].includes(payload.scene_access_version) ? payload.scene_access_version : 0,
+      connection_request_version: payload.connection_request_version === 1 ? 1 : 0,
+      media_consent_version: payload.media_consent_version === 1 ? 1 : 0,
+      visual_consent_version: payload.visual_consent_version === 1 ? 1 : 0,
+      consent_wait_version: payload.consent_wait_version === 1 ? 1 : 0,
+      session_consent_version: payload.session_consent_version === 2 ? 2 : 0,
       authorized_tabs: Array.isArray(payload.authorized_tabs) ? payload.authorized_tabs.slice(0, 256) : [],
       state: 'online',
       connected_at: this.now(),
@@ -433,6 +452,7 @@ class BrokerState extends EventEmitter {
     if (!connection || connection.state !== 'online') return;
     connection.state = 'offline';
     connection.disconnected_at = this.now();
+    this.clearMediaHistory((key) => this.leases.get(JSON.parse(key)[1])?.browser_instance_id === connection.browser_instance_id);
     if (connection.keepalive_socket) {
       const socket = connection.keepalive_socket;
       connection.keepalive_socket = null;
@@ -518,7 +538,13 @@ class BrokerState extends EventEmitter {
         resolve(commands);
       };
       waiter.finish = finish;
-      const timer = setTimeout(() => finish([]), Math.min(timeoutMs, EXTENSION_POLL_HEARTBEAT_MS));
+      const timer = setTimeout(() => {
+        // A normal empty response hands off to the next poll. Start the existing
+        // bounded grace here, not before the long poll spent time waiting.
+        // Disconnect/replacement finishes and clears this timer separately.
+        if (!completed && connection.state === 'online') connection.last_poll_at = this.now();
+        finish([]);
+      }, Math.min(timeoutMs, EXTENSION_POLL_HEARTBEAT_MS));
       connection.waiters.push(waiter);
     });
   }
@@ -598,7 +624,7 @@ class BrokerState extends EventEmitter {
   }
 
   enqueueCommand(agentSessionId, kind, payload, timeoutMs, {
-    idempotent = false, clientRequestId, browserInstanceId,
+    idempotent = false, clientRequestId, browserInstanceId, deadlineAt: inheritedDeadline,
   } = {}) {
     this.touchSession(agentSessionId);
     const requestKey = `${agentSessionId}\u0000${JSON.stringify(clientRequestId)}`;
@@ -611,7 +637,8 @@ class BrokerState extends EventEmitter {
     const connection = this.activeConnection(browserInstanceId);
     if (!connection) throw new BrokerError('EXTENSION_OFFLINE', 'Extension is not connected', { retry_safe: true });
     const commandId = opaque('command');
-    const deadlineAt = this.now() + boundedTimeout(timeoutMs);
+    const deadlineAt = Math.min(this.now() + boundedTimeout(timeoutMs), inheritedDeadline ?? Infinity);
+    if (deadlineAt <= this.now()) throw new BrokerError('DEADLINE_EXCEEDED', 'Original command deadline elapsed', { retry_safe: true });
     return new Promise((resolve, reject) => {
       const command = {
         command_id: commandId,
@@ -633,6 +660,7 @@ class BrokerState extends EventEmitter {
       const timer = setTimeout(() => {
         if (!['complete', 'failed'].includes(command.state)) {
           const delivered = command.state === 'delivered';
+          if (delivered && /^(media|visual)\./.test(command.kind)) this.signalMediaCancellation(command);
           this.finishCommand(command, null, new BrokerError(
             delivered ? 'OUTCOME_UNKNOWN' : 'DEADLINE_EXCEEDED',
             delivered ? 'Command outcome is unknown after deadline' : 'Command was not dispatched before deadline',
@@ -657,11 +685,31 @@ class BrokerState extends EventEmitter {
       this.finishCommand(command, null, new BrokerError('CANCELLED', 'Command cancelled before dispatch', { retry_safe: true }));
       return { cancelled: true, dispatched: false };
     }
+    if (/^(media|visual)\./.test(command.kind) && command.state === 'delivered') this.signalMediaCancellation(command);
     return { cancelled: false, dispatched: true, reconciliation_required: true };
+  }
+
+  signalMediaCancellation(command) {
+    command.media_cancelled = true;
+    const connection = this.connections.get(command.connection_id);
+    try { connection?.keepalive_socket?.send(JSON.stringify({ kind: 'command.cancel', command_id: command.command_id, broker_epoch: this.epoch })); }
+    catch (_) { /* The bounded Extension deadline remains authoritative when disconnected. */ }
   }
 
   cancelRequest(agentSessionId, clientRequestId) {
     this.touchSession(agentSessionId);
+    for (const [id, request] of this.sharingRequests) {
+      if (request.agent_session_id === agentSessionId && request.client_request_id === clientRequestId) this.sharingRequests.delete(id);
+    }
+    let authorizationDispatched = false;
+    // An accept acknowledgement can race cancellation; revoke only that request's grant.
+    for (const candidate of this.commands.values()) {
+      if (candidate.agent_session_id === agentSessionId && candidate.client_request_id === clientRequestId
+        && /^(media|visual)\.authorization\./.test(candidate.kind) && candidate.state !== 'queued') {
+        this.signalMediaCancellation(candidate);
+        authorizationDispatched = true;
+      }
+    }
     const command = [...this.commands.values()].find((candidate) => (
       candidate.agent_session_id === agentSessionId
       && candidate.client_request_id === clientRequestId
@@ -672,6 +720,7 @@ class BrokerState extends EventEmitter {
         this.cancelledRequests.delete(this.cancelledRequests.values().next().value);
       }
       this.cancelledRequests.add(`${agentSessionId}\u0000${JSON.stringify(clientRequestId)}`);
+      if (authorizationDispatched) return { cancelled: false, dispatched: true, reconciliation_required: true };
       return { cancelled: true, dispatched: false, code: 'CANCELLED_BEFORE_QUEUE' };
     }
     return this.cancelCommand(agentSessionId, command.command_id);
@@ -696,7 +745,16 @@ class BrokerState extends EventEmitter {
       );
       this.updateOccurrence(command, 'outcome_unknown', error);
     }
+    // A completed prepare still needs cancellation routing while its human
+    // confirmation is pending. Retain only the already-scrubbed command metadata.
+    const consentExpiry = !error && /^(media|visual)\.authorization\.prepare$/.test(command.kind)
+      && command.payload?.wait_for_consent === true && result?.consent_wait_version === 1
+      && Number.isSafeInteger(result.consent_expires_at) && result.consent_expires_at > this.now()
+      && result.consent_expires_at <= this.now() + 600000 ? result.consent_expires_at : 0;
     scrubCommandPayload(command);
+    if (/^(media|visual)\.authorization\./.test(command.kind)) {
+      command.payload = { tab_id: command.payload?.tab_id, document_id: command.payload?.document_id };
+    }
     command.state = error ? 'failed' : 'complete';
     const completedConnection = command.connection_id
       ? this.connections.get(command.connection_id) : null;
@@ -713,7 +771,8 @@ class BrokerState extends EventEmitter {
     });
     if (error) command.reject(error);
     else command.resolve({ command_id: command.command_id, ...result });
-    setTimeout(() => this.commands.delete(command.command_id), 60_000).unref?.();
+    command.cleanup_timer = setTimeout(() => this.commands.delete(command.command_id), Math.max(60_000, consentExpiry - this.now()));
+    command.cleanup_timer.unref?.();
   }
 
   acceptExtensionEvents(connectionId, events) {
@@ -726,12 +785,23 @@ class BrokerState extends EventEmitter {
         connection.last_poll_at = this.now();
         const command = this.commands.get(event.command_id);
         if (!command || command.connection_id !== connectionId || command.state !== 'delivered') continue;
+        if (/^(media|visual)\./.test(command.kind) && command.media_cancelled) {
+          this.finishCommand(command, null, new BrokerError('CANCELLED', 'Media observation cancelled', { retry_safe: false }));
+          continue;
+        }
         if (event.error) this.finishCommand(command, null, new BrokerError(
           event.error.code || 'EXTENSION_REJECTED',
           event.error.message || 'Extension rejected command',
           event.error,
         ));
         else this.finishCommand(command, event.result || {}, null);
+      } else if (event.kind === 'media.invalidated') {
+        const tabId = cleanId(event.tab_id, 'tab_id');
+        if (this.leases.get(tabId)?.browser_instance_id !== connection.browser_instance_id) continue;
+        this.clearMediaHistory((key) => JSON.parse(key)[1] === tabId);
+        for (const command of this.commands.values()) {
+          if (command.kind === 'media.read' && command.payload.tab_id === tabId && command.state === 'delivered') this.signalMediaCancellation(command);
+        }
       } else if (event.kind === 'observation' || event.kind === 'observation.delta') {
         this.acceptTruth(event.kind, event.payload);
       } else if (event.kind !== 'heartbeat') {
@@ -759,6 +829,7 @@ class BrokerState extends EventEmitter {
       if (!existing || existing.document_id !== documentId
           || payload.base_revision !== existing.revision || revision !== existing.revision + 1) {
         this.truth.delete(tabId);
+        this.clearMediaHistory((key) => JSON.parse(key)[1] === tabId);
         this.emit(`truth:${tabId}`);
         return;
       }
@@ -767,6 +838,11 @@ class BrokerState extends EventEmitter {
       existing.history.push(payload);
       if (existing.history.length > HISTORY_LIMIT) existing.history.shift();
     }
+    const latestMedia = this.truth.get(tabId);
+    this.clearMediaHistory((key) => {
+      const [, tab, doc, media] = JSON.parse(key);
+      return tab === tabId && (doc !== latestMedia?.document_id || !latestMedia?.full.objects.some((object) => object.media?.media_id === media));
+    });
     this.emit(`truth:${tabId}`);
   }
 
@@ -814,6 +890,67 @@ class BrokerState extends EventEmitter {
       else this.leases.delete(tabId);
       throw error;
     }
+  }
+
+  extensionTabSharing(payload, origin) {
+    const connection = this.connections.get(cleanId(payload.connection_id, 'connection_id'));
+    if (!connection || connection.state !== 'online') throw new BrokerError('EXTENSION_OFFLINE', 'Extension connection is offline');
+    if (!origin || connection.extension_origin !== origin) throw new BrokerError('EXTENSION_AUTH_FAILED', 'Extension connection origin does not match');
+    if (!['status', 'assign', 'revoke'].includes(payload.operation)
+      || Object.keys(payload).some((key) => !['connection_id', 'operation', 'tab_id', 'agent_session_id', 'request_id'].includes(key))) {
+      throw new BrokerError('INVALID_REQUEST', 'Invalid tab sharing request');
+    }
+    const tabId = cleanId(payload.tab_id, 'tab_id');
+    const current = this.leases.get(tabId);
+    const browser = current?.browser_instance_id || this.truth.get(tabId)?.full?.browser_instance_id;
+    if (browser && browser !== connection.browser_instance_id) throw new BrokerError('TAB_BROWSER_MISMATCH', 'Tab belongs to another browser');
+    if (payload.operation === 'assign') {
+      if (typeof payload.agent_session_id !== 'string') throw new BrokerError('INVALID_REQUEST', 'Select an online Agent session explicitly');
+      const sessionId = cleanId(payload.agent_session_id, 'agent_session_id');
+      const session = this.sessions.get(sessionId);
+      if (!session || session.state !== 'online') throw new BrokerError('SESSION_OFFLINE', 'Agent is disconnected; ask the task to connect again');
+      if (this.now() - session.last_seen_at > 300000) throw new BrokerError('SESSION_INACTIVE', 'Agent has not contacted the runtime recently; ask the task to connect again');
+      if (payload.request_id !== undefined) {
+        const invitation = this.sharingRequests.get(payload.request_id);
+        if (!invitation || invitation.agent_session_id !== sessionId || invitation.connection_id !== connection.connection_id
+          || invitation.expires_at <= this.now()) throw new BrokerError('SHARING_REQUEST_EXPIRED', 'Connection request expired or changed. Ask the task to request again.');
+      }
+      this.leaseTab(tabId, sessionId, { browser_instance_id: connection.browser_instance_id, ownership: 'user_shared' });
+      if (payload.request_id) this.sharingRequests.delete(payload.request_id);
+    } else if (payload.operation === 'revoke' && current) {
+      this.leases.delete(tabId);
+      try { this.persistState(); }
+      catch (error) { this.leases.set(tabId, current); throw error; }
+      this.truth.delete(tabId);
+      this.clearMediaHistory((key) => JSON.parse(key)[1] === tabId);
+      for (const command of this.commands.values()) {
+        if (command.payload.tab_id !== tabId || command.browser_instance_id !== connection.browser_instance_id) continue;
+        if (command.state === 'queued') {
+          for (const attached of this.connections.values()) attached.queue = attached.queue.filter((id) => id !== command.command_id);
+          this.finishCommand(command, null, new BrokerError('CANCELLED', 'Tab sharing revoked before dispatch', { retry_safe: true }));
+        } else if (/^(media|visual)\./.test(command.kind)) this.signalMediaCancellation(command);
+      }
+      this.emit(`truth:${tabId}`);
+    }
+    const lease = this.leases.get(tabId);
+    const online = [...this.sessions.values()].filter((session) => session.state === 'online' && this.now() - session.last_seen_at <= 300000)
+      .sort((a, b) => b.last_seen_at - a.last_seen_at);
+    for (const [id, request] of this.sharingRequests) {
+      if (request.expires_at <= this.now() || this.sessions.get(request.agent_session_id)?.state !== 'online'
+        || this.connections.get(request.connection_id)?.state !== 'online') this.sharingRequests.delete(id);
+    }
+    return {
+      tab_sharing_version: 1, connection_request_version: 1, tab_id: tabId, state: lease?.state || 'unassigned',
+      ...(lease ? { agent_session_id: lease.agent_session_id } : {}),
+      ...(lease && this.sessions.get(lease.agent_session_id)?.connection_label
+        ? { agent_label: this.sessions.get(lease.agent_session_id).connection_label } : {}),
+      requests: [...this.sharingRequests.values()].filter(request => request.connection_id === connection.connection_id)
+        .map(({ request_id, agent_session_id, label, pairing_code, expires_at }) => ({ request_id, agent_session_id, label, pairing_code, expires_at })),
+      sessions: online.slice(0, 32).map((session) => ({
+        agent_session_id: session.agent_session_id, label: `${session.connection_label || 'Recent Agent'} · ${session.agent_session_id.slice(-8)}`,
+      })),
+      sessions_complete: online.length <= 32,
+    };
   }
 
   requireLease(tabId, agentSessionId) {
@@ -1154,10 +1291,210 @@ class BrokerState extends EventEmitter {
     };
   }
 
-  async rpc(agentSessionId, method, params = {}, timeoutMs = 10_000, clientRequestId) {
+  clearMediaHistory(predicate) {
+    for (const [key, entry] of this.mediaReads) if (predicate(key, entry)) {
+      clearTimeout(this.mediaExpiry.get(key)); this.mediaExpiry.delete(key); this.mediaReads.delete(key);
+    }
+  }
+
+  retainMediaHistory(key, entry) {
+    clearTimeout(this.mediaExpiry.get(key));
+    const expiry = setTimeout(() => { this.mediaReads.delete(key); this.mediaExpiry.delete(key); }, 60000);
+    expiry.unref?.();
+    this.mediaExpiry.set(key, expiry);
+    this.mediaReads.set(key, entry);
+  }
+
+  async readMedia(agentSessionId, params, deadlineAt, clientRequestId) {
+    const lease = this.requireLease(params.tab_id, agentSessionId);
+    const current = this.truth.get(params.tab_id);
+    if (!current || current.document_id !== params.document_id) throw new BrokerError('MEDIA_STALE', 'Current media document required');
+    const invalid = () => { throw new BrokerError('INVALID_REQUEST', 'Invalid bounded media request'); };
+    if (Object.keys(params).some((key) => !['tab_id', 'document_id', 'mode', 'object_id', 'media_id', 'start_s', 'end_s', 'time_s', 'max_width', 'timeout_ms'].includes(key))
+      || !['catalog', 'overview', 'detail'].includes(params.mode)
+      || (params.timeout_ms !== undefined && (!Number.isInteger(params.timeout_ms) || params.timeout_ms < 1 || params.timeout_ms > 30000))
+      || (params.max_width !== undefined && (!Number.isInteger(params.max_width) || params.max_width < 320 || params.max_width > 1600))) invalid();
+    const sampling = params.mode !== 'catalog';
+    const object = current.full.objects.find((item) => item.object_id === params.object_id);
+    if (sampling && (!object?.media || object.media.media_id !== params.media_id)) throw new BrokerError('MEDIA_STALE', 'Current video object and media version required');
+    if (sampling && Number.isFinite(object.media.duration_s) && object.media.duration_s > MAX_MEDIA_DURATION_S) {
+      throw new BrokerError('MEDIA_DURATION_LIMIT', 'Video duration exceeds the one-hour limit');
+    }
+    if (params.mode !== 'detail' && ['start_s', 'end_s', 'time_s'].some((key) => params[key] !== undefined)) invalid();
+    if (!sampling && (params.object_id !== undefined || params.media_id !== undefined)) invalid();
+    const connection = this.activeConnection(lease.browser_instance_id);
+    if (!connection) throw new BrokerError('EXTENSION_OFFLINE', 'Extension is not connected');
+    if (connection.media_version !== 1) throw new BrokerError('MEDIA_EXTENSION_UPGRADE_REQUIRED', 'Connected Extension does not support media observation version 1');
+    this.clearMediaHistory((_key, entry) => this.now() - entry.at >= 60000);
+    const key = JSON.stringify([agentSessionId, params.tab_id, params.document_id, params.media_id]);
+    let history = this.mediaReads.get(key);
+    if (params.mode === 'detail') {
+      if ((history?.details || 0) >= 2) throw new BrokerError('MEDIA_DETAIL_LIMIT', 'Two detail requests already used for this video');
+      if (params.time_s !== undefined) {
+        if (!Number.isFinite(params.time_s) || params.time_s < 0 || params.start_s !== undefined || params.end_s !== undefined) invalid();
+        if (!history?.times.some((time) => Math.abs(time - params.time_s) < 0.001)) throw new BrokerError('MEDIA_TIME_NOT_OBSERVED', 'Single-frame detail requires a previously observed timestamp');
+      } else if (!Number.isFinite(params.start_s) || !Number.isFinite(params.end_s) || params.start_s < 0
+          || params.end_s <= params.start_s || params.end_s - params.start_s > 3 || params.end_s > object.media.duration_s) invalid();
+      if (!history) history = { at: this.now(), details: 0, times: [] };
+      history.details += 1;
+      this.retainMediaHistory(key, history);
+    }
+    const result = await this.enqueueCommand(agentSessionId, 'media.read', params,
+      Math.min(Math.max(1, deadlineAt - this.now()), params.timeout_ms || 30000), { clientRequestId, browserInstanceId: lease.browser_instance_id, deadlineAt });
+    this.requireLease(params.tab_id, agentSessionId);
+    const latest = this.truth.get(params.tab_id);
+    if (latest?.document_id !== params.document_id || result?.tab_id !== params.tab_id || result?.document_id !== params.document_id
+      || (sampling && latest.full.objects.find((item) => item.object_id === params.object_id)?.media?.media_id !== params.media_id)) throw new BrokerError('MEDIA_STALE', 'Media changed during observation');
+    const bad = () => { throw new BrokerError('MEDIA_INVALID_RESPONSE', 'Invalid bounded media evidence'); };
+    if (result?.schema !== 'saccade.media/1' || jsonSize(result) > 6 * 1024 * 1024) bad();
+    // Permit semantic metadata fields, never decoder source addresses or arbitrary Extension fields.
+    const allowed = new Set(['duration_s', 'width', 'height', 'seekable', 'start_s', 'end_s', 'subtitles', 'available', 'tracks', 'kind', 'language', 'label', 'loaded', 'limitations', 'source', 'page_url', 'post_url', 'author_claim', 'coverage', 'planned_times_s', 'requested_times_s', 'sampled_times_s', 'returned_times_s', 'complete', 'unobserved_intervals', 'captions', 'text', 'restoration', 'extraction_method', 'elapsed_ms', 'final_revision', 'retry_safe']);
+    const sanitize = (value, depth = 0, field = '') => {
+      if (depth > 7) return undefined;
+      if (typeof value === 'string') {
+        if (field === 'page_url' || field === 'post_url') {
+          try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.origin + url.pathname : undefined; } catch (_) { return undefined; }
+        }
+        return value.slice(0, 4096);
+      }
+      if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return value;
+      if (Array.isArray(value)) return value.slice(0, 256).map((entry) => sanitize(entry, depth + 1));
+      if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).filter(([name]) => allowed.has(name)).map(([name, entry]) => [name, sanitize(entry, depth + 1, name)]));
+      return undefined;
+    };
+    const base = { schema: 'saccade.media/1', command_id: result.command_id, tab_id: params.tab_id, document_id: params.document_id, ...sanitize(result) };
+    if (!sampling) {
+      if (!Array.isArray(result.videos) || result.videos.length > 20) bad();
+      return { ...base, complete: false, videos: result.videos.map((video) => {
+        if (typeof video.object_id !== 'string' || !video.object_id || video.object_id.length > 256
+          || typeof video.media_id !== 'string' || !video.media_id || video.media_id.length > 256) bad();
+        return { object_id: video.object_id, media_id: video.media_id, ...sanitize(video) };
+      }) };
+    }
+    if (result.object_id !== params.object_id || result.media_id !== params.media_id || !Array.isArray(result.frames)
+      || result.frames.length > (params.mode === 'overview' ? 8 : params.time_s !== undefined ? 1 : 12)) bad();
+    let bytes = 0;
+    const frames = result.frames.map((frame, index) => {
+      if (!Number.isFinite(frame.time_s) || frame.time_s < 0 || frame.time_s > Math.min(MAX_MEDIA_DURATION_S, object.media.duration_s)
+        || !Number.isFinite(frame.requested_time_s) || frame.requested_time_s < 0 || frame.requested_time_s > Math.min(MAX_MEDIA_DURATION_S, object.media.duration_s)
+        || frame.image?.type !== 'image' || !['image/png', 'image/webp'].includes(frame.image.mimeType)
+        || typeof frame.image.data !== 'string' || frame.image.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(frame.image.data)) bad();
+      bytes += frame.image.data.length;
+      if (bytes > 4 * 1024 * 1024) bad();
+      return { frame_id: index + 1, time_s: frame.time_s, requested_time_s: frame.requested_time_s,
+        width: Number.isInteger(frame.width) && frame.width > 0 && frame.width <= 1600 ? frame.width : undefined,
+        height: Number.isInteger(frame.height) && frame.height > 0 && frame.height <= 1600 ? frame.height : undefined,
+        method: ['decoded_frame', 'visible_video_snapshot', 'offscreen_decode'].includes(frame.method) ? frame.method : 'unknown',
+        image: { type: 'image', mimeType: frame.image.mimeType, data: frame.image.data } };
+    });
+    history = this.mediaReads.get(key) || { details: 0, times: [] };
+    history.at = this.now();
+    history.times = [...new Set([...history.times, ...frames.map((frame) => frame.time_s)])].slice(-64);
+    if (this.mediaReads.size >= COMMAND_LIMIT && !this.mediaReads.has(key)) {
+      const oldest = this.mediaReads.keys().next().value;
+      this.clearMediaHistory((candidate) => candidate === oldest);
+    }
+    this.retainMediaHistory(key, history);
+    return { ...base, object_id: params.object_id, media_id: params.media_id, frames };
+  }
+
+  sceneAccessOrigin(agentSessionId, params) {
+    this.requireLease(params.tab_id, agentSessionId);
+    const current = this.truth.get(params.tab_id);
+    const target = current?.full.objects.find(object => object.object_id === params.object_id);
+    if (!current || current.document_id !== params.document_id || !target || target.role !== 'scene_object'
+      || target.source !== 'application_reported' || typeof params.scene_generation !== 'string'
+      || target.scene_generation !== params.scene_generation) throw new BrokerError('SCENE_STALE', 'An exact current registered scene object is required');
+    const frame = current.full.frames.find(frame => frame.frame_id === target.frame_id && frame.document_id === current.document_id);
+    let origin;
+    try { origin = new URL(frame.document_url).origin; } catch (_) { return null; }
+    return readSceneOrigins(this.scenePolicyPath).includes(origin) ? origin : null;
+  }
+
+  async rpc(agentSessionId, method, params = {}, timeoutMs = 10_000, clientRequestId, inheritedDeadline) {
     this.touchSession(agentSessionId);
-    const deadlineAt = this.now() + boundedTimeout(timeoutMs);
+    if (inheritedDeadline !== undefined && !Number.isFinite(inheritedDeadline)) throw new BrokerError('INVALID_REQUEST', 'Invalid deadline');
+    const deadlineAt = Math.min(this.now() + boundedTimeout(timeoutMs), inheritedDeadline ?? Infinity);
+    if (deadlineAt <= this.now()) throw new BrokerError('DEADLINE_EXCEEDED', 'Original request deadline elapsed', { retry_safe: true });
     const remaining = () => Math.max(1, deadlineAt - this.now());
+    if (/^(media|visual)\.authorization\.(prepare|accept)$/.test(method)) {
+      const type = method.startsWith('visual.') ? 'visual' : 'media';
+      const prefix = type.toUpperCase();
+      const lease = this.requireLease(params.tab_id, agentSessionId);
+      if (this.truth.get(params.tab_id)?.document_id !== params.document_id) throw new BrokerError(`${prefix}_STALE`, 'Current document required');
+      const preparing = method.endsWith('.prepare');
+      const unified = params.grant_scope === 'session_observation';
+      const allowed = preparing ? ['tab_id','document_id','wait_for_consent','scene_object_id','scene_generation','scene_mode','grant_ttl_ms','grant_scope','grant_expires_at'] : ['tab_id','document_id','challenge','source'];
+      if (Object.keys(params).some((key) => !allowed.includes(key))
+        || (params.wait_for_consent !== undefined && params.wait_for_consent !== true)) throw new BrokerError('INVALID_REQUEST', 'Invalid authorization scope');
+      if (params.grant_ttl_ms !== undefined && ((type !== 'visual' && !unified) || !Number.isSafeInteger(params.grant_ttl_ms)
+        || params.grant_ttl_ms <= 0 || params.grant_ttl_ms > 3 * 60 * 60 * 1000)) throw new BrokerError('INVALID_REQUEST', 'Invalid visual grant duration');
+      if (params.grant_scope !== undefined && ((!unified && (type !== 'visual' || params.grant_scope !== 'session'))
+        || params.grant_ttl_ms !== 10800000)) throw new BrokerError('INVALID_REQUEST', 'Invalid session visual scope');
+      if (params.grant_expires_at !== undefined && (params.grant_scope !== 'session'
+        || !Number.isSafeInteger(params.grant_expires_at) || params.grant_expires_at <= this.now()
+        || params.grant_expires_at > this.now() + 10800000)) throw new BrokerError('INVALID_REQUEST', 'Invalid session visual expiry');
+      const connection = this.activeConnection(lease.browser_instance_id);
+      if (!connection) throw new BrokerError('EXTENSION_OFFLINE', 'Extension consumer is not ready for authorization', { retry_safe: true });
+      if (params.scene_object_id !== undefined || params.scene_generation !== undefined || params.scene_mode !== undefined) {
+        if (type !== 'visual' || !preparing) throw new BrokerError('INVALID_REQUEST', 'Scene scope is visual prepare only');
+        if (params.scene_mode !== undefined && params.scene_mode !== 'snapshot') throw new BrokerError('INVALID_REQUEST', 'Invalid scene mode');
+        const origin = this.sceneAccessOrigin(agentSessionId, { ...params, object_id: params.scene_object_id });
+        if (origin) {
+          if (!(connection?.scene_access_version >= (params.scene_mode === 'snapshot' ? 2 : 1))) throw new BrokerError('SCENE_ACCESS_UPGRADE_REQUIRED', 'Update the Extension for owner-authorized scene reading');
+          return { granted: true, access_kind: 'owner_scene_policy' };
+        }
+      }
+      if (connection?.[`${type}_consent_version`] !== 1) throw new BrokerError(`${prefix}_CONSENT_UPGRADE_REQUIRED`, 'Conversational consent needs the matching new Extension');
+      if (unified && connection.session_consent_version !== 2) throw new BrokerError(`${prefix}_SESSION_CONSENT_UPGRADE_REQUIRED`, 'Update the Extension for unified session observation consent');
+      if (params.wait_for_consent === true && connection.consent_wait_version !== 1) throw new BrokerError(`${prefix}_CONSENT_WAIT_UPGRADE_REQUIRED`, 'Separated human confirmation needs the matching new Extension');
+      if (method.endsWith('.accept') && (typeof params.challenge !== 'string' || params.challenge.length > 256
+        || !['explicit_request','confirmation','client_confirmation', ...((type === 'visual' || connection.session_consent_version === 2) ? ['session_confirmation'] : [])].includes(params.source))) throw new BrokerError('INVALID_REQUEST', 'Invalid client confirmation');
+      const authorizationDeadline = Math.min(deadlineAt, this.now() + 30000);
+      const { scene_object_id, scene_generation, scene_mode, ...confirmationScope } = params;
+      const result = await this.enqueueCommand(agentSessionId, method, confirmationScope, authorizationDeadline - this.now(), { clientRequestId, browserInstanceId: lease.browser_instance_id, deadlineAt: authorizationDeadline });
+      this.requireLease(params.tab_id, agentSessionId);
+      if (this.truth.get(params.tab_id)?.document_id !== params.document_id) throw new BrokerError(`${prefix}_STALE`, 'Document changed during confirmation');
+      const pending = result.granted !== true;
+      if (unified && (result.session_consent_version !== 2 || (pending && result.grant_scope !== 'session_observation'))) {
+        const command = this.commands.get(result.command_id);
+        if (command) this.signalMediaCancellation(command);
+        throw new BrokerError(`${prefix}_SESSION_CONSENT_UPGRADE_REQUIRED`, 'Extension did not confirm unified session scope');
+      }
+      if (pending && params.grant_scope === 'session' && (result.grant_scope !== 'session'
+        || result.grant_expires_at !== params.grant_expires_at)) {
+        const command = this.commands.get(result.command_id);
+        if (command) this.signalMediaCancellation(command);
+        throw new BrokerError('VISUAL_SESSION_CONSENT_UPGRADE_REQUIRED', 'Update the Extension for session-wide visual consent; no prompt or capture was started');
+      }
+      if (!preparing && result.grant_scope === 'session' && (type !== 'visual'
+        || !Number.isSafeInteger(result.expires_at) || result.expires_at <= this.now()
+        || result.expires_at > this.now() + 10800000)) throw new BrokerError('VISUAL_AUTHORIZATION_INVALID', 'Invalid session visual grant expiry');
+      if (!preparing && result.grant_scope === 'session_observation' && (connection.session_consent_version !== 2
+        || result.session_consent_version !== 2 || !Number.isSafeInteger(result.expires_at)
+        || result.expires_at <= this.now() || result.expires_at > this.now() + 10800000)) throw new BrokerError(`${prefix}_AUTHORIZATION_INVALID`, 'Invalid session observation execution grant');
+      if (pending && params.grant_ttl_ms !== undefined && result.grant_ttl_ms !== params.grant_ttl_ms) {
+        const command = this.commands.get(result.command_id);
+        if (command) this.signalMediaCancellation(command);
+        throw new BrokerError(`${prefix}_CONSENT_DURATION_UPGRADE_REQUIRED`, 'Update the Extension for three-hour visual consent; no prompt or capture was started');
+      }
+      if (params.wait_for_consent === true && pending && (result.consent_wait_version !== 1
+        || !Number.isSafeInteger(result.consent_expires_at) || result.consent_expires_at <= this.now()
+        || result.consent_expires_at > this.now() + 600000
+        || typeof result.challenge !== 'string' || !result.challenge.length || result.challenge.length > 256)) {
+        const command = this.commands.get(result.command_id);
+        if (command) this.signalMediaCancellation(command);
+        throw new BrokerError(`${prefix}_AUTHORIZATION_INVALID`, 'Extension returned invalid confirmation lifetime');
+      }
+      return { granted: result.granted === true, ...(typeof result.challenge === 'string' && result.challenge.length <= 256 ? { challenge: result.challenge } : {}),
+        ...((unified || result.grant_scope === 'session_observation') ? { session_consent_version: 2,
+          ...(result.grant_scope === 'session_observation' ? { grant_scope: 'session_observation', ...(!pending ? { expires_at: result.expires_at } : {}) } : {}) } : {}),
+        ...(result.grant_scope === 'session' ? { grant_scope: 'session', ...(pending
+          ? (params.grant_expires_at !== undefined ? { grant_expires_at: result.grant_expires_at } : {})
+          : { expires_at: result.expires_at }) } : {}),
+        ...(pending && params.grant_ttl_ms !== undefined ? { grant_ttl_ms: result.grant_ttl_ms } : {}),
+        ...(params.wait_for_consent === true && pending ? { consent_wait_version: 1, consent_expires_at: result.consent_expires_at } : {}) };
+    }
     if (method === 'system.capabilities') {
       const tabs = this.listTabs(agentSessionId);
       const connectedExtensions = [...this.connections.values()]
@@ -1167,6 +1504,16 @@ class BrokerState extends EventEmitter {
           browser_instance_id: connection.browser_instance_id,
           browser_family: connection.browser_family,
           extension_candidate: connection.extension_candidate,
+          media_version: connection.media_version,
+          visual_version: connection.visual_version,
+          scene_version: connection.scene_version,
+          scene_access_version: connection.scene_access_version,
+          connection_request_version: connection.connection_request_version,
+          captions_version: connection.media_version === 1 ? 1 : 0,
+          media_consent_version: connection.media_consent_version,
+          visual_consent_version: connection.visual_consent_version,
+          consent_wait_version: connection.consent_wait_version,
+          session_consent_version: connection.session_consent_version,
         }));
       const attached = connectedExtensions.length === 1 ? connectedExtensions[0] : undefined;
       return {
@@ -1177,13 +1524,95 @@ class BrokerState extends EventEmitter {
         extension_candidate: attached?.extension_candidate,
         connected_extensions: connectedExtensions,
         browser_support: ['chrome', 'edge'], native_host: false, rust: false,
-        truth_modes: ['full', 'delta'], exact_tab_routing: true,
+        truth_modes: ['full', 'delta'], exact_tab_routing: true, tab_sharing_version: 1, connection_request_version: 1,
+        visual_observation: { version: 1 },
+        scene_observation: { version: 1, owner_policy_version: 1, modes: ['snapshot','sequence'], source: 'application_reported', max_duration_ms: 3000, max_frames: 12 },
+        media_observation: { version: 1, max_duration_s: MAX_MEDIA_DURATION_S, modes: ['catalog', 'overview', 'detail'], captions: 'existing_loaded_tracks_only' },
         leased_tabs: tabs, current_tab_id: tabs.length === 1 ? tabs[0].tab_id : null,
       };
     }
     if (method === 'tabs.list') return { tabs: this.listTabs(agentSessionId) };
     if (method === 'truth.read') return this.readTruth(agentSessionId, params, deadlineAt);
+    if (method === 'media.read') return this.readMedia(agentSessionId, params, Math.min(deadlineAt, this.now() + 30000), clientRequestId);
+    if (method === 'visual.read') {
+      const lease = this.requireLease(params.tab_id, agentSessionId);
+      const current = this.truth.get(params.tab_id);
+      if (!current || current.document_id !== params.document_id) throw new BrokerError('VISUAL_STALE', 'Current document required');
+      const sequence = params.mode === 'sequence', limit = sequence ? 30000 : 10000;
+      const target = current.full.objects.find(object => object.object_id === params.object_id);
+      if (sequence && ![...this.connections.values()].some(c=>c.browser_instance_id===lease.browser_instance_id && c.state==='online' && c.scene_version===1)) throw new BrokerError('SCENE_UPGRADE_REQUIRED','Connected Extension does not support scene sequences');
+      if (Object.keys(params).some((key) => !['tab_id', 'document_id', 'object_id', 'max_width', 'timeout_ms','mode','scene_generation','duration_ms'].includes(key))
+        || (params.mode !== undefined && !['snapshot','sequence'].includes(params.mode))
+        || (sequence && (!target || target.role!=='scene_object' || typeof params.scene_generation!=='string' || target.scene_generation!==params.scene_generation))
+        || (!sequence && params.duration_ms!==undefined)
+        || (params.scene_generation!==undefined && params.scene_generation!==target?.scene_generation)
+        || (target?.role==='scene_object' && params.scene_generation!==target.scene_generation)
+        || (params.duration_ms!==undefined && (!Number.isInteger(params.duration_ms)||params.duration_ms<100||params.duration_ms>3000))
+        || (params.max_width !== undefined && (!Number.isInteger(params.max_width) || params.max_width < 320 || params.max_width > 1600))
+        || (params.object_id !== undefined && (typeof params.object_id !== 'string' || !current.full.objects.some((object) => object.object_id === params.object_id)))
+        || (params.timeout_ms !== undefined && (!Number.isInteger(params.timeout_ms) || params.timeout_ms < 1 || params.timeout_ms > 30000))) {
+        throw new BrokerError('INVALID_REQUEST', 'Invalid screenshot request');
+      }
+      const sceneOrigin = sequence || target?.role === 'scene_object' ? this.sceneAccessOrigin(agentSessionId, params) : null;
+      if (sceneOrigin && !(this.activeConnection(lease.browser_instance_id)?.scene_access_version >= (sequence ? 1 : 2))) throw new BrokerError('SCENE_ACCESS_UPGRADE_REQUIRED', 'Connected Extension cannot read owner-authorized scenes');
+      const result = await this.enqueueCommand(agentSessionId, 'visual.read', {
+        ...params, ...(sceneOrigin ? { owner_scene_origin: sceneOrigin } : {}),
+      }, Math.min(remaining(), limit), {
+        clientRequestId, browserInstanceId: lease.browser_instance_id, deadlineAt: Math.min(deadlineAt, this.now() + limit),
+      });
+      this.requireLease(params.tab_id, agentSessionId);
+      if (sceneOrigin && this.sceneAccessOrigin(agentSessionId, params) !== sceneOrigin) throw new BrokerError('SCENE_ACCESS_REVOKED', 'Scene access changed during acquisition');
+      if (this.truth.get(params.tab_id)?.document_id !== params.document_id
+        || result?.tab_id !== params.tab_id || result?.document_id !== params.document_id) throw new BrokerError('VISUAL_STALE', 'Screenshot document changed');
+      if(sequence) {
+        const latest=this.truth.get(params.tab_id)?.full.objects.find(object=>object.object_id===params.object_id);
+        if(latest?.scene_generation!==params.scene_generation || result.object_id!==params.object_id || result.scene_generation!==params.scene_generation) throw new BrokerError('SCENE_STALE','Scene identity changed');
+        if(result.schema!=='saccade.visual-sequence/1'|| !Array.isArray(result.frames)||result.frames.length<1||result.frames.length>12
+          || result.frames.some(f=>f.image?.type!=='image'||f.image?.mimeType!=='image/webp'||typeof f.image?.data!=='string'||!f.image.data.length||!/^[A-Za-z0-9+/]+={0,2}$/.test(f.image.data)
+            ||!Number.isFinite(f.simulation_time_ms)||!Number.isFinite(f.elapsed_ms)||!Number.isSafeInteger(f.frame_id))
+          || result.frames.reduce((sum,f)=>sum+f.image.data.length,0)>4*1024*1024) throw new BrokerError('SCENE_INVALID_RESPONSE','Invalid scene evidence');
+        return result;
+      }
+      if (result?.schema !== 'saccade.visual/1' || result.image?.type !== 'image'
+        || !['image/webp', 'image/png'].includes(result.image?.mimeType)
+        || typeof result.image?.data !== 'string' || result.image.data.length > 2800000
+        || !/^[A-Za-z0-9+/]+={0,2}$/.test(result.image.data)) throw new BrokerError('VISUAL_INVALID_RESPONSE', 'Invalid image response');
+      if (sceneOrigin && (result.object_id !== params.object_id || result.scene_generation !== params.scene_generation
+        || result.method !== 'application_canvas' || !Number.isSafeInteger(result.frame_id)
+        || !Number.isFinite(result.simulation_time_ms))) throw new BrokerError('SCENE_INVALID_RESPONSE', 'Invalid single scene frame');
+      return result;
+    }
     if (method === 'tabs.open') {
+      if (params.claim === 'request') {
+        if (clientRequestId !== undefined && this.cancelledRequests.delete(`${agentSessionId}\u0000${JSON.stringify(clientRequestId)}`)) {
+          throw new BrokerError('CANCELLED', 'Connection request cancelled before creation', { retry_safe: true });
+        }
+        if (Object.keys(params).some(key => !['claim', 'connection_label', 'browser_instance_id'].includes(key))
+          || typeof params.connection_label !== 'string' || !params.connection_label.trim()
+          || params.connection_label.length > 80 || /[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/.test(params.connection_label)) {
+          throw new BrokerError('INVALID_REQUEST', 'Connection request needs a short task label (no URLs, secrets or tab contents) and no tab_id');
+        }
+        const connections = [...this.connections.values()].filter(connection => this.connectionDispatchReady(connection)
+          && (params.browser_instance_id === undefined || connection.browser_instance_id === params.browser_instance_id));
+        if (connections.length !== 1) throw new BrokerError(connections.length ? 'AMBIGUOUS_BROWSER' : 'EXTENSION_OFFLINE', 'Choose one connected browser from capabilities');
+        if (connections[0].connection_request_version !== 1) throw new BrokerError('SHARING_UPGRADE_REQUIRED', 'Update the Extension for connection requests; older popups support only the manual Agent picker');
+        for (const [id, request] of this.sharingRequests) {
+          if (request.agent_session_id === agentSessionId || request.expires_at <= this.now()
+            || this.sessions.get(request.agent_session_id)?.state !== 'online') this.sharingRequests.delete(id);
+        }
+        if (this.sharingRequests.size >= 32) throw new BrokerError('SHARING_REQUEST_LIMIT', 'Too many pending connection requests; wait for them to expire');
+        const request_id = opaque('sharing');
+        let pairing_code;
+        do { pairing_code = crypto.randomBytes(3).toString('hex').toUpperCase(); }
+        while ([...this.sharingRequests.values()].some(request => request.pairing_code === pairing_code));
+        const invitation = { request_id, agent_session_id: agentSessionId, connection_id: connections[0].connection_id,
+          label: params.connection_label.trim(), pairing_code, expires_at: this.now() + 120000, client_request_id: clientRequestId };
+        this.sharingRequests.set(request_id, invitation);
+        this.sessions.get(agentSessionId).connection_label = invitation.label;
+        return { claim: 'requested', request_id, label: invitation.label, pairing_code, expires_in_ms: 120000,
+          agent_session_id: agentSessionId, browser_instance_id: connections[0].browser_instance_id,
+          instruction: 'Tell the user this label and matching code. In the target tab, open Saccade and click Allow beside that request. Then use tabs.list. No tab access has been granted yet.' };
+      }
       const hasUrl = typeof params.url === 'string' && params.url.length > 0;
       const hasClaim = typeof params.claim === 'string' && typeof params.tab_id === 'string';
       if (hasUrl === hasClaim) {
@@ -1594,6 +2023,8 @@ function projectTruth(value, query, envelope) {
       visibility: object.visibility,
       protected: object.protected,
       action_token: object.action_token,
+      ...(object.role === 'scene_object' ? {scene_generation:object.scene_generation,source:object.source,
+        parent_object_id:object.parent_object_id,viewport_bounds:object.viewport_bounds,document_bounds:object.document_bounds,frame_id:object.frame_id} : {}),
     }));
   }
   return { ...projected, ...envelope, schema: 'saccade.agent-truth/2' };
@@ -1646,7 +2077,7 @@ function sessionProof(request) {
 }
 
 function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultStatePath() } = {}) {
-  const brokerState = state || new BrokerState({ statePath });
+  const brokerState = state || new BrokerState({ statePath, scenePolicyPath: statePath ? path.join(path.dirname(statePath), 'scene-access.json') : null });
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
   const server = http.createServer(async (request, response) => {
     let responseOrigin;
@@ -1680,7 +2111,7 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
       if (request.method === 'POST' && url.pathname === '/v1/rpc') {
         const body = await readBody(request);
         brokerState.authorizeSession(body.agent_session_id, sessionProof(request));
-        const result = await brokerState.rpc(body.agent_session_id, body.method, body.params, body.timeout_ms, body.request_id);
+        const result = await brokerState.rpc(body.agent_session_id, body.method, body.params, body.timeout_ms, body.request_id, body.deadline_at);
         return writeJson(response, 200, { ok: true, result });
       }
       if (request.method === 'POST' && url.pathname === '/v1/cancel') {
@@ -1689,7 +2120,10 @@ function createBrokerServer(state, { port = DEFAULT_PORT, statePath = defaultSta
         return writeJson(response, 200, brokerState.cancelRequest(body.agent_session_id, body.request_id));
       }
       if (request.method === 'POST' && url.pathname === '/v1/extension/connect') {
-        return writeJson(response, 200, brokerState.connectExtension(await readBody(request)), origin);
+        return writeJson(response, 200, brokerState.connectExtension(await readBody(request), origin), origin);
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/extension/tab-sharing') {
+        return writeJson(response, 200, brokerState.extensionTabSharing(await readBody(request), origin), origin);
       }
       if (request.method === 'POST' && url.pathname === '/v1/extension/commands') {
         const body = await readBody(request);

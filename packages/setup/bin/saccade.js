@@ -15,8 +15,13 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
   if (command === 'mcp') return serveMcp();
+  if (command === 'scene-access') {
+    const { configureSceneAccess } = require('../src/scene_access');
+    console.log(JSON.stringify(configureSceneAccess(argv[1], argv[2]), null, 2));
+    return;
+  }
   if (command === '--version' || command === '-V') {
-    console.log('saccade 0.2.2');
+    console.log(`saccade ${require('../package.json').version}`);
     return;
   }
   return setup.main(argv);

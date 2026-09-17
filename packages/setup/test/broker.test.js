@@ -34,6 +34,346 @@ function connectTestConsumer(broker, payload) {
   return connected;
 }
 
+test('Extension tab sharing binds explicit online sessions without leaking page content or transferring leases', async () => {
+  const broker = new BrokerState();
+  const origin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+  const owner = broker.createSession().agent_session_id;
+  const other = broker.createSession().agent_session_id;
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' }, origin);
+  const request = { connection_id: connection.connection_id, tab_id: '7', operation: 'status' };
+  const initial = broker.extensionTabSharing(request, origin);
+  assert.equal(initial.state, 'unassigned');
+  assert.equal(initial.sessions.length, 2);
+  assert.doesNotMatch(JSON.stringify(initial), /resume|token|upload|objects|document/);
+  assert.throws(() => broker.extensionTabSharing(request, 'chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), { code: 'EXTENSION_AUTH_FAILED' });
+  assert.throws(() => broker.extensionTabSharing({ ...request, operation: 'assign' }, origin), { code: 'INVALID_REQUEST' });
+  const assigned = broker.extensionTabSharing({ ...request, operation: 'assign', agent_session_id: owner }, origin);
+  assert.equal(assigned.agent_session_id, owner);
+  assert.equal(assigned.state, 'active');
+  assert.equal(broker.listTabs(owner)[0].ownership, 'user_shared');
+  assert.deepEqual(broker.listTabs(other), []);
+  assert.throws(() => broker.extensionTabSharing({ ...request, operation: 'assign', agent_session_id: other }, origin), { code: 'TAB_ALREADY_LEASED' });
+  const secondBrowser = broker.connectExtension({ browser_instance_id: 'browser-2' }, origin);
+  for (const operation of ['status', 'assign', 'revoke']) {
+    assert.throws(() => broker.extensionTabSharing({ ...request, connection_id: secondBrowser.connection_id, operation, agent_session_id: other }, origin), { code: 'TAB_BROWSER_MISMATCH' });
+  }
+  broker.closeSession(owner);
+  assert.equal(broker.extensionTabSharing(request, origin).state, 'orphaned');
+  assert.throws(() => broker.extensionTabSharing({ ...request, operation: 'assign', agent_session_id: other }, origin), { code: 'TAB_ALREADY_LEASED' });
+  assert.equal(broker.extensionTabSharing({ ...request, operation: 'revoke' }, origin).state, 'unassigned');
+  assert.throws(() => broker.extensionTabSharing({ ...request, operation: 'assign', agent_session_id: owner }, origin), { code: 'SESSION_OFFLINE' });
+  assert.equal(broker.extensionTabSharing({ ...request, operation: 'assign', agent_session_id: other }, origin).state, 'active');
+  broker.disconnectExtension(connection.connection_id);
+  assert.throws(() => broker.extensionTabSharing(request, origin), { code: 'EXTENSION_OFFLINE' });
+});
+
+test('Extension tab revoke clears Truth and cancels queued work and delivered media without closing tab', async () => {
+  const broker = new BrokerState();
+  const origin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+  const owner = broker.createSession().agent_session_id;
+  const connected = broker.connectExtension({ browser_instance_id: 'browser-1' }, origin);
+  const connection = broker.connections.get(connected.connection_id);
+  connection.last_poll_at = broker.now();
+  const request = { connection_id: connected.connection_id, tab_id: '7', operation: 'assign', agent_session_id: owner };
+  broker.extensionTabSharing(request, origin);
+  broker.acceptTruth('observation', observation());
+  const media = broker.enqueueCommand(owner, 'media.read', { tab_id: '7' }, 1000, { browserInstanceId: 'browser-1' });
+  const [delivered] = await broker.pollCommands(connected.connection_id, 10);
+  const signals = [];
+  connection.keepalive_socket = { send: (value) => signals.push(JSON.parse(value)) };
+  const queued = broker.enqueueCommand(owner, 'tabs.close', { tab_id: '7' }, 1000, { browserInstanceId: 'browser-1' });
+  const rejected = assert.rejects(queued, { code: 'CANCELLED' });
+  broker.extensionTabSharing({ ...request, operation: 'revoke' }, origin);
+  await rejected;
+  assert.equal(broker.truth.has('7'), false);
+  assert.equal(connection.queue.length, 0);
+  assert.equal(signals[0].command_id, delivered.command_id);
+  const mediaRejected = assert.rejects(media, { code: 'CANCELLED' });
+  broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: delivered.command_id, result: {} }]);
+  await mediaRejected;
+  connection.keepalive_socket = null;
+});
+
+test('visual grant duration is validated and echoed only from a matching Extension', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
+  broker.connections.get(connected.connection_id).visual_consent_version = 1;
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' });
+  broker.acceptTruth('observation', observation());
+  const scope = { tab_id: '7', document_id: 'document-1', grant_ttl_ms: 10800000 };
+  for (const duration of [0, -1, 1.5, 10800001]) {
+    await assert.rejects(broker.rpc(owner, 'visual.authorization.prepare', { ...scope, grant_ttl_ms: duration }), { code: 'INVALID_REQUEST' });
+  }
+  await assert.rejects(broker.rpc(owner, 'media.authorization.prepare', scope), { code: 'INVALID_REQUEST' });
+  await assert.rejects(broker.rpc(owner, 'visual.authorization.accept', { ...scope, challenge: 'c', source: 'confirmation' }), { code: 'INVALID_REQUEST' });
+  for (const duration of [undefined, 900000, 10800001, 10800000]) {
+    const task = broker.rpc(owner, 'visual.authorization.prepare', scope, 1000);
+    const result = duration === 10800000 ? task : assert.rejects(task, { code: 'VISUAL_CONSENT_DURATION_UPGRADE_REQUIRED' });
+    const [command] = await broker.pollCommands(connected.connection_id, 10);
+    assert.equal(command.payload.grant_ttl_ms, 10800000);
+    broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: command.command_id,
+      result: { granted: false, challenge: 'c', grant_ttl_ms: duration, secret: 'not-returned' } }]);
+    const response = await result;
+    if (duration === 10800000) assert.deepEqual(response, { granted: false, challenge: 'c', grant_ttl_ms: 10800000 });
+  }
+  broker.closeSession(owner);
+});
+
+test('session visual negotiation validates scope, fixed expiry and exact lease before dispatch', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const other = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
+  broker.connections.get(connected.connection_id).visual_consent_version = 1;
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' });
+  broker.acceptTruth('observation', observation());
+  const params = { tab_id: '7', document_id: 'document-1', grant_ttl_ms: 10800000, grant_scope: 'session' };
+  for (const patch of [{ grant_scope: 'all' }, { grant_ttl_ms: 900000 }, { grant_expires_at: 0 },
+    { grant_expires_at: broker.now() + 10860000 }, { grant_expires_at: 'tomorrow' }]) {
+    await assert.rejects(broker.rpc(owner, 'visual.authorization.prepare', { ...params, ...patch }), { code: 'INVALID_REQUEST' });
+  }
+  await assert.rejects(broker.rpc(other, 'visual.authorization.prepare', params));
+  await assert.rejects(broker.rpc(owner, 'visual.authorization.prepare', { ...params, tab_id: 'private-tab' }));
+  await assert.rejects(broker.rpc(owner, 'media.authorization.prepare', params), { code: 'INVALID_REQUEST' });
+  assert.equal(broker.commands.size, 0);
+  const dispatch = async (method, args, result) => {
+    const task = broker.rpc(owner, method, args, 1000);
+    const checked = task.then(value => ({ value }), error => ({ error }));
+    const [command] = await broker.pollCommands(connected.connection_id, 10);
+    broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: command.command_id, result }]);
+    return checked;
+  };
+  let response = await dispatch('visual.authorization.prepare', params, { granted: false, challenge: 'old', grant_ttl_ms: 10800000 });
+  assert.equal(response.error.code, 'VISUAL_SESSION_CONSENT_UPGRADE_REQUIRED');
+  const expiry = broker.now() + 900000;
+  response = await dispatch('visual.authorization.prepare', { ...params, grant_expires_at: expiry },
+    { granted: false, challenge: 'derived', grant_ttl_ms: 10800000, grant_scope: 'session', grant_expires_at: expiry, secret: 'not-returned' });
+  assert.deepEqual(response.value, { granted: false, challenge: 'derived', grant_ttl_ms: 10800000, grant_scope: 'session', grant_expires_at: expiry });
+  response = await dispatch('visual.authorization.accept', { tab_id: '7', document_id: 'document-1', challenge: 'derived', source: 'session_confirmation' },
+    { granted: true, grant_scope: 'session', expires_at: expiry, secret: 'not-returned' });
+  assert.deepEqual(response.value, { granted: true, grant_scope: 'session', expires_at: expiry });
+  await assert.rejects(broker.rpc(owner, 'visual.read', { tab_id: '7', document_id: 'document-1', grant_scope: 'session' }), { code: 'INVALID_REQUEST' });
+  broker.closeSession(owner); broker.closeSession(other);
+});
+
+test('authorization distinguishes an unavailable consumer from an old consent protocol', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1',
+    media_consent_version: 1, visual_consent_version: 1, session_consent_version: 2 });
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' });
+  broker.acceptTruth('observation', observation());
+  broker.connections.get(connected.connection_id).last_poll_at = null;
+  for (const kind of ['media', 'visual']) {
+    await assert.rejects(broker.rpc(owner, `${kind}.authorization.prepare`, {
+      tab_id: '7', document_id: 'document-1',
+    }), { code: 'EXTENSION_OFFLINE' });
+  }
+  assert.equal(broker.commands.size, 0);
+  broker.closeSession(owner);
+});
+
+test('unified session negotiation gates both kinds even on existing grants and preserves exact leases', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id, other = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1', media_consent_version: 1, visual_consent_version: 1 });
+  const connection = broker.connections.get(connected.connection_id);
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' }); broker.acceptTruth('observation', observation());
+  const params = { tab_id: '7', document_id: 'document-1', grant_ttl_ms: 10800000, grant_scope: 'session_observation' };
+  const dispatch = async (method, args, result) => {
+    const checked = broker.rpc(owner, method, args, 1000).then(value => ({ value }), error => ({ error }));
+    const [command] = await broker.pollCommands(connected.connection_id, 10);
+    broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: command.command_id, result }]);
+    return checked;
+  };
+  for (const kind of ['visual','media']) {
+    connection.session_consent_version = 0;
+    await assert.rejects(broker.rpc(owner, `${kind}.authorization.prepare`, params), { code: `${kind.toUpperCase()}_SESSION_CONSENT_UPGRADE_REQUIRED` });
+    connection.session_consent_version = 2;
+    await assert.rejects(broker.rpc(other, `${kind}.authorization.prepare`, params));
+    await assert.rejects(broker.rpc(owner, `${kind}.authorization.prepare`, { ...params, document_id: 'stale' }));
+    const legacy = await dispatch(`${kind}.authorization.prepare`, params, { granted: true });
+    assert.equal(legacy.error.code, `${kind.toUpperCase()}_SESSION_CONSENT_UPGRADE_REQUIRED`);
+    const prepared = await dispatch(`${kind}.authorization.prepare`, params, { granted: false, challenge: 'new',
+      session_consent_version: 2, grant_scope: 'session_observation', grant_ttl_ms: 10800000 });
+    assert.equal(prepared.value.session_consent_version, 2);
+    const grant = await dispatch(`${kind}.authorization.accept`, { tab_id: '7', document_id: 'document-1', challenge: 'new', source: 'session_confirmation' },
+      { granted: true, session_consent_version: 2, grant_scope: 'session_observation', expires_at: broker.now() + 10800000 });
+    assert.equal(grant.value.grant_scope, 'session_observation');
+  }
+  broker.closeSession(owner); broker.closeSession(other);
+});
+
+test('visual conversational authorization is version gated, deadline bound and cancelled on session close', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id:'browser-1' });
+  const connection = broker.connections.get(connected.connection_id);
+  broker.leaseTab('7', owner, { browser_instance_id:'browser-1' });
+  broker.acceptTruth('observation', observation());
+  const scope = { tab_id:'7', document_id:'document-1' };
+  await assert.rejects(broker.rpc(owner, 'visual.authorization.prepare', scope, 1000), { code:'VISUAL_CONSENT_UPGRADE_REQUIRED' });
+  connection.visual_consent_version = 1;
+  const deadline = Date.now()+800;
+  const prepared = broker.rpc(owner, 'visual.authorization.prepare', scope, 1000, 'visual-request', deadline);
+  const [prepare] = await broker.pollCommands(connected.connection_id, 10);
+  assert.equal(prepare.deadline_at, deadline);
+  broker.acceptExtensionEvents(connected.connection_id, [{ kind:'response', command_id:prepare.command_id, result:{ granted:false, challenge:'private-challenge' } }]);
+  assert.equal((await prepared).challenge, 'private-challenge');
+  const accepted = broker.rpc(owner, 'visual.authorization.accept', { ...scope, challenge:'private-challenge', source:'client_confirmation' }, 1000, 'visual-request', deadline);
+  const [accept] = await broker.pollCommands(connected.connection_id, 10);
+  broker.acceptExtensionEvents(connected.connection_id, [{ kind:'response', command_id:accept.command_id, result:{ granted:true } }]);
+  assert.equal((await accepted).granted, true);
+  const signals = [];
+  connection.keepalive_socket = { send: (value) => signals.push(JSON.parse(value)) };
+  broker.cancelRequest(owner, 'visual-request');
+  assert(signals.some((item) => item.command_id === accept.command_id));
+  assert(signals.some((item) => item.command_id === prepare.command_id));
+  signals.length=0;
+  broker.closeSession(owner);
+  assert(signals.some((item) => item.command_id === accept.command_id));
+  connection.keepalive_socket=null;
+});
+
+test('visual confirmation retains thirty-second request deadline and snapshot execution stays within ten seconds', async () => {
+  let now = Date.now();
+  const started = now;
+  const deadline = started + 30000;
+  const broker = new BrokerState({ now: () => now });
+  const owner = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1', visual_consent_version: 1 });
+  const connection = broker.connections.get(connected.connection_id);
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' });
+  broker.acceptTruth('observation', observation());
+  const scope = { tab_id: '7', document_id: 'document-1' };
+  const prepared = broker.rpc(owner, 'visual.authorization.prepare', scope, 30000, 'visual-budget', deadline);
+  const [prepare] = await broker.pollCommands(connected.connection_id, 10);
+  assert.equal(prepare.deadline_at, deadline);
+  broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: prepare.command_id, result: { granted: false, challenge: 'challenge' } }]);
+  await prepared;
+
+  // Human confirmation consumes fifteen seconds of the original request.
+  now = started + 15000;
+  connection.last_poll_at = now;
+  const accepted = broker.rpc(owner, 'visual.authorization.accept', { ...scope, challenge: 'challenge', source: 'client_confirmation' }, 30000, 'visual-budget', deadline);
+  const [accept] = await broker.pollCommands(connected.connection_id, 10);
+  assert.equal(accept.deadline_at, deadline);
+  broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: accept.command_id, result: { granted: true } }]);
+  assert.equal((await accepted).granted, true);
+
+  for (const elapsed of [15000, 28000]) {
+    now = started + elapsed;
+    connection.last_poll_at = now;
+    const snapshot = broker.rpc(owner, 'visual.read', { ...scope, timeout_ms: 30000 }, 30000, `snapshot-${elapsed}`, deadline);
+    const [command] = await broker.pollCommands(connected.connection_id, 10);
+    assert.equal(command.deadline_at, Math.min(deadline, now + 10000));
+    broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: command.command_id, result: {
+      schema: 'saccade.visual/1', ...scope, image: { type: 'image', mimeType: 'image/webp', data: 'YQ==' },
+    } }]);
+    await snapshot;
+  }
+  await assert.rejects(broker.rpc(owner, 'visual.read', { ...scope, timeout_ms: 30001 }, 30000, 'invalid-budget', deadline), { code: 'INVALID_REQUEST' });
+  now = deadline + 1;
+  await assert.rejects(broker.rpc(owner, 'visual.authorization.accept', { ...scope, challenge: 'challenge', source: 'client_confirmation' }, 30000, 'expired-budget', deadline), { code: 'DEADLINE_EXCEEDED' });
+});
+
+test('cancelled delivered visual reads cannot return screenshot pixels', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id:'browser-1' });
+  const connection = broker.connections.get(connected.connection_id);
+  broker.leaseTab('7', owner, { browser_instance_id:'browser-1' });
+  broker.acceptTruth('observation', observation());
+  const running = broker.rpc(owner, 'visual.read', { tab_id:'7', document_id:'document-1' }, 1000, 'visual-read');
+  const rejected = assert.rejects(running, { code:'CANCELLED' });
+  const [command] = await broker.pollCommands(connected.connection_id, 10);
+  const signals = [];
+  connection.keepalive_socket = { send:(value) => signals.push(JSON.parse(value)) };
+  broker.cancelRequest(owner, 'visual-read');
+  assert.equal(signals[0].command_id, command.command_id);
+  broker.acceptExtensionEvents(connected.connection_id, [{ kind:'response', command_id:command.command_id, result:{ image:{ data:'must-not-return' } } }]);
+  await rejected;
+  connection.keepalive_socket=null;
+});
+
+test('separate consent wait is negotiated, validated and retains cancellation metadata', async () => {
+  for (const type of ['visual', 'media']) {
+    let now = Date.now();
+    const broker = new BrokerState({ now: () => now });
+    const owner = broker.createSession().agent_session_id;
+    const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1', [`${type}_consent_version`]: 1 });
+    const connection = broker.connections.get(connected.connection_id);
+    broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' });
+    broker.acceptTruth('observation', observation());
+    const scope = { tab_id: '7', document_id: 'document-1' };
+    const params = { ...scope, wait_for_consent: true };
+    await assert.rejects(broker.rpc(owner, `${type}.authorization.prepare`, params, 30000), { code: `${type.toUpperCase()}_CONSENT_WAIT_UPGRADE_REQUIRED` });
+    assert.equal(connection.queue.length, 0);
+    connection.consent_wait_version = 1;
+    assert.equal((await broker.rpc(owner, 'system.capabilities')).connected_extensions[0].consent_wait_version, 1);
+    const pending = broker.rpc(owner, `${type}.authorization.prepare`, params, 30000, 'consent-wait');
+    const [prepare] = await broker.pollCommands(connected.connection_id, 10);
+    assert.equal(prepare.deadline_at, now + 30000);
+    const expires = now + 600000;
+    broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: prepare.command_id, result: {
+      granted: false, challenge: 'one-use', consent_wait_version: 1, consent_expires_at: expires, secret: 'must-not-return',
+    } }]);
+    assert.deepEqual(await pending, { granted: false, challenge: 'one-use', consent_wait_version: 1, consent_expires_at: expires });
+    const retained = broker.commands.get(prepare.command_id);
+    assert.equal(retained.cleanup_timer._idleTimeout, 600000);
+    assert.doesNotMatch(JSON.stringify(retained.payload), /one-use|wait_for_consent/);
+    now += 90000;
+    connection.last_poll_at = now;
+    const accepted = broker.rpc(owner, `${type}.authorization.accept`, { ...scope, challenge: 'one-use', source: 'client_confirmation' }, 30000, 'consent-wait', now + 30000);
+    const [accept] = await broker.pollCommands(connected.connection_id, 10);
+    assert.equal(accept.deadline_at, now + 30000);
+    broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: accept.command_id, result: { granted: true } }]);
+    assert.deepEqual(await accepted, { granted: true });
+    const signals = [];
+    connection.keepalive_socket = { send: value => signals.push(JSON.parse(value)) };
+    broker.cancelRequest(owner, 'consent-wait');
+    assert(signals.some(signal => signal.command_id === prepare.command_id));
+    assert(signals.some(signal => signal.command_id === accept.command_id));
+    connection.keepalive_socket = null;
+    await assert.rejects(broker.rpc(owner, `${type}.authorization.accept`, { ...scope, challenge: 'one-use', source: 'confirmation', wait_for_consent: true }), { code: 'INVALID_REQUEST' });
+  }
+});
+
+test('consent wait rejects malformed Extension expiry instead of exposing or renewing it', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const connected = connectTestConsumer(broker, { browser_instance_id: 'browser-1', visual_consent_version: 1, consent_wait_version: 1 });
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' });
+  broker.acceptTruth('observation', observation());
+  for (const result of [
+    { granted: false, challenge: 'one-use' },
+    { granted: false, challenge: 'one-use', consent_wait_version: 1, consent_expires_at: Date.now() - 1 },
+    { granted: false, challenge: 'one-use', consent_wait_version: 1, consent_expires_at: Date.now() + 700000 },
+  ]) {
+    const pending = broker.rpc(owner, 'visual.authorization.prepare', { tab_id: '7', document_id: 'document-1', wait_for_consent: true }, 30000);
+    const rejected = assert.rejects(pending, { code: 'VISUAL_AUTHORIZATION_INVALID' });
+    const [command] = await broker.pollCommands(connected.connection_id, 10);
+    broker.acceptExtensionEvents(connected.connection_id, [{ kind: 'response', command_id: command.command_id, result }]);
+    await rejected;
+  }
+});
+
+test('consent wait handshake reports only the negotiated numeric version and public reads reject private wait fields', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  connectTestConsumer(broker, { browser_instance_id: 'browser-1', consent_wait_version: 1 });
+  connectTestConsumer(broker, { browser_instance_id: 'browser-2', consent_wait_version: '1' });
+  const capabilities = await broker.rpc(owner, 'system.capabilities');
+  assert.equal(capabilities.connected_extensions.find(item => item.browser_instance_id === 'browser-1').consent_wait_version, 1);
+  assert.equal(capabilities.connected_extensions.find(item => item.browser_instance_id === 'browser-2').consent_wait_version, 0);
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1' });
+  broker.acceptTruth('observation', observation());
+  for (const type of ['visual', 'media']) {
+    await assert.rejects(broker.rpc(owner, `${type}.read`, { tab_id: '7', document_id: 'document-1', wait_for_consent: true, ...(type === 'media' ? { mode: 'catalog' } : {}) }), { code: 'INVALID_REQUEST' });
+  }
+});
+
 async function deliver(broker, connectionId, promise, result) {
   const [command] = await broker.pollCommands(connectionId, 10);
   broker.acceptExtensionEvents(connectionId, [{
@@ -44,6 +384,22 @@ async function deliver(broker, connectionId, promise, result) {
   }
   return promise;
 }
+
+test('scene sequence binds generation and keeps identity in complete compact catalog',async()=>{
+ const broker=new BrokerState(),owner=broker.createSession().agent_session_id;
+ const connection=connectTestConsumer(broker,{browser_instance_id:'browser-1',scene_version:1});
+ broker.leaseTab('7',owner,{browser_instance_id:'browser-1'});
+ const snapshot=observation();snapshot.objects=Array.from({length:65},(_,i)=>({object_id:`scene.${i}`,role:'scene_object',kind:'scene_object',scene_generation:'actor-1',source:'application_reported',state:{speed:1},affordances:[]}));
+ broker.acceptTruth('observation',snapshot);
+ const read=await broker.rpc(owner,'truth.read',{tab_id:'7',mode:'full'});
+ assert.equal(read.catalog,'complete_compact');assert.equal(read.objects[0].scene_generation,'actor-1');assert.equal(read.objects[0].source,'application_reported');
+ const request={tab_id:'7',document_id:'document-1',object_id:'scene.0',scene_generation:'actor-1',mode:'sequence',duration_ms:100};
+ await assert.rejects(broker.rpc(owner,'visual.read',{...request,scene_generation:'wrong'}),{code:'INVALID_REQUEST'});
+ await assert.rejects(broker.rpc(owner,'visual.read',{...request,duration_ms:3001}),{code:'INVALID_REQUEST'});
+ const running=broker.rpc(owner,'visual.read',request,1000);
+ const result=await deliver(broker,connection.connection_id,running,{schema:'saccade.visual-sequence/1',tab_id:'7',document_id:'document-1',object_id:'scene.0',scene_generation:'actor-1',frames:[{frame_id:1,elapsed_ms:1,simulation_time_ms:16,image:{type:'image',mimeType:'image/webp',data:'YQ=='}}]});
+ assert.equal(result.frames.length,1);
+});
 
 test('tabs.open atomically leases one tab to one Agent session', async () => {
   const broker = new BrokerState();
@@ -57,6 +413,27 @@ test('tabs.open atomically leases one tab to one Agent session', async () => {
   assert.deepEqual(broker.listTabs(first).map((tab) => tab.tab_id), ['7']);
   assert.deepEqual(broker.listTabs(second), []);
   assert.throws(() => broker.requireLease('7', second), /another Agent/);
+});
+
+test('visual requests enforce ownership, document, size and exact response routing', async () => {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const other = broker.createSession().agent_session_id;
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1' });
+  await deliver(broker, connection.connection_id,
+    broker.rpc(owner, 'tabs.open', { url: 'https://example.test' }, 1000), { tab_id: '7', opened: true });
+  const args = { tab_id: '7', document_id: 'document-1' };
+  await assert.rejects(broker.rpc(other, 'visual.read', args), /another Agent/);
+  await assert.rejects(broker.rpc(owner, 'visual.read', { ...args, document_id: 'old' }), /Current document/);
+  await assert.rejects(broker.rpc(owner, 'visual.read', { ...args, max_width: 9000 }), /Invalid screenshot/);
+  await assert.rejects(broker.rpc(owner, 'visual.read', { ...args, object_id: 'missing' }), /Invalid screenshot/);
+  const valid = { schema: 'saccade.visual/1', ...args, image: { type: 'image', mimeType: 'image/webp', data: 'YQ==' } };
+  const pending = broker.rpc(owner, 'visual.read', args, 1000);
+  const result = await deliver(broker, connection.connection_id, pending, valid);
+  assert.equal(result.image.data, 'YQ==');
+  assert.equal(JSON.stringify(broker.truth.get('7')).includes('YQ=='), false);
+  const wrongTab = broker.rpc(owner, 'visual.read', args, 1000);
+  await assert.rejects(deliver(broker, connection.connection_id, wrongTab, { ...valid, tab_id: '8' }), /Screenshot document/);
 });
 
 test('tabs.open rejects missing or mixed route forms before dispatch', async () => {
@@ -411,10 +788,150 @@ test('capabilities prove the attached browser family and exact Extension candida
   assert.equal(capabilities.browser_family, 'chrome');
   assert.deepEqual(capabilities.extension_candidate, candidate);
   assert.deepEqual(capabilities.connected_extensions, [{
-    browser_instance_id: 'browser-1', browser_family: 'chrome', extension_candidate: candidate,
+    browser_instance_id: 'browser-1', browser_family: 'chrome', extension_candidate: candidate, media_version: 0, visual_version: 0, scene_version: 0, scene_access_version: 0, connection_request_version: 0, captions_version: 0, media_consent_version: 0, visual_consent_version: 0, consent_wait_version: 0, session_consent_version: 0,
   }]);
   assert.equal(capabilities.leased_tabs[0].browser_family, 'chrome');
   assert.deepEqual(capabilities.leased_tabs[0].extension_candidate, candidate);
+});
+
+function mediaFixture(version = 1) {
+  const broker = new BrokerState();
+  const owner = broker.createSession().agent_session_id;
+  const connection = connectTestConsumer(broker, { browser_instance_id: 'browser-1', media_version: version });
+  broker.leaseTab('7', owner, { browser_instance_id: 'browser-1', ownership: 'agent' });
+  const full = observation();
+  full.objects = [{ object_id: 'v1', kind: 'opaque_video', media: { media_id: 'm1', duration_s: 20 } }];
+  broker.acceptTruth('observation', full);
+  const args = { tab_id: '7', document_id: 'document-1', object_id: 'v1', media_id: 'm1', mode: 'overview' };
+  const result = { schema: 'saccade.media/1', ...args, frames: [{ time_s: 1, requested_time_s: 1,
+    method: 'decoded_frame', image: { type: 'image', mimeType: 'image/webp', data: 'YQ==' } }] };
+  return { broker, owner, connection, args, result };
+}
+
+test('media requires current session/document/version and advertises compatibility', async () => {
+  const { broker, owner, args } = mediaFixture(0);
+  await assert.rejects(broker.rpc(owner, 'media.read', args), { code: 'MEDIA_EXTENSION_UPGRADE_REQUIRED' });
+  await assert.rejects(broker.rpc(owner, 'media.read', { ...args, media_id: 'old' }), { code: 'MEDIA_STALE' });
+  await assert.rejects(broker.rpc(owner, 'media.read', { ...args, document_id: 'old' }), { code: 'MEDIA_STALE' });
+  const other = broker.createSession().agent_session_id;
+  await assert.rejects(broker.rpc(other, 'media.read', args), /another Agent/);
+  const caps = await broker.rpc(owner, 'system.capabilities');
+  assert.equal(caps.media_observation.version, 1);
+  assert.equal(caps.connected_extensions[0].media_version, 0);
+});
+
+test('media rejects an expired inherited deadline without enqueueing', async () => {
+  const { broker, owner, args } = mediaFixture();
+  await assert.rejects(broker.rpc(owner, 'media.read', args, 30000, 99, Date.now() - 1), { code: 'DEADLINE_EXCEEDED' });
+  assert.equal(broker.commands.size, 0);
+});
+
+test('media consent invalidation removes only the corresponding browser tab history', () => {
+  const { broker, owner, connection } = mediaFixture();
+  const key = JSON.stringify([owner, '7', 'document-1', 'm1']);
+  broker.retainMediaHistory(key, { at: Date.now(), details: 1, times: [1] });
+  const other = connectTestConsumer(broker, { browser_instance_id: 'other-browser', media_version: 1 });
+  broker.acceptExtensionEvents(other.connection_id, [{ kind: 'media.invalidated', tab_id: '7' }]);
+  assert.equal(broker.mediaReads.size, 1);
+  broker.acceptExtensionEvents(connection.connection_id, [{ kind: 'media.invalidated', tab_id: '7' }]);
+  assert.equal(broker.mediaReads.size, 0);
+  assert.equal(broker.mediaExpiry.size, 0);
+});
+
+test('disconnecting the owning Agent cancels delivered media and clears observation history', async () => {
+  const { broker, owner, args, connection } = mediaFixture();
+  const sent = [];
+  broker.connections.get(connection.connection_id).keepalive_socket = { send: (value) => sent.push(JSON.parse(value)) };
+  broker.retainMediaHistory(JSON.stringify([owner, '7', 'document-1', 'm1']), { at: Date.now(), details: 1, times: [1] });
+  const pending = broker.rpc(owner, 'media.read', args, 50, 'close-test');
+  const rejected = assert.rejects(pending);
+  await broker.pollCommands(connection.connection_id);
+  broker.closeSession(owner);
+  assert.equal(sent[0].kind, 'command.cancel');
+  assert.equal(broker.mediaReads.size, 0);
+  assert.equal(broker.mediaExpiry.size, 0);
+  await rejected;
+});
+
+test('media catalog preserves post provenance without exposing signed addresses', async () => {
+  const { broker, owner, connection } = mediaFixture();
+  const args = { tab_id: '7', document_id: 'document-1', mode: 'catalog' };
+  const value = await deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', args, 1000), {
+    schema: 'saccade.media/1', ...args, videos: [{ object_id: 'v1', media_id: 'm1', duration_s: 20,
+      source: { post_url: 'https://x.com/a/status/123?secret=1', author_claim: 'Created automatically', raw_url: 'secret' } }],
+  });
+  assert.equal(value.videos[0].source.post_url, 'https://x.com/a/status/123');
+  assert.equal(value.videos[0].source.author_claim, 'Created automatically');
+  assert.equal(JSON.stringify(value).includes('secret'), false);
+  assert.equal(value.complete, false);
+});
+
+test('media bounds frames, timestamps and two detail requests; only observed single frames allowed', async () => {
+  const { broker, owner, connection, args, result } = mediaFixture();
+  await assert.rejects(broker.rpc(owner, 'media.read', { ...args, mode: 'detail', time_s: 1 }), { code: 'MEDIA_TIME_NOT_OBSERVED' });
+  const observed = await deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', args, 1000), { ...result, raw_url: 'secret' });
+  assert.equal(observed.frames.length, 1);
+  assert.equal(observed.raw_url, undefined);
+  assert.equal(JSON.stringify([...broker.mediaReads.values()]).includes('YQ=='), false);
+  for (let i = 0; i < 2; i++) await deliver(broker, connection.connection_id,
+    broker.rpc(owner, 'media.read', { ...args, mode: 'detail', time_s: 1 }, 1000), result);
+  await assert.rejects(broker.rpc(owner, 'media.read', { ...args, mode: 'detail', start_s: 0, end_s: 2 }), { code: 'MEDIA_DETAIL_LIMIT' });
+  await assert.rejects(deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', args, 1000), {
+    ...result, frames: Array(9).fill(result.frames[0]),
+  }), { code: 'MEDIA_INVALID_RESPONSE' });
+  await assert.rejects(deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', args, 1000), {
+    ...result, frames: [{ ...result.frames[0], time_s: -1 }],
+  }), { code: 'MEDIA_INVALID_RESPONSE' });
+  await assert.rejects(deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', args, 1000), {
+    ...result, frames: [{ ...result.frames[0], image: { type: 'image', mimeType: 'image/webp', data: Buffer.alloc(4 * 1024 * 1024 + 1).toString('base64') } }],
+  }), { code: 'MEDIA_INVALID_RESPONSE' });
+});
+
+test('one-hour media accepts late timestamps but keeps source, frame and detail bounds', async () => {
+  const { broker, owner, connection, args, result } = mediaFixture();
+  const media = broker.truth.get('7').full.objects[0].media;
+  media.duration_s = 3600;
+  const late = { ...result, frames: [{ ...result.frames[0], time_s: 3599.75, requested_time_s: 3599.75 }] };
+  const overview = await deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', args, 1000), late);
+  assert.equal(overview.frames[0].time_s, 3599.75);
+  await deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', { ...args, mode: 'detail', start_s: 3597, end_s: 3600 }, 1000), late);
+  await assert.rejects(broker.rpc(owner, 'media.read', { ...args, mode: 'detail', start_s: 3596, end_s: 3600 }), { code: 'INVALID_REQUEST' });
+  for (const field of ['time_s', 'requested_time_s']) await assert.rejects(deliver(broker, connection.connection_id, broker.rpc(owner, 'media.read', args, 1000),
+    { ...late, frames: [{ ...late.frames[0], [field]: 3600.01 }] }), { code: 'MEDIA_INVALID_RESPONSE' });
+  media.duration_s = 3600.01;
+  await assert.rejects(broker.rpc(owner, 'media.read', args), { code: 'MEDIA_DURATION_LIMIT' });
+  assert.equal((await broker.rpc(owner, 'system.capabilities')).media_observation.max_duration_s, 3600);
+  broker.closeSession(owner);
+});
+
+test('cancellation revokes completed authorization commands without claiming confirmed stop', async () => {
+  const { broker, owner, connection } = mediaFixture();
+  const signals = [];
+  broker.connections.get(connection.connection_id).keepalive_socket = { send: value => signals.push(JSON.parse(value)) };
+  const pending = broker.enqueueCommand(owner, 'media.authorization.accept', {}, 1000, { clientRequestId: 'auth-req' });
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+  broker.acceptExtensionEvents(connection.connection_id, [{ kind: 'response', command_id: command.command_id, result: { granted: true } }]);
+  await pending;
+  assert.equal(broker.cancelRequest(owner, 'auth-req').cancelled, false);
+  assert.equal(signals[0].command_id, command.command_id);
+});
+
+test('delivered media cancellation and deadline signal Extension; late pixels are discarded', async () => {
+  const { broker, owner, connection, args, result } = mediaFixture();
+  const signals = [];
+  broker.connections.get(connection.connection_id).keepalive_socket = { send: (value) => signals.push(JSON.parse(value)) };
+  const pending = broker.rpc(owner, 'media.read', args, 1000, 'req1');
+  const [command] = await broker.pollCommands(connection.connection_id, 10);
+  assert.equal(broker.cancelRequest(owner, 'req1').cancelled, false);
+  assert.equal(signals[0].kind, 'command.cancel');
+  assert.equal(signals[0].command_id, command.command_id);
+  assert.equal(signals[0].broker_epoch, broker.epoch);
+  broker.acceptExtensionEvents(connection.connection_id, [{ kind: 'response', command_id: command.command_id, result }]);
+  await assert.rejects(pending, { code: 'CANCELLED' });
+  const timeout = broker.rpc(owner, 'media.read', args, 10);
+  await broker.pollCommands(connection.connection_id, 10);
+  await assert.rejects(timeout, { code: 'OUTCOME_UNKNOWN' });
+  assert.equal(signals.length, 2);
 });
 
 test('Extension handshake rejects unbounded or unrecognized candidate metadata', () => {
@@ -427,6 +944,39 @@ test('Extension handshake rejects unbounded or unrecognized candidate metadata',
     browser_instance_id: 'browser-1', browser_family: 'edge',
     extension_candidate: { schema: 'saccade.extension-candidate/1', id: 'not-a-digest', version: '0.4.0' },
   }), /extension_candidate is invalid/);
+});
+
+test('empty long-poll completion starts a bounded consumer handoff grace', async () => {
+  let clock = 1_000;
+  const broker = new BrokerState({ now: () => clock });
+  const session = broker.createSession().agent_session_id;
+  const connection = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const poll = broker.pollCommands(connection.connection_id, 2);
+  clock += EXTENSION_POLL_HEARTBEAT_MS;
+  assert.ok(broker.activeConnection('browser-1'));
+  assert.deepEqual(await poll, []);
+  assert.ok(broker.activeConnection('browser-1'));
+  const pending = broker.enqueueCommand(session, 'tabs.open', {}, 1_000);
+  const [command] = await broker.pollCommands(connection.connection_id, 2);
+  broker.acceptExtensionEvents(connection.connection_id, [{
+    kind: 'response', command_id: command.command_id, result: { tab_id: '7' },
+  }]);
+  assert.equal((await pending).tab_id, '7');
+  assert.deepEqual(await broker.pollCommands(connection.connection_id, 2), []);
+  clock += 1_001;
+  assert.equal(broker.activeConnection('browser-1'), undefined);
+});
+
+test('disconnecting a pending empty poll does not renew consumer authority', async () => {
+  let clock = 1_000;
+  const broker = new BrokerState({ now: () => clock });
+  const connected = broker.connectExtension({ browser_instance_id: 'browser-1' });
+  const poll = broker.pollCommands(connected.connection_id, 20);
+  clock += EXTENSION_POLL_HEARTBEAT_MS;
+  broker.disconnectExtension(connected.connection_id, 'power_loss');
+  assert.deepEqual(await poll, []);
+  assert.equal(broker.connections.get(connected.connection_id).last_poll_at, 1_000);
+  assert.equal(broker.activeConnection('browser-1'), undefined);
 });
 
 test('an expired long-poll waiter cannot swallow the next command', async () => {
@@ -1407,6 +1957,30 @@ test('Extension routes accept only a Chrome-extension origin shape', () => {
     extensionOrigin({ headers: { origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } }),
     'chrome-extension://abcdefghijklmnopabcdefghijklmnop',
   );
+});
+
+test('tab-sharing HTTP route requires Extension origin and matching connection proof', async (context) => {
+  const broker = new BrokerState();
+  const runtime = createBrokerServer(broker, { port: 0 });
+  try { await runtime.listen(); } catch (error) {
+    if (error.code === 'EPERM') return context.skip('sandbox forbids loopback listen');
+    throw error;
+  }
+  context.after(() => new Promise((resolve) => runtime.server.close(resolve)));
+  const base = `http://127.0.0.1:${runtime.server.address().port}`;
+  const origin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+  const post = async (route, body, suppliedOrigin) => fetch(`${base}/v1/extension/${route}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', ...(suppliedOrigin ? { origin: suppliedOrigin } : {}) },
+    body: JSON.stringify(body),
+  });
+  const connected = await (await post('connect', { browser_instance_id: 'browser-1' }, origin)).json();
+  const body = { connection_id: connected.connection_id, operation: 'status', tab_id: '7' };
+  assert.equal((await post('tab-sharing', body)).status, 403);
+  const wrong = await (await post('tab-sharing', body, 'chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')).json();
+  assert.equal(wrong.error.code, 'EXTENSION_AUTH_FAILED');
+  const valid = await (await post('tab-sharing', body, origin)).json();
+  assert.equal(valid.state, 'unassigned');
+  assert.equal(valid.tab_sharing_version, 1);
 });
 
 test('Extension WebSocket heartbeat is origin-bound and value-free', async (context) => {
